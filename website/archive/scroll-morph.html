@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>IDEalize — re-skins as you scroll</title>
+<meta name="description" content="The terminal designed for designers. Watch the whole page re-skin as you scroll: minimal, literary, Y2K, 8-bit. Same tool, your world." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700&family=Roboto+Flex:opsz,wght@8..144,400..800&family=Playfair+Display:ital,wght@0,500;0,700;0,800;1,600;1,800&family=Spectral:ital,wght@0,400;0,500;1,400&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=VT323&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* tokens — JS interpolates every one of these as you scroll */
+    --bg: #F2F0EF;  --bg2: #E7E4E1;  --ink: #14130F;  --soft: rgba(20,19,15,.62);
+    --accent: #C1272D;  --onacc: #F2F0EF;  --panel: #FFFFFF;  --line: rgba(20,19,15,.16);
+    --radius: 0px;  --bord: 1.5px;  --tracking: -0.02em;
+    --disp: "Roboto Flex", "Helvetica Neue", Arial, sans-serif;
+    --body: "Atkinson Hyperlegible Next", "Helvetica Neue", Arial, sans-serif;
+    --maxw: 1180px;  --gap: clamp(20px, 5vw, 72px);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
+  body {
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: var(--body);
+    letter-spacing: var(--tracking);
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
+  ::selection { background: var(--accent); color: var(--onacc); }
+  a { color: inherit; text-decoration: none; }
+
+  .shell { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--gap); }
+  .display { font-family: var(--disp); color: var(--ink); line-height: 0.95; }
+  .display .word { display: inline-block; white-space: nowrap; }  /* words wrap, letters never split mid-word */
+  .display .ch { display: inline-block; text-align: center; }     /* slot locked to current world: tight at rest */
+  .display .ch.glitch { color: var(--accent); }
+
+  /* ===== texture overlays — opacity driven by scroll ===== */
+  .fx { position: fixed; inset: 0; pointer-events: none; }
+  .grain { z-index: 50; opacity: 0; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  .gloss { z-index: 55; opacity: 0; mix-blend-mode: screen;
+    background:
+      radial-gradient(120% 65% at 50% -12%, rgba(255,255,255,.85), transparent 60%),
+      linear-gradient(115deg, rgba(255,46,173,.28), rgba(0,229,255,.28) 48%, rgba(170,120,255,.30)); }
+  .scan { z-index: 58; opacity: 0; mix-blend-mode: multiply;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.40) 2px 4px),
+      radial-gradient(130% 100% at 50% 50%, transparent 55%, rgba(0,0,0,.55)); }
+  .theme-3 .scan { animation: flick 5s steps(60) infinite; }
+  @keyframes flick { 0%,97%,100% { filter: none; } 98% { filter: brightness(1.12); } }
+
+  /* ===== HUD ===== */
+  .hud { position: fixed; top: 22px; right: clamp(16px, 4vw, 48px); z-index: 70;
+    display: flex; align-items: center; gap: 14px; color: var(--ink); }
+  .hud .world { font-family: var(--disp); font-weight: 700; font-size: 13px; letter-spacing: 0.22em; text-transform: uppercase; }
+  .hud .dots { display: flex; gap: 7px; }
+  .hud .dot { width: 7px; height: 7px; border: var(--bord) solid var(--ink); border-radius: 50%; }
+  .hud .dot.on { background: var(--accent); border-color: var(--accent); }
+
+  /* ===== masthead ===== */
+  .masthead { display: flex; align-items: baseline; justify-content: space-between; padding: 26px 0 18px; gap: 24px; }
+  .wordmark { font-family: var(--disp); font-weight: 800; font-size: 26px; letter-spacing: 0.04em; }
+  .wordmark .a { color: var(--accent); }
+  .meta { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--soft); text-align: right; line-height: 1.8; }
+  .rule { height: var(--bord); background: var(--line); margin: 0; }
+
+  /* ===== sections ===== */
+  section { padding: clamp(72px, 12vh, 150px) 0; min-height: 92vh; display: flex; flex-direction: column; justify-content: center; }
+  .kicker { font-family: var(--body); font-weight: 700; font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); margin-bottom: 22px; }
+
+  .hero h1 { font-size: clamp(50px, 11vw, 168px); letter-spacing: -0.01em; }
+  .hero .lede { font-size: clamp(17px, 1.7vw, 22px); max-width: 40ch; margin-top: 34px; color: var(--ink); }
+  .hero .lede b { font-weight: 700; }
+
+  .cta { display: inline-flex; align-items: center; gap: 12px; margin-top: 38px;
+    font-family: var(--body); font-weight: 700; font-size: 14px; letter-spacing: 0.05em; text-transform: uppercase;
+    background: var(--accent); color: var(--onacc); padding: 16px 28px;
+    border: var(--bord) solid transparent; border-radius: var(--radius);
+    transition: transform .25s ease; }
+  .cta:hover { transform: translateY(-2px); }
+
+  .blk-h { font-size: clamp(40px, 7vw, 104px); letter-spacing: -0.01em; }
+  .copy { font-size: clamp(16px, 1.4vw, 19px); max-width: 40ch; margin-top: 26px; color: var(--soft); }
+  .two { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: clamp(28px, 5vw, 72px); align-items: center; }
+
+  /* token-driven panel: reskins with everything else */
+  .panel { background: var(--panel); border: var(--bord) solid var(--line); border-radius: var(--radius); padding: 26px; }
+  .panel .bar { display: flex; align-items: center; gap: 8px; padding-bottom: 16px; margin-bottom: 18px; border-bottom: var(--bord) solid var(--line); }
+  .panel .bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); display: block; }
+  .panel .bar i.e { background: var(--accent); }
+  .panel .bar span { font-family: var(--disp); font-size: 12px; letter-spacing: 0.12em; color: var(--soft); margin-left: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+  .chip { border: var(--bord) solid var(--ink); border-radius: var(--radius); padding: 9px 15px; font-weight: 600; font-size: 13px; font-family: var(--body); }
+  .chip.on { background: var(--ink); color: var(--bg); }
+  .term { font-family: "VT323", ui-monospace, monospace; font-size: 18px; line-height: 1.5; color: var(--soft); }
+  .term .k { color: var(--accent); }
+
+  .list { list-style: none; }
+  .list li { display: flex; align-items: center; gap: 14px; padding: 16px 0; border-bottom: var(--bord) solid var(--line); font-size: 17px; }
+  .list li:last-child { border-bottom: 0; }
+  .list .bx { width: 18px; height: 18px; border: var(--bord) solid var(--ink); border-radius: calc(var(--radius) * 0.4); display: flex; align-items: center; justify-content: center; flex: none; font-size: 11px; }
+  .list li.keep .bx { background: var(--accent); border-color: var(--accent); color: var(--onacc); }
+  .list li.cut { color: var(--soft); }
+  .list li.cut .t { text-decoration: line-through; }
+
+  footer { padding: 70px 0 90px; border-top: var(--bord) solid var(--line); }
+  .footrow { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  .footrow .tag { font-family: var(--disp); font-size: clamp(22px, 3vw, 40px); max-width: 12ch; line-height: 1; }
+  .footrow .small { font-size: 13px; color: var(--soft); line-height: 1.9; text-align: right; }
+
+  /* ===== per-world flourishes (crossfaded by the body class) ===== */
+  .display, .cta, .chip, .panel, .list .bx, .hud .dot { transition: border-radius .5s ease; }
+  .theme-1 .hero h1 { font-style: italic; }                          /* literary: italic display */
+  .theme-2 .hero h1, .theme-2 .blk-h, .theme-2 .footrow .tag {       /* Y2K: chrome-gradient glow */
+    background: linear-gradient(180deg, #ffffff 0%, #bfeaff 42%, #ff2ead 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 22px rgba(255,46,173,.35); }
+  .theme-3 .display { text-shadow: 0 0 8px currentColor; }            /* 8-bit: phosphor glow */
+  .theme-3 .term, .theme-3 { text-shadow: 0 0 6px rgba(59,247,122,.4); }
+
+  @media (max-width: 820px) {
+    .two { grid-template-columns: 1fr; }
+    .hud .world { display: none; }
+  }
+</style>
+</head>
+<body class="theme-0">
+  <div class="fx grain"></div>
+  <div class="fx gloss"></div>
+  <div class="fx scan"></div>
+
+  <div class="hud">
+    <span class="world">Minimal</span>
+    <span class="dots"><i class="dot on"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i></span>
+  </div>
+
+  <div class="shell">
+    <header class="masthead">
+      <div class="wordmark">IDE<span class="a">a</span>lize</div>
+      <div class="meta">macOS · v0.1<br/>Free… for now.</div>
+    </header>
+    <div class="rule"></div>
+
+    <!-- HERO -->
+    <section class="hero">
+      <div class="kicker">The terminal, redrawn</div>
+      <h1 class="display">A terminal designed for designers</h1>
+      <p class="lede">The first coding terminal for people who care how things look. <b>Action-first</b>, with the raw terminal one tap away. And the look is yours, watch.</p>
+      <a class="cta" href="#end">Download for macOS ↘</a>
+    </section>
+
+    <!-- ACTIONS -->
+    <section>
+      <div class="two">
+        <div>
+          <div class="kicker">Interface</div>
+          <h2 class="blk-h display">Actions, not commands</h2>
+          <p class="copy">An interface built around what you want to do. The raw terminal is right there when you want it, one tap away, and out of the way when you don't.</p>
+        </div>
+        <div class="panel">
+          <div class="bar"><i class="e"></i><i></i><i></i><span>idealize — ~/project</span></div>
+          <div class="chips">
+            <span class="chip on">Run ↘</span><span class="chip">Commit</span><span class="chip">Explain</span><span class="chip">Fix this</span>
+          </div>
+          <div class="term"><span class="k">$</span> npm run build<br/>✓ compiled in 1.24s<br/><span class="k">$</span> _</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MAKE IT YOURS -->
+    <section>
+      <div class="kicker">Look &amp; feel</div>
+      <h2 class="blk-h display">Make it yours</h2>
+      <p class="copy">Brutalist, classical, whimsical, whatever you are. You don't have to imagine it. The page you're reading is re-skinning itself as you scroll. Same tool, your world.</p>
+    </section>
+
+    <!-- ONLY WHAT YOU NEED -->
+    <section>
+      <div class="two">
+        <div>
+          <div class="kicker">Scope</div>
+          <h2 class="blk-h display">Only what you need</h2>
+          <p class="copy">Simple by design. The handful of things you actually reach for, kept sharp. None of the panels and menus you'll never open.</p>
+        </div>
+        <div class="panel">
+          <ul class="list">
+            <li class="keep"><span class="bx">✓</span><span class="t">Run, commit, explain, fix</span></li>
+            <li class="keep"><span class="bx">✓</span><span class="t">The terminal, one tap away</span></li>
+            <li class="keep"><span class="bx">✓</span><span class="t">Themes that are actually yours</span></li>
+            <li class="cut"><span class="bx"></span><span class="t">Forty-panel preference trees</span></li>
+            <li class="cut"><span class="bx"></span><span class="t">Plugins for the plugins</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- PRICE -->
+    <section id="end">
+      <div class="kicker">Price</div>
+      <h2 class="blk-h display">Free, for now.</h2>
+      <p class="copy">macOS · v0.1 beta. No card, no catch. Use it properly, then tell us what to fix.</p>
+      <a class="cta" href="#">Download for macOS ↘</a>
+    </section>
+
+    <footer>
+      <div class="footrow">
+        <div class="tag display">The terminal, redrawn for designers.</div>
+        <div class="small">Free… for now.<br/>Built for macOS · v0.1 beta<br/>hello@idealize.app</div>
+      </div>
+    </footer>
+  </div>
+
+<script>
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // four worlds. every value here is interpolated as you scroll.
+  var T = [
+    { name:"Minimal",  bg:[242,240,239], bg2:[231,228,225], ink:[20,19,15],  soft:[20,19,15,.62],   accent:[193,39,45],  onacc:[242,240,239], panel:[255,255,255], line:[20,19,15,.16],  r:0,  b:1.5, tr:-0.020, noise:0.05,
+      disp:'"Roboto Flex","Helvetica Neue",Arial,sans-serif', body:'"Atkinson Hyperlegible Next","Helvetica Neue",sans-serif' },
+    { name:"Literary", bg:[243,234,211], bg2:[235,223,193], ink:[42,32,24],   soft:[42,32,24,.62],   accent:[140,43,34],  onacc:[251,245,230], panel:[251,245,230], line:[42,32,24,.24],  r:3,  b:1,   tr: 0.000, noise:0.10,
+      disp:'"Playfair Display",Georgia,serif', body:'"Spectral",Georgia,serif' },
+    { name:"Y2K",      bg:[190,231,255], bg2:[227,203,255], ink:[16,36,107],  soft:[16,36,107,.66],  accent:[255,46,173], onacc:[255,255,255], panel:[255,255,255], line:[16,36,107,.30],  r:18, b:2,   tr: 0.015, noise:0.02,
+      disp:'"Orbitron",sans-serif', body:'"Rajdhani",Verdana,sans-serif' },
+    { name:"8-Bit",    bg:[6,18,11],     bg2:[10,27,16],    ink:[59,247,122],  soft:[59,247,122,.55], accent:[255,176,0],  onacc:[6,18,11],     panel:[11,31,18],    line:[59,247,122,.30], r:0,  b:2,   tr: 0.020, noise:0.06,
+      disp:'"VT323",ui-monospace,monospace', body:'"VT323",ui-monospace,monospace' }
+  ];
+
+  var root = document.documentElement, body = document.body;
+  var hudWorld = document.querySelector(".hud .world");
+  var hudDots = [].slice.call(document.querySelectorAll(".hud .dot"));
+  var curFi = -1;
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function rgb(a, b, t) { return "rgb(" + Math.round(lerp(a[0],b[0],t)) + "," + Math.round(lerp(a[1],b[1],t)) + "," + Math.round(lerp(a[2],b[2],t)) + ")"; }
+  function rgba(a, b, t) { return "rgba(" + Math.round(lerp(a[0],b[0],t)) + "," + Math.round(lerp(a[1],b[1],t)) + "," + Math.round(lerp(a[2],b[2],t)) + "," + lerp(a[3],b[3],t).toFixed(3) + ")"; }
+
+  function set(k, v) { root.style.setProperty(k, v); }
+
+  function paint(p) {
+    var seg = p * (T.length - 1);          // 0 .. 3
+    var i = Math.min(Math.floor(seg), T.length - 2);
+    var t = seg - i;
+    var A = T[i], B = T[i + 1];
+
+    set("--bg",     rgb(A.bg, B.bg, t));
+    set("--bg2",    rgb(A.bg2, B.bg2, t));
+    set("--ink",    rgb(A.ink, B.ink, t));
+    set("--accent", rgb(A.accent, B.accent, t));
+    set("--onacc",  rgb(A.onacc, B.onacc, t));
+    set("--panel",  rgb(A.panel, B.panel, t));
+    set("--soft",   rgba(A.soft, B.soft, t));
+    set("--line",   rgba(A.line, B.line, t));
+    set("--radius", lerp(A.r, B.r, t).toFixed(2) + "px");
+    set("--bord",   lerp(A.b, B.b, t).toFixed(2) + "px");
+    set("--tracking", lerp(A.tr, B.tr, t).toFixed(4) + "em");
+
+    // fonts + world flourishes switch at the nearest stop
+    var fi = Math.round(seg);
+    if (fi !== curFi) {
+      curFi = fi;
+      set("--disp", T[fi].disp);
+      set("--body", T[fi].body);
+      body.className = "theme-" + fi;
+      hudWorld.textContent = T[fi].name;
+      hudDots.forEach(function (d, k) { d.classList.toggle("on", k === fi); });
+      if (split) lockSlots(fi);   // relock to the new world (masked by the mid-flip glitch)
+    }
+
+    // texture opacities, each peaking near its own world
+    document.querySelector(".grain").style.opacity = lerp(A.noise, B.noise, t).toFixed(3);
+    document.querySelector(".gloss").style.opacity = Math.max(0, 1 - Math.abs(seg - 2)).toFixed(3);
+    document.querySelector(".scan").style.opacity  = Math.max(0, Math.min(1, seg - 2)).toFixed(3);
+
+    if (split) dissolve(i, t);
+  }
+
+  // ===== per-letter glitch dissolve between worlds =====
+  var split = false, morphEls = [], curSeg = -1;
+  var GLITCH = "#%&$@01█▓▒░/\\<>*+=".split("");
+  function rnd(i) { var x = Math.sin(i * 12.9898) * 43758.5453; return x - Math.floor(x); }
+
+  function splitDisplays() {
+    morphEls = [].slice.call(document.querySelectorAll(".display"));
+    morphEls.forEach(function (el) {
+      var text = el.textContent, chars = [], gi = 0;
+      el.textContent = "";
+      text.split(/(\s+)/).forEach(function (tok) {            // keep words intact, break only on spaces
+        if (tok === "") return;
+        if (/^\s+$/.test(tok)) { el.appendChild(document.createTextNode(" ")); return; }
+        var word = document.createElement("span");
+        word.className = "word";
+        tok.split("").forEach(function (c) {
+          var s = document.createElement("span");
+          s.className = "ch"; s.dataset.orig = c; s.textContent = c;
+          s._off = 0.12 + rnd(gi++ + el.offsetTop) * 0.76;   // personal flip point in the band
+          word.appendChild(s); chars.push(s);
+        });
+        el.appendChild(word);
+      });
+      el._chars = chars;
+    });
+    split = true;
+    lockSlots(curFi < 0 ? 0 : curFi);
+  }
+
+  // lock each letter to the CURRENT world's font: tight and natural at rest. during the glitch
+  // the other worlds' wider faces (Orbitron, mono) overflow the slot, and that overlap reads as glitch.
+  function lockSlots(idx) {
+    var f = T[idx].disp;
+    morphEls.forEach(function (el) {
+      el._chars.forEach(function (s) {
+        s.style.width = ""; s.style.fontFamily = f;
+        var w = s.getBoundingClientRect().width;
+        s.style.width = w.toFixed(2) + "px";
+        s.style.fontFamily = "";
+      });
+    });
+  }
+
+  function dissolve(i, t) {
+    var lo = 0.30, hi = 0.72, band = 0.05;          // letters convert across this slice of the segment
+    var fA = T[i].disp, fB = T[i + 1].disp;
+    morphEls.forEach(function (el) {
+      el._chars.forEach(function (s) {
+        if (s.dataset.orig === " ") return;
+        var thr = lo + (hi - lo) * s._off;
+        if (t < thr - band) {                         // still the old world
+          if (s.style.fontFamily !== fA) s.style.fontFamily = fA;
+          if (s.textContent !== s.dataset.orig) s.textContent = s.dataset.orig;
+          s.classList.remove("glitch");
+        } else if (t > thr + band) {                  // resolved into the new world
+          if (s.style.fontFamily !== fB) s.style.fontFamily = fB;
+          if (s.textContent !== s.dataset.orig) s.textContent = s.dataset.orig;
+          s.classList.remove("glitch");
+        } else {                                       // mid-flip: scramble in mono
+          s.style.fontFamily = '"VT323", monospace';
+          var g = Math.floor((t * 130 + s._off * 60) * GLITCH.length) % GLITCH.length;
+          s.textContent = GLITCH[(g + GLITCH.length) % GLITCH.length];
+          s.classList.add("glitch");
+        }
+      });
+    });
+  }
+
+  function progress() {
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    return h > 0 ? Math.max(0, Math.min(1, window.scrollY / h)) : 0;
+  }
+
+  var ticking = false;
+  function onScroll() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function () { paint(progress()); ticking = false; });
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+
+  var rT = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(rT);
+    rT = setTimeout(function () {
+      if (split) lockSlots(curFi < 0 ? 0 : curFi);
+      paint(progress());
+    }, 150);
+  });
+
+  function start() { if (!reduce) splitDisplays(); paint(progress()); }
+
+  // load every world's face before measuring slots, else the locks would be wrong
+  if (!reduce && document.fonts && document.fonts.load) {
+    paint(progress());   // colours/textures immediately, headings split in once fonts land
+    var faces = ["Roboto Flex", "Playfair Display", "Orbitron", "Spectral", "Rajdhani"].map(function (f) {
+      return document.fonts.load('700 100px "' + f + '"').catch(function () {});
+    });
+    faces.push(document.fonts.load('40px "VT323"').catch(function () {}));
+    Promise.all(faces).then(start).catch(start);
+  } else {
+    start();
+  }
+</script>
+</body>
+</html>

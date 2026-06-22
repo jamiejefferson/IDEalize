@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>IDEalize — the terminal, redrawn for designers</title>
+<meta name="description" content="The first coding terminal designed for designers. Action-first, with the raw terminal one tap away. Skin it brutalist, classical or whimsical. Free, for now." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<!-- Roboto Flex (variable: the titles, and the axes the redraw morphs through) + Atkinson Hyperlegible Next (body) -->
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,300..700;1,400&family=Roboto+Flex:opsz,slnt,wdth,wght,GRAD@8..144,-10..0,25..151,100..1000,-200..150&family=Roboto+Serif:opsz,wdth,wght,GRAD@8..144,50..150,100..900,-50..100&display=swap" rel="stylesheet" />
+<script>document.documentElement.className += " js";</script>
+<style>
+  :root {
+    --bg:     #F2F0EF;     /* off-white */
+    --bg-2:   #ECEAE8;
+    --ink:    #14130f;
+    --ink-62: rgba(20, 19, 15, 0.62);
+    --ink-40: rgba(20, 19, 15, 0.40);
+    --ink-16: rgba(20, 19, 15, 0.16);
+    --ink-07: rgba(20, 19, 15, 0.07);
+    --line:   rgba(20, 19, 15, 0.06);   /* the grid guide */
+    --red:    #C1272D;     /* Bauhaus red */
+    --hair:   1px;
+
+    --disp: "Roboto Flex", "Helvetica Neue", Arial, sans-serif;
+    --body: "Atkinson Hyperlegible Next", "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+    /* one grid, one gutter: the painted lines and the layout share these */
+    --maxw: 1480px;
+    --gap: clamp(20px, 4vw, 72px);      /* outer page margin */
+    --gutter: clamp(12px, 1.4vw, 24px); /* column gutter */
+
+    /* spacing scale (8px rhythm) used everywhere instead of ad-hoc values */
+    --s1: 8px;  --s2: 16px; --s3: 24px; --s4: 32px;
+    --s5: 48px; --s6: 64px; --s7: 96px; --s8: 128px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+
+  body {
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: var(--body);
+    font-weight: 400;
+    letter-spacing: -0.011em;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    overflow-x: hidden;
+  }
+  ::selection { background: var(--red); color: var(--bg); }
+  a { color: inherit; text-decoration: none; }
+
+  /* faint film grain so surfaces read as material, not flat */
+  .grain {
+    position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+    opacity: 0.04; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ===== the shell: the grid field. Content and guide share its box ===== */
+  .shell { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--gap); position: relative; }
+  .shell > * { position: relative; z-index: 1; }
+
+  .grid-guide {
+    position: absolute; top: 0; bottom: 0; left: var(--gap); right: var(--gap);
+    z-index: 0; pointer-events: none;
+    display: grid; grid-template-columns: repeat(12, 1fr); column-gap: var(--gutter);
+  }
+  .grid-guide span { border-left: var(--hair) solid var(--line); }
+  .grid-guide span:last-child { border-right: var(--hair) solid var(--line); }
+
+  /* every major block lays out on the same 12 columns + gutter */
+  .grid12 { display: grid; grid-template-columns: repeat(12, 1fr); column-gap: var(--gutter); }
+
+  .label {
+    font-family: var(--body); font-weight: 600; font-size: 11px;
+    letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-62);
+  }
+  .label--red { color: var(--red); }
+  .hair { border: 0; border-top: var(--hair) solid var(--ink-16); }
+
+  h1, h2 { text-wrap: balance; }
+
+  /* ===== titles & the variable-axis morph (hover + the redraw) ===== */
+  .title { font-family: var(--disp); font-weight: 700; font-variation-settings: "opsz" 144, "wght" 700, "wdth" 100, "slnt" 0, "GRAD" 0; letter-spacing: -0.028em; line-height: 0.9; }
+  .flip-word { display: inline-block; white-space: nowrap; }
+  /* morph runs on grade + slant only: restyles in place, never changes advance, so no reflow */
+  .flip-ch {
+    display: inline-block;
+    text-align: center;          /* glyph centres in its locked slot */
+    transition: font-variation-settings .55s cubic-bezier(.33, 0, .2, 1);
+  }
+
+  /* ================= MASTHEAD ================= */
+  .masthead { display: flex; align-items: flex-end; justify-content: space-between; padding: var(--s3) 0 var(--s2); gap: var(--s3); }
+  .mark { color: var(--ink); display: block; }
+  .masthead .mark { height: 52px; width: auto; }
+  .masthead .meta { text-align: right; line-height: 1.9; }
+  .indexstrip { display: flex; align-items: center; justify-content: space-between; padding: var(--s1) 0; gap: var(--s2); flex-wrap: wrap; }
+
+  /* ================= HERO ================= */
+  .hero { padding: clamp(40px, 7vw, 112px) 0 clamp(44px, 7vw, 96px); position: relative; }
+  /* optical alignment: pull the heavy display left so the cap sits on line 0 */
+  h1 { font-size: clamp(56px, 12.6vw, 200px); margin-left: -0.045em; }
+  h1 .l { display: block; }
+  html.js .hero h1 .l { opacity: 0; transform: translateY(42px); }
+  html.js .hero.cued h1 .l { animation: rise .85s cubic-bezier(.16,1,.3,1) forwards; }
+  html.js .hero.cued h1 .l:nth-child(1) { animation-delay: .02s; }
+  html.js .hero.cued h1 .l:nth-child(2) { animation-delay: .12s; }
+  html.js .hero.cued h1 .l:nth-child(3) { animation-delay: .22s; }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+
+  /* the redraw cue: a mono command line that renders the headline */
+  .term-cue {
+    position: absolute; left: 0; top: clamp(40px, 7vw, 112px);
+    font-family: var(--mono); font-size: clamp(15px, 1.5vw, 20px);
+    letter-spacing: 0; color: var(--ink); display: flex; align-items: center;
+    opacity: 0; transition: opacity .3s ease;
+  }
+  html.js .term-cue.on { opacity: 1; }
+  .term-cue .p { color: var(--red); margin-right: .6ch; }
+  .term-cue .cur { display: inline-block; width: .55ch; height: 1.05em; background: var(--ink); margin-left: .15ch; transform: translateY(.08em); animation: blink 1.06s steps(1) infinite; }
+
+  .word { display: inline-block; position: relative; padding-bottom: 0.06em; }
+  .word .ul {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 10px; background: var(--red);
+    transform-origin: left center; transform: scaleX(0);
+  }
+  html.js .hero.cued .word .ul { animation: sweep .7s cubic-bezier(.16,1,.3,1) .55s forwards; }
+  @keyframes sweep { to { transform: scaleX(1); } }
+
+  .hero-foot { column-gap: var(--gutter); row-gap: var(--s4); align-items: end; margin-top: clamp(28px, 4vw, 52px); }
+  .hero-foot .lede { grid-column: 1 / 8; }
+  .hero-foot .hero-cta { grid-column: 9 / 13; justify-self: end; align-self: end; }
+  .lede { font-size: clamp(16px, 1.4vw, 20px); line-height: 1.5; color: var(--ink); max-width: 46ch;
+    opacity: 0; }
+  html.js .hero.cued .lede { animation: fade .8s ease .5s forwards; }
+  .lede b { font-weight: 700; }
+  @keyframes fade { to { opacity: 1; } }
+  .hero-cta { display: flex; align-items: center; opacity: 0; }
+  html.js .hero.cued .hero-cta { animation: fade .8s ease .65s forwards; }
+
+  /* ---- buttons: flat Bauhaus red, no stroke ---- */
+  .btn {
+    display: inline-flex; align-items: center; gap: 12px;
+    font-family: var(--body); font-weight: 700; font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 17px 28px; border: 0; border-radius: 0;
+    background: var(--red); color: var(--bg);
+    transition: transform .26s cubic-bezier(.2,.7,.2,1), background .26s ease;
+  }
+  .btn .arr { transition: transform .32s cubic-bezier(.2,.7,.2,1); }
+  .btn:hover { transform: translateY(-2px); background: #a81f25; }
+  .btn:hover .arr { transform: translate(3px, 3px); }
+  .feedlink { font-family: var(--body); font-weight: 600; font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--ink-62); border-bottom: var(--hair) solid var(--ink-16); padding-bottom: 4px; transition: color .25s, border-color .25s; }
+  .feedlink:hover { color: var(--red); border-color: var(--red); }
+
+  /* ================= STORY ================= */
+  .ch { position: relative; padding: clamp(56px, 9vw, 144px) 0; border-top: var(--hair) solid var(--ink-16); }
+  .ch-kicker { font-family: var(--body); font-weight: 600; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--red); margin-bottom: var(--s3); }
+  .ch-h { font-family: var(--disp); font-variation-settings: "opsz" 144, "wght" 700, "wdth" 100; }
+  .ch-copy { font-size: clamp(15px, 1.15vw, 18px); line-height: 1.55; color: var(--ink); max-width: 38ch; }
+  .ch-copy.dim { color: var(--ink-62); }
+  .more { display: inline-flex; align-items: center; gap: 9px; margin-top: var(--s3); }
+
+  /* huge faint index numerals, contained vertically, bleeding only off the page edge */
+  .ghostnum { position: absolute; font-family: var(--disp); font-weight: 900; font-variation-settings: "wght" 900, "wdth" 40;
+    color: var(--ink-07); line-height: 0.74; font-size: clamp(200px, 30vw, 480px); z-index: 0; pointer-events: none; user-select: none; }
+
+  .reveal { opacity: 0; transform: translateY(28px); transition: opacity .8s ease, transform .8s cubic-bezier(.16,1,.3,1); }
+  .reveal.in { opacity: 1; transform: none; }
+
+  /* ---------- [01] actions: heading 1-5, mock 7-12 ---------- */
+  .ch--a { column-gap: var(--gutter); align-items: center; }
+  .ch--a .ghostnum { top: 6%; right: -3%; }
+  .ch--a .head { grid-column: 1 / 6; }
+  .ch--a .head .ch-h { font-size: clamp(44px, 8vw, 124px); letter-spacing: -0.04em; line-height: 0.88; }
+  .ch--a .head .ch-copy { margin-top: var(--s4); }
+  .ch--a .vis { grid-column: 7 / 13; }
+
+  /* ---------- [02] make it yours: mega word + three theme tiles ---------- */
+  .ch--b .ghostnum { top: 4%; left: -3%; }
+  .ch--b .head { grid-column: 1 / 9; }
+  .ch--b .themes { grid-column: 1 / -1; }
+  .ch--b .ch-h .sm   { display: block; font-size: clamp(26px, 4.2vw, 60px); line-height: 1.0; font-variation-settings: "opsz" 144, "wght" 700, "wdth" 100; letter-spacing: -0.02em; }
+  .ch--b .ch-h .mega { display: block; font-size: clamp(64px, 15vw, 232px); line-height: 0.8; letter-spacing: -0.05em; margin-top: 4px; }
+  .ch--b .head .ch-copy { margin-top: var(--s4); max-width: 36ch; }
+  .ch--b .themes { column-gap: var(--gutter); margin-top: clamp(40px, 6vw, 80px); }
+  .ch--b .tcard { grid-column: span 4; }
+
+  /* ---------- [03] only what you need: heading 1-5, list 7-12 ---------- */
+  .ch--c { column-gap: var(--gutter); align-items: center; }
+  .ch--c .ghostnum { top: 8%; left: -3%; }
+  .ch--c .head { grid-column: 1 / 6; }
+  .ch--c .ch-h { font-size: clamp(44px, 8.4vw, 140px); line-height: 0.86; letter-spacing: -0.04em; }
+  .ch--c .head .ch-copy { margin-top: var(--s3); }
+  .ch--c .vis { grid-column: 7 / 13; }
+
+  /* ---------- [04] closing: full-bleed statement, foot aligned ---------- */
+  .ch--close { padding-bottom: clamp(40px, 6vw, 80px); }
+  .ch--close .ch-h { font-size: clamp(64px, 16vw, 264px); line-height: 0.82; letter-spacing: -0.05em; margin-left: -0.045em; }
+  .ch--close .foot-row { column-gap: var(--gutter); align-items: center; margin-top: clamp(28px, 4vw, 48px); }
+  .ch--close .hero-cta { grid-column: 1 / 5; opacity: 1; }
+  .ch--close .smallprint { grid-column: 6 / 11; color: var(--ink-62); font-size: 15px; line-height: 1.5; max-width: 32ch; }
+
+  /* ---------- shared visual panels (flat, hairline-bounded, modernist) ---------- */
+  .panel { position: relative; }
+
+  .v-actions { background: #fff; border: 1.5px solid var(--ink); display: flex; flex-direction: column; }
+  .v-actions .top { display: flex; gap: 8px; padding: 13px 16px; border-bottom: var(--hair) solid var(--ink-16); align-items: center; }
+  .v-actions .top .d { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-16); }
+  .v-actions .top .d.e { background: var(--red); }
+  .v-actions .top .t { margin-left: 8px; font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--ink-40); }
+
+  .v-actions .surface { padding: 22px; border-bottom: var(--hair) solid var(--ink-16); }
+  .v-actions .srow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .v-actions .srow .tag { font-family: var(--body); font-weight: 600; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-40); }
+  .v-actions .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .v-actions .chip { border: 1.5px solid var(--ink); padding: 9px 15px; font-weight: 600; font-size: 13px; }
+  .v-actions .chip.on { background: var(--ink); color: #fff; }
+  .v-actions .chip .a { color: var(--red); }
+
+  /* the raw command the active action maps to, sitting directly beneath it */
+  .v-actions .term { background: #15140f; padding: 16px 18px 20px; position: relative;
+    background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.035) 0 1px, transparent 1px 3px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
+  .v-actions .term .rawtag { font-family: var(--body); font-weight: 600; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: rgba(255,255,255,.34); display: block; margin-bottom: 12px; }
+  .v-actions .term .cl { font-family: var(--mono); color: rgba(255,255,255,.62); font-size: 12.5px; line-height: 1.85; }
+  .v-actions .term .cl .k { color: #d9b08c; }
+  .v-actions .term .cl .ok { color: #8fb98a; }
+  .v-actions .term .cl.dimr { color: rgba(255,255,255,.34); }
+  .v-actions .term .cur { display: inline-block; width: 8px; height: 14px; background: var(--red); transform: translateY(2px); animation: blink 1.06s steps(1) infinite; }
+  @keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
+
+  .tcard { border: 1.5px solid var(--ink); aspect-ratio: 3/4; overflow: hidden; display: flex; flex-direction: column; transition: transform .3s cubic-bezier(.2,.7,.2,1); }
+  .tcard:nth-child(2) { margin-top: var(--s5); }
+  .tcard:nth-child(3) { margin-top: var(--s3); }
+  .tcard:hover { transform: translateY(-8px); }
+  .tcard .tname { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; padding: 11px 13px; border-bottom: 1.5px solid currentColor; }
+  .tcard .body { flex: 1; padding: 18px 15px; display: flex; flex-direction: column; gap: 11px; }
+  .tcard .h { font-size: 30px; line-height: .9; }
+  .tcard .bar { height: 9px; width: 70%; }
+  .tcard .bar.s { width: 45%; }
+  .tcard.brut { background: #F2F0EF; color: var(--ink); border-radius: 0; font-family: var(--disp); font-variation-settings: "wght" 850, "wdth" 80; }
+  .tcard.brut .h { text-transform: uppercase; }
+  .tcard.brut .bar { background: var(--red); }
+  .tcard.brut .bar.s { background: var(--ink); }
+  .tcard.clas { background: #1d1c18; color: #e9e2d0; border-radius: 0; font-family: Georgia, "Times New Roman", serif; }
+  .tcard.clas .tname { color: #bda66f; border-color: #3a382f; }
+  .tcard.clas .h { font-style: italic; font-size: 32px; }
+  .tcard.clas .bar { background: #bda66f; height: 2px; }
+  .tcard.clas .bar.s { background: #6f6a58; height: 2px; }
+  .tcard.whim { background: #f7e6d6; color: #7a3a1f; border-radius: 20px; font-family: var(--disp); font-variation-settings: "wght" 700, "wdth" 120; }
+  .tcard.whim .tname { color: #c9663b; border-color: #e7c3a8; }
+  .tcard.whim .bar { background: #f08a4b; border-radius: 99px; }
+  .tcard.whim .bar.s { background: #e3b7d0; border-radius: 99px; }
+
+  .v-need { background: #fff; border: 1.5px solid var(--ink); padding: 8px 30px; }
+  .v-need ul { list-style: none; }
+  .v-need li { display: flex; align-items: center; gap: 14px; padding: 18px 0; border-bottom: var(--hair) solid var(--ink-16); font-size: 17px; }
+  .v-need li:last-child { border-bottom: 0; }
+  .v-need li .bx { width: 18px; height: 18px; border: 1.5px solid var(--ink); display: flex; align-items: center; justify-content: center; flex: none; }
+  .v-need li.keep .bx { background: var(--red); border-color: var(--red); color: #fff; font-size: 11px; }
+  .v-need li.cut { color: var(--ink-40); }
+  .v-need li.cut span.t { text-decoration: line-through; }
+  .v-need li.cut .bx { border-style: dashed; border-color: var(--ink-40); }
+
+  /* ================= FOOTER ================= */
+  footer { border-top: 1.5px solid var(--ink); margin-top: clamp(20px, 4vw, 48px); }
+  .foot { column-gap: var(--gutter); row-gap: var(--s5); padding: clamp(48px, 7vw, 88px) 0 clamp(28px, 4vw, 40px); }
+  .foot .brand { grid-column: 1 / 7; }
+  .foot .mark { height: 84px; width: auto; }
+  .foot .tag { font-family: var(--disp); font-variation-settings: "opsz" 144, "wght" 700, "wdth" 100; font-size: clamp(22px, 2.6vw, 34px); margin-top: var(--s3); line-height: 1.0; max-width: 12ch; letter-spacing: -0.028em; }
+  .foot .right { grid-column: 8 / 13; display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: var(--s4); text-align: right; }
+  .foot .fcopy { line-height: 1.95; }
+  .footbar { display: flex; align-items: center; justify-content: space-between; padding: 18px 0 40px; gap: 16px; flex-wrap: wrap; }
+
+  @media (max-width: 880px) {
+    .grid-guide { display: none; }
+    .hero-foot .lede, .hero-foot .hero-cta { grid-column: 1 / -1; justify-self: start; }
+    .hero-foot .hero-cta { align-self: start; }
+    .ch--a, .ch--c, .ch--b .head, .ch--close .foot-row { display: block; }
+    .ch--a .head, .ch--a .vis, .ch--c .head, .ch--c .vis { margin-bottom: 36px; }
+    .ch--b .themes { grid-template-columns: 1fr; }
+    .ch--b .tcard { grid-column: 1 / -1; }
+    .ch--b .tcard:nth-child(2), .ch--b .tcard:nth-child(3) { margin-top: 0; }
+    .ch--b .tcard + .tcard { margin-top: 18px; }
+    .ch--close .hero-cta, .ch--close .smallprint { display: block; margin-top: 20px; }
+    .foot { display: block; }
+    .foot .right { align-items: flex-start; text-align: left; margin-top: 40px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html.js .hero h1 .l { opacity: 1; transform: none; animation: none; }
+    html.js .hero .lede, html.js .hero .hero-cta { opacity: 1; animation: none; }
+    html.js .hero .word .ul { transform: scaleX(1); animation: none; }
+    .term-cue { display: none; }
+    .flip-ch { transition: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="shell">
+    <div class="grid-guide" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+
+    <!-- ===== MASTHEAD ===== -->
+    <header class="masthead">
+      <img class="mark" src="assets/idealize-mark-clean.svg" alt="IDEalize" />
+      <div class="meta">
+        <div class="label">macOS · v0.1</div>
+        <div class="label label--red">Free… for now.</div>
+      </div>
+    </header>
+    <hr class="hair" />
+    <div class="indexstrip">
+      <span class="label">[01] — The terminal, redrawn</span>
+      <span class="label">A coding terminal for designers</span>
+    </div>
+    <hr class="hair" />
+
+    <!-- ===== HERO ===== -->
+    <section class="hero">
+      <div class="term-cue" aria-hidden="true"><span class="p">$</span><span class="cue-cmd">idealize</span><span class="cur"></span></div>
+      <h1 class="title">
+        <span class="l" data-flip>A terminal</span>
+        <span class="l" data-flip>designed for</span>
+        <span class="l"><span class="word" data-flip>designers<span class="ul"></span></span></span>
+      </h1>
+
+      <div class="hero-foot grid12">
+        <p class="lede">
+          The first coding terminal for people who care how things look.
+          <b>Action-first</b>, with the raw terminal one tap away. Skin it
+          <b>brutalist, classical or whimsical</b>. Only the features you need,
+          none you don't.
+        </p>
+        <div class="hero-cta">
+          <a class="btn" href="#close">Download for macOS <span class="arr">↘</span></a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== STORY ===== -->
+    <section class="story">
+
+      <!-- [01] -->
+      <article class="ch ch--a grid12 reveal">
+        <span class="ghostnum" aria-hidden="true">01</span>
+        <div class="head">
+          <div class="ch-kicker">Interface</div>
+          <h2 class="ch-h" data-flip>Actions, not commands</h2>
+          <p class="ch-copy dim">An interface built around what you want to do. The raw terminal is right there when you want it, one tap away, and out of the way when you don't.</p>
+          <a class="feedlink more" href="#">See it work →</a>
+        </div>
+        <div class="vis panel">
+          <div class="v-actions">
+            <div class="top"><span class="d e"></span><span class="d"></span><span class="d"></span><span class="t">idealize — ~/project</span></div>
+            <div class="surface">
+              <div class="srow"><span class="tag">Actions</span><span class="tag">redrawn</span></div>
+              <div class="chips">
+                <span class="chip on">Run <span class="a">↘</span></span>
+                <span class="chip">Commit</span>
+                <span class="chip">Explain</span>
+                <span class="chip">Fix this</span>
+                <span class="chip">Deploy</span>
+              </div>
+            </div>
+            <div class="term">
+              <span class="rawtag">Raw terminal · one tap away</span>
+              <div class="cl"><span class="k">$</span> npm run build</div>
+              <div class="cl dimr"><span class="ok">✓</span> compiled in 1.24s</div>
+              <div class="cl dimr">→ dist/idealize.app &nbsp; 4.2 MB</div>
+              <div class="cl"><span class="k">$</span> <span class="cur"></span></div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- [02] -->
+      <article class="ch ch--b grid12 reveal">
+        <span class="ghostnum" aria-hidden="true">02</span>
+        <div class="head">
+          <div class="ch-kicker">Look &amp; feel</div>
+          <h2 class="ch-h"><span class="sm" data-flip>Make it</span><span class="mega" data-flip>yours</span></h2>
+          <p class="ch-copy dim">Brutalist, classical, whimsical. Choose a colour and a font pairing and the whole thing re-skins to look exactly how you want. Same tool, your world.</p>
+        </div>
+        <div class="themes grid12 reveal">
+          <div class="tcard brut"><div class="tname">Brutalist</div><div class="body"><div class="h">IDE</div><div class="bar"></div><div class="bar s"></div></div></div>
+          <div class="tcard clas"><div class="tname">Classical</div><div class="body"><div class="h">Idéalize</div><div class="bar"></div><div class="bar s"></div></div></div>
+          <div class="tcard whim"><div class="tname">Whimsical</div><div class="body"><div class="h">hello ✿</div><div class="bar"></div><div class="bar s"></div></div></div>
+        </div>
+      </article>
+
+      <!-- [03] -->
+      <article class="ch ch--c grid12 reveal">
+        <span class="ghostnum" aria-hidden="true">03</span>
+        <div class="head">
+          <div class="ch-kicker">Scope</div>
+          <h2 class="ch-h" data-flip>Only what you need</h2>
+          <p class="ch-copy dim">Simple by design. The handful of things you actually reach for, kept sharp. None of the panels, menus and settings you'll never open.</p>
+        </div>
+        <div class="vis">
+          <div class="v-need">
+            <ul>
+              <li class="keep"><span class="bx">✓</span><span class="t">Run, commit, explain, fix</span></li>
+              <li class="keep"><span class="bx">✓</span><span class="t">The terminal, one tap away</span></li>
+              <li class="keep"><span class="bx">✓</span><span class="t">Themes that are actually yours</span></li>
+              <li class="cut"><span class="bx"></span><span class="t">Forty-panel preference trees</span></li>
+              <li class="cut"><span class="bx"></span><span class="t">Plugins for the plugins</span></li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <!-- [04] closing -->
+      <article id="close" class="ch ch--close reveal">
+        <div class="ch-kicker">Price</div>
+        <h2 class="ch-h" data-flip>Free, for now.</h2>
+        <div class="foot-row grid12">
+          <div class="hero-cta"><a class="btn" href="#">Download for macOS <span class="arr">↘</span></a></div>
+          <p class="smallprint">macOS · v0.1 beta. No card, no catch. Use it properly, then tell us what to fix.</p>
+        </div>
+      </article>
+
+    </section>
+  </div>
+
+  <!-- ===== FOOTER ===== -->
+  <footer>
+    <div class="shell">
+      <div class="grid-guide" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="foot grid12">
+        <div class="brand">
+          <img class="mark" src="assets/idealize-mark-clean.svg" alt="IDEalize" />
+          <div class="tag" data-flip>The terminal, redrawn for designers.</div>
+        </div>
+        <div class="right">
+          <a class="feedlink" href="mailto:hello@idealize.app">Send feedback →</a>
+          <div class="fcopy label" style="text-transform:none; letter-spacing:0.04em; font-weight:400;">
+            Free… for now.<br/>
+            Built for macOS · v0.1 beta<br/>
+            hello@idealize.app
+          </div>
+        </div>
+      </div>
+      <hr class="hair" />
+      <div class="footbar">
+        <span class="label">© 2026 IDEalize</span>
+        <span class="label">Made for people who care how things look</span>
+      </div>
+    </div>
+  </footer>
+
+<script>
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---- the type-specimen morph: letters cycle through real cuts ----
+  // the genuine width axis (condense/expand) and sans <-> serif (Roboto Flex / Roboto
+  // Serif, same skeleton). each letter is locked into a fixed slot sized to its widest
+  // state, so changing width or growing serifs never reflows the line. no slant, no scale.
+  var SANS  = '"Roboto Flex", "Helvetica Neue", Arial, sans-serif';
+  var SERIF = '"Roboto Serif", Georgia, "Times New Roman", serif';
+  var PRESETS = [
+    { ff: SERIF, fv: '"opsz" 144, "wght" 700, "wdth" 96, "GRAD" 0' },     // full serif cut
+    { ff: SANS,  fv: '"opsz" 144, "wght" 700, "wdth" 70, "slnt" 0, "GRAD" 40' },   // condensed sans
+    { ff: SERIF, fv: '"opsz" 144, "wght" 700, "wdth" 80, "GRAD" -40' },   // condensed serif
+    { ff: SANS,  fv: '"opsz" 144, "wght" 700, "wdth" 92, "slnt" 0, "GRAD" 90' },   // near-full sans, darker
+    { ff: SERIF, fv: '"opsz" 144, "wght" 700, "wdth" 66, "GRAD" 0' },     // tight serif
+    { ff: SANS,  fv: '"opsz" 144, "wght" 700, "wdth" 84, "slnt" 0, "GRAD" -100' }  // condensed light sans
+  ];
+  function applyPreset(s, p) { s.style.fontFamily = p.ff; s.style.fontVariationSettings = p.fv; }
+  function clearPreset(s) { s.style.fontFamily = ""; s.style.fontVariationSettings = ""; }
+
+  function splitFlip(el) {
+    var nodes = Array.from(el.childNodes);
+    var frag = document.createDocumentFragment();
+    nodes.forEach(function (node) {
+      if (node.nodeType === 3) {
+        node.textContent.split(/(\s+)/).forEach(function (tok) {
+          if (tok === "") return;
+          if (/^\s+$/.test(tok)) { frag.appendChild(document.createTextNode(tok)); return; }
+          var w = document.createElement("span");
+          w.className = "flip-word";
+          tok.split("").forEach(function (c) {
+            var s = document.createElement("span");
+            s.className = "flip-ch";
+            s.textContent = c;
+            w.appendChild(s);
+          });
+          frag.appendChild(w);
+        });
+      } else {
+        frag.appendChild(node);
+      }
+    });
+    el.textContent = "";
+    el.appendChild(frag);
+  }
+
+  // lock each letter to its widest state across all presets, so the morph can't reflow
+  function lockSlots(letters) {
+    letters.forEach(function (s) {
+      s.style.transition = "none"; s.style.width = "";
+      var max = s.getBoundingClientRect().width;
+      PRESETS.forEach(function (p) { applyPreset(s, p); var w = s.getBoundingClientRect().width; if (w > max) max = w; });
+      clearPreset(s);
+      s.style.width = max.toFixed(2) + "px";
+      void s.offsetWidth; s.style.transition = "";
+    });
+  }
+
+  // line-level: hover starts a staggered eased cycle, roll-out lets it linger then settle
+  var LINGER = 2000, CADENCE = 560, STAGGER = 60;
+  function wireTitle(el) {
+    if (reduce) return;
+    var letters = [].slice.call(el.querySelectorAll(".flip-ch"));
+    lockSlots(letters);
+    var leaveTO = null;
+
+    function startLetter(s, i) {
+      if (s._iv) return;
+      var idx = i % PRESETS.length;
+      applyPreset(s, PRESETS[idx]);
+      s._iv = setInterval(function () {
+        idx = (idx + 1) % PRESETS.length;
+        applyPreset(s, PRESETS[idx]);
+      }, CADENCE);
+    }
+    function start() {
+      if (leaveTO) { clearTimeout(leaveTO); leaveTO = null; }
+      letters.forEach(function (s, i) {
+        if (s._delay) clearTimeout(s._delay);
+        s._delay = setTimeout(function () { startLetter(s, i); }, i * STAGGER);
+      });
+    }
+    function settle() {
+      letters.forEach(function (s) {
+        if (s._delay) { clearTimeout(s._delay); s._delay = null; }
+        if (s._iv) { clearInterval(s._iv); s._iv = null; }
+        clearPreset(s);   // eased home by the CSS transition; the slot width stays
+      });
+    }
+    function stopSoon() {
+      if (leaveTO) clearTimeout(leaveTO);
+      leaveTO = setTimeout(settle, LINGER);
+    }
+
+    el.addEventListener("mouseenter", start);
+    el.addEventListener("mouseleave", stopSoon);
+    el._start = start; el._settle = settle; el._letters = letters;
+  }
+
+  var titleEls = [].slice.call(document.querySelectorAll("[data-flip]"));
+  titleEls.forEach(splitFlip);
+  function initTitles() { titleEls.forEach(wireTitle); }
+  // force the serif to load before measuring slots, else slot widths would be wrong
+  if (document.fonts && document.fonts.load) {
+    Promise.all([
+      document.fonts.load('700 144px "Roboto Flex"'),
+      document.fonts.load('700 144px "Roboto Serif"')
+    ]).then(function () { return document.fonts.ready; }).then(initTitles).catch(initTitles);
+  } else {
+    initTitles();
+  }
+
+  // font-size is viewport-based, so re-lock the slots after a resize (debounced)
+  var resizeT = null;
+  window.addEventListener("resize", function () {
+    if (reduce) return;
+    clearTimeout(resizeT);
+    resizeT = setTimeout(function () {
+      titleEls.forEach(function (el) {
+        if (!el._letters) return;
+        el._letters.forEach(function (s) { s.style.width = ""; });
+        lockSlots(el._letters);
+      });
+    }, 200);
+  });
+
+  // ---- the redraw: $ idealize types --redraw, then renders the headline ----
+  var hero = document.querySelector(".hero");
+  var cue  = document.querySelector(".term-cue");
+  function renderHeadline() { hero.classList.add("cued"); }
+
+  if (reduce) {
+    renderHeadline();
+  } else {
+    var cmd = cue.querySelector(".cue-cmd");
+    var typed = "", target = "idealize --redraw";
+    cue.classList.add("on");
+    // start from "idealize", type the flag, then run
+    setTimeout(function () {
+      var rest = " --redraw", i = 0;
+      var t = setInterval(function () {
+        i++; cmd.textContent = "idealize" + rest.slice(0, i);
+        if (i >= rest.length) {
+          clearInterval(t);
+          setTimeout(function () {
+            cue.classList.remove("on");          // the command "runs"
+            renderHeadline();                     // the headline is the output
+            setTimeout(rippleHero, 950);          // one variable-axis wink
+          }, 360);
+        }
+      }, 52);
+    }, 520);
+  }
+
+  // one-time eased ripple through the axes on the hero, then settle home
+  function rippleHero() {
+    if (reduce) return;
+    document.querySelectorAll(".hero [data-flip]").forEach(function (el) {
+      if (el._start) { el._start(); setTimeout(el._settle, 1500); }
+    });
+  }
+
+  // reveal-on-scroll
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.14 });
+  document.querySelectorAll(".reveal").forEach(function (el) { io.observe(el); });
+</script>
+</body>
+</html>

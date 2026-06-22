@@ -1,0 +1,159 @@
+import Foundation
+
+/// Wire protocol shared between the IDEalize app (server) and the `idealize` CLI (client).
+///
+/// Transport: a Unix domain socket. Each request/response is a single line of
+/// JSON terminated by `\n`. This keeps the CLI side trivially synchronous while
+/// the app side can multiplex many connections.
+public enum IPC {
+    /// Default socket path. Overridable via the `IDEALIZE_SOCK` environment
+    /// variable so multiple app instances (or tests) can coexist.
+    public static var socketPath: String {
+        if let override = ProcessInfo.processInfo.environment["IDEALIZE_SOCK"], !override.isEmpty {
+            return override
+        }
+        let base = NSHomeDirectory() + "/Library/Application Support/IDEalize"
+        return base + "/ipc.sock"
+    }
+
+    /// Environment variable the app injects into every spawned shell so a
+    /// process (e.g. Claude Code) knows which session it belongs to.
+    public static let sessionEnvKey = "IDEALIZE_SESSION_ID"
+}
+
+/// A request sent from the CLI to the app.
+public struct IPCRequest: Codable, Sendable {
+    public enum Command: String, Codable, Sendable {
+        case ping
+        case list          // list active sessions
+        case notify        // show a system notification
+        case send          // deliver a message to a target session's mailbox
+        case broadcast     // deliver a message to every session except sender
+        case inbox         // drain the calling session's mailbox
+        case peek          // read the mailbox without draining
+        case setStatus     // set a custom status string for a session/tab
+        case focus         // bring a session's tab to the foreground
+        case blocks        // list captured command blocks for a session
+        case input         // type text into a session's terminal (exec)
+    }
+
+    public var command: Command
+    /// Identity of the calling session (from `IDEALIZE_SESSION_ID`), if any.
+    public var from: String?
+    /// Target session id, name, or project path (interpretation depends on command).
+    public var target: String?
+    /// Free-form message body / notification text.
+    public var body: String?
+    /// Optional title (used by `notify`).
+    public var title: String?
+    /// Optional sound flag for notifications.
+    public var sound: Bool?
+
+    public init(command: Command,
+                from: String? = nil,
+                target: String? = nil,
+                body: String? = nil,
+                title: String? = nil,
+                sound: Bool? = nil) {
+        self.command = command
+        self.from = from
+        self.target = target
+        self.body = body
+        self.title = title
+        self.sound = sound
+    }
+}
+
+/// A single inter-agent message held in a session mailbox.
+public struct IPCMessage: Codable, Sendable {
+    public var from: String
+    public var fromLabel: String?
+    public var body: String
+    public var timestamp: Date
+
+    public init(from: String, fromLabel: String? = nil, body: String, timestamp: Date) {
+        self.from = from
+        self.fromLabel = fromLabel
+        self.body = body
+        self.timestamp = timestamp
+    }
+}
+
+/// A captured command block, returned by `blocks`.
+public struct IPCBlock: Codable, Sendable {
+    public var command: String
+    public var cwd: String?
+    public var exitCode: Int32?
+    public var running: Bool
+    public var durationMs: Int?
+
+    public init(command: String, cwd: String?, exitCode: Int32?, running: Bool, durationMs: Int?) {
+        self.command = command
+        self.cwd = cwd
+        self.exitCode = exitCode
+        self.running = running
+        self.durationMs = durationMs
+    }
+}
+
+/// Lightweight description of a live session, returned by `list`.
+public struct IPCSessionInfo: Codable, Sendable {
+    public var id: String
+    public var title: String
+    public var projectPath: String?
+    public var processName: String?
+    public var status: String?
+    public var unread: Int
+
+    public init(id: String, title: String, projectPath: String?, processName: String?, status: String?, unread: Int) {
+        self.id = id
+        self.title = title
+        self.projectPath = projectPath
+        self.processName = processName
+        self.status = status
+        self.unread = unread
+    }
+}
+
+/// The response sent from the app back to the CLI.
+public struct IPCResponse: Codable, Sendable {
+    public var ok: Bool
+    public var error: String?
+    public var sessions: [IPCSessionInfo]?
+    public var messages: [IPCMessage]?
+    public var blocks: [IPCBlock]?
+    public var info: String?
+
+    public init(ok: Bool,
+                error: String? = nil,
+                sessions: [IPCSessionInfo]? = nil,
+                messages: [IPCMessage]? = nil,
+                blocks: [IPCBlock]? = nil,
+                info: String? = nil) {
+        self.ok = ok
+        self.error = error
+        self.sessions = sessions
+        self.messages = messages
+        self.blocks = blocks
+        self.info = info
+    }
+
+    public static func failure(_ message: String) -> IPCResponse {
+        IPCResponse(ok: false, error: message)
+    }
+}
+
+public extension IPC {
+    /// Shared JSON coder configuration so both ends agree on date encoding.
+    static func makeEncoder() -> JSONEncoder {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }
+
+    static func makeDecoder() -> JSONDecoder {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }
+}
