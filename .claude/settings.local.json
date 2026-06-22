@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -f _full.png _flip.png _hero.png)",
+      "Bash(open \"index.html\")"
+    ]
+  }
+}
