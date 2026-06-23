@@ -21,6 +21,9 @@ struct QAChatBox: View {
     /// The highlighted option in a single-select Claude prompt. Hover moves it,
     /// click answers immediately, Return answers the highlighted one.
     @State private var selectedOption = 1
+    /// When true, the chat region shows the Flow editor instead of the answer.
+    /// Chunk 1: renders the static example spine, read-only.
+    @State private var flowMode = false
     @FocusState private var focused: Bool
 
     private var theme: Theme { settings.theme }
@@ -54,7 +57,16 @@ struct QAChatBox: View {
                 Color.clear.frame(height: 12)
             }
             Group {
-                if !settings.hasSeenWelcome {
+                if flowMode {
+                    // The "second view": the Flow editor. Chunk 1 renders the
+                    // static example spine, read-only.
+                    ScrollView {
+                        FlowSpineView(graph: Flow.example.flow)
+                            .padding(.horizontal, settings.chatMargin)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else if !settings.hasSeenWelcome {
                     // First-run welcome takes priority over everything else.
                     ScrollView {
                         welcomeCard
@@ -215,6 +227,10 @@ struct QAChatBox: View {
             promptView(prompt)
         } else if working {
             workingView
+        } else if session.liveInteractivePrompt {
+            // The live terminal is on a prompt the chat can't render. Reflect
+            // that instead of the previous (now stale) transcript answer.
+            terminalAttentionView
         } else if let a = session.assistantMessage, !a.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 10) {
@@ -363,11 +379,43 @@ struct QAChatBox: View {
         .padding(.vertical, 20)
     }
 
+    /// Shown when Claude is sitting on an interactive prompt the chat can't
+    /// render (an arrow-key menu, a trust dialog). Keeps the chat honest about
+    /// the live state and sends you to the terminal to answer.
+    private var terminalAttentionView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "keyboard.badge.ellipsis")
+                .font(.system(size: 30))
+                .foregroundStyle(Color(theme.accent)).opacity(0.85)
+            Text("Claude is waiting for you in the terminal")
+                .font(chatStyle.font(size, .medium))
+                .foregroundStyle(chatTextColor)
+                .multilineTextAlignment(.center)
+            Text("It's showing a prompt the chat can't display. Open the terminal to answer it.")
+                .font(chatStyle.font(size - 2))
+                .foregroundStyle(chatStyle.secondaryTextColor)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: { withAnimation(LeafPaneView.modeAnim) { session.revealTerminal = true } }) {
+                HStack(spacing: 7) {
+                    Image(systemName: "terminal")
+                    Text("Open the terminal").font(settings.ui(size - 1, .semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .background(Capsule().fill(settings.actionStyle.fill))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 24).padding(.vertical, 16)
+    }
+
     /// A delicate lozenge around the input (grows as you type) plus a mini-menu.
     private var inputLozenge: some View {
         VStack(alignment: .leading, spacing: 7) {
             // Contextual toolbar: model · effort · skills · commands.
-            ChatToolbar(session: session, draft: $text, focus: { focused = true })
+            ChatToolbar(session: session, draft: $text, flowMode: $flowMode, focus: { focused = true })
             if !session.pendingAttachments.isEmpty {
                 attachmentChips
             }
@@ -376,11 +424,16 @@ struct QAChatBox: View {
                     .font(.system(size: size - 3, weight: .bold))
                     .foregroundStyle(settings.actionStyle.color)
                     .padding(.bottom, 3)
+                // Grows with what you type up to ~14 lines, then scrolls its own
+                // content internally so nothing is clipped out of reach (the
+                // vertical TextField scrolls past its line-limit natively). Its
+                // line-spacing is independent of the chat answer/modal.
                 TextField("", text: $text, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(chatStyle.font(size))
                     .foregroundStyle(chatTextColor)
-                    .lineLimit(1...8)
+                    .lineSpacing(CGFloat(settings.chatInputLineSpacing))
+                    .lineLimit(1...14)
                     .focused($focused)
                     .onSubmit { onReturn() }
                 // Always-available send shortcut (⌘↩), plus a visible button.

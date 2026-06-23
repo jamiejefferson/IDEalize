@@ -149,16 +149,46 @@ private struct Pill: View {
 struct ChatToolbar: View {
     @ObservedObject var session: TerminalSession
     @Binding var draft: String
+    /// Switches the chat region between the conversation and the Flow editor —
+    /// the "second view" in the input field.
+    @Binding var flowMode: Bool
     var focus: () -> Void
 
     var body: some View {
         HStack(spacing: 7) {
+            FlowTogglePill(on: $flowMode)
             ModelPill(session: session)
             EffortPill(session: session)
             SkillsPill(session: session, draft: $draft, focus: focus)
             CommandsPill(session: session)
             Spacer(minLength: 0)
         }
+    }
+}
+
+/// A two-state pill that flips the chat region into the Flow editor. Reads as
+/// "Chat ⇄ Flow"; the active side is tinted with the action colour.
+private struct FlowTogglePill: View {
+    @Binding var on: Bool
+    @ObservedObject private var settings = AppSettings.shared
+    private var theme: Theme { settings.theme }
+
+    var body: some View {
+        Button(action: { on.toggle() }) {
+            HStack(spacing: 5) {
+                Image(systemName: on ? "point.topleft.down.curvedto.point.bottomright.up" : "bubble.left.and.bubble.right")
+                    .font(.system(size: 11))
+                    .foregroundStyle(on ? .white : settings.actionStyle.color)
+                Text(on ? "Flow" : "Chat")
+                    .font(settings.ui(11, .medium))
+                    .foregroundStyle(on ? .white : Color(theme.foreground))
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Capsule().fill(on ? AnyShapeStyle(settings.actionStyle.fill) : AnyShapeStyle(Color(theme.surface))))
+            .overlay(Capsule().strokeBorder(on ? .clear : Color(theme.border), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help(on ? "Back to chat" : "Sketch a flow — define the steps of a longer job")
     }
 }
 

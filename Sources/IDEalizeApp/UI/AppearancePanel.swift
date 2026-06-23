@@ -252,6 +252,8 @@ struct AppearancePanel: View {
             globalFontRow("Terminal font", $settings.fontName, families: terminalFamilies)
             slider("Terminal size", $settings.fontSize, 9...28, step: 1) { String(format: "%.0f", $0) }
             slider("Chat input opacity", $settings.chatInputOpacity, 0.3...1.0, step: 0.02) { String(format: "%.0f%%", $0 * 100) }
+            slider("Input line-spacing", $settings.chatInputLineSpacing, 0...16, step: 0.5) { String(format: "%.1f", $0) }
+            slider("Chat shadow", $settings.chatShadowOpacity, 0...0.8, step: 0.02) { String(format: "%.0f%%", $0 * 100) }
             slider("Terminal blur", $settings.terminalBlur, 0...20, step: 1) { String(format: "%.0f", $0) }
             slider("Chat margins", $settings.chatMargin, 8...40, step: 1) { String(format: "%.0f", $0) }
             HStack {
