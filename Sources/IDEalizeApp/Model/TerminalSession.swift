@@ -40,6 +40,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published var botWorking: Bool = false
     /// A confirmation/choice prompt Claude is showing — answered from the chat UI.
     @Published var pendingPrompt: ClaudePrompt?
+    /// An interactive prompt is live on the terminal that we could NOT parse into
+    /// answer buttons (an arrow-key menu, a trust dialog, a free-form confirm).
+    /// These never reach Claude's transcript, so without this flag the chat would
+    /// keep showing the previous, now-stale answer. When set, the chat shows a
+    /// "answer in the terminal" affordance instead of that stale message.
+    @Published var liveInteractivePrompt: Bool = false
     /// High-level agent status shown as a tab tag (see `AgentStatus`). Driven by
     /// `detectPrompt`; cleared back to `.idle` from `.complete` once the tab is
     /// focused (acknowledged).
@@ -77,7 +83,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     func setModel(_ id: String, _ label: String) {
         modelLabel = label
         guard tuiActive else { return }   // only a running Claude can switch
-        terminalView.send(txt: "/model \(id)\r")
+        sendLineToTUI("/model \(id)")
+    }
+
+    /// Send a line of input to the live TUI (Claude Code) as the pasted text
+    /// followed by a SEPARATE Return a short beat later. Claude's TUI wraps
+    /// pasted input in bracketed-paste markers (ESC[200~ … ESC[201~), so a
+    /// trailing `\r` in the same write lands inside the paste as a literal
+    /// newline rather than a discrete Enter keypress and never submits. Writing
+    /// the Return on its own, after the paste has flushed, makes it register as
+    /// a real Return so the message actually sends.
+    private func sendLineToTUI(_ text: String) {
+        terminalView.send(txt: text)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
+            self?.terminalView.send(txt: "\r")   // 0x0D, discrete Enter
+        }
     }
 
     func setEffort(_ keyword: String, _ label: String) {
@@ -450,6 +470,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     private func detectPrompt() {
         guard isClaudeRunning || inAltScreen else {
             if pendingPrompt != nil { pendingPrompt = nil }
+            if liveInteractivePrompt { liveInteractivePrompt = false }
             if workingStatus != nil { workingStatus = nil }
             if workingTip != nil { workingTip = nil }
             if botWorking { botWorking = false }
@@ -486,6 +507,22 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         let (status, tip) = working ? ClaudePromptParser.statusAndTip(lines) : (nil, nil)
         if status != workingStatus { workingStatus = status }
         if tip != workingTip { workingTip = tip }
+        // An interactive prompt we couldn't structure into buttons (arrow-key
+        // menu, trust dialog, free-form confirm). Look only at the bottom of the
+        // screen, where Claude renders its prompt footers, so prose in a finished
+        // answer can't trip it. When live, the chat must not present the stale
+        // transcript answer as if it were current.
+        let footer = lines.suffix(8)
+        let interactive = prompt == nil && !working && footer.contains { l in
+            let s = l.lowercased()
+            return s.contains("esc to cancel")
+                || s.contains("↑/↓")
+                || s.contains("arrow keys")
+                || s.contains("enter to confirm")
+                || s.contains("press enter")
+                || s.contains("to select")
+        }
+        if interactive != liveInteractivePrompt { liveInteractivePrompt = interactive }
         updateAgentStatus()
     }
 
@@ -499,8 +536,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Claude session already sitting idle (no need to have witnessed the
     /// working→idle transition).
     private func updateAgentStatus() {
-        if pendingPrompt != nil {
-            agentStatus = .waiting           // a numbered choice box is up
+        if pendingPrompt != nil || liveInteractivePrompt {
+            agentStatus = .waiting           // a choice box / live prompt is up
         } else if botWorking {
             agentStatus = .working
         } else if let msg = assistantMessage, !msg.isEmpty {
@@ -587,7 +624,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             assistantMessage = nil
             botWorking = true
             agentStatus = .working
-            terminalView.send(txt: text + "\r")
+            sendLineToTUI(text)
         } else if blocks.isEmpty {
             // Fresh terminal — treat the first input as a chat: launch Claude,
             // then deliver the message once it's ready.
@@ -615,7 +652,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             guard let self else { return }
             if self.tuiActive {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.terminalView.send(txt: text + "\r")
+                    self.sendLineToTUI(text)
                 }
             } else {
                 self.waitForClaudeThenSend(text, attemptsLeft: attemptsLeft - 1)

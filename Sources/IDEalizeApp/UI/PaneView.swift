@@ -189,7 +189,7 @@ struct LeafPaneView: View {
         QAChatBox(session: session, workspace: workspace, docked: true)
             .clipShape(RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(theme.border), lineWidth: 1))
-            .shadow(color: .black.opacity(0.4), radius: 26, y: 12)
+            .shadow(color: .black.opacity(settings.chatShadowOpacity), radius: 26, y: 12)
             .padding(16)
     }
 

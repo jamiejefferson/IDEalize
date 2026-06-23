@@ -43,6 +43,15 @@ final class AppSettings: ObservableObject {
     @Published var chatInputOpacity: Double {
         didSet { defaults.set(chatInputOpacity, forKey: "chatInputOpacity") }
     }
+    /// Line spacing for the chat INPUT field only (independent of the chat
+    /// answer/modal line spacing).
+    @Published var chatInputLineSpacing: Double {
+        didSet { defaults.set(chatInputLineSpacing, forKey: "chatInputLineSpacing") }
+    }
+    /// Opacity of the docked chat card's drop shadow.
+    @Published var chatShadowOpacity: Double {
+        didSet { defaults.set(chatShadowOpacity, forKey: "chatShadowOpacity") }
+    }
     /// Manual chat-modal height as a fraction of the pane (0 = auto / content-sized).
     @Published var chatHeightFraction: Double {
         didSet { defaults.set(chatHeightFraction, forKey: "chatHeightFraction") }
@@ -165,6 +174,8 @@ final class AppSettings: ObservableObject {
         self.chatLineSpacing = defaults.object(forKey: "chatLineSpacing") as? Double ?? 5.0
         self.chatTranslucency = defaults.object(forKey: "chatTranslucency") as? Double ?? 0.80
         self.chatInputOpacity = defaults.object(forKey: "chatInputOpacity") as? Double ?? 1.0
+        self.chatInputLineSpacing = defaults.object(forKey: "chatInputLineSpacing") as? Double ?? 2.0
+        self.chatShadowOpacity = defaults.object(forKey: "chatShadowOpacity") as? Double ?? 0.4
         self.chatHeightFraction = defaults.object(forKey: "chatHeightFraction") as? Double ?? 0.0
         self.terminalBlur = defaults.object(forKey: "terminalBlur") as? Double ?? 3.0
         self.chatMargin = defaults.object(forKey: "chatMargin") as? Double ?? 18.0
