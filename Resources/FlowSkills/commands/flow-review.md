@@ -1,12 +1,14 @@
 ---
 name: flow-review
-description: Review the user's sketched Flow and write structured feedback back into .idealize/flow.json
+description: Review the user's sketched Flow and write structured feedback back into the global flow file
 ---
 
 The user has sketched a **Flow** — a job broken into plain-language steps — in the
-IDEalize Flow editor. It is saved as JSON at `.idealize/flow.json` in this
-project. Your task is to review it and write your feedback back into that same
-file. The editor watches the file and renders your review onto the canvas.
+IDEalize Flow editor. It is saved as JSON at the global path
+`~/Library/Application Support/IDEalize/flow.json` (expand `~` to your home
+directory; a single global file, not per-project). Your task is to review it and
+write your feedback back into that same file. The editor watches the file and
+renders your review onto the canvas.
 
 ## Ownership zones (load-bearing — do not violate)
 

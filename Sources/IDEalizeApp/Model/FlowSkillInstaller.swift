@@ -18,7 +18,8 @@ import Foundation
 enum FlowSkillInstaller {
     /// Bump whenever the bundled skill/command text changes, so an app update
     /// re-installs the newer copy rather than leaving a stale one in place.
-    static let version = 1
+    /// v2: flow file moved to the global path (project-independent).
+    static let version = 2
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
     private static let files: [(src: String, dest: String)] = [

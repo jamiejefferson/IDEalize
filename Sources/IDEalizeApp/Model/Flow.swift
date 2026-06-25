@@ -506,59 +506,40 @@ struct SavedFlowRef: Identifiable, Equatable {
 
 // MARK: - Persistence (chunk 3: the flow is a file)
 
-/// Persists the active flow as a readable JSON file under `<project>/.idealize/
-/// flow.json`. Project-scoped on purpose, and this is the Conductor learning made
-/// literal: a flow is part of the work, so it lives *with* the code — committable
-/// and diffable in a pull request, not hidden in app state. The file is also the
-/// contract between this editor and the `flow-review` skill: Claude reads and
-/// writes the same path (it owns the `review` zone). With no project path we fall
-/// back to Application Support so a plain-shell session still keeps its sketch.
+/// Persists the active flow as a readable JSON file at a single GLOBAL path,
+/// `~/Library/Application Support/IDEalize/flow.json` — independent of any
+/// project, exactly like a skill. The flow you're sketching is the same flow in
+/// every session and every tab; switching projects never swaps it. (Where a flow
+/// *runs* is still the active terminal's working directory — but where it *lives*
+/// is global.) This file is also the contract with the `flow-run`/`flow-review`
+/// skills, which read and write the same global path (Claude owns `review`/`run`).
 ///
-/// Saves are debounced and the example seed is never written until the user
-/// actually edits, so opening a project doesn't litter it with a `.idealize`
-/// folder. JSON is pretty-printed with sorted keys so diffs stay legible.
+/// Saves are debounced; JSON is pretty-printed with sorted keys so diffs stay
+/// legible.
 @MainActor
 final class FlowStore: ObservableObject {
     @Published var flow: Flow { didSet { if !suspendSave { scheduleSave() } } }
-    private(set) var projectPath: String?
-    /// True while we assign `flow` programmatically (load / project switch), so the
-    /// `didSet` doesn't echo a freshly-loaded flow straight back to disk.
+    /// True while we assign `flow` programmatically (initial load / opening a saved
+    /// flow), so the `didSet` doesn't echo it straight back to disk.
     private var suspendSave = false
     private var saveTask: Task<Void, Never>?
 
-    init(projectPath: String? = nil) {
-        self.projectPath = projectPath
-        self.flow = Self.load(projectPath: projectPath) ?? .example
+    init() {
+        self.flow = Self.load() ?? .example
+        Self.migrateLegacyLibrary()
     }
 
-    /// Re-point at a different project once the session learns its cwd. Flushes the
-    /// current flow first, then loads that project's flow (or the example seed).
-    func switchProject(_ path: String?) {
-        let norm = (path?.isEmpty == true) ? nil : path
-        guard norm != projectPath else { return }
-        flushSave()
-        projectPath = norm
-        suspendSave = true
-        flow = Self.load(projectPath: norm) ?? .example
-        suspendSave = false
-    }
-
-    /// Where this project's flow lives. Creates the directory only when asked to
-    /// (on write), so a read never has a side effect on the project tree.
-    static func fileURL(for projectPath: String?, create: Bool) -> URL {
-        let dir: URL
-        if let p = projectPath, !p.isEmpty, p != "/" {
-            dir = URL(fileURLWithPath: p).appendingPathComponent(".idealize")
-        } else {
-            dir = URL(fileURLWithPath: NSHomeDirectory())
-                .appendingPathComponent("Library/Application Support/IDEalize")
-        }
+    /// The single global home of the active flow. Creates the directory only when
+    /// asked to (on write), so a read never has a side effect.
+    static func activeFileURL(create: Bool) -> URL {
+        let dir = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/IDEalize")
         if create { try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         return dir.appendingPathComponent("flow.json")
     }
 
-    static func load(projectPath: String?) -> Flow? {
-        let url = fileURL(for: projectPath, create: false)
+    static func load() -> Flow? {
+        let url = activeFileURL(create: false)
         guard let data = try? Data(contentsOf: url),
               let flow = try? JSONDecoder().decode(Flow.self, from: data) else { return nil }
         return flow
@@ -567,11 +548,11 @@ final class FlowStore: ObservableObject {
     /// Coalesce rapid edits (typing) into one write a beat after the last change.
     private func scheduleSave() {
         saveTask?.cancel()
-        let snapshot = flow, path = projectPath
+        let snapshot = flow
         saveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
-            Self.write(snapshot, projectPath: path)
+            Self.write(snapshot)
             _ = self
         }
     }
@@ -581,7 +562,7 @@ final class FlowStore: ObservableObject {
     /// made while the review ran is never clobbered (the ownership split, enforced
     /// on reload). Suspends save: this is Claude's write, already on disk.
     func reloadReview() {
-        guard let disk = Self.load(projectPath: projectPath) else { return }
+        guard let disk = Self.load() else { return }
         suspendSave = true
         flow.review = disk.review
         suspendSave = false
@@ -593,7 +574,7 @@ final class FlowStore: ObservableObject {
     /// state rides along with the app's own saves, so it survives a relaunch and a
     /// stopped run can be resumed later.
     func reloadRun() {
-        guard let disk = Self.load(projectPath: projectPath) else { return }
+        guard let disk = Self.load() else { return }
         suspendSave = true
         flow.run = disk.run
         suspendSave = false
@@ -608,36 +589,57 @@ final class FlowStore: ObservableObject {
     /// Forget any recorded progress, so the next send starts the flow from the top.
     func clearRun() { flow.run = nil }
 
-    /// Write immediately (on project switch / view teardown), skipping the debounce.
+    /// Write immediately (on view teardown), skipping the debounce.
     func flushSave() {
         saveTask?.cancel()
         saveTask = nil
-        Self.write(flow, projectPath: projectPath)
+        Self.write(flow)
     }
 
-    static func write(_ flow: Flow, projectPath: String?) {
+    static func write(_ flow: Flow) {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]   // legible, stable diffs
         guard let data = try? enc.encode(flow) else { return }
-        try? data.write(to: fileURL(for: projectPath, create: true))
+        try? data.write(to: activeFileURL(create: true))
     }
 
     // MARK: Library — named flows you can save and re-open
 
-    /// The library directory: `<project>/.idealize/flows/` (sibling of the active
-    /// `flow.json`), so saved flows live with the code just like the working flow.
-    static func flowsDir(for projectPath: String?, create: Bool) -> URL {
-        let dir = fileURL(for: projectPath, create: false)
-            .deletingLastPathComponent()
-            .appendingPathComponent("flows")
+    /// The library directory — GLOBAL, shared across every project, sat beside the
+    /// active `flow.json` in Application Support. A saved flow is a reusable
+    /// building block available everywhere, like a skill — never tied to one repo.
+    static func flowsDir(create: Bool) -> URL {
+        let dir = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/IDEalize/flows")
         if create { try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         return dir
     }
 
-    /// Every saved flow in this project's library, titled from its JSON and sorted
-    /// for the picker. A read never creates the directory.
+    /// One-time fold-in: earlier builds saved the library per-project under
+    /// `<project>/.idealize/flows`. Flows are global now, so lift any flows found in
+    /// the legacy home library (`~/.idealize/flows`, where home-scoped sessions
+    /// saved them) into the shared library. Idempotent: files already present (by
+    /// name) are left untouched, and it runs at most once per launch.
+    private static var didMigrateLibrary = false
+    static func migrateLegacyLibrary() {
+        guard !didMigrateLibrary else { return }
+        didMigrateLibrary = true
+        let fm = FileManager.default
+        let legacy = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".idealize/flows")
+        guard let files = try? fm.contentsOfDirectory(at: legacy, includingPropertiesForKeys: nil) else { return }
+        let jsons = files.filter { $0.pathExtension == "json" }
+        guard !jsons.isEmpty else { return }
+        let global = flowsDir(create: true)
+        for src in jsons {
+            let dst = global.appendingPathComponent(src.lastPathComponent)
+            if !fm.fileExists(atPath: dst.path) { try? fm.copyItem(at: src, to: dst) }
+        }
+    }
+
+    /// Every saved flow in the global library, titled from its JSON and sorted for
+    /// the picker. A read never creates the directory.
     func savedFlows() -> [SavedFlowRef] {
-        let dir = Self.flowsDir(for: projectPath, create: false)
+        let dir = Self.flowsDir(create: false)
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil) else { return [] }
         return files.filter { $0.pathExtension == "json" }.compactMap { url in
@@ -657,7 +659,7 @@ final class FlowStore: ObservableObject {
         let title = trimmed.isEmpty ? (flow.title.isEmpty ? "Untitled flow" : flow.title) : trimmed
         let slug = title.replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ":", with: "-")
-        let dir = Self.flowsDir(for: projectPath, create: true)
+        let dir = Self.flowsDir(create: true)
         let url = dir.appendingPathComponent(slug + ".json")
         var copy = flow
         copy.title = title

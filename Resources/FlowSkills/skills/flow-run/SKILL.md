@@ -1,13 +1,16 @@
 ---
 name: flow-run
-description: Carry out the user's IDEalize Flow from .idealize/flow.json step by step, checkpointing progress after each step so a stopped run can be resumed exactly where it left off. Use when asked to run, execute, continue, or resume a flow.
+description: Carry out the user's IDEalize Flow from the global flow file step by step, checkpointing progress after each step so a stopped run can be resumed exactly where it left off. Use when asked to run, execute, continue, or resume a flow.
 ---
 
 The user has built a **Flow** — a job broken into plain-language steps — in the
-IDEalize editor and sent it to you to **carry out**. It lives as JSON at
-`.idealize/flow.json` in this project. Your job is to walk it from start to end,
-doing what each step says, **and to checkpoint your progress into the file as you
-go** so the run can be paused and picked up later.
+IDEalize editor and sent it to you to **carry out**. It lives as JSON at the
+global path `~/Library/Application Support/IDEalize/flow.json` (expand `~` to your
+home directory). The flow is global — not tied to any project — but you carry out
+its steps **in the current working directory**, against whatever project this
+session is in. Your job is to walk it from start to end, doing what each step
+says, **and to checkpoint your progress into the file as you go** so the run can
+be paused and picked up later.
 
 ## Ownership zones (load-bearing — do not violate)
 
@@ -49,7 +52,7 @@ Read → act → write `run`. Nothing else.
 
 ## Start vs. resume — decide this first
 
-1. Read `.idealize/flow.json`.
+1. Read `~/Library/Application Support/IDEalize/flow.json`.
 2. Look at `run`:
    - **No `run`, or `status` is `done`/`failed`** → this is a **fresh run**.
      Start at the `start` block.

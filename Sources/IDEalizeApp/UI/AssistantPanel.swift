@@ -23,8 +23,8 @@ struct QAChatBox: View {
     @State private var selectedOption = 1
     /// When true, the chat region shows the Flow editor instead of the answer.
     @State private var flowMode = false
-    /// The flow being sketched, persisted per-project to `.idealize/flow.json`
-    /// (Chunk 3). Re-points at the session's project on appear/cwd change.
+    /// The flow being sketched — a single global document (like a skill), the same
+    /// in every session and tab. Persisted to the app's global flow path.
     @StateObject private var flowStore = FlowStore()
     /// True from sending a flow to Claude until its turn ends — drives the editor's
     /// spinner and triggers the review reload when Claude finishes.
@@ -52,65 +52,27 @@ struct QAChatBox: View {
         }
     }
 
-    /// The chat docked beneath the terminal: question (if any) on top, the answer
-    /// scrolling in the middle, the input pinned at the bottom. Fills its region.
+    /// The chat docked beneath the terminal. One pane, two faces: the
+    /// conversation (question on top, answer scrolling) or — when the flow toggle
+    /// is on — the flow builder (its toggle + library header on top, the editable
+    /// spine filling the body). Either way the input is pinned at the bottom, so
+    /// in flow mode you can still type a note to send alongside the flow.
     private var dockedView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if settings.hasSeenWelcome, let q = session.displayedQuestion, !q.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    questionRow(q)
-                    if session.exchanges.count > 1 { historyNav }
-                }
-                .padding(.horizontal, 18).padding(.top, 12)
-                Rectangle().fill(Color(theme.border).opacity(0.6)).frame(height: 1)
-                    .padding(.vertical, 10).padding(.horizontal, 18)
-            } else {
-                Color.clear.frame(height: 12)
+            // Chat mode: the conversation fills the pane, the input sits beneath
+            // it. Flow mode: the input container itself grows up to fill the pane
+            // and hold the builder, so the conversation steps aside entirely.
+            if !flowMode {
+                conversationPane
+                Rectangle().fill(Color(theme.border).opacity(0.5)).frame(height: 1)
             }
-            ZStack(alignment: .bottom) {
-                // The conversation region — always rendered. In flow mode it dims
-                // back as the editor sheet floats over it, so toggling never tears
-                // down (or loses the scroll position of) Claude's answer.
-                Group {
-                    if !settings.hasSeenWelcome {
-                        // First-run welcome takes priority over everything else.
-                        ScrollView {
-                            welcomeCard
-                                .padding(.horizontal, settings.chatMargin).padding(.bottom, 8)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    } else if !session.isBrowsingHistory && session.pendingPrompt == nil && working {
-                        // Centre the Idealizing animation in the pane while working.
-                        workingView.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                    } else {
-                        ScrollView {
-                            answerArea
-                                .padding(.horizontal, settings.chatMargin)
-                                .padding(.bottom, 8)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .opacity(flowMode ? 0.16 : 1)
-                .allowsHitTesting(!flowMode)
-
-                // The flow editor: a floating sheet anchored to the input, leaving a
-                // sliver of the dimmed conversation visible above it. This is the
-                // input growing to hold the build — not the response being replaced.
-                if flowMode {
-                    flowEditorSheet
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Rectangle().fill(Color(theme.border).opacity(0.5)).frame(height: 1)
-            inputLozenge.padding(.horizontal, 14).padding(.vertical, 10)
+            inputLozenge
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .frame(maxHeight: flowMode ? .infinity : nil, alignment: .bottom)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(dockedBackground)
-        .onAppear { installDictationKey(); flowStore.switchProject(session.projectPath) }
-        .onChange(of: session.projectPath) { _, new in flowStore.switchProject(new) }
+        .onAppear { installDictationKey() }
         .onChange(of: session.botWorking) { _, working in
             guard !working else { return }
             // The review turn has ended — adopt Claude's `review` from disk.
@@ -122,26 +84,41 @@ struct QAChatBox: View {
         .onDisappear { removeDictationKey(); flowStore.flushSave() }
     }
 
-    /// The floating flow editor. Fills the pane down to the input, with a top
-    /// inset so the dimmed conversation peeks through above — the editor reads as
-    /// having grown up out of the input, not as a separate screen.
-    private var flowEditorSheet: some View {
-        ScrollView {
-            FlowEditorView(flow: $flowStore.flow,
-                           onReview: reviewFlow, reviewing: reviewingFlow)
-                .padding(.horizontal, settings.chatMargin)
-                .padding(.vertical, 14)
-                .frame(maxWidth: .infinity, alignment: .leading)
+    /// Chat face: the condensed question (if any) on top, then Claude's answer
+    /// (or the welcome / working state) scrolling beneath.
+    @ViewBuilder private var conversationPane: some View {
+        if settings.hasSeenWelcome, let q = session.displayedQuestion, !q.isEmpty {
+            HStack(alignment: .top, spacing: 8) {
+                questionRow(q)
+                if session.exchanges.count > 1 { historyNav }
+            }
+            .padding(.horizontal, 18).padding(.top, 12)
+            Rectangle().fill(Color(theme.border).opacity(0.6)).frame(height: 1)
+                .padding(.vertical, 10).padding(.horizontal, 18)
+        } else {
+            Color.clear.frame(height: 12)
+        }
+        Group {
+            if !settings.hasSeenWelcome {
+                // First-run welcome takes priority over everything else.
+                ScrollView {
+                    welcomeCard
+                        .padding(.horizontal, settings.chatMargin).padding(.bottom, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if !session.isBrowsingHistory && session.pendingPrompt == nil && working {
+                // Centre the Idealizing animation in the pane while working.
+                workingView.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else {
+                ScrollView {
+                    answerArea
+                        .padding(.horizontal, settings.chatMargin)
+                        .padding(.bottom, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(theme.background).opacity(0.97))
-                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color(theme.border), lineWidth: 1))
-                .shadow(color: .black.opacity(0.3), radius: 16, y: -3)
-        )
-        .padding(.horizontal, 8)
-        .padding(.top, 26)
     }
 
     /// Send the sketched flow to Claude for review. The pre-flight already gated
@@ -531,9 +508,28 @@ struct QAChatBox: View {
     /// A delicate lozenge around the input (grows as you type) plus a mini-menu.
     private var inputLozenge: some View {
         VStack(alignment: .leading, spacing: 7) {
-            // Contextual toolbar: model · effort · skills · commands.
+            // Contextual toolbar pinned at the top of the container: the chat/flow
+            // toggle, then either the chat actions (model · effort · skills ·
+            // commands) or, in flow mode, the flow library — swapped in place.
             ChatToolbar(session: session, draft: $text, flowMode: $flowMode,
                         flowStore: flowStore, focus: { focused = true })
+
+            // Flow mode: the builder lives inside this same container, which has
+            // grown upward to hold it. It scrolls; the note field stays pinned at
+            // the bottom so you can add an instruction to send with the flow.
+            if flowMode {
+                Rectangle().fill(Color(theme.border).opacity(0.45)).frame(height: 1)
+                    .padding(.vertical, 1)
+                ScrollView {
+                    FlowEditorView(flow: $flowStore.flow,
+                                   onReview: reviewFlow, reviewing: reviewingFlow)
+                        .padding(.vertical, 2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Rectangle().fill(Color(theme.border).opacity(0.45)).frame(height: 1)
+                    .padding(.vertical, 1)
+            }
             if !session.pendingAttachments.isEmpty {
                 attachmentChips
             }
@@ -572,6 +568,7 @@ struct QAChatBox: View {
             }
             miniMenu
         }
+        .frame(maxHeight: flowMode ? .infinity : nil, alignment: .bottom)
         .padding(.horizontal, 14).padding(.vertical, 9)
         .background(
             RoundedRectangle(cornerRadius: 14)
