@@ -22,8 +22,15 @@ struct QAChatBox: View {
     /// click answers immediately, Return answers the highlighted one.
     @State private var selectedOption = 1
     /// When true, the chat region shows the Flow editor instead of the answer.
-    /// Chunk 1: renders the static example spine, read-only.
     @State private var flowMode = false
+    /// The flow being sketched, persisted per-project to `.idealize/flow.json`
+    /// (Chunk 3). Re-points at the session's project on appear/cwd change.
+    @StateObject private var flowStore = FlowStore()
+    /// True from sending a flow to Claude until its turn ends — drives the editor's
+    /// spinner and triggers the review reload when Claude finishes.
+    @State private var reviewingFlow = false
+    /// True while Claude is carrying out the flow (the verdict-gated Run).
+    @State private var runningFlow = false
     @FocusState private var focused: Bool
 
     private var theme: Theme { settings.theme }
@@ -49,40 +56,51 @@ struct QAChatBox: View {
     /// scrolling in the middle, the input pinned at the bottom. Fills its region.
     private var dockedView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if settings.hasSeenWelcome, let q = session.userQuestion, !q.isEmpty {
-                questionRow(q).padding(.horizontal, 18).padding(.top, 12)
+            if settings.hasSeenWelcome, let q = session.displayedQuestion, !q.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    questionRow(q)
+                    if session.exchanges.count > 1 { historyNav }
+                }
+                .padding(.horizontal, 18).padding(.top, 12)
                 Rectangle().fill(Color(theme.border).opacity(0.6)).frame(height: 1)
                     .padding(.vertical, 10).padding(.horizontal, 18)
             } else {
                 Color.clear.frame(height: 12)
             }
-            Group {
+            ZStack(alignment: .bottom) {
+                // The conversation region — always rendered. In flow mode it dims
+                // back as the editor sheet floats over it, so toggling never tears
+                // down (or loses the scroll position of) Claude's answer.
+                Group {
+                    if !settings.hasSeenWelcome {
+                        // First-run welcome takes priority over everything else.
+                        ScrollView {
+                            welcomeCard
+                                .padding(.horizontal, settings.chatMargin).padding(.bottom, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else if !session.isBrowsingHistory && session.pendingPrompt == nil && working {
+                        // Centre the Idealizing animation in the pane while working.
+                        workingView.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    } else {
+                        ScrollView {
+                            answerArea
+                                .padding(.horizontal, settings.chatMargin)
+                                .padding(.bottom, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .opacity(flowMode ? 0.16 : 1)
+                .allowsHitTesting(!flowMode)
+
+                // The flow editor: a floating sheet anchored to the input, leaving a
+                // sliver of the dimmed conversation visible above it. This is the
+                // input growing to hold the build — not the response being replaced.
                 if flowMode {
-                    // The "second view": the Flow editor. Chunk 1 renders the
-                    // static example spine, read-only.
-                    ScrollView {
-                        FlowSpineView(graph: Flow.example.flow)
-                            .padding(.horizontal, settings.chatMargin)
-                            .padding(.vertical, 8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                } else if !settings.hasSeenWelcome {
-                    // First-run welcome takes priority over everything else.
-                    ScrollView {
-                        welcomeCard
-                            .padding(.horizontal, settings.chatMargin).padding(.bottom, 8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                } else if session.pendingPrompt == nil && working {
-                    // Centre the Idealizing animation in the pane while working.
-                    workingView.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                } else {
-                    ScrollView {
-                        answerArea
-                            .padding(.horizontal, settings.chatMargin)
-                            .padding(.bottom, 8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                    flowEditorSheet
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -91,8 +109,79 @@ struct QAChatBox: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(dockedBackground)
-        .onAppear { installDictationKey() }
-        .onDisappear { removeDictationKey() }
+        .onAppear { installDictationKey(); flowStore.switchProject(session.projectPath) }
+        .onChange(of: session.projectPath) { _, new in flowStore.switchProject(new) }
+        .onChange(of: session.botWorking) { _, working in
+            guard !working else { return }
+            // The review turn has ended — adopt Claude's `review` from disk.
+            if reviewingFlow { reviewingFlow = false; flowStore.reloadReview() }
+            // The run turn has ended — adopt Claude's `run` checkpoint from disk so
+            // the editor shows progress and can offer Resume if it stopped partway.
+            if runningFlow { runningFlow = false; flowStore.reloadRun() }
+        }
+        .onDisappear { removeDictationKey(); flowStore.flushSave() }
+    }
+
+    /// The floating flow editor. Fills the pane down to the input, with a top
+    /// inset so the dimmed conversation peeks through above — the editor reads as
+    /// having grown up out of the input, not as a separate screen.
+    private var flowEditorSheet: some View {
+        ScrollView {
+            FlowEditorView(flow: $flowStore.flow,
+                           onReview: reviewFlow, reviewing: reviewingFlow)
+                .padding(.horizontal, settings.chatMargin)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(theme.background).opacity(0.97))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color(theme.border), lineWidth: 1))
+                .shadow(color: .black.opacity(0.3), radius: 16, y: -3)
+        )
+        .padding(.horizontal, 8)
+        .padding(.top, 26)
+    }
+
+    /// Send the sketched flow to Claude for review. The pre-flight already gated
+    /// the button, so by here the structure is sound. We flush the file (Claude
+    /// reads it), close the editor so the work is visible, and run `/flow-review`;
+    /// `onChange(botWorking)` reloads the verdict when the turn ends.
+    private func reviewFlow() {
+        flowStore.flushSave()
+        reviewingFlow = true
+        withAnimation(LeafPaneView.modeAnim) { flowMode = false }
+        session.runCommand("/flow-review")
+    }
+
+    /// True when the working flow is worth handing to Claude: it has steps and no
+    /// blocking structural errors. Drives the input's send arrow in flow mode.
+    private var canSendFlow: Bool {
+        !flowStore.flow.flow.blocks.isEmpty &&
+        !flowStore.flow.flow.validate().contains { $0.severity == .error }
+    }
+
+    /// The primary "send to Claude" path for a flow: hand it over to be carried
+    /// out. Bound to the input's send arrow while in flow mode. Flushes the file,
+    /// closes the editor to watch the work, and runs `/flow-run`.
+    /// True when the working flow has a stopped run to pick up — the send arrow
+    /// then reads as Resume rather than a fresh send.
+    private var flowIsResumable: Bool { flowStore.resumableRun != nil }
+
+    private func sendFlow() {
+        guard canSendFlow else { return }
+        // A fresh send forgets stale progress (a finished or abandoned run) so the
+        // skill starts from the top; a resumable run is left intact so it picks up
+        // from where it stopped. The skill decides start-vs-resume from the file.
+        if !flowIsResumable { flowStore.clearRun() }
+        flowStore.flushSave()
+        runningFlow = true
+        withAnimation(LeafPaneView.modeAnim) { flowMode = false }
+        // Any text typed in the input rides along as an extra instruction for the run.
+        let note = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        session.runCommand(note.isEmpty ? "/flow-run" : "/flow-run \(note)")
+        text = ""
     }
 
     /// The chat card (modal) background. A custom Chat appearance carries its own
@@ -222,16 +311,44 @@ struct QAChatBox: View {
         }
     }
 
+    /// Back/forward pager for stepping through past Q&A exchanges. Sits beside the
+    /// condensed question; the forward edge returns to live.
+    private var historyNav: some View {
+        HStack(spacing: 9) {
+            Button(action: { session.historyBack() }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: size - 3, weight: .semibold))
+                    .foregroundStyle(Color(theme.secondaryForeground).opacity(session.canGoBack ? 1 : 0.3))
+            }
+            .buttonStyle(.plain).disabled(!session.canGoBack).help("Previous message")
+
+            if let pos = session.historyPosition {
+                Text(pos)
+                    .font(settings.ui(size - 4, .medium)).monospacedDigit()
+                    .foregroundStyle(chatStyle.secondaryTextColor)
+            }
+
+            Button(action: { session.historyForward() }) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: size - 3, weight: .semibold))
+                    .foregroundStyle(Color(theme.secondaryForeground).opacity(session.canGoForward ? 1 : 0.3))
+            }
+            .buttonStyle(.plain).disabled(!session.canGoForward).help("Next message")
+        }
+        .padding(.top, (size - 2) * 0.16)
+        .fixedSize()
+    }
+
     @ViewBuilder private var answerArea: some View {
-        if let prompt = session.pendingPrompt {
+        if !session.isBrowsingHistory, let prompt = session.pendingPrompt {
             promptView(prompt)
-        } else if working {
+        } else if !session.isBrowsingHistory && working {
             workingView
-        } else if session.liveInteractivePrompt {
+        } else if !session.isBrowsingHistory && session.liveInteractivePrompt {
             // The live terminal is on a prompt the chat can't render. Reflect
             // that instead of the previous (now stale) transcript answer.
             terminalAttentionView
-        } else if let a = session.assistantMessage, !a.isEmpty {
+        } else if let a = session.displayedAnswer, !a.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "sparkles")
@@ -415,7 +532,8 @@ struct QAChatBox: View {
     private var inputLozenge: some View {
         VStack(alignment: .leading, spacing: 7) {
             // Contextual toolbar: model · effort · skills · commands.
-            ChatToolbar(session: session, draft: $text, flowMode: $flowMode, focus: { focused = true })
+            ChatToolbar(session: session, draft: $text, flowMode: $flowMode,
+                        flowStore: flowStore, focus: { focused = true })
             if !session.pendingAttachments.isEmpty {
                 attachmentChips
             }
@@ -428,7 +546,7 @@ struct QAChatBox: View {
                 // content internally so nothing is clipped out of reach (the
                 // vertical TextField scrolls past its line-limit natively). Its
                 // line-spacing is independent of the chat answer/modal.
-                TextField("", text: $text, axis: .vertical)
+                TextField(flowMode ? "Add a note for Claude (optional)…" : "", text: $text, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(chatStyle.font(size))
                     .foregroundStyle(chatTextColor)
@@ -436,9 +554,11 @@ struct QAChatBox: View {
                     .lineLimit(1...14)
                     .focused($focused)
                     .onSubmit { onReturn() }
-                // Always-available send shortcut (⌘↩), plus a visible button.
-                Button(action: send) {
-                    Image(systemName: "arrow.up")
+                // Always-available send shortcut (⌘↩), plus a visible button. In
+                // flow mode the arrow hands the whole flow to Claude rather than
+                // the typed text — the single "send this flow" action.
+                Button(action: { flowMode ? sendFlow() : send() }) {
+                    Image(systemName: flowMode ? (flowIsResumable ? "play.fill" : "paperplane.fill") : "arrow.up")
                         .font(.system(size: size - 4, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
@@ -446,7 +566,9 @@ struct QAChatBox: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(text.isEmpty)
+                .disabled(flowMode ? !canSendFlow : text.isEmpty)
+                .help(flowMode ? (flowIsResumable ? "Resume this flow where it left off"
+                                                  : "Send this flow to Claude to carry out") : "Send")
             }
             miniMenu
         }
@@ -595,6 +717,12 @@ struct QAChatBox: View {
     /// haven't typed anything, answer the highlighted option; otherwise send the
     /// message (honouring the return-to-send setting).
     private func onReturn() {
+        // In flow mode, Return hands the flow to Claude (honouring return-to-send),
+        // so the note field doesn't swallow the primary action.
+        if flowMode {
+            if settings.returnToSend { sendFlow() }
+            return
+        }
         if let prompt = session.pendingPrompt, !prompt.isMultiSelect,
            text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let opt = prompt.options.first(where: { $0.number == selectedOption }) {

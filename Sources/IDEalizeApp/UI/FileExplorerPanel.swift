@@ -75,6 +75,13 @@ struct FileExplorerPanel: View {
                             .background(RoundedRectangle(cornerRadius: 8).fill(settings.actionStyle.fill))
                             .foregroundStyle(.white)
                     }.buttonStyle(.plain)
+                    Button(action: { workspace.newProject() }) {
+                        Label("New Project", systemImage: "folder.badge.plus")
+                            .font(settings.ui(12, .medium))
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(RoundedRectangle(cornerRadius: 8).stroke(Color(theme.border), lineWidth: 1))
+                            .foregroundStyle(Color(theme.foreground))
+                    }.buttonStyle(.plain)
                     Spacer()
                 }.frame(maxWidth: .infinity)
             }

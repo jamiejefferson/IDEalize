@@ -27,33 +27,61 @@ enum ClaudeTranscript {
             .max { a, b in modDate(a) < modDate(b) }
     }
 
+    /// The transcript for a specific session id under a project's cwd, if it
+    /// exists yet. Used to read exactly the Claude we launched (`--session-id`).
+    static func transcript(forCwd cwd: String, sessionId: String) -> URL? {
+        let url = projectsRoot()
+            .appendingPathComponent(encodedDir(for: cwd), isDirectory: true)
+            .appendingPathComponent(sessionId + ".jsonl")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     static func modDate(_ url: URL) -> Date {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+    }
+
+    /// One real user prompt and Claude's reply to it. `answer` is nil while
+    /// Claude is still working (no assistant text has followed the prompt yet).
+    struct Exchange: Equatable, Identifiable {
+        let index: Int
+        let question: String
+        let answer: String?
+        var id: Int { index }
+    }
+
+    /// Every Q&A turn in the transcript, oldest→newest. Each real user prompt
+    /// opens an exchange; the last assistant text before the next prompt is its
+    /// answer (mirroring `lastExchange`'s "latest block wins" behaviour). Powers
+    /// the chat's back/forward history navigation.
+    static func allExchanges(in url: URL) -> [Exchange] {
+        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        var out: [Exchange] = []
+        var question: String?
+        var answer: String?
+        func flush() {
+            guard let q = question else { return }
+            out.append(Exchange(index: out.count, question: q, answer: answer))
+        }
+        for line in raw.split(separator: "\n") {
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let type = obj["type"] as? String else { continue }
+            if type == "user", let t = userText(obj), isUserPrompt(t) {
+                flush(); question = t; answer = nil
+            } else if type == "assistant", let t = assistantText(obj), question != nil {
+                answer = t
+            }
+        }
+        flush()
+        return out
     }
 
     /// The latest user prompt and Claude's answer to it. `answer` is nil while
     /// Claude is still working (the most recent message is the user's question
     /// with no assistant reply after it yet).
     static func lastExchange(in url: URL) -> (question: String?, answer: String?) {
-        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return (nil, nil) }
-        var question: String?
-        var answer: String?
-        var questionIdx = -1
-        var answerIdx = -1
-        var i = 0
-        for line in raw.split(separator: "\n") {
-            defer { i += 1 }
-            guard let data = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let type = obj["type"] as? String else { continue }
-            if type == "user", let t = userText(obj), isUserPrompt(t) {
-                question = t; questionIdx = i
-            } else if type == "assistant", let t = assistantText(obj) {
-                answer = t; answerIdx = i
-            }
-        }
-        // Only show the answer if it came after the latest question.
-        return (question, answerIdx > questionIdx ? answer : nil)
+        guard let last = allExchanges(in: url).last else { return (nil, nil) }
+        return (last.question, last.answer)
     }
 
     private static func assistantText(_ obj: [String: Any]) -> String? {

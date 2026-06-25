@@ -27,22 +27,106 @@ struct AppearancePanel: View {
             header
             Divider().overlay(Color(theme.border))
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    themeSection
-                    panelPicker
-                    typographySection
-                    backgroundSection
-                    actionSection
-                    appWideSection
+                VStack(alignment: .leading, spacing: 14) {
+                    themeCard
+                    perPanelCard
+                    actionCard
+                    appTypographyCard
+                    chatCard
+                    terminalCard
                     resetRow
                 }
                 .padding(16)
+                .padding(.bottom, 28)   // clear the last card from the window edge
             }
         }
-        .frame(width: 340)
+        .frame(width: 360)
         .frame(maxHeight: .infinity)
         .background(Color(theme.chrome))
         .overlay(alignment: .leading) { Rectangle().fill(Color(theme.border)).frame(width: 1) }
+    }
+
+    // MARK: - Cards (grouped, spaced — the gaps give the scroll wheel a target
+    // that isn't a slider, which is what made the old flat list feel unscrollable)
+
+    /// A titled, bordered group. `subtitle` shows a faint qualifier (e.g. the
+    /// panel being edited, or "global").
+    private func card<Content: View>(_ title: String, subtitle: String? = nil,
+                                     @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 6) {
+                Text(title).font(settings.ui(11, .semibold)).foregroundStyle(Color(theme.foreground))
+                if let subtitle {
+                    Text("· \(subtitle)").font(settings.ui(9))
+                        .foregroundStyle(Color(theme.secondaryForeground)).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            content()
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(theme.surface).opacity(0.45)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color(theme.border).opacity(0.5), lineWidth: 1))
+    }
+
+    /// A faint sub-heading inside a card, separating sub-groups.
+    private func subLabel(_ s: String) -> some View {
+        Text(s.uppercased()).font(settings.ui(9, .semibold)).tracking(0.6)
+            .foregroundStyle(Color(theme.secondaryForeground).opacity(0.85))
+            .padding(.top, 3)
+    }
+
+    private var themeCard: some View {
+        card("Theme") {
+            VStack(spacing: 6) { ForEach(Theme.all) { themeRow($0) } }
+        }
+    }
+
+    /// The USP: the picker plus the chosen panel's typography and background.
+    private var perPanelCard: some View {
+        card("Per-panel style", subtitle: kind.label) {
+            panelPicker
+            Rectangle().fill(Color(theme.border).opacity(0.4)).frame(height: 1).padding(.vertical, 2)
+            subLabel("Typography")
+            typographyRows
+            subLabel("Background")
+            backgroundRows
+        }
+    }
+
+    private var actionCard: some View {
+        card("Action colour", subtitle: "global") { actionRows }
+    }
+
+    private var appTypographyCard: some View {
+        card("App typography") {
+            globalFontRow("Interface font", $settings.uiFontName, families: allFamilies)
+            slider("Interface size", $settings.uiFontSize, 10...18, step: 1) { String(format: "%.0f", $0) }
+            globalFontRow("Terminal font", $settings.fontName, families: terminalFamilies)
+            slider("Terminal size", $settings.fontSize, 9...28, step: 1) { String(format: "%.0f", $0) }
+        }
+    }
+
+    private var chatCard: some View {
+        card("Chat") {
+            slider("Input opacity", $settings.chatInputOpacity, 0.3...1.0, step: 0.02) { String(format: "%.0f%%", $0 * 100) }
+            slider("Input spacing", $settings.chatInputLineSpacing, 0...16, step: 0.5) { String(format: "%.1f", $0) }
+            slider("Shadow", $settings.chatShadowOpacity, 0...0.8, step: 0.02) { String(format: "%.0f%%", $0 * 100) }
+            slider("Margins", $settings.chatMargin, 8...40, step: 1) { String(format: "%.0f", $0) }
+            HStack {
+                Text("Send on Return").font(settings.ui(12)).foregroundStyle(Color(theme.secondaryForeground))
+                Spacer()
+                Toggle("", isOn: $settings.returnToSend).labelsHidden().controlSize(.mini)
+            }
+        }
+    }
+
+    private var terminalCard: some View {
+        card("Terminal") {
+            slider("Blur", $settings.terminalBlur, 0...20, step: 1) { String(format: "%.0f", $0) }
+            slider("Margins", $settings.terminalMargin, 0...80, step: 2) { String(format: "%.0f", $0) }
+        }
     }
 
     // MARK: Header
@@ -66,7 +150,6 @@ struct AppearancePanel: View {
 
     private var panelPicker: some View {
         VStack(alignment: .leading, spacing: 7) {
-            sectionLabel("EDITING PANEL")
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
                 ForEach(PanelKind.allCases) { p in
                     Button(action: { workspace.appearanceTarget = p }) {
@@ -94,9 +177,8 @@ struct AppearancePanel: View {
 
     // MARK: Typography
 
-    private var typographySection: some View {
+    private var typographyRows: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionLabel("TYPOGRAPHY")
             fontRow
             weightRow
             slider("Size", appearance.fontSize, 0...28, step: 0.5,
@@ -131,9 +213,8 @@ struct AppearancePanel: View {
 
     // MARK: Background
 
-    private var backgroundSection: some View {
+    private var backgroundRows: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionLabel("BACKGROUND")
             Picker("", selection: appearance.bgMode) {
                 Text("Inherit").tag(FillMode.inherit.rawValue)
                 Text("Solid").tag(FillMode.solid.rawValue)
@@ -160,13 +241,9 @@ struct AppearancePanel: View {
 
     // MARK: Action colour (global)
 
-    private var actionSection: some View {
+    private var actionRows: some View {
         let action = Binding(get: { settings.actionAppearance }, set: { settings.actionAppearance = $0 })
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                sectionLabel("ACTION COLOUR")
-                Text("· global").font(settings.ui(9)).foregroundStyle(Color(theme.secondaryForeground))
-            }
             Text("Buttons, selected-panel borders & active toolbar icons.")
                 .font(settings.ui(10)).foregroundStyle(Color(theme.secondaryForeground))
             Picker("", selection: action.mode) {
@@ -207,15 +284,6 @@ struct AppearancePanel: View {
 
     // MARK: Theme
 
-    private var themeSection: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            sectionLabel("THEME")
-            VStack(spacing: 6) {
-                ForEach(Theme.all) { t in themeRow(t) }
-            }
-        }
-    }
-
     private func themeRow(_ t: Theme) -> some View {
         let selected = settings.themeName == t.name
         return Button(action: { settings.themeName = t.name }) {
@@ -242,28 +310,6 @@ struct AppearancePanel: View {
         }.buttonStyle(.plain)
     }
 
-    // MARK: App-wide (global typography + chat behaviour)
-
-    private var appWideSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionLabel("APP-WIDE")
-            globalFontRow("Interface font", $settings.uiFontName, families: allFamilies)
-            slider("Interface size", $settings.uiFontSize, 10...18, step: 1) { String(format: "%.0f", $0) }
-            globalFontRow("Terminal font", $settings.fontName, families: terminalFamilies)
-            slider("Terminal size", $settings.fontSize, 9...28, step: 1) { String(format: "%.0f", $0) }
-            slider("Chat input opacity", $settings.chatInputOpacity, 0.3...1.0, step: 0.02) { String(format: "%.0f%%", $0 * 100) }
-            slider("Input line-spacing", $settings.chatInputLineSpacing, 0...16, step: 0.5) { String(format: "%.1f", $0) }
-            slider("Chat shadow", $settings.chatShadowOpacity, 0...0.8, step: 0.02) { String(format: "%.0f%%", $0 * 100) }
-            slider("Terminal blur", $settings.terminalBlur, 0...20, step: 1) { String(format: "%.0f", $0) }
-            slider("Chat margins", $settings.chatMargin, 8...40, step: 1) { String(format: "%.0f", $0) }
-            HStack {
-                Text("Return key sends").font(settings.ui(12)).foregroundStyle(Color(theme.secondaryForeground))
-                Spacer()
-                Toggle("", isOn: $settings.returnToSend).labelsHidden().controlSize(.mini)
-            }
-        }
-    }
-
     private func globalFontRow(_ label: String, _ binding: Binding<String>, families: [String]) -> some View {
         HStack {
             Text(label).font(settings.ui(12)).foregroundStyle(Color(theme.secondaryForeground))
@@ -274,19 +320,14 @@ struct AppearancePanel: View {
 
     // MARK: Reusable controls
 
-    private func sectionLabel(_ s: String) -> some View {
-        Text(s).font(settings.ui(10, .semibold)).tracking(0.8)
-            .foregroundStyle(Color(theme.secondaryForeground))
-    }
-
     private func slider(_ label: String, _ value: Binding<Double>, _ range: ClosedRange<Double>,
                         step: Double, display: @escaping (Double) -> String) -> some View {
         HStack(spacing: 8) {
             Text(label).font(settings.ui(12)).foregroundStyle(Color(theme.secondaryForeground))
-                .frame(width: 96, alignment: .leading)
+                .frame(width: 100, alignment: .leading).lineLimit(1)
             Slider(value: value, in: range, step: step).controlSize(.small)
             Text(display(value.wrappedValue)).font(settings.ui(11, .medium).monospacedDigit())
-                .foregroundStyle(Color(theme.foreground)).frame(width: 44, alignment: .trailing)
+                .foregroundStyle(Color(theme.foreground)).frame(width: 42, alignment: .trailing)
         }
     }
 

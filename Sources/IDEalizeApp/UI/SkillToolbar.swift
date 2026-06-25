@@ -152,43 +152,179 @@ struct ChatToolbar: View {
     /// Switches the chat region between the conversation and the Flow editor —
     /// the "second view" in the input field.
     @Binding var flowMode: Bool
+    /// The flow library lives beside the toggle: save the working flow, or open a
+    /// saved one. Only surfaced while sketching a flow.
+    @ObservedObject var flowStore: FlowStore
     var focus: () -> Void
 
     var body: some View {
         HStack(spacing: 7) {
-            FlowTogglePill(on: $flowMode)
-            ModelPill(session: session)
-            EffortPill(session: session)
-            SkillsPill(session: session, draft: $draft, focus: focus)
-            CommandsPill(session: session)
+            FlowModeToggle(on: $flowMode)
+            if flowMode {
+                FlowLibraryButton(flowStore: flowStore)
+            } else {
+                ModelPill(session: session)
+                EffortPill(session: session)
+                SkillsPill(session: session, draft: $draft, focus: focus)
+                CommandsPill(session: session)
+            }
             Spacer(minLength: 0)
         }
     }
 }
 
-/// A two-state pill that flips the chat region into the Flow editor. Reads as
-/// "Chat ⇄ Flow"; the active side is tinted with the action colour.
-private struct FlowTogglePill: View {
+/// A sliding two-icon toggle flipping the chat region between the conversation
+/// and the Flow editor. Deliberately the same slide-toggle language as the pane's
+/// Chat/Terminal `ModeToggle` — a springy knob under the active icon, icons that
+/// bounce, a press dip — so the two reads as members of one family.
+private struct FlowModeToggle: View {
     @Binding var on: Bool
     @ObservedObject private var settings = AppSettings.shared
+    @State private var pressed = false
+    private var theme: Theme { settings.theme }
+
+    private let slot: CGFloat = 30
+    private let height: CGFloat = 24
+
+    var body: some View {
+        ZStack(alignment: on ? .trailing : .leading) {
+            // Track.
+            Capsule()
+                .fill(Color(theme.surface).opacity(0.95))
+                .overlay(Capsule().strokeBorder(Color(theme.border), lineWidth: 1))
+            // Sliding knob.
+            Capsule()
+                .fill(settings.actionStyle.fill)
+                .frame(width: slot - 4, height: height - 4)
+                .padding(2)
+                .shadow(color: .black.opacity(0.28), radius: 3, y: 1)
+            // Icons.
+            HStack(spacing: 0) {
+                icon("bubble.left.fill", active: !on)
+                icon("arrow.triangle.branch", active: on)
+            }
+        }
+        .frame(width: slot * 2, height: height)
+        .scaleEffect(pressed ? 0.93 : 1)
+        .animation(.spring(response: 0.34, dampingFraction: 0.6), value: on)
+        .animation(.spring(response: 0.25, dampingFraction: 0.55), value: pressed)
+        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+        .contentShape(Capsule())
+        .onLongPressGesture(minimumDuration: 0.6, maximumDistance: 40,
+                            perform: {}, onPressingChanged: { pressed = $0 })
+        .simultaneousGesture(TapGesture().onEnded {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.6)) { on.toggle() }
+        })
+        .help(on ? "Back to chat" : "Sketch a flow — define the steps of a longer job")
+    }
+
+    private func icon(_ name: String, active: Bool) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(active ? .white : Color(theme.secondaryForeground))
+            .scaleEffect(active ? 1 : 0.82)
+            .symbolEffect(.bounce, value: on)
+            .frame(width: slot, height: height)
+    }
+}
+
+/// The flow library, sat beside the toggle while sketching: save the working flow
+/// under a name, or re-open a saved one. Storage is the project's `.idealize/flows`
+/// folder (see `FlowStore`), so a project's flows travel with its code.
+private struct FlowLibraryButton: View {
+    @ObservedObject var flowStore: FlowStore
+    @State private var open = false
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Button(action: { open.toggle() }) { Pill("tray.full", "Library") }
+            .buttonStyle(.plain)
+            .help("Save this flow, or open a saved one")
+            .popover(isPresented: $open, arrowEdge: .top) {
+                FlowLibraryPopover(flowStore: flowStore) { open = false }
+            }
+    }
+}
+
+private struct FlowLibraryPopover: View {
+    @ObservedObject var flowStore: FlowStore
+    let onClose: () -> Void
+    @ObservedObject private var settings = AppSettings.shared
+    @State private var saveName = ""
+    @State private var saved: [SavedFlowRef] = []
     private var theme: Theme { settings.theme }
 
     var body: some View {
-        Button(action: { on.toggle() }) {
-            HStack(spacing: 5) {
-                Image(systemName: on ? "point.topleft.down.curvedto.point.bottomright.up" : "bubble.left.and.bubble.right")
-                    .font(.system(size: 11))
-                    .foregroundStyle(on ? .white : settings.actionStyle.color)
-                Text(on ? "Flow" : "Chat")
-                    .font(settings.ui(11, .medium))
-                    .foregroundStyle(on ? .white : Color(theme.foreground))
+        VStack(alignment: .leading, spacing: 0) {
+            Text("FLOW LIBRARY").font(settings.ui(9, .semibold)).tracking(0.8)
+                .foregroundStyle(Color(theme.secondaryForeground))
+                .padding(.horizontal, 12).padding(.top, 11).padding(.bottom, 7)
+
+            // Save the working flow.
+            HStack(spacing: 7) {
+                TextField("Name this flow…", text: $saveName)
+                    .textFieldStyle(.plain).font(settings.ui(12))
+                    .onSubmit(save)
+                Button(action: save) {
+                    Image(systemName: "square.and.arrow.down.fill").font(.system(size: 12))
+                        .foregroundStyle(.white)
+                        .frame(width: 26, height: 22)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(settings.actionStyle.fill))
+                }
+                .buttonStyle(.plain).help("Save this flow")
+                .disabled(flowStore.flow.flow.blocks.isEmpty)
             }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(Capsule().fill(on ? AnyShapeStyle(settings.actionStyle.fill) : AnyShapeStyle(Color(theme.surface))))
-            .overlay(Capsule().strokeBorder(on ? .clear : Color(theme.border), lineWidth: 1))
+            .padding(.horizontal, 10).padding(.bottom, 9)
+
+            Divider()
+
+            if saved.isEmpty {
+                Text("No saved flows yet — name and save one above.")
+                    .font(settings.ui(11)).foregroundStyle(Color(theme.secondaryForeground))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(14)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(saved) { ref in row(ref) }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(maxHeight: 280)
+            }
         }
-        .buttonStyle(.plain)
-        .help(on ? "Back to chat" : "Sketch a flow — define the steps of a longer job")
+        .frame(width: 300)
+        .background(Color(theme.chrome))
+        .onAppear { saveName = flowStore.flow.title; reload() }
+    }
+
+    private func reload() { saved = flowStore.savedFlows() }
+
+    private func save() {
+        guard !flowStore.flow.flow.blocks.isEmpty else { return }
+        flowStore.saveCurrent(named: saveName)
+        reload()
+    }
+
+    private func row(_ ref: SavedFlowRef) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 11)).foregroundStyle(settings.actionStyle.color).frame(width: 16)
+            Button(action: { flowStore.openSaved(ref); onClose() }) {
+                Text(ref.title).font(settings.ui(12, .medium))
+                    .foregroundStyle(Color(theme.foreground)).lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Button(action: { flowStore.deleteSaved(ref); reload() }) {
+                Image(systemName: "trash").font(.system(size: 10))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+            }
+            .buttonStyle(.plain).help("Delete this saved flow")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .contentShape(Rectangle())
     }
 }
 

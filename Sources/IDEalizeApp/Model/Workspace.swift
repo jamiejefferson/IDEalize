@@ -180,6 +180,28 @@ final class Workspace: ObservableObject {
         return false
     }
 
+    /// Create a brand-new project folder via a Finder save dialog, then open a
+    /// terminal tab rooted in it.
+    @discardableResult
+    func newProject() -> Bool {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.title = "New Project"
+        panel.prompt = "Create"
+        panel.message = "Choose a location and name for your new project folder"
+        panel.nameFieldLabel = "Project name:"
+        panel.nameFieldStringValue = "Untitled Project"
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        } catch {
+            NSSound.beep()
+            return false
+        }
+        newTab(projectPath: url.path)
+        return true
+    }
+
     private func makeSession(projectPath: String?) -> TerminalSession {
         let session = TerminalSession(settings: settings, workspace: self, projectPath: projectPath)
         session.onFocusRequested = { [weak self] sid in self?.focusSession(sid) }

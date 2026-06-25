@@ -36,6 +36,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published var assistantMessage: String?
     /// The latest user prompt (shown condensed at the top of the chat panel).
     @Published var userQuestion: String?
+    /// Full Q&A history parsed from the transcript, oldest→newest. Powers the
+    /// chat's back/forward navigation through past exchanges.
+    @Published var exchanges: [ClaudeTranscript.Exchange] = []
+    /// When the user has paged back, the index into `exchanges` being shown.
+    /// nil = following the live/latest exchange (the default).
+    @Published var historyIndex: Int?
     /// Claude is actively generating a reply (drives the tab working spinner).
     @Published var botWorking: Bool = false
     /// A confirmation/choice prompt Claude is showing — answered from the chat UI.
@@ -112,6 +118,26 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     private var transcriptURL: URL?
     private var transcriptMTime: Date?
+    /// The session id we launched Claude with (`claude --session-id <uuid>`), so
+    /// we read exactly this terminal's transcript rather than the newest file in
+    /// the project dir. Without it, a Claude running elsewhere in the same folder
+    /// (Warp, another tab, a bare CLI) can be picked up instead, and its messages
+    /// would bleed into this chat. nil when Claude was started by hand.
+    private var boundSessionId: String?
+
+    /// Augment a `claude …` launch with a fresh `--session-id` so its transcript
+    /// is identifiable, unless the command already selects a session. Returns the
+    /// command unchanged for non-Claude launches.
+    private func augmentClaudeLaunch(_ command: String) -> String {
+        guard command.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
+        else { return command }
+        let selectors = ["--session-id", "--resume", "--continue", " -r ", " -c "]
+        if selectors.contains(where: { command.contains($0) })
+            || command.hasSuffix(" -r") || command.hasSuffix(" -c") { return command }
+        let uuid = UUID().uuidString.lowercased()
+        boundSessionId = uuid
+        return command + " --session-id \(uuid)"
+    }
 
     // Blocks (Warp-style command tracking via shell integration).
     @Published var blocks: [CommandBlock] = []
@@ -267,12 +293,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             args = ["--login", "--rcfile", ShellIntegration.rootDir + "/idealize.bash", "-i"]
         }
 
+        // When no project folder is set, start the shell in the user's home
+        // directory. A Finder/Dock-launched .app inherits `/` as its working
+        // directory, so passing nil here would spawn the shell in `/` and the
+        // shell-integration prompt would then report `cwd=/`.
+        let startDir = (projectPath?.isEmpty == false)
+            ? projectPath!
+            : FileManager.default.homeDirectoryForCurrentUser.path
         terminalView.startProcess(
             executable: settings.shellPath,
             args: args,
             environment: env,
             execName: nil,
-            currentDirectory: projectPath
+            currentDirectory: startDir
         )
 
         startStatusPolling()
@@ -284,6 +317,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 // Send when the shell shows its first prompt (reliable), with a
                 // fallback in case the shell-integration event never arrives.
                 pendingLaunchCommand = command
+                claudeLaunchInFlight = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                     self?.firePendingLaunch()
                 }
@@ -293,13 +327,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     /// A launch command (e.g. `claude …`) queued to run once the shell is ready.
     private var pendingLaunchCommand: String?
+    /// True from when we queue/issue a `claude` launch until it becomes the
+    /// foreground TUI (or the attempt is abandoned). The single coordination
+    /// point between the auto-launch and a user's first message: while it's set,
+    /// a first message is delivered to the coming Claude rather than racing in a
+    /// second `claude --session-id …` — the double-launch that left two stillborn
+    /// transcripts and bound the chat to the wrong one.
+    private var claudeLaunchInFlight = false
     /// Last time Claude's "working" marker was on screen (for the grace period).
     private var lastWorkingSeen: Date?
 
     private func firePendingLaunch() {
         guard let cmd = pendingLaunchCommand else { return }
         pendingLaunchCommand = nil
-        terminalView.send(txt: "\u{15}" + cmd + "\n")   // Ctrl-U clears any partial line
+        claudeLaunchInFlight = true
+        terminalView.send(txt: "\u{15}" + augmentClaudeLaunch(cmd) + "\n")   // Ctrl-U clears any partial line
     }
 
     func terminate() {
@@ -441,6 +483,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
            responder === terminalView || responder.isDescendant(of: terminalView) {
             onUserFocused?(id)
         }
+
+        // An auto-launched Claude with no queued message has no waiter to clear
+        // the in-flight flag — release it here once Claude owns the pane.
+        if claudeLaunchInFlight && tuiActive { claudeLaunchInFlight = false }
 
         refreshAssistantMessage()
         detectPrompt()
@@ -602,21 +648,98 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     private func refreshAssistantMessage() {
         guard let cwd = projectPath, !cwd.isEmpty else { return }
         guard isClaudeRunning || inAltScreen else { return }
-        guard let url = ClaudeTranscript.newestTranscript(forCwd: cwd) else { return }
+        // Prefer the transcript for the session we launched (so a Claude running
+        // elsewhere in the same folder can't bleed in); fall back to newest only
+        // when Claude was started by hand and we never bound a session id.
+        let url: URL
+        if let id = boundSessionId, let bound = ClaudeTranscript.transcript(forCwd: cwd, sessionId: id) {
+            // Normally read exactly the session we launched. But the auto-launch
+            // can go stillborn (Claude writes a few init lines under our
+            // --session-id, then the user's real conversation ends up under a
+            // different id). When the bound transcript holds no real exchange yet
+            // a strictly-newer transcript exists in the same folder, the user is
+            // really talking to that one — follow it, or the chat reads the empty
+            // bound file forever. A live parallel-tab Claude has real content, so
+            // this still won't bleed it in.
+            if let newest = ClaudeTranscript.newestTranscript(forCwd: cwd),
+               newest != bound,
+               ClaudeTranscript.modDate(newest) > ClaudeTranscript.modDate(bound),
+               transcriptIsStillborn(bound) {
+                url = newest
+            } else {
+                url = bound
+            }
+        } else if boundSessionId == nil, let newest = ClaudeTranscript.newestTranscript(forCwd: cwd) {
+            url = newest
+        } else {
+            return   // bound session's file not written yet — wait, don't grab another
+        }
         let mtime = ClaudeTranscript.modDate(url)
         if url == transcriptURL, mtime == transcriptMTime { return }
         transcriptURL = url
         transcriptMTime = mtime
-        let (q, a) = ClaudeTranscript.lastExchange(in: url)
+        let all = ClaudeTranscript.allExchanges(in: url)
+        if all != exchanges { exchanges = all }
+        let q = all.last?.question
+        let a = all.last?.answer
         if let q, q != userQuestion { userQuestion = q }
         if a != assistantMessage { assistantMessage = a }
         // NB: botWorking is driven by the on-screen "esc to interrupt" marker in
         // detectPrompt(), not the transcript — the transcript heuristic got stuck.
     }
 
+    /// A transcript with no real prompt or answer — e.g. a `--session-id` launch
+    /// that wrote a few init lines, then never carried a conversation.
+    private func transcriptIsStillborn(_ url: URL) -> Bool {
+        let e = ClaudeTranscript.lastExchange(in: url)
+        return e.question == nil && e.answer == nil
+    }
+
     /// Send a line of input: to the running TUI (e.g. Claude) on the alternate
     /// screen, or to the shell prompt otherwise.
+    // MARK: - Chat history navigation
+
+    /// True when the user has paged back to an earlier exchange (not live).
+    var isBrowsingHistory: Bool { historyIndex != nil }
+
+    /// The question to render: the parked historical one while browsing, else live.
+    var displayedQuestion: String? {
+        if let i = historyIndex, exchanges.indices.contains(i) { return exchanges[i].question }
+        return userQuestion
+    }
+
+    /// The answer to render: the parked historical one while browsing, else live.
+    var displayedAnswer: String? {
+        if let i = historyIndex, exchanges.indices.contains(i) { return exchanges[i].answer }
+        return assistantMessage
+    }
+
+    /// "2 / 12" position indicator, only while browsing.
+    var historyPosition: String? {
+        guard let i = historyIndex else { return nil }
+        return "\(i + 1) / \(exchanges.count)"
+    }
+
+    /// The index currently shown (live = the last exchange).
+    private var shownIndex: Int { historyIndex ?? (exchanges.count - 1) }
+
+    var canGoBack: Bool { shownIndex > 0 }
+    var canGoForward: Bool { historyIndex != nil }
+
+    /// Step back one exchange (older).
+    func historyBack() {
+        guard exchanges.count > 1, shownIndex > 0 else { return }
+        historyIndex = shownIndex - 1
+    }
+
+    /// Step forward one exchange; returning to the newest resumes live following.
+    func historyForward() {
+        guard let i = historyIndex else { return }
+        historyIndex = (i + 1 >= exchanges.count - 1) ? nil : i + 1
+    }
+
     func submitInput(_ text: String) {
+        historyIndex = nil   // a new message snaps the chat back to live
         if tuiActive {
             // Talking to a running Claude (or other TUI): show the question and
             // clear the prior answer while it works.
@@ -625,6 +748,17 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             botWorking = true
             agentStatus = .working
             sendLineToTUI(text)
+        } else if claudeLaunchInFlight {
+            // A launch we already issued (auto-launch, or an earlier message) is
+            // still coming up. Deliver to it — never start a second Claude, which
+            // would race two `--session-id` sessions and bind the chat to a
+            // stillborn one.
+            userQuestion = text
+            assistantMessage = nil
+            botWorking = true
+            agentStatus = .working
+            firePendingLaunch()   // no-op if the queued auto-launch already fired
+            waitForClaudeThenSend(text, attemptsLeft: 30)
         } else if blocks.isEmpty {
             // Fresh terminal — treat the first input as a chat: launch Claude,
             // then deliver the message once it's ready.
@@ -632,9 +766,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             assistantMessage = nil
             botWorking = true
             agentStatus = .working
+            claudeLaunchInFlight = true
             let launch = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             let cmd = launch.isEmpty ? "claude --dangerously-skip-permissions" : launch
-            terminalView.send(txt: "\u{15}" + cmd + "\n")
+            terminalView.send(txt: "\u{15}" + augmentClaudeLaunch(cmd) + "\n")
             waitForClaudeThenSend(text, attemptsLeft: 30)
         } else {
             // The shell is in use (e.g. after exiting Claude) — run as a normal
@@ -647,10 +782,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Poll until Claude has taken over (alt-screen / running), then deliver the
     /// queued first message. Stops if Claude never appears.
     private func waitForClaudeThenSend(_ text: String, attemptsLeft: Int) {
-        guard attemptsLeft > 0 else { return }
+        guard attemptsLeft > 0 else {
+            claudeLaunchInFlight = false   // gave up — let a later message relaunch
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self else { return }
             if self.tuiActive {
+                self.claudeLaunchInFlight = false   // Claude is up; it owns the pane now
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     self.sendLineToTUI(text)
                 }
@@ -690,6 +829,7 @@ extension TerminalSession: LocalProcessTerminalViewDelegate {
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         isRunning = false
+        claudeLaunchInFlight = false
         statusTimer?.invalidate()
         workspace?.sessionDidTerminate(self)
     }

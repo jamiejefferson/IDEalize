@@ -130,6 +130,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyDockIcon()
         NotificationManager.shared.requestAuthorization()
         SpeechDictation.shared.requestAuthorization()
+        // Push the Flow companion skill/commands into ~/.claude so every project
+        // the user opens can review and run Flows (idempotent, version-checked).
+        FlowSkillInstaller.install()
         Workspace.shared.startIPCIfNeeded()
         NSApp.activate(ignoringOtherApps: true)
     }

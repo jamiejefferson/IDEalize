@@ -60,6 +60,12 @@ final class AppSettings: ObservableObject {
     @Published var terminalBlur: Double {
         didSet { defaults.set(terminalBlur, forKey: "terminalBlur") }
     }
+    /// Left/right inset (points) between the terminal grid and the pane edges.
+    /// The gap is painted with the terminal's own background so it reads as
+    /// breathing room around the text. 0 = flush to the edges.
+    @Published var terminalMargin: Double {
+        didSet { defaults.set(terminalMargin, forKey: "terminalMargin") }
+    }
     /// Inner padding (margins) of the chat modal.
     @Published var chatMargin: Double {
         didSet { defaults.set(chatMargin, forKey: "chatMargin") }
@@ -178,6 +184,7 @@ final class AppSettings: ObservableObject {
         self.chatShadowOpacity = defaults.object(forKey: "chatShadowOpacity") as? Double ?? 0.4
         self.chatHeightFraction = defaults.object(forKey: "chatHeightFraction") as? Double ?? 0.0
         self.terminalBlur = defaults.object(forKey: "terminalBlur") as? Double ?? 3.0
+        self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? 0.0
         self.chatMargin = defaults.object(forKey: "chatMargin") as? Double ?? 18.0
         self.chatTextColorHex = defaults.string(forKey: "chatTextColorHex") ?? ""
         self.returnToSend = defaults.object(forKey: "returnToSend") as? Bool ?? true

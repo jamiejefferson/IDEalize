@@ -70,6 +70,9 @@ fi
 cp "$ROOT/Resources/AppIcon.icns" "$RES/AppIcon.icns"
 # Bundle the wordmark logo for the in-app watermark.
 [ -f "$ROOT/Resources/IDEalizeLogo.png" ] && cp "$ROOT/Resources/IDEalizeLogo.png" "$RES/IDEalizeLogo.png"
+# Bundle the Flow companion skill + commands. FlowSkillInstaller copies these
+# into the user's ~/.claude on launch so any project can review/run Flows.
+[ -d "$ROOT/Resources/FlowSkills" ] && cp -R "$ROOT/Resources/FlowSkills" "$RES/FlowSkills"
 
 # Info.plist
 cat > "$CONTENTS/Info.plist" <<'PLIST'
