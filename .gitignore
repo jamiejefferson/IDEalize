@@ -3,6 +3,5 @@ dist/
 *.xcodeproj
 .DS_Store
 .swiftpm/
-Package.resolved
 .gstack/
 node_modules/
