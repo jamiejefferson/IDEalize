@@ -80,15 +80,14 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
     /// Detect alternate-screen enter/leave within this chunk and notify on a
     /// genuine state change.
     private func updateAltScreen(_ slice: ArraySlice<UInt8>) {
-        let bytes = Array(slice)
         if !inAltScreen {
-            if Self.altSeqs.contains(where: { contains(bytes, $0) }) {
+            if Self.altSeqs.contains(where: { Self.contains(slice, $0) }) {
                 inAltScreen = true
                 let cb = onAltScreenChanged
                 DispatchQueue.main.async { cb?(true) }
             }
         } else {
-            if Self.altLeaveSeqs.contains(where: { contains(bytes, $0) }) {
+            if Self.altLeaveSeqs.contains(where: { Self.contains(slice, $0) }) {
                 inAltScreen = false
                 let cb = onAltScreenChanged
                 DispatchQueue.main.async { cb?(false) }
@@ -97,16 +96,19 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
     }
 
     private func containsAltScreen(_ slice: ArraySlice<UInt8>) -> Bool {
-        let bytes = Array(slice)
-        for seq in Self.altSeqs where contains(bytes, seq) { return true }
+        for seq in Self.altSeqs where Self.contains(slice, seq) { return true }
         return false
     }
 
-    private func contains(_ haystack: [UInt8], _ needle: [UInt8]) -> Bool {
+    static func contains(_ haystack: ArraySlice<UInt8>, _ needle: [UInt8]) -> Bool {
         guard needle.count <= haystack.count else { return false }
-        for i in 0...(haystack.count - needle.count) {
+        let lastStart = haystack.endIndex - needle.count
+        for start in haystack.startIndex...lastStart {
             var match = true
-            for j in 0..<needle.count where haystack[i + j] != needle[j] { match = false; break }
+            for offset in needle.indices where haystack[start + offset] != needle[offset] {
+                match = false
+                break
+            }
             if match { return true }
         }
         return false
