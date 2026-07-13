@@ -43,8 +43,13 @@ struct SettingsView: View {
                 Text("Claude Code can raise notifications with `idealize notify \"text\"`.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Local terminal control") {
+                Toggle("Allow same-user local IPC terminal control",
+                       isOn: $settings.allowCrossSessionControl)
+                Text("When enabled, local IPC clients running as your macOS user can type or run commands in IDEalize terminals using `idealize type` and `idealize exec`. Session IDs are routing hints, not authentication.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }
 }
-

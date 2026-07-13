@@ -119,6 +119,9 @@ func printUsage() {
       whoami                                print my session id
       ping                                  check the app is reachable
 
+    Local terminal control (`exec` / `type`) is disabled by default.
+    Enable it in IDEalize Settings → Behavior.
+
     Identity is taken from $\(IPC.sessionEnvKey).
     """)
 }

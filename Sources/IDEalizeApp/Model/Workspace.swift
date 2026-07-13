@@ -413,10 +413,26 @@ final class Workspace: ObservableObject {
             return IPCResponse(ok: true)
 
         case .input:
+            let decision = IPCInputPolicy.evaluate(
+                isEnabled: settings.allowCrossSessionControl,
+                sourceSessionID: request.from,
+                liveSessionIDs: Set(allSessions.map(\.id)),
+                body: request.body)
+            let input: String
+            switch decision {
+            case .allowed(let body):
+                input = body
+            case .denied(.disabled):
+                return .failure("cross-session terminal control is disabled in IDEalize Settings")
+            case .denied(.missingSource), .denied(.staleSource):
+                return .failure("terminal control requires a currently presented session ID")
+            case .denied(.missingBody):
+                return .failure("terminal control request is missing input")
+            }
             guard let target = request.target, let s = resolveTarget(target) else {
                 return .failure("no session matching target")
             }
-            s.insert(request.body ?? "")
+            s.insert(input)
             return IPCResponse(ok: true, info: "sent to \(s.label)")
 
         case .blocks:

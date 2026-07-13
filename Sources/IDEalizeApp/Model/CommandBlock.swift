@@ -33,10 +33,25 @@ enum ShellEvent {
 }
 
 /// Scans a raw PTY byte stream for IDEalize's custom OSC 1771 markers and emits
-/// `ShellEvent`s. Tolerates sequences split across reads via a small carry.
+/// `ShellEvent`s. Tolerates sequences split across reads while retaining at most
+/// one bounded marker payload.
 final class ShellIntegrationParser {
-    private var carry: [UInt8] = []
-    private let maxCarry = 16 * 1024
+    private enum Mode {
+        case scanning
+        case collecting
+        case discarding
+    }
+
+    private var mode: Mode = .scanning
+    private var prefixMatchCount = 0
+    private var markerPayload: [UInt8] = []
+    /// Bytes consumed for the current marker, including its prefix but excluding
+    /// the current callback byte until that byte is accepted.
+    private var markerSize = 0
+    /// In collecting mode this means the last retained payload byte was ESC. In
+    /// discard mode it remembers a possible ST terminator across callbacks.
+    private var sawEscape = false
+    private let maxMarkerSize = 16 * 1024
 
     private static let ESC: UInt8 = 0x1B
     private static let BEL: UInt8 = 0x07
@@ -46,79 +61,116 @@ final class ShellIntegrationParser {
 
     /// Feed bytes; returns any complete events found.
     func consume(_ bytes: ArraySlice<UInt8>) -> [ShellEvent] {
-        var buffer = carry
-        buffer.append(contentsOf: bytes)
-        carry.removeAll(keepingCapacity: true)
-
         var events: [ShellEvent] = []
-        var i = 0
-        let n = buffer.count
-
-        while i < n {
-            // Find next ESC.
-            guard let escIdx = nextIndex(of: Self.ESC, in: buffer, from: i) else {
-                break // no ESC; nothing pending to carry
+        for byte in bytes {
+            switch mode {
+            case .scanning:
+                scan(byte)
+            case .collecting:
+                if let event = collect(byte) { events.append(event) }
+            case .discarding:
+                discard(byte)
             }
-            // Do we have enough bytes to test the prefix?
-            if escIdx + Self.prefix.count > n {
-                // Possible partial prefix — carry from here.
-                carry = Array(buffer[escIdx...])
-                trimCarry()
-                return events
-            }
-            // Check prefix match.
-            if !matchesPrefix(buffer, at: escIdx) {
-                i = escIdx + 1
-                continue
-            }
-            // Find terminator: BEL, or ESC '\'.
-            let payloadStart = escIdx + Self.prefix.count
-            guard let termIdx = terminator(in: buffer, from: payloadStart) else {
-                // Incomplete sequence — carry from ESC.
-                carry = Array(buffer[escIdx...])
-                trimCarry()
-                return events
-            }
-            let payload = Array(buffer[payloadStart..<termIdx.start])
-            if let event = parsePayload(payload) { events.append(event) }
-            i = termIdx.end
         }
         return events
     }
 
-    // MARK: - Helpers
-
-    private func nextIndex(of byte: UInt8, in buf: [UInt8], from: Int) -> Int? {
-        var j = from
-        while j < buf.count { if buf[j] == byte { return j }; j += 1 }
-        return nil
-    }
-
-    private func matchesPrefix(_ buf: [UInt8], at idx: Int) -> Bool {
-        for (k, b) in Self.prefix.enumerated() where buf[idx + k] != b { return false }
-        return true
-    }
-
-    /// Returns the terminator range (start = first terminator byte, end = index
-    /// after the full terminator).
-    private func terminator(in buf: [UInt8], from: Int) -> (start: Int, end: Int)? {
-        var j = from
-        while j < buf.count {
-            if buf[j] == Self.BEL { return (j, j + 1) }
-            if buf[j] == Self.ESC, j + 1 < buf.count, buf[j + 1] == Self.BACKSLASH {
-                return (j, j + 2)
+    /// Match the marker prefix without retaining the input bytes. The prefix has
+    /// no self-overlap except its initial ESC, so a mismatching ESC starts a new
+    /// candidate and every other mismatch returns to zero.
+    private func scan(_ byte: UInt8) {
+        if byte == Self.prefix[prefixMatchCount] {
+            prefixMatchCount += 1
+            if prefixMatchCount == Self.prefix.count {
+                mode = .collecting
+                prefixMatchCount = 0
+                markerPayload.removeAll(keepingCapacity: true)
+                markerSize = Self.prefix.count
+                sawEscape = false
             }
-            j += 1
+        } else {
+            prefixMatchCount = byte == Self.ESC ? 1 : 0
         }
+    }
+
+    private func collect(_ byte: UInt8) -> ShellEvent? {
+        // BEL always terminates the marker, including when the preceding payload
+        // byte happened to be ESC.
+        if byte == Self.BEL {
+            return finishMarker(removingTrailingEscape: false)
+        }
+
+        // The ESC was retained provisionally. A following backslash makes it the
+        // two-byte ST terminator, so remove it before decoding the payload.
+        if sawEscape, byte == Self.BACKSLASH {
+            return finishMarker(removingTrailingEscape: true)
+        }
+
+        // A legal marker still needs at least one terminator byte. As soon as the
+        // current non-terminator would leave no room, drop all retained storage
+        // and ignore the frame until its real BEL/ST terminator arrives.
+        guard markerSize + 1 < maxMarkerSize else {
+            beginDiscarding(sawEscape: byte == Self.ESC)
+            return nil
+        }
+
+        markerPayload.append(byte)
+        markerSize += 1
+        sawEscape = byte == Self.ESC
         return nil
     }
 
-    private func trimCarry() {
-        if carry.count > maxCarry { carry.removeAll(keepingCapacity: true) }
+    private func finishMarker(removingTrailingEscape: Bool) -> ShellEvent? {
+        // The current BEL or trailing backslash adds one byte. (For ST, its ESC
+        // is already included in markerSize.)
+        guard markerSize + 1 <= maxMarkerSize else {
+            resetAfterOversizedMarker()
+            return nil
+        }
+
+        if removingTrailingEscape { markerPayload.removeLast() }
+        let event = parsePayload(markerPayload)
+        resetAfterCompleteMarker()
+        return event
+    }
+
+    private func beginDiscarding(sawEscape: Bool) {
+        mode = .discarding
+        markerPayload.removeAll(keepingCapacity: false)
+        markerSize = 0
+        self.sawEscape = sawEscape
+    }
+
+    /// Discard without storing bytes. Marker-looking content is deliberately not
+    /// scanned here: only the oversized frame's actual BEL/ST can resume parsing.
+    private func discard(_ byte: UInt8) {
+        if byte == Self.BEL || (sawEscape && byte == Self.BACKSLASH) {
+            mode = .scanning
+            prefixMatchCount = 0
+            sawEscape = false
+            return
+        }
+        sawEscape = byte == Self.ESC
+    }
+
+    private func resetAfterCompleteMarker() {
+        mode = .scanning
+        prefixMatchCount = 0
+        markerPayload.removeAll(keepingCapacity: true)
+        markerSize = 0
+        sawEscape = false
+    }
+
+    private func resetAfterOversizedMarker() {
+        mode = .scanning
+        prefixMatchCount = 0
+        markerPayload.removeAll(keepingCapacity: false)
+        markerSize = 0
+        sawEscape = false
     }
 
     private func parsePayload(_ payload: [UInt8]) -> ShellEvent? {
-        let str = String(decoding: payload, as: UTF8.self)
+        guard let str = String(bytes: payload, encoding: .utf8) else { return nil }
         var fields: [String: String] = [:]
         for pair in str.split(separator: ";") {
             let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
@@ -126,15 +178,17 @@ final class ShellIntegrationParser {
         }
         func decode(_ key: String) -> String? {
             guard let v = fields[key], let data = Data(base64Encoded: v) else { return nil }
-            return String(decoding: data, as: UTF8.self)
+            return String(data: data, encoding: .utf8)
         }
         switch fields["event"] {
         case "prompt":
             return .prompt(cwd: decode("cwd"))
         case "exec":
-            return .exec(command: decode("cmd") ?? "", cwd: decode("cwd"))
+            guard let command = decode("cmd") else { return nil }
+            return .exec(command: command, cwd: decode("cwd"))
         case "done":
-            return .done(exitCode: Int32(fields["exit"] ?? "0") ?? 0)
+            guard let rawExit = fields["exit"], let exitCode = Int32(rawExit) else { return nil }
+            return .done(exitCode: exitCode)
         default:
             return nil
         }

@@ -4,8 +4,13 @@ import AppKit
 /// User-facing, persisted preferences. Backed by UserDefaults.
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
+    static let allowCrossSessionControlKey = "allowCrossSessionControl"
 
     private let defaults = UserDefaults.standard
+
+    static func loadAllowCrossSessionControl(from defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: allowCrossSessionControlKey) as? Bool ?? false
+    }
 
     // MARK: Typography
     /// The terminal / monospace font (terminal grid + captured command output).
@@ -143,6 +148,11 @@ final class AppSettings: ObservableObject {
     @Published var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: "notificationsEnabled") }
     }
+    /// Permit same-user local IPC clients to inject terminal input using
+    /// `idealize exec` / `idealize type`. Off by default.
+    @Published var allowCrossSessionControl: Bool {
+        didSet { defaults.set(allowCrossSessionControl, forKey: Self.allowCrossSessionControlKey) }
+    }
     /// False until the user dismisses the first-run welcome / sends a first message.
     @Published var hasSeenWelcome: Bool {
         didSet { defaults.set(hasSeenWelcome, forKey: "hasSeenWelcome") }
@@ -190,6 +200,7 @@ final class AppSettings: ObservableObject {
         self.shellPath = defaults.string(forKey: "shellPath")
             ?? (ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
+        self.allowCrossSessionControl = Self.loadAllowCrossSessionControl(from: defaults)
         self.hasSeenWelcome = defaults.object(forKey: "hasSeenWelcome") as? Bool ?? false
         self.recentFolders = defaults.stringArray(forKey: "recentFolders") ?? []
         self.railWidth = defaults.object(forKey: "railWidth") as? Double ?? 182

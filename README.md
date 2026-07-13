@@ -31,7 +31,7 @@ friends dramatically nicer to live in.
 | Feature | What you get |
 |---|---|
 | **Cross-terminal / cross-project IPC** | Agents message each other via `idealize send`/`broadcast`/`inbox` — across tabs, panes, and projects. |
-| **Cross-terminal exec** | `idealize exec <session> <cmd>` runs a command in *another* terminal — agent orchestration. |
+| **Cross-terminal exec** | `idealize exec <session> <cmd>` runs a command in *another* terminal. Terminal control is disabled by default and can be enabled in Settings. |
 | **Block inspection over IPC** | `idealize blocks` lets an agent read what ran and the exit codes. |
 | **Real text entry + mouse** | Full SwiftTerm input: selection, copy/paste, mouse reporting for TUIs. |
 | **Typography & theming** | Any monospaced font + size + color scheme in Preferences. |
@@ -99,6 +99,12 @@ idealize ping                                    check the app is reachable
 
 A "session" can be referenced by its id (`t-a6a6`), its tab/label, or its
 project-directory name.
+
+`idealize exec` and `idealize type` are disabled by default. Enable same-user
+local IPC terminal control under Settings → Behavior to use them. Once enabled,
+any local process running as your macOS user that can access IDEalize's IPC
+socket can submit terminal input; session IDs are routing hints, not client
+authentication.
 
 ### Inter-agent messaging example
 
