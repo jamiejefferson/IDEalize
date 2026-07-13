@@ -13,6 +13,64 @@ friends dramatically nicer to live in.
 
 ---
 
+## Install
+
+Grab `IDEalize-<version>-macOS.zip` from
+[Releases](../../releases), unzip it, and drag `IDEalize.app` into
+`/Applications`.
+
+**macOS will refuse to open it the first time.** The app is ad-hoc signed and
+not notarized, so Gatekeeper flags it as coming from an unidentified developer.
+This is expected. To allow it:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/IDEalize.app
+open /Applications/IDEalize.app
+```
+
+If macOS still blocks it, open **System Settings → Privacy & Security**, scroll
+to the Security section, and click **Open Anyway** next to IDEalize.
+
+> **Apple Silicon only.** The shipped binary is arm64. It will not run on an
+> Intel Mac.
+
+To get the `idealize` CLI outside of IDEalize's own terminals:
+
+```bash
+ln -sf "/Applications/IDEalize.app/Contents/Helpers/idealize-cli" /usr/local/bin/idealize
+```
+
+---
+
+## Security & trust model
+
+Read this before running IDEalize on a machine that matters.
+
+IDEalize listens on a Unix domain socket at
+`~/Library/Application Support/IDEalize/ipc.sock`. The socket is reachable by
+**any process running as your macOS user**, and in this version the IPC input
+path is **not gated**: `idealize exec <session> <cmd>` and
+`idealize type <session> <text>` will run commands and type text into your
+terminals with no prompt and no confirmation.
+
+That is the intended feature — it is how agents drive each other — but it means
+the trust boundary is your user account, not the app. Any local process running
+as you can execute commands in your IDEalize terminals. Session IDs are routing
+hints, not authentication.
+
+Practical implications:
+
+- Don't run IDEalize on a shared or multi-user login you don't control.
+- Treat it the way you'd treat a shell with no password: anything that can run
+  as you, owns it.
+- A future release gates this behind an opt-in setting, defaulted off.
+
+The in-app feedback button posts to a hosted endpoint (insert-only, anonymous:
+your text, the app version, and your macOS version — nothing else) and keeps a
+local copy.
+
+---
+
 ## Features
 
 ### Warp-style core
@@ -205,4 +263,8 @@ ships as `Contents/Helpers/idealize-cli` and is exposed under the name
 
 ## License
 
-Personal project. SwiftTerm is MIT-licensed.
+Copyright © 2026 Jamie Jefferson. All rights reserved. See [LICENSE](LICENSE).
+
+This is unreleased software shared for evaluation. Bundled third-party
+components keep their own licenses — SwiftTerm is MIT. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) where present.

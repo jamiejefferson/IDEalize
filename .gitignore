@@ -6,3 +6,7 @@ dist/
 Package.resolved
 .gstack/
 node_modules/
+
+# local agent scaffolding / personal notes — not for the shared repo
+CLAUDE.md
+.claude/

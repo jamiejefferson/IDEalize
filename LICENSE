@@ -1,0 +1,22 @@
+Copyright © 2026 Jamie Jefferson. All rights reserved.
+
+This software is unreleased and is shared privately for evaluation and testing
+purposes only.
+
+Permission is granted to the individual it was shared with to install and run
+this software for the purpose of evaluating it and providing feedback. No other
+rights are granted. In particular, you may not redistribute, publish, sublicense,
+or sell this software or any part of it, and you may not share the binaries or
+source with third parties, without prior written permission from the copyright
+holder.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Third-party components bundled with this software are licensed separately and
+retain their own terms. SwiftTerm (https://github.com/migueldeicaza/SwiftTerm)
+is MIT-licensed.
