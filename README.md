@@ -45,17 +45,37 @@ friends dramatically nicer to live in.
 ## Build & run
 
 ```bash
-# Build the app bundle (release) into ./dist/IDEalize.app
+# Identity-signed release (requires the IDEalize Local Signing identity)
 ./scripts/build-app.sh
 
-# Build and launch immediately
-./scripts/build-app.sh --open
+# Explicit local build when no signing identity is installed
+./scripts/build-app.sh --ad-hoc
+
+# Build and launch a noncanonical local convenience copy
+./scripts/build-app.sh --ad-hoc --open
 
 # Debug build
-./scripts/build-app.sh --debug
+./scripts/build-app.sh --debug --ad-hoc
 ```
 
-Then move `dist/IDEalize.app` to `/Applications` (optional) and launch it.
+The versioned ZIP (for example,
+`dist/IDEalize-0.1.1-build3-macOS.zip`) is the sole canonical artifact. The
+build only publishes it after clean extractions pass bundle metadata,
+thin-arm64, and strict code-signature checks, and it never overwrites different
+bytes at an existing version/build path. Install by extracting the versioned
+ZIP and moving the verified `IDEalize.app` to `/Applications`.
+
+`--ad-hoc` must be explicit. It produces a local, non-notarized build with no
+publisher identity. The configured `IDEalize Local Signing` identity is also
+local and non-notarized. Either is suitable for local use, but public
+distribution requires Developer ID signing and Apple notarization. Any raw app
+in `dist/` is a noncanonical development copy and is not an installable release
+artifact.
+
+The release path audit permits one generated SwiftTerm fallback string beneath
+a randomized `/private/tmp/idealize-package.*` build directory. SwiftPM emits
+that fallback; the temporary directory is removed after packaging, and no user
+home, repository, or dependency-checkout path is retained.
 
 For development you can also run straight from SwiftPM:
 
@@ -188,7 +208,7 @@ Sources/
                     theme, process inspector, CLI shim installer
     IPC/            IPCHub (socket server), NotificationManager
     UI/             Tab bar, split panes, terminal host, settings
-scripts/build-app.sh   Builds & packages dist/IDEalize.app
+scripts/build-app.sh   Builds, signs, and verifies versioned release ZIPs
 ```
 
 **Blocks / shell integration.** SwiftTerm has no semantic-prompt support, so
