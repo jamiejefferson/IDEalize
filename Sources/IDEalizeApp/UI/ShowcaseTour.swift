@@ -131,7 +131,12 @@ struct ShowcaseTour: View {
             if let rect = spotlight { ring(rect) }
             if let step { card(step) }
         }
-        .ignoresSafeArea()
+        // Deliberately NOT `.ignoresSafeArea()`. The anchors are resolved against
+        // the GeometryReader that hosts this view; letting the stack grow past that
+        // reader shifts its topLeading origin, and every offset below — spotlight
+        // and card alike — is then drawn that much too high. It reads as "roughly
+        // right" on a full-height panel and lands squarely in the padding above a
+        // short target like the bottom toolbar.
         .onAppear(perform: begin)
         .animation(.spring(response: 0.34, dampingFraction: 0.82), value: index)
     }
