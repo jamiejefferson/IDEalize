@@ -765,7 +765,14 @@ struct QAChatBox: View {
                         if press.modifiers.contains(.command) { return .ignored }
                         let shift = press.modifiers.contains(.shift)
                         let wantsNewline = settings.returnToSend ? shift : !shift
-                        if wantsNewline { return .ignored }
+                        if wantsNewline {
+                            // Insert the line break ourselves: a vertical TextField
+                            // won't newline just because we return `.ignored` (the
+                            // key falls through to a selection command instead), so
+                            // append it explicitly and consume the event.
+                            text += "\n"
+                            return .handled
+                        }
                         onReturn()
                         return .handled
                     }
