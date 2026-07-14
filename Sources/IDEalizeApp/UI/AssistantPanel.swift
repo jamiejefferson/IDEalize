@@ -754,7 +754,21 @@ struct QAChatBox: View {
                     // where the text was getting clipped.
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .focused($focused)
-                    .onSubmit { onReturn() }
+                    // Modifier-aware Return: `.onSubmit` can't tell Shift+Return
+                    // from plain Return, so it used to send on both. With
+                    // return-to-send on, plain Return sends and Shift+Return
+                    // inserts a newline (inverted when off); ⌘↩ always sends via
+                    // the button's shortcut. Returning `.ignored` lets the
+                    // vertical field insert the line break natively.
+                    .onKeyPress { press in
+                        guard press.key == .return else { return .ignored }
+                        if press.modifiers.contains(.command) { return .ignored }
+                        let shift = press.modifiers.contains(.shift)
+                        let wantsNewline = settings.returnToSend ? shift : !shift
+                        if wantsNewline { return .ignored }
+                        onReturn()
+                        return .handled
+                    }
                     .overlay(alignment: .leading) {
                         if let ph = inputPlaceholder, text.isEmpty {
                             Text(ph)
@@ -764,21 +778,34 @@ struct QAChatBox: View {
                                 .allowsHitTesting(false)
                         }
                     }
-                // Always-available send shortcut (⌘↩), plus a visible button. In
-                // flow mode the arrow hands the whole flow to Claude rather than
-                // the typed text — the single "send this flow" action.
-                Button(action: { flowMode ? sendFlow() : send() }) {
-                    Image(systemName: flowMode ? (flowIsResumable ? "play.fill" : "paperplane.fill") : "arrow.up")
-                        .font(.system(size: size - 4, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(Circle().fill(settings.actionStyle.fill))
+                // While Claude is working, the send button becomes a Stop button —
+                // cancelling the in-flight prompt (ESC). Otherwise it sends (⌘↩),
+                // or in flow mode hands the whole flow to Claude.
+                if session.botWorking && !flowMode {
+                    Button(action: { session.interrupt() }) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: size - 7, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(settings.actionStyle.fill))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)   // Esc
+                    .help("Stop (Esc)")
+                } else {
+                    Button(action: { flowMode ? sendFlow() : send() }) {
+                        Image(systemName: flowMode ? (flowIsResumable ? "play.fill" : "paperplane.fill") : "arrow.up")
+                            .font(.system(size: size - 4, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(settings.actionStyle.fill))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(flowMode ? !canSendFlow : text.isEmpty)
+                    .help(flowMode ? (flowIsResumable ? "Resume this flow where it left off"
+                                                      : "Send this flow to Claude to carry out") : "Send")
                 }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(flowMode ? !canSendFlow : text.isEmpty)
-                .help(flowMode ? (flowIsResumable ? "Resume this flow where it left off"
-                                                  : "Send this flow to Claude to carry out") : "Send")
             }
             miniMenu
         }

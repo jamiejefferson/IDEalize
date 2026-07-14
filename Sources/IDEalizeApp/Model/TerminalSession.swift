@@ -695,6 +695,17 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         agentStatus = .working
     }
 
+    /// Cancel the prompt Claude is currently working on. Sends ESC — the key
+    /// Claude's TUI itself advertises ("esc to interrupt") — to stop it mid-turn.
+    func interrupt() {
+        guard tuiActive else { return }
+        terminalView.send(txt: "\u{1b}")   // ESC
+        pendingPrompt = nil
+        // Reflect the stop immediately; the on-screen marker poll keeps it honest.
+        botWorking = false
+        agentStatus = .idle
+    }
+
     /// While a Claude session is running here, pull its latest completed message
     /// from Claude Code's transcript (only re-reading when the file changes).
     private func refreshAssistantMessage() {
@@ -801,7 +812,20 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             userQuestion = text
             botWorking = true
             agentStatus = .working
-            sendLineToTUI(text)
+            if pendingPrompt != nil {
+                // Claude is showing a selection prompt (numbered menu). Typing a
+                // fresh instruction into that menu gets swallowed — the menu reads
+                // it as a filter/selection — so the message silently vanished.
+                // Exit the menu first (ESC), then deliver the text to the clean
+                // input line a beat later so it actually registers as a message.
+                pendingPrompt = nil
+                terminalView.send(txt: "\u{1b}")   // ESC — leave the menu
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+                    self?.sendLineToTUI(text)
+                }
+            } else {
+                sendLineToTUI(text)
+            }
         } else if claudeLaunchInFlight {
             // A launch we already issued (auto-launch, or an earlier message) is
             // still coming up. Deliver to it — never start a second Claude, which

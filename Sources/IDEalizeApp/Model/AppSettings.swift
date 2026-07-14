@@ -158,6 +158,11 @@ final class AppSettings: ObservableObject {
     @Published var hasSeenTour: Bool {
         didSet { defaults.set(hasSeenTour, forKey: "hasSeenTour") }
     }
+    /// The id of the most recent announcement the user has dismissed. Empty until
+    /// they close their first one. Used to show each announcement banner once.
+    @Published var lastSeenAnnouncementID: String {
+        didSet { defaults.set(lastSeenAnnouncementID, forKey: "lastSeenAnnouncementID") }
+    }
     /// Recently opened folders (most-recent first) for the File ▸ Open Recent menu.
     @Published var recentFolders: [String] {
         didSet { defaults.set(recentFolders, forKey: "recentFolders") }
@@ -222,6 +227,7 @@ final class AppSettings: ObservableObject {
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         self.hasSeenWelcome = defaults.object(forKey: "hasSeenWelcome") as? Bool ?? false
         self.hasSeenTour = defaults.object(forKey: "hasSeenTour") as? Bool ?? false
+        self.lastSeenAnnouncementID = defaults.string(forKey: "lastSeenAnnouncementID") ?? ""
         self.recentFolders = defaults.stringArray(forKey: "recentFolders") ?? []
         self.browseFolders = defaults.dictionary(forKey: "browseFolders") as? [String: String] ?? [:]
         self.browseOpen = defaults.dictionary(forKey: "browseOpen") as? [String: Bool] ?? [:]

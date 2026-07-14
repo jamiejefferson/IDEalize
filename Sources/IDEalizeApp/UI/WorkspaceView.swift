@@ -11,6 +11,7 @@ struct WorkspaceView: View {
     var body: some View {
         VStack(spacing: 0) {
             titleBar
+            AnnouncementBanner()
             // A plain HStack with hairline dividers — HSplitView's native divider
             // renders as a hard black line, which reads as "heavy".
             HStack(spacing: 0) {

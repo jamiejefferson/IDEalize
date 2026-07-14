@@ -13,6 +13,9 @@ struct IDEalizeApp: App {
                     workspace.startIPCIfNeeded()
                     // Fold any legacy per-project flow libraries into the global one.
                     FlowStore.migrateLegacyLibrary()
+                    // Check for a pushed announcement ("v0.x is ready", etc.) and
+                    // surface it as a dismissible banner if it's new to this user.
+                    AnnouncementStore.shared.refresh()
                     // First run: drop straight into a chat (in Home) so the
                     // welcome card greets the user — no empty-screen dead end.
                     if !AppSettings.shared.hasSeenWelcome, workspace.tabs.isEmpty {

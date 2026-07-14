@@ -268,6 +268,7 @@ final class Workspace: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true   // show Finder's "New Folder" button
         panel.prompt = "Open Terminal Here"
         panel.message = "Choose a folder for the new terminal"
         if panel.runModal() == .OK, let url = panel.url {
