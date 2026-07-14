@@ -18,6 +18,15 @@ struct IDEalizeApp: App {
                     if !AppSettings.shared.hasSeenWelcome, workspace.tabs.isEmpty {
                         workspace.newTab(projectPath: FileManager.default.homeDirectoryForCurrentUser.path)
                     }
+                    // First run: show the tour once the session's chat has come up,
+                    // so the in-pane steps (mode toggle, input, skills) have real
+                    // controls to point at. Steps whose target isn't on screen are
+                    // dropped, so an early start would silently shorten the tour.
+                    if !AppSettings.shared.hasSeenTour {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                            workspace.showTour = true
+                        }
+                    }
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -34,6 +43,11 @@ struct IDEalizeCommands: Commands {
     let workspace: Workspace
 
     var body: some Commands {
+        // The tour is otherwise unreachable once it has been seen — this is how you
+        // get it back.
+        CommandGroup(replacing: .help) {
+            Button("Show Tour") { workspace.showTour = true }
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Session…") { openProjectTab() }
                 .keyboardShortcut("t", modifiers: .command)

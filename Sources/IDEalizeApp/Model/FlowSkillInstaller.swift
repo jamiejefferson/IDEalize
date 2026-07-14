@@ -19,13 +19,17 @@ enum FlowSkillInstaller {
     /// Bump whenever the bundled skill/command text changes, so an app update
     /// re-installs the newer copy rather than leaving a stale one in place.
     /// v2: flow file moved to the global path (project-independent).
-    static let version = 2
+    /// v3: added `flow-improve` (Claude applies its review suggestions to the flow).
+    /// v4: added `idealize-service-hatch` (self-service dev session guide).
+    static let version = 4
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
     private static let files: [(src: String, dest: String)] = [
-        ("FlowSkills/skills/flow-run/SKILL.md", "skills/flow-run/SKILL.md"),
-        ("FlowSkills/commands/flow-run.md",     "commands/flow-run.md"),
-        ("FlowSkills/commands/flow-review.md",  "commands/flow-review.md"),
+        ("FlowSkills/skills/flow-run/SKILL.md",          "skills/flow-run/SKILL.md"),
+        ("FlowSkills/commands/flow-run.md",              "commands/flow-run.md"),
+        ("FlowSkills/commands/flow-review.md",           "commands/flow-review.md"),
+        ("FlowSkills/commands/flow-improve.md",          "commands/flow-improve.md"),
+        ("FlowSkills/commands/idealize-service-hatch.md", "commands/idealize-service-hatch.md"),
     ]
 
     private static var claudeDir: URL {

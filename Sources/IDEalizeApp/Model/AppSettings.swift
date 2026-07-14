@@ -153,15 +153,38 @@ final class AppSettings: ObservableObject {
     @Published var hasSeenWelcome: Bool {
         didSet { defaults.set(hasSeenWelcome, forKey: "hasSeenWelcome") }
     }
+    /// False until the first-run showcase has been run or skipped. Separate from
+    /// `hasSeenWelcome`: the welcome card greets you, the tour shows you the room.
+    @Published var hasSeenTour: Bool {
+        didSet { defaults.set(hasSeenTour, forKey: "hasSeenTour") }
+    }
     /// Recently opened folders (most-recent first) for the File ▸ Open Recent menu.
     @Published var recentFolders: [String] {
         didSet { defaults.set(recentFolders, forKey: "recentFolders") }
     }
 
-    // MARK: Panel widths (user-draggable, persisted)
-    @Published var railWidth: Double { didSet { defaults.set(railWidth, forKey: "railWidth") } }
-    @Published var filesWidth: Double { didSet { defaults.set(filesWidth, forKey: "filesWidth") } }
-    @Published var viewerWidth: Double { didSet { defaults.set(viewerWidth, forKey: "viewerWidth") } }
+    // Panel widths / the browse pane height live in `PanelLayout` — a drag
+    // rewrites them per mouse event, and publishing that from here would
+    // re-render every view that observes these settings.
+
+    // MARK: Browse pane state, remembered per project
+    /// project folder → the folder the browse pane was last pointed at.
+    @Published var browseFolders: [String: String] {
+        didSet { defaults.set(browseFolders, forKey: "browseFolders") }
+    }
+    /// project folder → whether the browse pane was left open.
+    @Published var browseOpen: [String: Bool] {
+        didSet { defaults.set(browseOpen, forKey: "browseOpen") }
+    }
+
+    /// The folder the browse pane should show for `project` — the one it was left
+    /// on, falling back to the home directory.
+    func browseFolder(for project: String) -> String {
+        if let p = browseFolders[project], FileManager.default.fileExists(atPath: p) { return p }
+        return FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    func isBrowseOpen(for project: String) -> Bool { browseOpen[project] ?? false }
 
     func addRecentFolder(_ path: String) {
         guard !path.isEmpty, path != "/" else { return }
@@ -198,10 +221,10 @@ final class AppSettings: ObservableObject {
             ?? (ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         self.hasSeenWelcome = defaults.object(forKey: "hasSeenWelcome") as? Bool ?? false
+        self.hasSeenTour = defaults.object(forKey: "hasSeenTour") as? Bool ?? false
         self.recentFolders = defaults.stringArray(forKey: "recentFolders") ?? []
-        self.railWidth = defaults.object(forKey: "railWidth") as? Double ?? 182
-        self.filesWidth = defaults.object(forKey: "filesWidth") as? Double ?? 194
-        self.viewerWidth = defaults.object(forKey: "viewerWidth") as? Double ?? 400
+        self.browseFolders = defaults.dictionary(forKey: "browseFolders") as? [String: String] ?? [:]
+        self.browseOpen = defaults.dictionary(forKey: "browseOpen") as? [String: Bool] ?? [:]
         self.panelAppearances = (defaults.data(forKey: "panelAppearances")
             .flatMap { try? JSONDecoder().decode([String: PanelAppearance].self, from: $0) }) ?? [:]
         self.actionAppearance = (defaults.data(forKey: "actionAppearance")

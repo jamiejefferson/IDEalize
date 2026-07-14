@@ -31,6 +31,9 @@ struct QAChatBox: View {
     @State private var reviewingFlow = false
     /// True while Claude is carrying out the flow (the verdict-gated Run).
     @State private var runningFlow = false
+    /// True from asking Claude to apply its review suggestions until its turn ends —
+    /// drives the editor's spinner and triggers the improved-flow reload.
+    @State private var improvingFlow = false
     @FocusState private var focused: Bool
 
     private var theme: Theme { settings.theme }
@@ -80,6 +83,13 @@ struct QAChatBox: View {
             // The run turn has ended — adopt Claude's `run` checkpoint from disk so
             // the editor shows progress and can offer Resume if it stopped partway.
             if runningFlow { runningFlow = false; flowStore.reloadRun() }
+            // The improve turn has ended — adopt Claude's rewritten flow + refreshed
+            // review, then reopen the editor so the improvements are right there.
+            if improvingFlow {
+                improvingFlow = false
+                flowStore.reloadImproved()
+                withAnimation(LeafPaneView.modeAnim) { flowMode = true }
+            }
         }
         .onDisappear { removeDictationKey(); flowStore.flushSave() }
     }
@@ -106,8 +116,11 @@ struct QAChatBox: View {
                         .padding(.horizontal, settings.chatMargin).padding(.bottom, 8)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            } else if !session.isBrowsingHistory && session.pendingPrompt == nil && working {
-                // Centre the Idealizing animation in the pane while working.
+            } else if isWorkingTurn && (answerToShow?.isEmpty ?? true) && liveNarration == nil {
+                // Nothing to show yet (the first turn) — centre the Idealizing
+                // animation. Once an answer is pinned or narration arrives, the
+                // answer area takes over with an inline working banner instead, so
+                // the previous reply stays put.
                 workingView.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
                 ScrollView {
@@ -130,6 +143,17 @@ struct QAChatBox: View {
         reviewingFlow = true
         withAnimation(LeafPaneView.modeAnim) { flowMode = false }
         session.runCommand("/flow-review")
+    }
+
+    /// Ask Claude to apply its own review suggestions to the flow. Flushes the file
+    /// (Claude reads it), closes the editor so the work is visible, and runs
+    /// `/flow-improve`; `onChange(botWorking)` adopts the rewritten flow and reopens
+    /// the editor when the turn ends.
+    private func improveFlow() {
+        flowStore.flushSave()
+        improvingFlow = true
+        withAnimation(LeafPaneView.modeAnim) { flowMode = false }
+        session.runCommand("/flow-improve")
     }
 
     /// True when the working flow is worth handing to Claude: it has steps and no
@@ -291,7 +315,10 @@ struct QAChatBox: View {
     /// Back/forward pager for stepping through past Q&A exchanges. Sits beside the
     /// condensed question; the forward edge returns to live.
     private var historyNav: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 7) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: size - 4))
+                .foregroundStyle(chatStyle.secondaryTextColor)
             Button(action: { session.historyBack() }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: size - 3, weight: .semibold))
@@ -299,11 +326,10 @@ struct QAChatBox: View {
             }
             .buttonStyle(.plain).disabled(!session.canGoBack).help("Previous message")
 
-            if let pos = session.historyPosition {
-                Text(pos)
-                    .font(settings.ui(size - 4, .medium)).monospacedDigit()
-                    .foregroundStyle(chatStyle.secondaryTextColor)
-            }
+            // Position while browsing, else the total so it's clear there's history.
+            Text(session.historyPosition ?? "\(session.exchanges.count)")
+                .font(settings.ui(size - 4, .medium)).monospacedDigit()
+                .foregroundStyle(chatStyle.secondaryTextColor)
 
             Button(action: { session.historyForward() }) {
                 Image(systemName: "chevron.right")
@@ -312,42 +338,212 @@ struct QAChatBox: View {
             }
             .buttonStyle(.plain).disabled(!session.canGoForward).help("Next message")
         }
-        .padding(.top, (size - 2) * 0.16)
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(Capsule().fill(Color(theme.surface).opacity(0.6)))
+        .overlay(Capsule().strokeBorder(Color(theme.border).opacity(0.6), lineWidth: 1))
         .fixedSize()
+        .help("Step back through earlier questions")
+    }
+
+    /// No conversation yet in this session — no answer, question, or history.
+    private var chatIsEmpty: Bool {
+        session.exchanges.isEmpty
+            && (session.displayedAnswer?.isEmpty ?? true)
+            && (session.userQuestion?.isEmpty ?? true)
+    }
+
+    /// Show the "Claude is ready" greeting: the agent is loaded and idle, the chat
+    /// is blank, and we're past first-run (the welcome card owns that case). It's a
+    /// returning-user confirmation that the agent is up and waiting for a prompt.
+    private var showReady: Bool {
+        settings.hasSeenWelcome
+            && session.isClaudeRunning
+            && chatIsEmpty
+            && !working
+            && session.pendingPrompt == nil
+            && !session.liveInteractivePrompt
+            && !session.isBrowsingHistory
+    }
+
+    /// A light, friendly "the agent is up — your move" message for an empty chat.
+    private var readyView: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 15))
+                .foregroundStyle(Color(theme.accent))
+                .frame(width: 20)
+                .padding(.top, size * 0.16)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Claude is ready")
+                    .font(chatStyle.font(size, .semibold))
+                    .foregroundStyle(chatTextColor)
+                Text("Tell it what you'd like to do, in plain English — type below to get started.")
+                    .font(chatStyle.font(size - 1))
+                    .foregroundStyle(chatStyle.secondaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .transition(.opacity)
+    }
+
+    /// The Service Hatch opening banner — a playful sci-fi "warning" shown in a
+    /// fresh hatch tab's chat while Claude spins up on IDEalize's own source. Gives
+    /// way to the live conversation the moment Claude's first reply lands.
+    private var hatchBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "wrench.and.screwdriver.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(settings.actionStyle.color)
+                .frame(width: 20)
+                .padding(.top, size * 0.16)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Warning, Service Hatch Open…")
+                    .font(chatStyle.font(size, .semibold))
+                    .foregroundStyle(chatTextColor)
+                Text("“Sir, I don't know where your ship learned to communicate, but it has the most peculiar dialect”")
+                    .font(chatStyle.font(size - 1).italic())
+                    .foregroundStyle(chatStyle.secondaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("What would you like to do")
+                    .font(chatStyle.font(size - 1))
+                    .foregroundStyle(chatTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("“You watch your language!”")
+                    .font(chatStyle.font(size - 1).italic())
+                    .foregroundStyle(chatStyle.secondaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !session.isClaudeRunning {
+                    Text("Claude is starting…")
+                        .font(chatStyle.font(size - 2))
+                        .foregroundStyle(chatStyle.secondaryTextColor.opacity(0.8))
+                        .padding(.top, 2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .transition(.opacity)
+    }
+
+    /// Placeholder hint for the input: a flow note, or — when Claude is showing a
+    /// single-pick prompt — that you can type your own answer instead of choosing.
+    private var inputPlaceholder: String? {
+        if flowMode { return "Add a note for Claude (optional)…" }
+        if let p = session.pendingPrompt, !p.isMultiSelect { return "Pick an option, or type your own answer…" }
+        return nil
+    }
+
+    /// A live, in-flight Claude turn (not browsing history, not sitting on a prompt).
+    private var isWorkingTurn: Bool {
+        !session.isBrowsingHistory && session.pendingPrompt == nil && working
+    }
+
+    /// While a turn is in flight, keep the previous answer pinned beneath the
+    /// working banner so the chat never blanks; otherwise show the latest answer.
+    private var answerToShow: String? {
+        if isWorkingTurn, let p = session.priorAnswer, !p.isEmpty { return p }
+        return session.displayedAnswer
+    }
+
+    /// Claude's latest text as it writes the new reply — a live "what it's doing"
+    /// line. Suppressed until it diverges from the pinned prior answer, so we don't
+    /// echo the old answer back as narration.
+    private var liveNarration: String? {
+        guard isWorkingTurn, let a = session.assistantMessage, !a.isEmpty,
+              a != session.priorAnswer else { return nil }
+        return a
     }
 
     @ViewBuilder private var answerArea: some View {
         if !session.isBrowsingHistory, let prompt = session.pendingPrompt {
             promptView(prompt)
-        } else if !session.isBrowsingHistory && working {
-            workingView
-        } else if !session.isBrowsingHistory && session.liveInteractivePrompt {
+        } else if !session.isBrowsingHistory && session.liveInteractivePrompt && !working {
             // The live terminal is on a prompt the chat can't render. Reflect
             // that instead of the previous (now stale) transcript answer.
             terminalAttentionView
-        } else if let a = session.displayedAnswer, !a.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Color(theme.accent))
-                        .frame(width: 20)
-                        .padding(.top, size * 0.16)
-                    // The enclosing panel provides the scroll when it's at a fixed
-                    // height; here we just lay out the prose.
-                    MarkdownText(text: a, baseSize: size).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                HStack(spacing: 12) {
-                    Spacer()
-                    Button(action: { copyToPasteboard(a) }) {
-                        Image(systemName: "doc.on.doc").font(.system(size: size - 4))
-                            .foregroundStyle(Color(theme.secondaryForeground))
-                    }.buttonStyle(.plain).help("Copy response")
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                if isWorkingTurn { workingBanner }
+                if let a = answerToShow, !a.isEmpty {
+                    answerBubble(a)
+                } else if session.isServiceHatch && chatIsEmpty && !isWorkingTurn {
+                    hatchBanner
+                } else if showReady && !working {
+                    readyView
                 }
             }
-        } else {
-            EmptyView()
+        }
+    }
+
+    /// Claude's finished (or pinned) reply, rendered as markdown with a copy button.
+    private func answerBubble(_ a: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Color(theme.accent))
+                    .frame(width: 20)
+                    .padding(.top, size * 0.16)
+                // The enclosing panel provides the scroll when it's at a fixed
+                // height; here we just lay out the prose.
+                MarkdownText(text: a, baseSize: size).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 12) {
+                Spacer()
+                Button(action: { copyToPasteboard(a) }) {
+                    Image(systemName: "doc.on.doc").font(.system(size: size - 4))
+                        .foregroundStyle(Color(theme.secondaryForeground))
+                }.buttonStyle(.plain).help("Copy response")
+            }
+        }
+    }
+
+    /// The inline "what Claude's doing" line shown above the pinned answer while a
+    /// turn runs: a pulsing spark, the working status (time · tokens), and the
+    /// latest narration as Claude writes it — so its build chatter is surfaced
+    /// here, not lost to the terminal.
+    private var workingBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 15))
+                .foregroundStyle(Color(theme.accent))
+                .frame(width: 20)
+                .padding(.top, size * 0.16)
+                .symbolEffect(.pulse, options: .repeating)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text("Working…")
+                        .font(chatStyle.font(size, .semibold))
+                        .foregroundStyle(chatTextColor)
+                    if let s = session.workingStatus, !s.isEmpty {
+                        Text(s).font(chatStyle.font(size - 3)).monospacedDigit()
+                            .foregroundStyle(chatStyle.secondaryTextColor)
+                    }
+                }
+                if let n = liveNarration {
+                    Text(n)
+                        .font(chatStyle.font(size - 1))
+                        .foregroundStyle(chatStyle.secondaryTextColor)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if let tip = session.workingTip, !tip.isEmpty {
+                    Text(tip)
+                        .font(chatStyle.font(size - 2))
+                        .foregroundStyle(chatStyle.secondaryTextColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 6)
+        .overlay(alignment: .bottom) {
+            if answerToShow?.isEmpty == false {
+                Rectangle().fill(Color(theme.border).opacity(0.5)).frame(height: 1)
+            }
         }
     }
 
@@ -513,6 +709,7 @@ struct QAChatBox: View {
             // commands) or, in flow mode, the flow library — swapped in place.
             ChatToolbar(session: session, draft: $text, flowMode: $flowMode,
                         flowStore: flowStore, focus: { focused = true })
+                .tourTarget(.skills)
 
             // Flow mode: the builder lives inside this same container, which has
             // grown upward to hold it. It scrolls; the note field stays pinned at
@@ -522,7 +719,8 @@ struct QAChatBox: View {
                     .padding(.vertical, 1)
                 ScrollView {
                     FlowEditorView(flow: $flowStore.flow,
-                                   onReview: reviewFlow, reviewing: reviewingFlow)
+                                   onReview: reviewFlow, reviewing: reviewingFlow,
+                                   onImprove: improveFlow, improving: improvingFlow)
                         .padding(.vertical, 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -542,14 +740,30 @@ struct QAChatBox: View {
                 // content internally so nothing is clipped out of reach (the
                 // vertical TextField scrolls past its line-limit natively). Its
                 // line-spacing is independent of the chat answer/modal.
-                TextField(flowMode ? "Add a note for Claude (optional)…" : "", text: $text, axis: .vertical)
+                // Placeholder is drawn ourselves (a dimmed copy of the input text
+                // colour) — SwiftUI's default prompt renders in a system grey that's
+                // unreadable on the chat input's light fill.
+                TextField("", text: $text, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(chatStyle.font(size))
                     .foregroundStyle(chatTextColor)
                     .lineSpacing(CGFloat(settings.chatInputLineSpacing))
                     .lineLimit(1...14)
+                    // Fill the row's width so long lines wrap (and reflow as the pane
+                    // narrows) instead of stretching the field past the card edge,
+                    // where the text was getting clipped.
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .focused($focused)
                     .onSubmit { onReturn() }
+                    .overlay(alignment: .leading) {
+                        if let ph = inputPlaceholder, text.isEmpty {
+                            Text(ph)
+                                .font(chatStyle.font(size))
+                                .foregroundStyle(chatTextColor.opacity(0.5))
+                                .lineLimit(1).truncationMode(.tail)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 // Always-available send shortcut (⌘↩), plus a visible button. In
                 // flow mode the arrow hands the whole flow to Claude rather than
                 // the typed text — the single "send this flow" action.
@@ -568,6 +782,7 @@ struct QAChatBox: View {
             }
             miniMenu
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(maxHeight: flowMode ? .infinity : nil, alignment: .bottom)
         .padding(.horizontal, 14).padding(.vertical, 9)
         .background(
@@ -578,6 +793,7 @@ struct QAChatBox: View {
                 // The signature lifted input field.
                 .shadow(color: .black.opacity(focused ? 0.32 : 0.22), radius: focused ? 14 : 10, y: 3)
         )
+        .tourTarget(.chatInput)
     }
 
     /// Return-to-send toggle, attachment, and press-and-hold dictation.
@@ -731,6 +947,15 @@ struct QAChatBox: View {
 
     private func send() {
         let msg = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Answering a Claude prompt with a typed custom answer: deliver it verbatim,
+        // with no effort keyword or attachment decoration that would corrupt it.
+        // (Pair with clicking the prompt's "write your own" option first, which
+        // opens Claude's text field.)
+        if session.pendingPrompt != nil, !msg.isEmpty {
+            session.submitInput(msg)
+            text = ""
+            return
+        }
         // Attached files (shown as tags) are sent as their paths so Claude can act on them.
         let attachPaths = session.pendingAttachments
             .map { $0.path.contains(" ") ? "\"\($0.path)\"" : $0.path }

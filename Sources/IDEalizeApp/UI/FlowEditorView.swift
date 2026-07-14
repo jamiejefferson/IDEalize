@@ -13,6 +13,11 @@ struct FlowEditorView: View {
     var onReview: () -> Void = {}
     /// True while Claude is reviewing — swaps the button for a spinner.
     var reviewing: Bool = false
+    /// Ask Claude to apply its review suggestions to the flow (the `flow-improve`
+    /// command). Surfaced on the review banner whenever there are notes to act on.
+    var onImprove: () -> Void = {}
+    /// True while Claude is applying improvements — swaps the button for a spinner.
+    var improving: Bool = false
     @ObservedObject private var settings = AppSettings.shared
     private var theme: Theme { settings.theme }
 
@@ -32,7 +37,9 @@ struct FlowEditorView: View {
             if let run = flow.run {
                 RunStatusBanner(run: run, total: flow.flow.blocks.count) { flow.run = nil }
             }
-            if let review = flow.review { ReviewBanner(review: review) }
+            if let review = flow.review {
+                ReviewBanner(review: review, improving: improving, onImprove: onImprove)
+            }
             if flow.flow.blocks.isEmpty {
                 emptyState
             } else {
@@ -365,9 +372,14 @@ private struct EditableStepCard: View {
                 }
             }
         } label: {
+            // Interactive (this badge is a click-to-recast menu), so the icon takes
+            // the highlight — the actual `.fill` the user sees on the send button
+            // (solid or gradient), not `.color`, which falls back to the washed-out
+            // terminal accent when the highlight is a gradient. Type still reads from
+            // the icon's shape, its label, and the card's accent border.
             Image(systemName: block.type.icon)
                 .font(.system(size: size))
-                .foregroundStyle(accent)
+                .foregroundStyle(settings.actionStyle.fill)
                 .frame(width: 22)
                 .padding(.top, 1)
         }
@@ -564,6 +576,8 @@ private struct RunStatusBanner: View {
 /// the flow is the input's send arrow — this banner just reports Claude's read.
 private struct ReviewBanner: View {
     let review: FlowReview
+    var improving: Bool = false
+    var onImprove: () -> Void = {}
     @ObservedObject private var settings = AppSettings.shared
     private var theme: Theme { settings.theme }
 
@@ -571,26 +585,54 @@ private struct ReviewBanner: View {
     private var tint: Color { ready ? .green : .orange }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: ready ? "checkmark.seal.fill" : "sparkles")
-                .font(.system(size: 13)).foregroundStyle(tint).padding(.top, 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(ready ? "Claude says this is ready — send it with the arrow below" : "Claude left some suggestions")
-                    .font(settings.ui(11, .semibold)).foregroundStyle(Color(theme.foreground))
-                Text(review.summary)
-                    .font(settings.ui(11))
-                    .foregroundStyle(Color(theme.secondaryForeground))
-                    .fixedSize(horizontal: false, vertical: true)
-                if !review.notes.isEmpty {
-                    Text("\(review.notes.count) note\(review.notes.count == 1 ? "" : "s") on the steps below.")
-                        .font(settings.ui(10)).foregroundStyle(tint)
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: ready ? "checkmark.seal.fill" : "sparkles")
+                    .font(.system(size: 13)).foregroundStyle(tint).padding(.top, 1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(ready ? "Claude says this is ready — send it with the arrow below" : "Claude left some suggestions")
+                        .font(settings.ui(11, .semibold)).foregroundStyle(Color(theme.foreground))
+                    Text(review.summary)
+                        .font(settings.ui(11))
+                        .foregroundStyle(Color(theme.secondaryForeground))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !review.notes.isEmpty {
+                        Text("\(review.notes.count) note\(review.notes.count == 1 ? "" : "s") on the steps below.")
+                            .font(settings.ui(10)).foregroundStyle(tint)
+                    }
                 }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            // Hand the suggestions back to Claude to apply — the missing half of the
+            // review loop. Only when there's something to act on.
+            if !review.notes.isEmpty { improveButton }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 10).fill(tint.opacity(0.08)))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(tint.opacity(0.3), lineWidth: 1))
+    }
+
+    /// "Make these improvements" — asks Claude to apply its own notes to the steps.
+    private var improveButton: some View {
+        Button(action: onImprove) {
+            HStack(spacing: 6) {
+                if improving {
+                    ProgressView().controlSize(.small).tint(.white)
+                    Text("Making improvements…")
+                } else {
+                    Image(systemName: "wand.and.stars").font(.system(size: 11))
+                    Text("Make these improvements")
+                }
+            }
+            .font(settings.ui(11, .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 11).padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(Capsule().fill(settings.actionStyle.fill))
+        }
+        .buttonStyle(.plain)
+        .disabled(improving)
+        .help("Ask Claude to apply its suggestions to your steps")
     }
 }

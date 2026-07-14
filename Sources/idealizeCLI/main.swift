@@ -36,6 +36,7 @@ func pngData(forFileAt path: String) -> Data? {
 //   idealize inbox [--wait]                       # read messages sent to me
 //   idealize list                                # list active sessions
 //   idealize image path/to/file.png [--width 60] # render an image inline
+//   idealize reveal src/App.swift --open         # point the human at a file
 //   idealize status "running tests"              # set this tab's status text
 //   idealize whoami                              # print my session id
 //
@@ -112,6 +113,7 @@ func printUsage() {
       peek [--json]                         read my messages without clearing
       list [--json]                         list active terminals
       blocks [session] [--json]             list recorded command blocks
+      reveal <path> [--open]                show a file in the app's file explorer
       exec <session> <command>              run a command in another terminal
       type <session> <text>                 type text into another terminal
       image <path> [--width W] [--height H] render an image inline
@@ -195,6 +197,19 @@ case "inbox", "peek":
         }
         break
     } while wantWait
+
+case "reveal":
+    let flags = Flags(rest, boolFlags: ["open"])
+    guard let path = flags.positionals.first else { fail("usage: idealize reveal <path> [--open]") }
+    // Resolve here, not in the app: we share the caller's working directory, so
+    // `idealize reveal src/main.swift` means what the agent expects it to.
+    let abs = URL(fileURLWithPath: path).standardizedFileURL.path
+    let resp = sendRequest(IPCRequest(command: .reveal,
+                                      from: mySession,
+                                      target: abs,
+                                      open: flags.bools.contains("open")))
+    if !resp.ok { fail(resp.error ?? "reveal failed") }
+    out(resp.info ?? "revealed")
 
 case "exec":
     guard rest.count >= 2 else { fail("usage: idealize exec <session> <command>") }

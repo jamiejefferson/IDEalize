@@ -21,6 +21,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     // Observable state surfaced in tabs / status.
     @Published var title: String = "shell"
     @Published var projectPath: String?
+
+    /// The folder the file explorer shows for this session: its project directory,
+    /// or home when it has none. Both the tree and `idealize reveal` read this, so
+    /// they can't disagree about what counts as "inside" the session.
+    var explorerRoot: String {
+        if let p = projectPath, !p.isEmpty { return p }
+        return FileManager.default.homeDirectoryForCurrentUser.path
+    }
     @Published var processName: String = "zsh"
     @Published var isShellForeground: Bool = true
     @Published var isRunning: Bool = true
@@ -34,6 +42,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// transcript while a Claude session runs in this terminal. Rendered in the
     /// chat panel.
     @Published var assistantMessage: String?
+    /// The previous turn's answer, pinned the moment a follow-up is sent so the
+    /// chat keeps showing it (rather than blanking) while Claude works on the next
+    /// reply. Only consulted by the UI during a working turn.
+    @Published var priorAnswer: String?
     /// The latest user prompt (shown condensed at the top of the chat panel).
     @Published var userQuestion: String?
     /// Full Q&A history parsed from the transcript, oldest→newest. Powers the
@@ -164,6 +176,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     var onFocusRequested: ((String) -> Void)?
     /// Called when the user interacts with (clicks/types in) this terminal.
     var onUserFocused: ((String) -> Void)?
+
+    /// A one-off launch command for this session, overriding the global default
+    /// (`settings.defaultLaunchCommand`). Set before `start()`. Used by the Service
+    /// Hatch to drop this tab straight into a Claude dev session on IDEalize itself.
+    var launchOverride: String?
+
+    /// This tab was opened via the Service Hatch (a Claude dev session on
+    /// IDEalize's own source). Drives the themed opening banner in the chat.
+    @Published var isServiceHatch: Bool = false
 
     private let settings: AppSettings
     private var statusTimer: Timer?
@@ -311,16 +332,23 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         startStatusPolling()
         installScrollFix()
 
-        if settings.launchOnNewTerminal {
-            let command = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !command.isEmpty {
-                // Send when the shell shows its first prompt (reliable), with a
-                // fallback in case the shell-integration event never arrives.
-                pendingLaunchCommand = command
-                claudeLaunchInFlight = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                    self?.firePendingLaunch()
-                }
+        // A per-session override (Service Hatch) wins; otherwise fall back to the
+        // configured default launch, if enabled.
+        let launch: String = {
+            if let o = launchOverride?.trimmingCharacters(in: .whitespacesAndNewlines), !o.isEmpty {
+                return o
+            }
+            return settings.launchOnNewTerminal
+                ? settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+                : ""
+        }()
+        if !launch.isEmpty {
+            // Send when the shell shows its first prompt (reliable), with a
+            // fallback in case the shell-integration event never arrives.
+            pendingLaunchCommand = launch
+            claudeLaunchInFlight = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self?.firePendingLaunch()
             }
         }
     }
@@ -359,7 +387,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// SwiftTerm's `scrollWheel` reads only the legacy `event.deltaY`, which is 0
     /// for trackpad precise scrolling → two-finger scroll does nothing. It's not
     /// `open`, so we can't override it; instead a local monitor handles precise
-    /// scroll over this terminal by driving its (public) scrollback API.
+    /// scroll over this terminal.
+    ///
+    /// Two cases: when a foreground TUI is tracking the mouse (Claude Code, vim,
+    /// less, htop — all of which enable mouse reporting and run on the alternate
+    /// screen), we forward the wheel as mouse-wheel events so the app scrolls its
+    /// own viewport. The alt screen has no scrollback, so SwiftTerm's own
+    /// `scrollUp/Down` would move nothing — which is exactly why scrolling looked
+    /// dead inside Claude. Otherwise (a plain shell), we drive SwiftTerm's
+    /// scrollback API to page through history.
     private func installScrollFix() {
         guard scrollMonitor == nil else { return }
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
@@ -374,10 +410,26 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             let p = tv.convert(event.locationInWindow, from: nil)
             guard tv.bounds.contains(p) else { return event }
             self.scrollAccumulator += event.scrollingDeltaY
-            let lines = Int(self.scrollAccumulator / 12)
-            if lines != 0 {
-                self.scrollAccumulator -= CGFloat(lines) * 12
-                if lines > 0 { tv.scrollUp(lines: lines) } else { tv.scrollDown(lines: -lines) }
+            let notches = Int(self.scrollAccumulator / 12)
+            guard notches != 0 else { return nil }   // consume; wait for a full notch
+            self.scrollAccumulator -= CGFloat(notches) * 12
+
+            let terminal = tv.getTerminal()
+            if terminal.mouseMode != .off {
+                // The foreground app is tracking the mouse — forward wheel notches
+                // as mouse-wheel events (button 4 = up, 5 = down) at the pointer's
+                // cell so it scrolls itself.
+                let cols = max(terminal.cols, 1), rows = max(terminal.rows, 1)
+                let col = min(max(0, Int(p.x / (tv.bounds.width / CGFloat(cols)))), cols - 1)
+                // The view is not flipped (y grows upward), so invert for the grid row.
+                let row = min(max(0, Int((tv.bounds.height - p.y) / (tv.bounds.height / CGFloat(rows)))), rows - 1)
+                let button = notches > 0 ? 4 : 5
+                let flags = terminal.encodeButton(button: button, release: false, shift: false, meta: false, control: false)
+                for _ in 0..<abs(notches) { terminal.sendEvent(buttonFlags: flags, x: col, y: row) }
+            } else if notches > 0 {
+                tv.scrollUp(lines: notches)
+            } else {
+                tv.scrollDown(lines: -notches)
             }
             return nil   // consume — we've handled this scroll
         }
@@ -741,10 +793,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     func submitInput(_ text: String) {
         historyIndex = nil   // a new message snaps the chat back to live
         if tuiActive {
-            // Talking to a running Claude (or other TUI): show the question and
-            // clear the prior answer while it works.
+            // Talking to a running Claude (or other TUI): show the new question but
+            // keep the previous answer pinned (in `priorAnswer`) so the chat doesn't
+            // blank out while Claude works — `assistantMessage` then updates live to
+            // the new turn's narration as the transcript records it.
+            priorAnswer = assistantMessage
             userQuestion = text
-            assistantMessage = nil
             botWorking = true
             agentStatus = .working
             sendLineToTUI(text)
@@ -753,8 +807,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             // still coming up. Deliver to it — never start a second Claude, which
             // would race two `--session-id` sessions and bind the chat to a
             // stillborn one.
+            priorAnswer = assistantMessage
             userQuestion = text
-            assistantMessage = nil
             botWorking = true
             agentStatus = .working
             firePendingLaunch()   // no-op if the queued auto-launch already fired
@@ -762,8 +816,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         } else if blocks.isEmpty {
             // Fresh terminal — treat the first input as a chat: launch Claude,
             // then deliver the message once it's ready.
+            priorAnswer = assistantMessage
             userQuestion = text
-            assistantMessage = nil
             botWorking = true
             agentStatus = .working
             claudeLaunchInFlight = true

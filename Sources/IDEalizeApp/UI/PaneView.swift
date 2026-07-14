@@ -47,8 +47,18 @@ struct LeafPaneView: View {
     private var showTerminal: Bool { tuiActive || !hasBlocks || isRunningCommand }
 
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var resizeMonitor = LiveResizeMonitor.shared
     @State private var dropTargeted = false
     private var theme: Theme { settings.theme }
+
+    /// The chat backdrop's Gaussian blur, but never while the window is being
+    /// live-resized — blurring a continuously-redrawing terminal NSView every
+    /// frame is the single biggest cause of resize judder. It flicks back on the
+    /// instant the drag ends.
+    private var backdropBlur: CGFloat {
+        if session.revealTerminal || resizeMonitor.isResizing { return 0 }
+        return settings.terminalBlur
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -154,7 +164,7 @@ struct LeafPaneView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // `opaque: true` treats the content edges as solid so the blur
                 // doesn't fade to a grey halo at the pane edges; clip to bounds.
-                .blur(radius: session.revealTerminal ? 0 : settings.terminalBlur, opaque: true)
+                .blur(radius: backdropBlur, opaque: true)
                 .clipped()
                 .opacity(session.revealTerminal ? 1 : 0.5)
                 .allowsHitTesting(session.revealTerminal)
@@ -172,6 +182,7 @@ struct LeafPaneView: View {
             // The mode toggle lives in the top corner, inset to align with the
             // chat card's rounded corner, present in both modes.
             ModeToggle(session: session)
+                .tourTarget(.modeToggle)
                 .padding(.top, 22).padding(.trailing, 22)
         }
     }

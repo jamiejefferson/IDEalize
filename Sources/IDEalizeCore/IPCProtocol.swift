@@ -35,6 +35,7 @@ public struct IPCRequest: Codable, Sendable {
         case focus         // bring a session's tab to the foreground
         case blocks        // list captured command blocks for a session
         case input         // type text into a session's terminal (exec)
+        case reveal        // select a file in the app's file explorer
     }
 
     public var command: Command
@@ -48,19 +49,23 @@ public struct IPCRequest: Codable, Sendable {
     public var title: String?
     /// Optional sound flag for notifications.
     public var sound: Bool?
+    /// Used by `reveal`: also open the file in the document panel.
+    public var open: Bool?
 
     public init(command: Command,
                 from: String? = nil,
                 target: String? = nil,
                 body: String? = nil,
                 title: String? = nil,
-                sound: Bool? = nil) {
+                sound: Bool? = nil,
+                open: Bool? = nil) {
         self.command = command
         self.from = from
         self.target = target
         self.body = body
         self.title = title
         self.sound = sound
+        self.open = open
     }
 }
 

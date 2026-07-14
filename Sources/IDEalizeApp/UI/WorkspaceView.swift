@@ -4,6 +4,7 @@ import SwiftUI
 struct WorkspaceView: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var settings = AppSettings.shared
+    @ObservedObject private var layout = PanelLayout.shared
 
     private var theme: Theme { settings.theme }
 
@@ -14,16 +15,18 @@ struct WorkspaceView: View {
             // renders as a hard black line, which reads as "heavy".
             HStack(spacing: 0) {
                 if workspace.showSessionRail {
-                    SessionRail(workspace: workspace).frame(width: settings.railWidth)
-                    ResizeHandle(width: $settings.railWidth, range: 150...320)
+                    SessionRail(workspace: workspace).frame(width: layout.railWidth)
+                        .tourTarget(.sessions)
+                    ResizeHandle(width: $layout.railWidth, range: 150...320)
                 }
                 if workspace.showFileExplorer {
-                    FileExplorerPanel(workspace: workspace).frame(width: settings.filesWidth)
-                    ResizeHandle(width: $settings.filesWidth, range: 150...380)
+                    FileExplorerPanel(workspace: workspace).frame(width: layout.filesWidth)
+                        .tourTarget(.files)
+                    ResizeHandle(width: $layout.filesWidth, range: 150...380)
                 }
                 if workspace.showViewer {
-                    FileViewerPanel(workspace: workspace).frame(width: settings.viewerWidth)
-                    ResizeHandle(width: $settings.viewerWidth, range: 260...800)
+                    FileViewerPanel(workspace: workspace).frame(width: layout.viewerWidth)
+                    ResizeHandle(width: $layout.viewerWidth, range: 260...800)
                 }
                 VStack(spacing: 0) {
                     Group {
@@ -35,19 +38,23 @@ struct WorkspaceView: View {
                         }
                     }
                     BottomToolbar(workspace: workspace)
+                        .tourTarget(.toolbar)
                 }
                 .frame(minWidth: 420, maxWidth: .infinity)
+                // The Appearance inspector docks as a real trailing column (not a
+                // float over the pane). Overlaying it on top of the live terminal
+                // NSView let SwiftTerm swallow the scroll wheel in the panel's
+                // region; as its own column there's no terminal view beneath it, so
+                // it scrolls — and the terminal stays fully interactive.
+                if workspace.showAppearance {
+                    AppearancePanel(workspace: workspace)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
         }
         .frame(minWidth: 900, minHeight: 460)
         .background(Color(settings.theme.background))
         .background(WindowConfigurator(background: settings.theme.chrome, isDark: settings.theme.isDark))
-        .overlay(alignment: .trailing) {
-            if workspace.showAppearance {
-                AppearancePanel(workspace: workspace)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
-        }
         .animation(.easeOut(duration: 0.18), value: workspace.showAppearance)
         .overlay(alignment: .top) {
             if workspace.showCommandPalette {
@@ -59,6 +66,18 @@ struct WorkspaceView: View {
                                    settings: settings,
                                    workflowStore: WorkflowStore.shared)
                         .padding(.top, 70)
+                }
+            }
+        }
+        // Reads the anchors published by `.tourTarget(_:)` and resolves them
+        // against the window, so callouts land on the real controls at whatever
+        // widths the panels have been dragged to.
+        .overlayPreferenceValue(TourAnchorKey.self) { anchors in
+            if workspace.showTour {
+                GeometryReader { proxy in
+                    ShowcaseTour(workspace: workspace,
+                                 rects: anchors.mapValues { proxy[$0] },
+                                 container: proxy.size)
                 }
             }
         }
@@ -125,6 +144,9 @@ private struct BottomToolbar: View {
             }
             iconButton("rectangle.split.2x1", help: "Split right (⌘D)") {
                 workspace.splitFocused(axis: .horizontal)
+            }
+            toggle("wrench.and.screwdriver", on: workspace.isServiceHatchOpen, help: "Service hatch — open a Claude dev session on IDEalize's own code (click again to close)") {
+                workspace.toggleServiceHatch()
             }
             toggle("paintpalette", on: workspace.showAppearance, help: "Appearance (⌘⌥A)") {
                 workspace.showAppearance.toggle()
@@ -222,15 +244,67 @@ private struct ResizeHandle: View {
                         if h { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
                     }
                     .gesture(
-                        DragGesture(minimumDistance: 1)
+                        // `.global` is load-bearing. In the default `.local` space the
+                        // handle's own origin moves as the panel it resizes grows, so
+                        // each event's translation is measured from a shifted origin and
+                        // cancels out the growth — the panel oscillates between two
+                        // widths for the whole drag. Global coords can't be perturbed by
+                        // the handle moving.
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
                             .onChanged { v in
+                                if startWidth == nil {
+                                    startWidth = width
+                                    LiveResizeMonitor.shared.beginPanelDrag()
+                                }
                                 let s = startWidth ?? width
-                                if startWidth == nil { startWidth = s }
-                                width = min(range.upperBound, max(range.lowerBound, s + v.translation.width))
+                                // Snap to whole points: the mouse reports sub-pixel
+                                // deltas, and every distinct value relayouts the tree.
+                                let next = (s + v.translation.width).rounded()
+                                let clamped = min(range.upperBound, max(range.lowerBound, next))
+                                if clamped != width { width = clamped }
                             }
-                            .onEnded { _ in startWidth = nil }
+                            .onEnded { _ in endDrag() }
                     )
             )
+            // A cancelled gesture skips `onEnded`; without this the terminal grid
+            // would stay frozen for good.
+            .onDisappear { endDrag() }
+    }
+
+    private func endDrag() {
+        guard startWidth != nil else { return }
+        startWidth = nil
+        LiveResizeMonitor.shared.endPanelDrag()
+        PanelLayout.shared.persist()
+    }
+}
+
+/// Tracks whether anything is mid-resize — a drag on a window edge/corner, or a
+/// drag on a panel divider — so per-frame effects that are ruinously expensive to
+/// recompute every frame (the chat-mode terminal blur and SwiftTerm's grid reflow
+/// above all) can be suspended for the drag and restored the instant it ends.
+///
+/// Window drags are reported by `TerminalContainerView`'s live-resize hooks; panel
+/// drags by the divider handles. Both are refcounted, since several terminal
+/// containers report the same window resize and a divider can be dragged while the
+/// window is being resized.
+final class LiveResizeMonitor: ObservableObject {
+    static let shared = LiveResizeMonitor()
+    @Published private(set) var isResizing = false
+
+    private var windowDrags = 0
+    private var panelDrags = 0
+
+    private init() {}
+
+    func beginWindowResize() { windowDrags += 1; sync() }
+    func endWindowResize() { windowDrags = max(0, windowDrags - 1); sync() }
+    func beginPanelDrag() { panelDrags += 1; sync() }
+    func endPanelDrag() { panelDrags = max(0, panelDrags - 1); sync() }
+
+    private func sync() {
+        let resizing = windowDrags > 0 || panelDrags > 0
+        if resizing != isResizing { isResizing = resizing }
     }
 }
 
@@ -241,26 +315,45 @@ private struct WindowConfigurator: NSViewRepresentable {
     let background: NSColor
     let isDark: Bool
 
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> NSView {
         let v = NSView()
-        DispatchQueue.main.async { configure(v.window) }
+        DispatchQueue.main.async { context.coordinator.configure(v.window, background: background, isDark: isDark) }
         return v
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { configure(nsView.window) }
+        DispatchQueue.main.async { context.coordinator.configure(nsView.window, background: background, isDark: isDark) }
     }
 
-    private func configure(_ window: NSWindow?) {
-        guard let window else { return }
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        // Dragging is handled by the title-bar strip only (WindowDragBar), so the
-        // chat resize/move gestures aren't hijacked.
-        window.isMovableByWindowBackground = false
-        window.backgroundColor = background
-        // Match system controls (pickers, sliders, toggles) to the theme.
-        window.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+    /// Applies window chrome idempotently. `updateNSView` fires on every SwiftUI
+    /// update — including throughout a live resize — so re-assigning `backgroundColor`
+    /// and (worse) a fresh `NSAppearance` each time would relayout the whole view
+    /// tree dozens of times a second. We skip the expensive assignments when the
+    /// value hasn't actually changed.
+    final class Coordinator {
+        private var lastBackground: NSColor?
+        private var lastIsDark: Bool?
+
+        func configure(_ window: NSWindow?, background: NSColor, isDark: Bool) {
+            guard let window else { return }
+            // These are cheap and idempotent (no relayout) — safe to set each call.
+            window.titlebarAppearsTransparent = true
+            window.titlebarSeparatorStyle = .none
+            // Dragging is handled by the title-bar strip only (WindowDragBar), so the
+            // chat resize/move gestures aren't hijacked.
+            window.isMovableByWindowBackground = false
+            if lastBackground != background {
+                window.backgroundColor = background
+                lastBackground = background
+            }
+            if lastIsDark != isDark {
+                // Match system controls (pickers, sliders, toggles) to the theme.
+                window.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+                lastIsDark = isDark
+            }
+        }
     }
 }
 

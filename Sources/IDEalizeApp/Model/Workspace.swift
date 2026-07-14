@@ -71,6 +71,9 @@ final class Workspace: ObservableObject {
     @Published var showViewer: Bool = false
     /// Whether the in-view Appearance panel is shown.
     @Published var showAppearance: Bool = false
+    /// Whether the first-run showcase is on screen. Transient — whether it has
+    /// *been* seen is `AppSettings.hasSeenTour`.
+    @Published var showTour: Bool = false
     /// Which panel the Appearance editor is currently targeting.
     @Published var appearanceTarget: PanelKind = .chat
     /// Bumped when files change on disk so the file explorer reloads.
@@ -101,6 +104,100 @@ final class Workspace: ObservableObject {
             return url
         } catch { return nil }
     }
+    /// The open project's root folder, if a real one is open.
+    var projectRootURL: URL? {
+        guard let p = focusedSession?.projectPath, !p.isEmpty, p != "/" else { return nil }
+        return URL(fileURLWithPath: p)
+    }
+
+    /// Show `path` in the file explorer: expand its folders, scroll to it and
+    /// select it. If the file belongs to a different project than the focused
+    /// one, that project's terminal is focused first so its tree is on screen.
+    /// `open` also loads the file into the document panel.
+    ///
+    /// This is what `idealize reveal` calls, so an agent can point the human at
+    /// a file it just wrote or wants to talk about.
+    func reveal(path: String, open: Bool) -> IPCResponse {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return .failure("no such file: \(url.path)")
+        }
+        guard let owner = sessionOwning(url) else {
+            return .failure("\(url.path) isn't inside any folder open in IDEalize")
+        }
+        // The tree never lists dotfiles, so it can't scroll to one. Only the part
+        // of the path *below* the root matters — the root itself is free to live
+        // somewhere hidden, like ~/.config/something.
+        let root = URL(fileURLWithPath: owner.explorerRoot).standardizedFileURL.path
+        let relative = url.path.dropFirst(root.count)
+        if let hidden = relative.split(separator: "/").first(where: { $0.hasPrefix(".") }) {
+            return .failure("'\(hidden)' is hidden — the file explorer doesn't show hidden files")
+        }
+        if owner.id != focusedSessionID { focusSession(owner.id) }
+        showFileExplorer = true
+        if open {
+            viewedFile = url
+            showViewer = true
+        }
+        FileReveal.shared.reveal(url, open: open)
+        return IPCResponse(ok: true, info: "revealed \(url.lastPathComponent) in \(owner.label)")
+    }
+
+    /// The session whose explorer tree contains `url`. The focused session wins
+    /// ties, so revealing a file in a project that's open in two tabs doesn't yank
+    /// the user off to the other one.
+    private func sessionOwning(_ url: URL) -> TerminalSession? {
+        func contains(_ session: TerminalSession) -> Bool {
+            let root = URL(fileURLWithPath: session.explorerRoot).standardizedFileURL.path
+            return url.path == root || url.path.hasPrefix(root + "/")
+        }
+        if let focused = focusedSession, contains(focused) { return focused }
+        return allSessions.first(where: contains)
+    }
+
+    /// Copy files or folders from anywhere on disk into `destination` (a folder in
+    /// the open project). Originals are left untouched; a name clash becomes
+    /// `hero-2.png`. Returns the URLs actually written.
+    @discardableResult
+    func copyIntoProject(_ sources: [URL], destination: URL) -> [URL] {
+        var written: [URL] = []
+        var failed = false
+        for source in sources {
+            // Dropping something back onto the folder it already lives in means
+            // "no thanks", not "duplicate it".
+            guard source.deletingLastPathComponent().standardizedFileURL != destination.standardizedFileURL
+            else { continue }
+            // Copying a folder into its own subtree would recurse forever.
+            guard !destination.standardizedFileURL.path.hasPrefix(source.standardizedFileURL.path + "/")
+            else { continue }
+            let target = uniqueURL(for: source, in: destination)
+            do {
+                try FileManager.default.copyItem(at: source, to: target)
+                written.append(target)
+            } catch {
+                failed = true
+                NSLog("IDEalize: copy \(source.path) → \(target.path) failed: \(error)")
+            }
+        }
+        if failed { NSSound.beep() }
+        if !written.isEmpty { fileTreeVersion += 1 }   // show the arrivals in the tree
+        return written
+    }
+
+    /// `dir/name.ext`, suffixed `-2`, `-3`… until it names nothing that exists.
+    private func uniqueURL(for source: URL, in dir: URL) -> URL {
+        var candidate = dir.appendingPathComponent(source.lastPathComponent)
+        let base = (source.lastPathComponent as NSString).deletingPathExtension
+        let ext = source.pathExtension
+        var n = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            let name = ext.isEmpty ? "\(base)-\(n)" : "\(base)-\(n).\(ext)"
+            candidate = dir.appendingPathComponent(name)
+            n += 1
+        }
+        return candidate
+    }
+
     /// When set, the workflow parameter sheet is presented.
     @Published var pendingWorkflow: Workflow?
 
@@ -153,9 +250,9 @@ final class Workspace: ObservableObject {
     // MARK: - Tab / pane management
 
     @discardableResult
-    func newTab(projectPath: String? = nil) -> TerminalSession {
+    func newTab(projectPath: String? = nil, launchOverride: String? = nil) -> TerminalSession {
         if let projectPath { settings.addRecentFolder(projectPath) }
-        let session = makeSession(projectPath: projectPath)
+        let session = makeSession(projectPath: projectPath, launchOverride: launchOverride)
         let tab = WorkspaceTab(root: PaneNode(session: session), name: session.label)
         tabs.append(tab)
         selectedTabID = tab.id
@@ -202,12 +299,42 @@ final class Workspace: ObservableObject {
         return true
     }
 
-    private func makeSession(projectPath: String?) -> TerminalSession {
+    private func makeSession(projectPath: String?, launchOverride: String? = nil) -> TerminalSession {
         let session = TerminalSession(settings: settings, workspace: self, projectPath: projectPath)
+        session.launchOverride = launchOverride
         session.onFocusRequested = { [weak self] sid in self?.focusSession(sid) }
         session.onUserFocused = { [weak self] sid in self?.setFocusedFromUserInteraction(sid) }
         session.start()
         return session
+    }
+
+    /// Open a "service hatch": a new tab rooted in IDEalize's own source, dropping
+    /// straight into a Claude dev session (permissions skipped, vault docs in scope)
+    /// preloaded with the `/idealize-service-hatch` safe-editing guide. Beeps if the
+    /// source checkout can't be located.
+    func openServiceHatch() {
+        guard let repo = ServiceHatch.repoRoot() else { NSSound.beep(); return }
+        let session = newTab(projectPath: repo, launchOverride: ServiceHatch.launchCommand())
+        session.isServiceHatch = true   // shows the themed opening banner in the chat
+    }
+
+    /// The currently open service-hatch session, if any (searches every tab).
+    var serviceHatchSession: TerminalSession? {
+        tabs.lazy.flatMap { $0.sessions }.first { $0.isServiceHatch }
+    }
+
+    /// Whether a service hatch is currently open — drives the toolbar button's
+    /// highlighted state.
+    var isServiceHatchOpen: Bool { serviceHatchSession != nil }
+
+    /// Toggle the service hatch: open one if none is open, otherwise close the
+    /// open one. Lets the toolbar button act as an on/off switch.
+    func toggleServiceHatch() {
+        if let hatch = serviceHatchSession {
+            closeSession(hatch)
+        } else {
+            openServiceHatch()
+        }
     }
 
     /// Keep the tab name following the focused terminal's label.
@@ -440,6 +567,10 @@ final class Workspace: ObservableObject {
             }
             s.insert(request.body ?? "")
             return IPCResponse(ok: true, info: "sent to \(s.label)")
+
+        case .reveal:
+            guard let path = request.target, !path.isEmpty else { return .failure("missing path") }
+            return reveal(path: path, open: request.open ?? false)
 
         case .blocks:
             let target = request.target ?? request.from

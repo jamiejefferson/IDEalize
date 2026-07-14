@@ -80,15 +80,14 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
     /// Detect alternate-screen enter/leave within this chunk and notify on a
     /// genuine state change.
     private func updateAltScreen(_ slice: ArraySlice<UInt8>) {
-        let bytes = Array(slice)
         if !inAltScreen {
-            if Self.altSeqs.contains(where: { contains(bytes, $0) }) {
+            if Self.altSeqs.contains(where: { contains(slice, $0) }) {
                 inAltScreen = true
                 let cb = onAltScreenChanged
                 DispatchQueue.main.async { cb?(true) }
             }
         } else {
-            if Self.altLeaveSeqs.contains(where: { contains(bytes, $0) }) {
+            if Self.altLeaveSeqs.contains(where: { contains(slice, $0) }) {
                 inAltScreen = false
                 let cb = onAltScreenChanged
                 DispatchQueue.main.async { cb?(false) }
@@ -97,17 +96,23 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
     }
 
     private func containsAltScreen(_ slice: ArraySlice<UInt8>) -> Bool {
-        let bytes = Array(slice)
-        for seq in Self.altSeqs where contains(bytes, seq) { return true }
+        for seq in Self.altSeqs where contains(slice, seq) { return true }
         return false
     }
 
-    private func contains(_ haystack: [UInt8], _ needle: [UInt8]) -> Bool {
-        guard needle.count <= haystack.count else { return false }
-        for i in 0...(haystack.count - needle.count) {
+    /// Substring search over the slice in place — no `Array(slice)` copy. This runs
+    /// on every PTY chunk, and a resize floods the PTY (SIGWINCH → full TUI repaint),
+    /// so avoiding the copy matters exactly when it's hottest.
+    private func contains(_ haystack: ArraySlice<UInt8>, _ needle: [UInt8]) -> Bool {
+        let n = needle.count
+        guard n > 0, haystack.count >= n else { return false }
+        let last = haystack.endIndex - n
+        var i = haystack.startIndex
+        while i <= last {
             var match = true
-            for j in 0..<needle.count where haystack[i + j] != needle[j] { match = false; break }
+            for j in 0..<n where haystack[i + j] != needle[j] { match = false; break }
             if match { return true }
+            i += 1
         }
         return false
     }

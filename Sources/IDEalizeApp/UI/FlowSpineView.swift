@@ -94,9 +94,12 @@ struct FlowStepCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 11) {
+            // Read-only (non-interactive), so the icon takes the text colour — it
+            // stays as legible as the step text beside it. The type still reads from
+            // its shape, label, and the card's accent border.
             Image(systemName: block.type.icon)
                 .font(.system(size: size))
-                .foregroundStyle(accent)
+                .foregroundStyle(Color(theme.foreground))
                 .frame(width: 22)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {

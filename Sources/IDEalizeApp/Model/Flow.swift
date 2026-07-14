@@ -580,6 +580,20 @@ final class FlowStore: ObservableObject {
         suspendSave = false
     }
 
+    /// Adopt Claude's improvements after a `flow-improve` turn. Unlike review/run,
+    /// this turn rewrote the user's own zones (`title` + `flow`) and refreshed the
+    /// `review`, so we take all three from disk; `run` stays as it is in memory.
+    /// The editor is closed while Claude works, so there's no in-flight user edit
+    /// to clobber — this is the one place Claude's `flow` write is adopted.
+    func reloadImproved() {
+        guard let disk = Self.load() else { return }
+        suspendSave = true
+        flow.title = disk.title
+        flow.flow = disk.flow
+        flow.review = disk.review
+        suspendSave = false
+    }
+
     /// The run that can be picked up where it left off, if any.
     var resumableRun: FlowRun? {
         guard let r = flow.run, r.isResumable else { return nil }

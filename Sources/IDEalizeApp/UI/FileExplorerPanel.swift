@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 /// A lazily-populated node in the file tree. Directory children are only read
 /// from disk the first time the folder is expanded.
@@ -23,6 +24,37 @@ final class FileNode: ObservableObject, Identifiable {
         if expanded && children == nil { load() }
     }
 
+    /// Expand without collapsing an already-open folder (used to reveal a drop).
+    func expand() {
+        guard isDirectory else { return }
+        if !expanded { expanded = true }
+        if children == nil { load() }
+    }
+
+    /// Open every folder between this node and `target`, returning the node that
+    /// stands for `target`. Nil if `target` isn't under this node, or isn't listed
+    /// in the tree at all (a hidden file, or one deleted since it was asked for).
+    ///
+    /// Directories along the way are loaded on demand, so this reaches a file the
+    /// user has never expanded down to.
+    func revealDescendant(_ target: URL) -> FileNode? {
+        let rootPath = url.standardizedFileURL.path
+        let targetPath = target.standardizedFileURL.path
+        if targetPath == rootPath { return self }
+        guard targetPath.hasPrefix(rootPath + "/") else { return nil }
+
+        var node = self
+        for component in targetPath.dropFirst(rootPath.count + 1).split(separator: "/") {
+            guard node.isDirectory else { return nil }
+            node.expand()
+            guard let next = node.children?.first(where: { $0.name == component }) else { return nil }
+            node = next
+        }
+        // Revealing a folder means "show me what's in it".
+        if node.isDirectory { node.expand() }
+        return node
+    }
+
     func load() {
         let keys: [URLResourceKey] = [.isDirectoryKey]
         let contents = (try? FileManager.default.contentsOfDirectory(
@@ -38,11 +70,107 @@ final class FileNode: ObservableObject, Identifiable {
                 return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
     }
+
+    /// Re-read this directory in place, reusing existing child nodes (matched by
+    /// URL) so a folder's expanded state — and any children already loaded under
+    /// it — survive the refresh. Recurses into open subfolders. This is what lets
+    /// the tree pick up files written on disk (e.g. by Claude) without collapsing.
+    func refresh() {
+        guard isDirectory, children != nil else { return }
+        let keys: [URLResourceKey] = [.isDirectoryKey]
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles])) ?? []
+        let existing = Dictionary((children ?? []).map { ($0.url, $0) }) { a, _ in a }
+        children = contents
+            .map { u -> FileNode in
+                if let node = existing[u] {
+                    if node.isDirectory && node.expanded { node.refresh() }
+                    return node
+                }
+                let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                return FileNode(url: u, isDirectory: isDir)
+            }
+            .sorted { a, b in
+                if a.isDirectory != b.isDirectory { return a.isDirectory }
+                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+    }
+}
+
+/// Watches a directory tree (recursively) for filesystem changes via FSEvents,
+/// firing `onChange` on the main queue — coalesced, so a burst of writes (a Claude
+/// turn dropping several files) lands as one refresh. Held by the explorer for as
+/// long as it shows a given folder.
+final class DirectoryWatcher {
+    private var stream: FSEventStreamRef?
+    private var onChange: (() -> Void)?
+
+    func start(path: String, onChange: @escaping () -> Void) {
+        stop()
+        self.onChange = onChange
+        var ctx = FSEventStreamContext(version: 0,
+                                       info: Unmanaged.passUnretained(self).toOpaque(),
+                                       retain: nil, release: nil, copyDescription: nil)
+        let cb: FSEventStreamCallback = { _, info, _, _, _, _ in
+            guard let info else { return }
+            Unmanaged<DirectoryWatcher>.fromOpaque(info).takeUnretainedValue().onChange?()
+        }
+        guard let s = FSEventStreamCreate(
+            kCFAllocatorDefault, cb, &ctx, [path] as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.4,   // latency: coalesce bursts of writes into one fire
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer)
+        ) else { return }
+        stream = s
+        FSEventStreamSetDispatchQueue(s, .main)
+        FSEventStreamStart(s)
+    }
+
+    func stop() {
+        guard let s = stream else { return }
+        FSEventStreamStop(s); FSEventStreamInvalidate(s); FSEventStreamRelease(s)
+        stream = nil
+    }
+
+    deinit { stop() }
+}
+
+/// What a tree's rows can do. The project tree accepts drops (copying files in)
+/// and opens files; the browse tree is a *source* of drags, and offers "Copy to
+/// Project" and "Browse Here" instead. A nil closure means the row omits that
+/// affordance entirely.
+struct FileTreeActions {
+    var onOpenFile: (URL) -> Void
+    /// Copy `sources` into the folder `destination`. nil ⇒ tree rejects drops.
+    var onDropInto: ((_ destination: URL, _ sources: [URL]) -> Void)?
+    /// nil ⇒ no "Copy to Project" menu item.
+    var onCopyToProject: ((URL) -> Void)?
+    /// nil ⇒ no "Browse Here" menu item.
+    var onBrowseHere: ((URL) -> Void)?
+}
+
+/// Resolve a drop's item providers to file URLs, calling back on the main queue.
+private func loadDroppedURLs(_ providers: [NSItemProvider], completion: @escaping ([URL]) -> Void) {
+    let lock = NSLock()
+    var urls: [URL] = []
+    let group = DispatchGroup()
+    for provider in providers where provider.canLoadObject(ofClass: URL.self) {
+        group.enter()
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            if let url, url.isFileURL {
+                lock.lock(); urls.append(url); lock.unlock()
+            }
+            group.leave()
+        }
+    }
+    group.notify(queue: .main) { completion(urls) }
 }
 
 /// The middle file-explorer panel: shows the focused terminal's working
-/// directory as a navigable tree. Clicking a file types its path into the
-/// terminal; clicking a folder expands it.
+/// directory as a navigable tree. Clicking a file opens it in the document
+/// panel; clicking a folder expands it. A second, optional browse pane docks
+/// below it for pulling files in from elsewhere on disk.
 struct FileExplorerPanel: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject private var settings = AppSettings.shared
@@ -95,28 +223,40 @@ private struct FileExplorerInner: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var workspace: Workspace
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var layout = PanelLayout.shared
+    @ObservedObject private var reveal = FileReveal.shared
     @State private var root: FileNode?
     @State private var rootPath = ""
     @State private var creatingFolder = false
     @State private var newFolderName = ""
+    @State private var watcher = DirectoryWatcher()
+    @State private var rootDropTargeted = false
 
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.files, base: 12, background: theme.chrome) }
+
+    /// The browse pane's open/closed state, persisted against this project.
+    private var browseOpen: Bool {
+        !rootPath.isEmpty && settings.isBrowseOpen(for: rootPath)
+    }
+
+    private var actions: FileTreeActions {
+        FileTreeActions(
+            onOpenFile: openFile,
+            onDropInto: { dest, sources in workspace.copyIntoProject(sources, destination: dest) },
+            onCopyToProject: nil,
+            onBrowseHere: nil)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(Color(theme.border)).frame(height: 1)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if let root, let kids = root.children {
-                        ForEach(kids) { node in
-                            FileRow(node: node, depth: 0, onOpenFile: openFile)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 6)
+            projectTree
+            if browseOpen, !rootPath.isEmpty {
+                VerticalResizeHandle(height: $layout.browserHeight, range: 120...520)
+                FileBrowserPane(workspace: workspace, projectRoot: rootPath)
+                    .frame(height: layout.browserHeight)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -124,6 +264,67 @@ private struct FileExplorerInner: View {
         .onAppear { rebuild() }
         .onChange(of: session.projectPath ?? "") { rebuild() }
         .onChange(of: workspace.fileTreeVersion) { rebuild(force: true) }
+        .onDisappear { watcher.stop() }
+    }
+
+    /// The project tree. Its empty space is itself a drop target, so a file
+    /// dragged anywhere that isn't a folder row lands at the project root.
+    private var projectTree: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if let root, let kids = root.children {
+                        ForEach(kids) { node in
+                            FileRow(node: node, depth: 0, actions: actions)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 6)
+            }
+            .frame(maxHeight: .infinity)
+            .onDrop(of: [.fileURL], isTargeted: $rootDropTargeted) { providers in
+                guard let root else { return false }
+                loadDroppedURLs(providers) { urls in
+                    workspace.copyIntoProject(urls, destination: root.url)
+                }
+                return true
+            }
+            .overlay {
+                if rootDropTargeted {
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(settings.actionStyle.color, lineWidth: 1.5)
+                        .padding(2)
+                }
+            }
+            // A reveal can arrive before this tree exists (focusing another
+            // project's terminal rebuilds the explorer), so check on appear too.
+            .onAppear { applyReveal(proxy) }
+            .onChange(of: reveal.request) { applyReveal(proxy) }
+        }
+    }
+
+    /// Open the folders down to the revealed file and scroll it into view. Ignores
+    /// reveals aimed at a file outside this tree — another project's explorer will
+    /// claim those.
+    private func applyReveal(_ proxy: ScrollViewProxy) {
+        // No-op unless this tree hasn't been built yet — which is exactly the case
+        // when a reveal focused this session's tab to get here.
+        guard let request = reveal.request, let root = rebuild() else { return }
+        let rootPath = root.url.path
+        guard request.url.path == rootPath || request.url.path.hasPrefix(rootPath + "/") else { return }
+        guard reveal.claim(request) else { NSLog("VERIFY: not claimed"); return }
+        guard let node = root.revealDescendant(request.url), node !== root else {
+            NSLog("VERIFY: no node for \(request.url.path)"); return
+        }
+        NSLog("VERIFY: claimed=\(request.token) node=\(node.name) expandedAncestors=\(ancestorsExpanded(from: root, to: request.url)) scrollingTo=\(node.id)")
+        // Expanding folders re-renders the tree; let the new rows lay out before
+        // asking the scroll view to find one of them.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(node.id, anchor: .center)
+            }
+        }
     }
 
     private var header: some View {
@@ -136,6 +337,15 @@ private struct FileExplorerInner: View {
                 .foregroundStyle(Color(theme.foreground))
                 .lineLimit(1)
             Spacer()
+            Button(action: toggleBrowse) {
+                Image(systemName: "tray.and.arrow.down")
+                    .font(.system(size: 11))
+                    .foregroundStyle(browseOpen ? settings.actionStyle.color
+                                                : Color(theme.secondaryForeground))
+            }
+            .buttonStyle(.plain)
+            .disabled(rootPath.isEmpty)
+            .help("Browse other folders — drag files in to add them to the project")
             Button(action: { newFolderName = ""; creatingFolder = true }) {
                 Image(systemName: "folder.badge.plus")
                     .font(.system(size: 11))
@@ -167,6 +377,13 @@ private struct FileExplorerInner: View {
         }
     }
 
+    private func toggleBrowse() {
+        guard !rootPath.isEmpty else { return }
+        withAnimation(.easeOut(duration: 0.15)) {
+            settings.browseOpen[rootPath] = !browseOpen
+        }
+    }
+
     private func createFolder() {
         creatingFolder = false
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -182,15 +399,40 @@ private struct FileExplorerInner: View {
         return last.isEmpty ? "/" : last
     }
 
-    private func rebuild(force: Bool = false) {
-        let path = (session.projectPath?.isEmpty == false ? session.projectPath! :
-                        FileManager.default.homeDirectoryForCurrentUser.path)
-        guard force || path != rootPath || root == nil else { return }
+    /// Build (or refresh) the tree, returning its root — so a caller acting on the
+    /// tree right away doesn't have to re-read the `@State` it just wrote.
+    @discardableResult
+    private func rebuild(force: Bool = false) -> FileNode? {
+        let path = session.explorerRoot
+        // Already showing this folder: a forced call (manual refresh button or a
+        // filesystem change) is a refresh-in-place that keeps open folders open;
+        // an unforced one is a no-op.
+        if let root, path == rootPath {
+            if force { root.refresh() }
+            return root
+        }
+        // A different folder (or first build): read it fresh and re-point the
+        // filesystem watcher at it.
         rootPath = path
         let node = FileNode(url: URL(fileURLWithPath: path), isDirectory: true)
         node.expanded = true
         node.load()
         root = node
+        watcher.start(path: path) { [weak node] in node?.refresh() }
+        return node
+    }
+
+    /// VERIFY-ONLY: report whether every folder between root and target is open.
+    private func ancestorsExpanded(from root: FileNode, to target: URL) -> String {
+        var node = root
+        var parts: [String] = []
+        let comps = target.path.dropFirst(root.url.path.count + 1).split(separator: "/")
+        for c in comps.dropLast() {
+            guard let next = node.children?.first(where: { $0.name == c }) else { return parts.joined(separator: ",") + ",MISSING(\(c))" }
+            parts.append("\(c):\(next.expanded ? "open" : "CLOSED")")
+            node = next
+        }
+        return parts.joined(separator: ",")
     }
 
     /// Open a clicked file in the document panel.
@@ -200,57 +442,258 @@ private struct FileExplorerInner: View {
     }
 }
 
-/// A single row in the file tree; recurses to render expanded folders.
-private struct FileRow: View {
-    @ObservedObject var node: FileNode
-    let depth: Int
-    let onOpenFile: (URL) -> Void
+/// The second, subordinate file browser docked beneath the project tree. It can
+/// be pointed anywhere on disk; drag a file from it onto a folder in the project
+/// tree above to copy it in. Its location is remembered per project.
+private struct FileBrowserPane: View {
+    @ObservedObject var workspace: Workspace
+    /// The open project's folder — the key this pane's location is stored under.
+    let projectRoot: String
+
     @ObservedObject private var settings = AppSettings.shared
-    @State private var hovering = false
+    @State private var root: FileNode?
+    @State private var rootPath = ""
+    @State private var watcher = DirectoryWatcher()
 
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.files, base: 12, background: theme.chrome) }
 
+    private var actions: FileTreeActions {
+        FileTreeActions(
+            onOpenFile: { url in workspace.viewedFile = url; workspace.showViewer = true },
+            onDropInto: nil,
+            onCopyToProject: { url in
+                guard let dest = workspace.projectRootURL else { NSSound.beep(); return }
+                workspace.copyIntoProject([url], destination: dest)
+            },
+            onBrowseHere: { url in navigate(to: url.path) })
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Rectangle().fill(Color(theme.border)).frame(height: 1)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if let root, let kids = root.children {
+                        ForEach(kids) { node in
+                            FileRow(node: node, depth: 0, actions: actions)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 6)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(style.background)
+        .onAppear { navigate(to: settings.browseFolder(for: projectRoot)) }
+        .onDisappear { watcher.stop() }
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "shippingbox")
+                .font(.system(size: 10))
+                .foregroundStyle(Color(theme.secondaryForeground))
+            Text(displayPath)
+                .font(settings.ui(11, .medium))
+                .foregroundStyle(Color(theme.foreground))
+                .lineLimit(1).truncationMode(.head)
+                .help(rootPath)
+            Spacer(minLength: 4)
+            Button(action: goUp) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+            }
+            .buttonStyle(.plain)
+            .disabled(rootPath == "/" || rootPath.isEmpty)
+            .help("Enclosing folder")
+            Menu {
+                ForEach(quickLocations, id: \.path) { loc in
+                    Button(loc.name) { navigate(to: loc.path) }
+                }
+                Divider()
+                Button("Choose Folder…") { chooseFolder() }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 16)
+            .help("Go to folder")
+        }
+        .padding(.horizontal, 12).frame(height: 30)
+    }
+
+    private var displayPath: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if rootPath == home { return "~" }
+        if rootPath.hasPrefix(home) { return "~" + rootPath.dropFirst(home.count) }
+        return rootPath
+    }
+
+    private struct QuickLocation { let name: String; let path: String }
+
+    private var quickLocations: [QuickLocation] {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser
+        return [("Home", home.path),
+                ("Desktop", home.appendingPathComponent("Desktop").path),
+                ("Documents", home.appendingPathComponent("Documents").path),
+                ("Downloads", home.appendingPathComponent("Downloads").path)]
+            .filter { fm.fileExists(atPath: $0.1) }
+            .map { QuickLocation(name: $0.0, path: $0.1) }
+    }
+
+    private func goUp() {
+        let parent = (rootPath as NSString).deletingLastPathComponent
+        guard !parent.isEmpty else { return }
+        navigate(to: parent)
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Browse"
+        panel.message = "Choose a folder to browse for files"
+        panel.directoryURL = URL(fileURLWithPath: rootPath)
+        if panel.runModal() == .OK, let url = panel.url { navigate(to: url.path) }
+    }
+
+    /// Point the pane at `path`, rebuild its tree, and remember it against the
+    /// project so returning here later lands back on the same folder.
+    private func navigate(to path: String) {
+        guard !path.isEmpty, path != rootPath || root == nil else { return }
+        rootPath = path
+        if settings.browseFolders[projectRoot] != path { settings.browseFolders[projectRoot] = path }
+        let node = FileNode(url: URL(fileURLWithPath: path), isDirectory: true)
+        node.expanded = true
+        node.load()
+        root = node
+        watcher.start(path: path) { [weak node] in node?.refresh() }
+    }
+}
+
+/// A single row in a file tree; recurses to render expanded folders.
+private struct FileRow: View {
+    @ObservedObject var node: FileNode
+    let depth: Int
+    let actions: FileTreeActions
+    @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var reveal = FileReveal.shared
+    @State private var hovering = false
+    @State private var dropTargeted = false
+
+    private var theme: Theme { settings.theme }
+    private var style: PanelStyle { settings.panelStyle(.files, base: 12, background: theme.chrome) }
+
+    /// Only folders in a drop-accepting tree can receive files.
+    private var acceptsDrop: Bool { node.isDirectory && actions.onDropInto != nil }
+
+    /// The row an agent pointed at, or the file the user last opened.
+    private var isSelected: Bool { reveal.selected == node.url.standardizedFileURL }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 5) {
-                Color.clear.frame(width: CGFloat(depth) * 12)
-                if node.isDirectory {
-                    Image(systemName: node.expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(Color(theme.secondaryForeground))
-                        .frame(width: 10)
-                } else {
-                    Color.clear.frame(width: 10)
-                }
-                Image(systemName: node.isDirectory ? "folder.fill" : icon(for: node.name))
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(node.isDirectory ? theme.accent : theme.secondaryForeground))
-                    .frame(width: 15)
-                Text(node.name)
-                    .font(style.font(12))
-                    .foregroundStyle(style.textColor)
-                    .panelText(style)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(hovering ? theme.surface : .clear))
-            .contentShape(Rectangle())
-            .onHover { hovering = $0 }
-            .onTapGesture {
-                if node.isDirectory { withAnimation(.easeOut(duration: 0.1)) { node.toggle() } }
-                else { onOpenFile(node.url) }
-            }
-            .onDrag { NSItemProvider(object: node.url as NSURL) }
-
+            droppableRow
             if node.isDirectory, node.expanded, let kids = node.children {
                 ForEach(kids) { child in
-                    FileRow(node: child, depth: depth + 1, onOpenFile: onOpenFile)
+                    FileRow(node: child, depth: depth + 1, actions: actions)
                 }
             }
         }
+    }
+
+    @ViewBuilder private var droppableRow: some View {
+        if acceptsDrop {
+            row.onDrop(of: [.fileURL], isTargeted: $dropTargeted, perform: handleDrop)
+        } else {
+            row
+        }
+    }
+
+    private var row: some View {
+        HStack(spacing: 5) {
+            Color.clear.frame(width: CGFloat(depth) * 12)
+            if node.isDirectory {
+                Image(systemName: node.expanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+                    .frame(width: 10)
+            } else {
+                Color.clear.frame(width: 10)
+            }
+            Image(systemName: node.isDirectory ? "folder.fill" : icon(for: node.name))
+                .font(.system(size: 11))
+                .foregroundStyle(Color(node.isDirectory ? theme.accent : theme.secondaryForeground))
+                .frame(width: 15)
+            Text(node.name)
+                .font(style.font(12))
+                .foregroundStyle(style.textColor)
+                .panelText(style)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 4).fill(settings.actionStyle.softFill)
+            } else if hovering {
+                Color(theme.surface)
+            }
+        }
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(settings.actionStyle.color, lineWidth: 1.5)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture {
+            if node.isDirectory { withAnimation(.easeOut(duration: 0.1)) { node.toggle() } }
+            else {
+                reveal.select(node.url)
+                actions.onOpenFile(node.url)
+            }
+        }
+        .onDrag { NSItemProvider(object: node.url as NSURL) }
+        .contextMenu {
+            if let copyToProject = actions.onCopyToProject {
+                Button {
+                    copyToProject(node.url)
+                } label: { Label("Copy to Project", systemImage: "tray.and.arrow.down") }
+            }
+            if node.isDirectory, let browseHere = actions.onBrowseHere {
+                Button {
+                    browseHere(node.url)
+                } label: { Label("Browse Here", systemImage: "arrow.down.forward.square") }
+            }
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([node.url])
+            } label: { Label("Show in Finder", systemImage: "folder") }
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(node.url.path, forType: .string)
+            } label: { Label("Copy Path", systemImage: "doc.on.clipboard") }
+        }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let onDropInto = actions.onDropInto else { return false }
+        loadDroppedURLs(providers) { urls in
+            guard !urls.isEmpty else { return }
+            node.expand()   // reveal what just landed
+            onDropInto(node.url, urls)
+        }
+        return true
     }
 
     private func icon(for name: String) -> String {
@@ -263,5 +706,55 @@ private struct FileRow: View {
         case "sh", "zsh", "bash": return "terminal"
         default: return "doc"
         }
+    }
+}
+
+/// A hairline divider that drags vertically to resize the pane below it — the
+/// horizontal counterpart of `WorkspaceView`'s column handle.
+private struct VerticalResizeHandle: View {
+    @Binding var height: Double
+    let range: ClosedRange<Double>
+    @ObservedObject private var settings = AppSettings.shared
+    @State private var startHeight: Double?
+
+    var body: some View {
+        Rectangle()
+            .fill(Color(settings.theme.border))
+            .frame(height: 1)
+            .overlay(
+                Color.clear
+                    .frame(height: 11)
+                    .contentShape(Rectangle())
+                    .onHover { h in
+                        if h { NSCursor.resizeUpDown.set() } else { NSCursor.arrow.set() }
+                    }
+                    .gesture(
+                        // `.global` for the same reason as the column handle: in `.local`
+                        // the handle rides the pane it resizes, so its translation feeds
+                        // back on itself and the pane judders between two heights.
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { v in
+                                if startHeight == nil {
+                                    startHeight = height
+                                    LiveResizeMonitor.shared.beginPanelDrag()
+                                }
+                                let s = startHeight ?? height
+                                // Dragging up grows the pane below. Snap to whole
+                                // points so sub-pixel mouse deltas don't relayout.
+                                let next = (s - v.translation.height).rounded()
+                                let clamped = min(range.upperBound, max(range.lowerBound, next))
+                                if clamped != height { height = clamped }
+                            }
+                            .onEnded { _ in endDrag() }
+                    )
+            )
+            .onDisappear { endDrag() }
+    }
+
+    private func endDrag() {
+        guard startHeight != nil else { return }
+        startHeight = nil
+        LiveResizeMonitor.shared.endPanelDrag()
+        PanelLayout.shared.persist()
     }
 }

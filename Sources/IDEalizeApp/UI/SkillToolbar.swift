@@ -162,13 +162,20 @@ struct ChatToolbar: View {
             FlowModeToggle(on: $flowMode)
             if flowMode {
                 FlowLibraryButton(flowStore: flowStore)
+                Spacer(minLength: 0)
             } else {
-                ModelPill(session: session)
-                EffortPill(session: session)
-                SkillsPill(session: session, draft: $draft, focus: focus)
-                CommandsPill(session: session)
+                // The action pills scroll horizontally rather than clip when the
+                // pane is narrow — the toggle stays pinned on the left.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        ModelPill(session: session)
+                        EffortPill(session: session)
+                        SkillsPill(session: session, draft: $draft, focus: focus)
+                        CommandsPill(session: session)
+                    }
+                    .padding(.trailing, 2)
+                }
             }
-            Spacer(minLength: 0)
         }
     }
 }
