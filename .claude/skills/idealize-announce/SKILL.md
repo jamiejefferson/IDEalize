@@ -30,6 +30,13 @@ rows (via the anon key), so only an operator here can publish.
 | `max_app_version` | optional — only show to this version or **older** (null = no ceiling) |
 | `active` | master on/off. Set older ones `false` so only one shows |
 
+**Bootstrap caveat:** the announcement-fetching code shipped *in* 0.1.1, so
+only apps on **0.1.1 or newer can ever fetch a banner**. A "please update"
+notice aimed at older versions can't reach them (they have no fetch code) — for
+those, tell users directly. Announcements aimed at users *on the new version*
+("here's what shipped") should set `min_app_version` to that version and leave
+`max_app_version` null.
+
 **Version gating for a release notice:** to nag only users who haven't updated,
 set `max_app_version` to the version *below* the new release. Once someone is on
 the new version the banner disappears for them. Leave both null to show to
