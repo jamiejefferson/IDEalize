@@ -18,6 +18,14 @@ Publishing requires the **Supabase MCP tools** (`apply_migration` /
 `execute_sql`), which run with the service role. Users can only *read* active
 rows (via the anon key), so only an operator here can publish.
 
+**Distribution channel:** IDEalize is distributed via **GitHub Releases**. When
+an announcement points users to a new build, use the canonical latest-release
+URL as the `cta_url`:
+`https://github.com/jamiejefferson/IDEalize/releases/latest` (label e.g.
+"Download update"). Cut the release with `scripts/release.sh` first. The app is
+self-signed (not notarized), so download announcements should mention the
+first-launch step: `xattr -dr com.apple.quarantine /Applications/IDEalize.app`.
+
 ## Columns
 
 | column | meaning |
