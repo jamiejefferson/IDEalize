@@ -21,7 +21,7 @@ struct SessionRail: View {
                 LazyVStack(spacing: 8) {
                     ForEach(workspace.projectGroups) { group in
                         ProjectCard(group: group, workspace: workspace) { tab in
-                            renameText = tab.displayName
+                            renameText = tab.customName ?? ""
                             renaming = tab
                         }
                     }
@@ -101,8 +101,10 @@ private struct ProjectCard: View {
             header
             if noteExpanded { noteEditor }
             if !collapsed {
-                ForEach(group.tabs) { tab in
-                    SessionCard(tab: tab, workspace: workspace, onRename: { onRenameTab(tab) })
+                ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
+                    SessionCard(tab: tab, workspace: workspace,
+                                label: chatLabel(tab, index),
+                                onRename: { onRenameTab(tab) })
                         .onDrag {
                             workspace.draggingTabID = tab.id
                             return NSItemProvider(object: tab.id.uuidString as NSString)
@@ -118,6 +120,14 @@ private struct ProjectCard: View {
                 .fill(Color(theme.surface))
                 .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Color(theme.border), lineWidth: 1))
         )
+    }
+
+    /// A chat's label inside its project card. A chat with no custom name would
+    /// otherwise fall back to the folder name — which the project header already
+    /// shows — so give it a distinct "Chat N" instead of duplicating the project.
+    private func chatLabel(_ tab: WorkspaceTab, _ index: Int) -> String {
+        if let c = tab.customName, !c.isEmpty { return c }
+        return "Chat \(index + 1)"
     }
 
     private var header: some View {
@@ -201,9 +211,9 @@ private struct ProjectCard: View {
                     Text("WHAT EACH CHAT IS WORKING ON")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(style.secondaryTextColor.opacity(0.7))
-                    ForEach(group.tabs) { tab in
+                    ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
                         if let session = tab.sessions.first {
-                            ChatStatusRow(tab: tab, session: session)
+                            ChatStatusRow(label: chatLabel(tab, index), session: session)
                         }
                     }
                 }
@@ -223,7 +233,7 @@ private struct ProjectCard: View {
 /// One line in a project's shared-status view: a status dot, the chat's name,
 /// and what it's working on. Observes the session so it updates live.
 private struct ChatStatusRow: View {
-    @ObservedObject var tab: WorkspaceTab
+    let label: String
     @ObservedObject var session: TerminalSession
     @ObservedObject private var settings = AppSettings.shared
 
@@ -243,7 +253,7 @@ private struct ChatStatusRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             Circle().fill(dotColor).frame(width: 6, height: 6).padding(.top, 3)
-            (Text(tab.displayName + "  ").font(style.font(10.5, .semibold)).foregroundStyle(style.textColor)
+            (Text(label + "  ").font(style.font(10.5, .semibold)).foregroundStyle(style.textColor)
              + Text(session.activityLine).font(style.font(10.5)).foregroundStyle(style.secondaryTextColor))
                 .panelText(style)
                 .lineLimit(2)
@@ -257,8 +267,9 @@ private struct ChatStatusRow: View {
 private struct SessionCard: View {
     @ObservedObject var tab: WorkspaceTab
     @ObservedObject var workspace: Workspace
-    @ObservedObject private var settings = AppSettings.shared
+    let label: String
     let onRename: () -> Void
+    @ObservedObject private var settings = AppSettings.shared
     @State private var hovering = false
 
     private var theme: Theme { settings.theme }
@@ -270,7 +281,7 @@ private struct SessionCard: View {
     var body: some View {
         HStack(spacing: 9) {
             leadingIcon
-            Text(tab.displayName)
+            Text(label)
                 .font(style.font(13, nameWeight))
                 .foregroundStyle(style.textColor)
                 .panelText(style)
