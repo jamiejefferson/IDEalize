@@ -87,14 +87,14 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key>      <string>IDEalize</string>
   <key>CFBundleIconFile</key>        <string>AppIcon</string>
   <key>CFBundleIdentifier</key>      <string>com.idealize.terminal</string>
-  <key>CFBundleVersion</key>         <string>3</string>
-  <key>CFBundleShortVersionString</key> <string>0.2.0</string>
+  <key>CFBundleVersion</key>         <string>4</string>
+  <key>CFBundleShortVersionString</key> <string>0.3.0</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>LSMinimumSystemVersion</key>  <string>14.0</string>
   <key>NSHighResolutionCapable</key> <true/>
   <key>NSPrincipalClass</key>        <string>NSApplication</string>
   <key>LSApplicationCategoryType</key> <string>public.app-category.developer-tools</string>
-  <key>NSMicrophoneUsageDescription</key> <string>IDEalize uses the microphone to dictate chat messages (press and hold the mic).</string>
+  <key>NSMicrophoneUsageDescription</key> <string>IDEalize uses the microphone to dictate chat messages and to record and transcribe meetings into your documents. Audio is transcribed on-device.</string>
   <key>NSSpeechRecognitionUsageDescription</key> <string>IDEalize transcribes your speech on-device to type chat messages.</string>
 </dict>
 </plist>
