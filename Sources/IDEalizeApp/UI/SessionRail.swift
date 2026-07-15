@@ -88,6 +88,7 @@ private struct ProjectCard: View {
 
     @State private var noteExpanded = false
     @State private var noteText = ""
+    @State private var noteSaveWork: DispatchWorkItem?
 
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.sessions, base: 13, background: theme.chrome) }
@@ -122,12 +123,10 @@ private struct ProjectCard: View {
         )
     }
 
-    /// A chat's label inside its project card. A chat with no custom name would
-    /// otherwise fall back to the folder name — which the project header already
-    /// shows — so give it a distinct "Chat N" instead of duplicating the project.
+    /// A chat's label inside its project card — delegates to the workspace so the
+    /// rail and the agent-facing `idealize note` always agree on chat names.
     private func chatLabel(_ tab: WorkspaceTab, _ index: Int) -> String {
-        if let c = tab.customName, !c.isEmpty { return c }
-        return "Chat \(index + 1)"
+        workspace.chatLabel(tab, index: index)
     }
 
     private var header: some View {
@@ -198,7 +197,13 @@ private struct ProjectCard: View {
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 40, maxHeight: 110)
                     .onChange(of: noteText) { _, new in
-                        workspace.setProjectNote(group.path, new)
+                        // Debounce the disk write (and the resulting rail
+                        // re-render) so typing isn't a synchronous file write +
+                        // full re-render per keystroke.
+                        noteSaveWork?.cancel()
+                        let work = DispatchWorkItem { workspace.setProjectNote(group.path, new) }
+                        noteSaveWork = work
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
                     }
             }
 

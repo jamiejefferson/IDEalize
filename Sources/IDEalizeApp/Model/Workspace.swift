@@ -262,7 +262,16 @@ final class Workspace: ObservableObject {
                                   launchOverride: launchOverride,
                                   suppressAutoLaunch: suppressAutoLaunch)
         let tab = WorkspaceTab(root: PaneNode(session: session), name: session.label)
-        tabs.append(tab)
+        // Keep a project's chats contiguous in `tabs`: insert a new chat right
+        // after the last existing chat of the same project, else append. The rail
+        // groups by first-appearance order, so contiguity is what stops a
+        // within-project drag-reorder from reshuffling the whole project list.
+        let key = normalizedProjectKey(projectPath)
+        if let lastSameProject = tabs.lastIndex(where: { projectKey(for: $0) == key }) {
+            tabs.insert(tab, at: lastSameProject + 1)
+        } else {
+            tabs.append(tab)
+        }
         selectedTabID = tab.id
         focusedSessionID = session.id
         bindName(tab, to: session)
@@ -525,9 +534,24 @@ final class Workspace: ObservableObject {
     /// The grouping key for a tab: its primary session's project folder, or Home
     /// when it has none yet.
     func projectKey(for tab: WorkspaceTab) -> String {
-        let p = tab.sessions.first?.projectPath ?? ""
+        normalizedProjectKey(tab.sessions.first?.projectPath)
+    }
+
+    /// Normalise a raw project path to a grouping key (nil/empty/"/" → Home).
+    func normalizedProjectKey(_ path: String?) -> String {
+        let p = path ?? ""
         if p.isEmpty || p == "/" { return FileManager.default.homeDirectoryForCurrentUser.path }
         return p
+    }
+
+    /// How a chat is labelled in the rail and in the agent-facing shared note.
+    /// A custom name wins; otherwise an un-renamed chat would fall back to the
+    /// folder name (which the project header already shows), so give it a
+    /// distinct "Chat N" by its position within the project. One source of truth
+    /// so the rail and `idealize note` never disagree.
+    func chatLabel(_ tab: WorkspaceTab, index: Int) -> String {
+        if let c = tab.customName, !c.isEmpty { return c }
+        return "Chat \(index + 1)"
     }
 
     /// Tabs bucketed into projects, in first-appearance order (chats keep their
@@ -611,9 +635,9 @@ final class Workspace: ObservableObject {
         let brief = projectNote(path).trimmingCharacters(in: .whitespacesAndNewlines)
         if !brief.isEmpty { out.append(brief) }
         let tabs = projectGroups.first { $0.path == path }?.tabs ?? []
-        let rows = tabs.compactMap { tab -> String? in
+        let rows = tabs.enumerated().compactMap { index, tab -> String? in
             guard let s = tab.sessions.first else { return nil }
-            return "- \(tab.displayName): \(s.activityLine)"
+            return "- \(chatLabel(tab, index: index)): \(s.activityLine)"
         }
         if !rows.isEmpty {
             if !out.isEmpty { out.append("") }
@@ -637,12 +661,27 @@ final class Workspace: ObservableObject {
         guard tabs.isEmpty else { return }
         let snapshot = settings.projectSnapshot
         guard !snapshot.isEmpty else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        // Force `claude` for chats that were Claude, so restore doesn't depend on
+        // the current global auto-launch toggle / default command (which could
+        // otherwise bring a Claude chat back as a bare shell and then re-persist
+        // it as wasClaude=false — permanently losing its Claude-ness).
+        let claudeLaunch: String = {
+            let d = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            return TerminalSession.isClaudeCommand(d) ? d : "claude --dangerously-skip-permissions"
+        }()
         isRestoring = true
         for project in snapshot {
+            // A Home chat has no real project folder; restore it with projectPath
+            // nil (matching a freshly-created Home chat) rather than materialising
+            // $HOME, which would otherwise let a shared note leak into ~/.idealize.
+            let restorePath: String? = (project.path == home) ? nil : project.path
             for chat in project.chats {
-                newTab(projectPath: project.path, suppressAutoLaunch: !chat.wasClaude)
+                newTab(projectPath: restorePath,
+                       launchOverride: chat.wasClaude ? claudeLaunch : nil,
+                       suppressAutoLaunch: !chat.wasClaude)
                 if let name = chat.customName, !name.isEmpty {
-                    tabs.last?.customName = name   // newTab just appended this tab
+                    tabs.last?.customName = name   // newTab just inserted this tab
                 }
             }
         }
@@ -659,6 +698,15 @@ final class Workspace: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
+    /// Persist the rail immediately, cancelling any pending debounce. Called on
+    /// app termination so a change made just before quit isn't lost to the 0.4s
+    /// debounce window.
+    func flushSnapshotSave() {
+        snapshotSaveWork?.cancel()
+        snapshotSaveWork = nil
+        saveProjectSnapshot()
+    }
+
     private func saveProjectSnapshot() {
         let snapshot: [PersistedProject] = projectGroups.map { group in
             let chats: [PersistedChat] = group.tabs
@@ -668,12 +716,16 @@ final class Workspace: ObservableObject {
                     PersistedChat(customName: tab.customName,
                                   wasClaude: tab.sessions.contains { $0.wasClaudeLaunched })
                 }
-            return PersistedProject(path: group.path,
-                                    collapsed: isCollapsed(group.path),
-                                    chats: chats)
+            return PersistedProject(path: group.path, chats: chats)
         }
         // Drop projects that ended up with no persistable chats (e.g. a lone hatch).
-        settings.projectSnapshot = snapshot.filter { !$0.chats.isEmpty }
+        let live = snapshot.filter { !$0.chats.isEmpty }
+        settings.projectSnapshot = live
+        // Prune collapse state for projects that no longer have any chats, so the
+        // set can't grow unbounded or leak a stale collapse onto a later reopen.
+        let livePaths = Set(live.map { $0.path })
+        let pruned = settings.collapsedProjects.filter { livePaths.contains($0) }
+        if pruned.count != settings.collapsedProjects.count { settings.collapsedProjects = pruned }
     }
 
     // MARK: - IPC handling (called on main thread)
