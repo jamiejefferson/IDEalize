@@ -18,8 +18,9 @@ struct PersistedChat: Codable {
 struct PersistedProject: Codable {
     /// The project folder path — the grouping key.
     var path: String
-    /// Whether the project group was collapsed in the rail.
-    var collapsed: Bool
     /// The chats open under this project, in order.
     var chats: [PersistedChat]
 }
+
+// Collapse state persists separately (AppSettings.collapsedProjects), keyed by
+// project path, and is pruned to live projects on each save.

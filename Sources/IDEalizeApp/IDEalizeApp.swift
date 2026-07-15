@@ -178,6 +178,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Flush any pending (debounced) rail snapshot before we tear down, so a
+        // change made just before quit still restores on next launch.
+        Workspace.shared.flushSnapshotSave()
         Workspace.shared.ipcHub?.stop()
         Workspace.shared.allSessions.forEach { $0.terminate() }
     }

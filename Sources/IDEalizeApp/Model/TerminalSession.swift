@@ -154,8 +154,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// is identifiable, unless the command already selects a session. Returns the
     /// command unchanged for non-Claude launches.
     private func augmentClaudeLaunch(_ command: String) -> String {
-        guard command.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
-        else { return command }
+        guard TerminalSession.isClaudeCommand(command) else { return command }
         let selectors = ["--session-id", "--resume", "--continue", " -r ", " -c "]
         if selectors.contains(where: { command.contains($0) })
             || command.hasSuffix(" -r") || command.hasSuffix(" -c") { return command }
@@ -173,9 +172,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// when Claude doesn't use the alternate screen / reports an odd proc name.
     var isClaudeRunning: Bool {
         guard let cmd = runningCommand?.lowercased() else { return false }
-        // Match a `claude` invocation anywhere in the (possibly compound)
-        // command: bare, with args, after `&&`/`;`, or as a full path.
-        return cmd.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
+        return TerminalSession.isClaudeCommand(cmd)
+    }
+
+    /// Whether a command string invokes `claude` — bare, with args, after a
+    /// separator (`&&`/`;`), or as a full path. The single source of truth for
+    /// "is this a Claude session", used by the running-detection, the
+    /// `--session-id` augmentation, and the persisted snapshot's `wasClaude`.
+    static func isClaudeCommand(_ command: String) -> Bool {
+        command.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
     }
     /// True whenever a TUI (Claude or another full-screen program) owns the pane.
     var tuiActive: Bool { inAltScreen || isClaudeRunning }
@@ -361,8 +366,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 ? settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
                 : ""
         }()
-        launchIsClaude = !launch.isEmpty
-            && launch.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
+        launchIsClaude = !launch.isEmpty && TerminalSession.isClaudeCommand(launch)
         if !launch.isEmpty {
             // Send when the shell shows its first prompt (reliable), with a
             // fallback in case the shell-integration event never arrives.

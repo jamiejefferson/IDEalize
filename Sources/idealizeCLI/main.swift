@@ -280,27 +280,26 @@ case "focus":
     if !resp.ok { fail(resp.error ?? "focus failed") }
 
 case "note":
-    let flags = Flags(rest)   // `--set <text>` / `--mine <text>` take a value
-    if flags.values["mine"] != nil || flags.bools.contains("mine") {
-        // Post (or clear) what THIS chat is working on.
-        let text = flags.values["mine"] ?? ""
-        let resp = sendRequest(IPCRequest(command: .note, from: mySession, target: "mine", body: text))
+    // `--set`/`--mine` take ALL the remaining words as their value (so unquoted
+    // prose isn't silently truncated to the first word). No value → usage error,
+    // not a destructive clear.
+    if rest.first == "--set" || rest.first == "--mine" {
+        let mine = rest.first == "--mine"
+        let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            fail("usage: idealize note \(rest.first!) <text>")
+        }
+        let resp = sendRequest(IPCRequest(command: .note, from: mySession,
+                                          target: mine ? "mine" : nil, body: text))
         if !resp.ok { fail(resp.error ?? "note failed") }
-        out(resp.info ?? "noted")
-    } else if let text = flags.values["set"] {
-        let resp = sendRequest(IPCRequest(command: .note, from: mySession, body: text))
-        if !resp.ok { fail(resp.error ?? "note failed") }
-        out(resp.info ?? "note updated")
-    } else if flags.bools.contains("set") {
-        // `--set` with no value → clear the brief.
-        let resp = sendRequest(IPCRequest(command: .note, from: mySession, body: ""))
-        if !resp.ok { fail(resp.error ?? "note failed") }
-        out("note cleared")
-    } else {
+        out(resp.info ?? (mine ? "noted" : "note updated"))
+    } else if rest.isEmpty {
         let resp = sendRequest(IPCRequest(command: .note, from: mySession))
         if !resp.ok { fail(resp.error ?? "note failed") }
         let note = resp.info ?? ""
         out(note.isEmpty ? "(no project note yet)" : note)
+    } else {
+        fail("usage: idealize note [--set <text>] [--mine <text>]")
     }
 
 case "image":
