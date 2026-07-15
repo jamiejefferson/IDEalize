@@ -73,6 +73,8 @@ cp "$ROOT/Resources/AppIcon.icns" "$RES/AppIcon.icns"
 # Bundle the Flow companion skill + commands. FlowSkillInstaller copies these
 # into the user's ~/.claude on launch so any project can review/run Flows.
 [ -d "$ROOT/Resources/FlowSkills" ] && cp -R "$ROOT/Resources/FlowSkills" "$RES/FlowSkills"
+# Bundle the "working" critter icons shown while Claude is busy.
+[ -d "$ROOT/Resources/Critters" ] && cp -R "$ROOT/Resources/Critters" "$RES/Critters"
 
 # Info.plist
 cat > "$CONTENTS/Info.plist" <<'PLIST'

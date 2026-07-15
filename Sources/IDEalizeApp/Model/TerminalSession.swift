@@ -56,6 +56,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published var historyIndex: Int?
     /// Claude is actively generating a reply (drives the tab working spinner).
     @Published var botWorking: Bool = false
+    /// True from the instant a chat message is submitted until Claude visibly
+    /// starts (`botWorking`) or its reply lands. Bridges the ~1s gap where the
+    /// poll's `detectPrompt()` would otherwise recompute `botWorking = false`
+    /// because Claude hasn't drawn its "esc to interrupt" marker yet — so the
+    /// chat shows a solid "working" state the moment you hit send.
+    @Published var awaitingReply: Bool = false
+    /// When the current `awaitingReply` began — used for a safety long-stop so an
+    /// aborted launch can't wedge the working banner on forever.
+    private var pendingSince: Date?
+    /// Which "working" critter to show — bumped once per submitted task so the
+    /// animal is chosen at send and stays put for the whole turn (rather than
+    /// changing as the transcript's exchange count ticks up mid-task).
+    @Published var taskCritter: Int = 0
     /// A confirmation/choice prompt Claude is showing — answered from the chat UI.
     @Published var pendingPrompt: ClaudePrompt?
     /// An interactive prompt is live on the terminal that we could NOT parse into
@@ -572,6 +585,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             if workingStatus != nil { workingStatus = nil }
             if workingTip != nil { workingTip = nil }
             if botWorking { botWorking = false }
+            if awaitingReply { awaitingReply = false }
             if agentStatus != .idle { agentStatus = .idle }
             return
         }
@@ -602,6 +616,16 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         let recentlyWorking = lastWorkingSeen.map { Date().timeIntervalSince($0) < 1.5 } ?? false
         let working = prompt == nil && (markerVisible || recentlyWorking)
         if working != botWorking { botWorking = working }
+        // The submit-time `awaitingReply` banner hands off the moment Claude
+        // visibly starts (its marker → `working`) or puts up a prompt; a launch
+        // that stalls clears after a grace period so it can't wedge on forever.
+        if awaitingReply {
+            if working || pendingPrompt != nil || liveInteractivePrompt {
+                awaitingReply = false
+            } else if let since = pendingSince, Date().timeIntervalSince(since) > 90 {
+                awaitingReply = false
+            }
+        }
         let (status, tip) = working ? ClaudePromptParser.statusAndTip(lines) : (nil, nil)
         if status != workingStatus { workingStatus = status }
         if tip != workingTip { workingTip = tip }
@@ -746,7 +770,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         let q = all.last?.question
         let a = all.last?.answer
         if let q, q != userQuestion { userQuestion = q }
-        if a != assistantMessage { assistantMessage = a }
+        if a != assistantMessage {
+            assistantMessage = a
+            // A real reply landed — the submit-time working banner can stand down.
+            if awaitingReply, let a, !a.isEmpty { awaitingReply = false }
+        }
         // NB: botWorking is driven by the on-screen "esc to interrupt" marker in
         // detectPrompt(), not the transcript — the transcript heuristic got stuck.
     }
@@ -783,8 +811,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         return "\(i + 1) / \(exchanges.count)"
     }
 
-    /// The index currently shown (live = the last exchange).
-    private var shownIndex: Int { historyIndex ?? (exchanges.count - 1) }
+    /// The index currently shown (live = the last exchange). Read by the chat's
+    /// exchange stepper to label the position ("3 of 12").
+    var shownIndex: Int { historyIndex ?? (exchanges.count - 1) }
 
     var canGoBack: Bool { shownIndex > 0 }
     var canGoForward: Bool { historyIndex != nil }
@@ -811,6 +840,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             priorAnswer = assistantMessage
             userQuestion = text
             botWorking = true
+            awaitingReply = true
+            pendingSince = Date()
+            taskCritter += 1
             agentStatus = .working
             if pendingPrompt != nil {
                 // Claude is showing a selection prompt (numbered menu). Typing a
@@ -834,6 +866,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             priorAnswer = assistantMessage
             userQuestion = text
             botWorking = true
+            awaitingReply = true
+            pendingSince = Date()
+            taskCritter += 1
             agentStatus = .working
             firePendingLaunch()   // no-op if the queued auto-launch already fired
             waitForClaudeThenSend(text, attemptsLeft: 30)
@@ -843,6 +878,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             priorAnswer = assistantMessage
             userQuestion = text
             botWorking = true
+            awaitingReply = true
+            pendingSince = Date()
+            taskCritter += 1
             agentStatus = .working
             claudeLaunchInFlight = true
             let launch = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)

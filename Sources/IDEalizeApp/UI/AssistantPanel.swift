@@ -35,6 +35,13 @@ struct QAChatBox: View {
     /// drives the editor's spinner and triggers the improved-flow reload.
     @State private var improvingFlow = false
     @FocusState private var focused: Bool
+    /// Scroll anchor pinned to the end of the transcript, so a streaming reply
+    /// follows live to the bottom while we're at the newest message.
+    private static let answerBottomID = "answer-bottom"
+    /// True while the bottom sentinel is on screen — i.e. we're following the
+    /// newest message. New content auto-scrolls only then, so jumping up to read
+    /// earlier turns isn't yanked back down.
+    @State private var atBottom = true
 
     private var theme: Theme { settings.theme }
     private var size: CGFloat { settings.chatFontSize }
@@ -94,44 +101,129 @@ struct QAChatBox: View {
         .onDisappear { removeDictationKey(); flowStore.flushSave() }
     }
 
-    /// Chat face: the condensed question (if any) on top, then Claude's answer
-    /// (or the welcome / working state) scrolling beneath.
+    /// A single message turn shown in the transcript — the user's question and
+    /// (once it arrives) Claude's answer to it.
+    private struct ChatTurn: Identifiable {
+        let id: Int
+        let question: String
+        let answer: String?
+    }
+
+    /// The conversation as an ordered list of turns, oldest→newest. Appends an
+    /// optimistic pending turn for a just-sent message the transcript hasn't
+    /// recorded yet (so your message shows instantly); it drops the moment the
+    /// real exchange lands with the same question, so there's never a duplicate.
+    private var turns: [ChatTurn] {
+        var out = session.exchanges.map { ChatTurn(id: $0.index, question: $0.question, answer: $0.answer) }
+        if let q = session.userQuestion, !q.isEmpty, session.exchanges.last?.question != q {
+            out.append(ChatTurn(id: -1, question: q, answer: nil))
+        }
+        return out
+    }
+
+    /// The scroll id for a turn's user message, so the jump-nav can scroll to it.
+    private func turnAnchor(_ id: Int) -> String { "turn-\(id)" }
+
+    /// Chat face: the whole conversation, oldest at top and newest just above the
+    /// input, so it reads top-to-bottom and new turns push older ones up. The
+    /// newest turn carries the live working animation (or a prompt) beneath it.
     @ViewBuilder private var conversationPane: some View {
-        if settings.hasSeenWelcome, let q = session.displayedQuestion, !q.isEmpty {
-            HStack(alignment: .top, spacing: 8) {
-                questionRow(q)
-                if session.exchanges.count > 1 { historyNav }
+        if !settings.hasSeenWelcome {
+            // First-run welcome takes priority over everything else.
+            ScrollView {
+                welcomeCard
+                    .padding(.horizontal, settings.chatMargin).padding(.bottom, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 18).padding(.top, 12)
-            Rectangle().fill(Color(theme.border).opacity(0.6)).frame(height: 1)
-                .padding(.vertical, 10).padding(.horizontal, 18)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if turns.isEmpty {
+            emptyStatePane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            Color.clear.frame(height: 12)
+            transcript
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        Group {
-            if !settings.hasSeenWelcome {
-                // First-run welcome takes priority over everything else.
-                ScrollView {
-                    welcomeCard
-                        .padding(.horizontal, settings.chatMargin).padding(.bottom, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The scrolling conversation. Bottom-anchored: it auto-follows the newest
+    /// message while you're at the bottom, and steps aside quietly when you've
+    /// jumped up to read earlier turns.
+    private var transcript: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    ForEach(turns) { turn in
+                        userMessageRow(turn.question).id(turnAnchor(turn.id))
+                        if let a = turn.answer, !a.isEmpty { answerBubble(a) }
+                        if turn.id == turns.last?.id { liveTrailing }
+                    }
+                    // Bottom sentinel: whether it's on screen tells us if we're
+                    // following live, and it's the target we scroll new content to.
+                    Color.clear.frame(height: 1).id(Self.answerBottomID)
+                        .onAppear { atBottom = true }
+                        .onDisappear { atBottom = false }
                 }
-            } else if isWorkingTurn && (answerToShow?.isEmpty ?? true) && liveNarration == nil {
-                // Nothing to show yet (the first turn) — centre the Idealizing
-                // animation. Once an answer is pinned or narration arrives, the
-                // answer area takes over with an inline working banner instead, so
-                // the previous reply stays put.
-                workingView.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            } else {
-                ScrollView {
-                    answerArea
-                        .padding(.horizontal, settings.chatMargin)
-                        .padding(.bottom, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, settings.chatMargin)
+                // Clear the top-left jump-nav pill (which floats over the card) so
+                // it never sits on top of the oldest message.
+                .padding(.top, session.exchanges.count > 1 ? 44 : 16)
+                .padding(.bottom, 8)
+            }
+            .onChange(of: session.userQuestion) { _, _ in
+                // A message I just sent always brings me back to the conversation.
+                atBottom = true
+                withAnimation { proxy.scrollTo(Self.answerBottomID, anchor: .bottom) }
+            }
+            .onChange(of: session.assistantMessage) { _, _ in
+                if atBottom { proxy.scrollTo(Self.answerBottomID, anchor: .bottom) }
+            }
+            .onChange(of: session.exchanges.count) { _, _ in
+                if atBottom { withAnimation { proxy.scrollTo(Self.answerBottomID, anchor: .bottom) } }
+            }
+            .onChange(of: session.pendingPrompt) { _, _ in
+                if atBottom { withAnimation { proxy.scrollTo(Self.answerBottomID, anchor: .bottom) } }
+            }
+            // The jump-nav sets historyIndex; scroll to that turn (or back to the
+            // newest when it returns to live).
+            .onChange(of: session.historyIndex) { _, idx in
+                if let idx, session.exchanges.indices.contains(idx) {
+                    withAnimation { proxy.scrollTo(turnAnchor(session.exchanges[idx].index), anchor: .top) }
+                } else {
+                    withAnimation { proxy.scrollTo(Self.answerBottomID, anchor: .bottom) }
                 }
             }
+            .onAppear { proxy.scrollTo(Self.answerBottomID) }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The live region beneath the newest user message: Claude's answer streams in
+    /// above this, and while a turn is in flight the working animation shows here —
+    /// so a fresh message always reads "your message → working → reply".
+    @ViewBuilder private var liveTrailing: some View {
+        if !session.isBrowsingHistory, let prompt = session.pendingPrompt {
+            promptView(prompt)
+        } else if !session.isBrowsingHistory && session.liveInteractivePrompt && !working {
+            terminalAttentionView
+        } else if isActiveTurn {
+            workingBanner
+        }
+    }
+
+    /// Empty conversation: the returning-user "ready" greeting or the service-hatch
+    /// banner, shown until the first turn arrives.
+    private var emptyStatePane: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if session.isServiceHatch {
+                    hatchBanner
+                } else if showReady {
+                    readyView
+                }
+            }
+            .padding(.horizontal, settings.chatMargin)
+            .padding(.top, 16).padding(.bottom, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     /// Send the sketched flow to Claude for review. The pre-flight already gated
@@ -295,54 +387,29 @@ struct QAChatBox: View {
         focused = true
     }
 
-    private func questionRow(_ q: String) -> some View {
+    /// A user message in the transcript — the person glyph and the full prompt,
+    /// never truncated. A subtle neutral fill marks it as "your" side, setting it
+    /// apart from Claude's tinted answers just below.
+    private func userMessageRow(_ q: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "person.crop.circle.fill")
                 .font(.system(size: 15))
                 .foregroundStyle(Color(theme.secondaryForeground))
                 .frame(width: 20)
-                .padding(.top, (size - 2) * 0.16)
+                .padding(.top, size * 0.16)
             Text(q)
-                .font(chatStyle.font(size - 2, .medium))
+                .font(chatStyle.font(size - 1, .medium))
                 .tracking(chatStyle.tracking)
                 .foregroundStyle(chatStyle.secondaryTextColor)
-                .lineLimit(2)
-                .truncationMode(.tail)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    /// Back/forward pager for stepping through past Q&A exchanges. Sits beside the
-    /// condensed question; the forward edge returns to live.
-    private var historyNav: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: size - 4))
-                .foregroundStyle(chatStyle.secondaryTextColor)
-            Button(action: { session.historyBack() }) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: size - 3, weight: .semibold))
-                    .foregroundStyle(Color(theme.secondaryForeground).opacity(session.canGoBack ? 1 : 0.3))
-            }
-            .buttonStyle(.plain).disabled(!session.canGoBack).help("Previous message")
-
-            // Position while browsing, else the total so it's clear there's history.
-            Text(session.historyPosition ?? "\(session.exchanges.count)")
-                .font(settings.ui(size - 4, .medium)).monospacedDigit()
-                .foregroundStyle(chatStyle.secondaryTextColor)
-
-            Button(action: { session.historyForward() }) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: size - 3, weight: .semibold))
-                    .foregroundStyle(Color(theme.secondaryForeground).opacity(session.canGoForward ? 1 : 0.3))
-            }
-            .buttonStyle(.plain).disabled(!session.canGoForward).help("Next message")
-        }
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(Capsule().fill(Color(theme.surface).opacity(0.6)))
-        .overlay(Capsule().strokeBorder(Color(theme.border).opacity(0.6), lineWidth: 1))
-        .fixedSize()
-        .help("Step back through earlier questions")
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(theme.secondaryForeground).opacity(0.06))
+        )
     }
 
     /// No conversation yet in this session — no answer, question, or history.
@@ -434,49 +501,14 @@ struct QAChatBox: View {
         return nil
     }
 
-    /// A live, in-flight Claude turn (not browsing history, not sitting on a prompt).
-    private var isWorkingTurn: Bool {
-        !session.isBrowsingHistory && session.pendingPrompt == nil && working
+    /// A live, in-flight Claude turn. `awaitingReply` covers the moment right after
+    /// you hit send, before Claude has drawn its on-screen "working" marker — so the
+    /// working animation appears the instant you send, beneath your new message.
+    private var isActiveTurn: Bool {
+        session.pendingPrompt == nil && (working || session.awaitingReply)
     }
 
-    /// While a turn is in flight, keep the previous answer pinned beneath the
-    /// working banner so the chat never blanks; otherwise show the latest answer.
-    private var answerToShow: String? {
-        if isWorkingTurn, let p = session.priorAnswer, !p.isEmpty { return p }
-        return session.displayedAnswer
-    }
-
-    /// Claude's latest text as it writes the new reply — a live "what it's doing"
-    /// line. Suppressed until it diverges from the pinned prior answer, so we don't
-    /// echo the old answer back as narration.
-    private var liveNarration: String? {
-        guard isWorkingTurn, let a = session.assistantMessage, !a.isEmpty,
-              a != session.priorAnswer else { return nil }
-        return a
-    }
-
-    @ViewBuilder private var answerArea: some View {
-        if !session.isBrowsingHistory, let prompt = session.pendingPrompt {
-            promptView(prompt)
-        } else if !session.isBrowsingHistory && session.liveInteractivePrompt && !working {
-            // The live terminal is on a prompt the chat can't render. Reflect
-            // that instead of the previous (now stale) transcript answer.
-            terminalAttentionView
-        } else {
-            VStack(alignment: .leading, spacing: 12) {
-                if isWorkingTurn { workingBanner }
-                if let a = answerToShow, !a.isEmpty {
-                    answerBubble(a)
-                } else if session.isServiceHatch && chatIsEmpty && !isWorkingTurn {
-                    hatchBanner
-                } else if showReady && !working {
-                    readyView
-                }
-            }
-        }
-    }
-
-    /// Claude's finished (or pinned) reply, rendered as markdown with a copy button.
+    /// Claude's finished reply, rendered as markdown with a copy button.
     private func answerBubble(_ a: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
@@ -498,20 +530,27 @@ struct QAChatBox: View {
                 }.buttonStyle(.plain).help("Copy response")
             }
         }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(theme.foreground).opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color(theme.border).opacity(0.4), lineWidth: 1)
+                )
+        )
     }
 
     /// The inline "what Claude's doing" line shown above the pinned answer while a
-    /// turn runs: a pulsing spark, the working status (time · tokens), and the
-    /// latest narration as Claude writes it — so its build chatter is surfaced
-    /// here, not lost to the terminal.
+    /// turn runs, beneath the newest message: a pulsing spark, the working status
+    /// (time · tokens), and Claude's current tip. The reply itself streams into the
+    /// answer bubble just above, so this stays a compact "still working" line.
     private var workingBanner: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 15))
-                .foregroundStyle(Color(theme.accent))
-                .frame(width: 20)
-                .padding(.top, size * 0.16)
-                .symbolEffect(.pulse, options: .repeating)
+        HStack(alignment: .center, spacing: 12) {
+            // One critter per task (fixed at send, stable across the turn); the
+            // ground/dust are drawn in the neutral secondary colour, never accent.
+            WorkingCritter(tint: Color(theme.secondaryForeground),
+                           seed: session.taskCritter, size: 28)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text("Working…")
@@ -522,14 +561,7 @@ struct QAChatBox: View {
                             .foregroundStyle(chatStyle.secondaryTextColor)
                     }
                 }
-                if let n = liveNarration {
-                    Text(n)
-                        .font(chatStyle.font(size - 1))
-                        .foregroundStyle(chatStyle.secondaryTextColor)
-                        .lineLimit(4)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else if let tip = session.workingTip, !tip.isEmpty {
+                if let tip = session.workingTip, !tip.isEmpty {
                     Text(tip)
                         .font(chatStyle.font(size - 2))
                         .foregroundStyle(chatStyle.secondaryTextColor)
@@ -539,12 +571,15 @@ struct QAChatBox: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.bottom, 6)
-        .overlay(alignment: .bottom) {
-            if answerToShow?.isEmpty == false {
-                Rectangle().fill(Color(theme.border).opacity(0.5)).frame(height: 1)
-            }
-        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(theme.foreground).opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color(theme.border).opacity(0.5), lineWidth: 1)
+                )
+        )
     }
 
     /// Claude is asking a question — show it with answer buttons.
@@ -638,35 +673,6 @@ struct QAChatBox: View {
         }
         .buttonStyle(.plain)
         .onHover { if $0 { selectedOption = opt.number } }
-    }
-
-    /// Working state: the big, centred, watermarked "Idealizing" word with
-    /// Claude's live status (and tip) centred underneath.
-    private var workingView: some View {
-        VStack(spacing: 12) {
-            IdealizingAnimation(size: 34)
-                .opacity(0.5)   // slightly watermarked
-            if let status = session.workingStatus, !status.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "hourglass").font(.system(size: size - 5))
-                    Text(status).font(settings.ui(size - 3)).monospacedDigit()
-                }
-                .foregroundStyle(Color(theme.secondaryForeground))
-            }
-            if let tip = session.workingTip, !tip.isEmpty {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "lightbulb").font(.system(size: size - 5))
-                    Text(tip).font(settings.ui(size - 4))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .foregroundStyle(Color(theme.secondaryForeground))
-                .frame(maxWidth: 520)
-                .padding(.horizontal, 24)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, 20)
     }
 
     /// Shown when Claude is sitting on an interactive prompt the chat can't
@@ -1002,6 +1008,100 @@ struct QAChatBox: View {
         session.submitInput(full)
         text = ""
         session.pendingAttachments = []
+    }
+}
+
+/// A little critter that runs on the spot while the ground scrolls beneath it —
+/// a charmingly alive "Claude is working" indicator. One critter per task: the
+/// animal is chosen from a stable `seed` so it doesn't change mid-turn. When the
+/// critter has a run-cycle (multiple frames) those are played as a sprite loop;
+/// otherwise a single still image is shown with a gentle body bob. `tint` only
+/// colours the neutral ground, dust and contact shadow around it.
+struct WorkingCritter: View {
+    var tint: Color
+    /// A per-task value; the same seed always yields the same critter, so it
+    /// stays put for the whole working task and varies turn to turn.
+    var seed: Int = 0
+    var size: CGFloat = 28
+    /// Seconds per run-cycle frame.
+    private let frameStep: TimeInterval = 0.11
+    @State private var roll = false
+    @State private var dust = false
+    @State private var bob = false
+
+    private var frames: [NSImage] { Critters.frames(Critters.name(forSeed: seed)) }
+    private var trackW: CGFloat { size * 2.6 }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            // Scrolling ground: two dashed strips chasing each other so the motion
+            // loops seamlessly and the critter reads as running forward.
+            ZStack {
+                ground.offset(x: roll ? -trackW : 0)
+                ground.offset(x: roll ? 0 : trackW)
+            }
+            .frame(width: trackW, height: 2, alignment: .leading)
+
+            // Little dust puffs kicked up behind the critter on each stride.
+            HStack(spacing: 2) {
+                Circle().fill(tint.opacity(dust ? 0 : 0.28)).frame(width: 3, height: 3)
+                Circle().fill(tint.opacity(dust ? 0 : 0.18)).frame(width: 2, height: 2)
+            }
+            .offset(x: -size * 0.55, y: dust ? -size * 0.22 : -2)
+            .padding(.bottom, 3)
+
+            ZStack {
+                // A soft contact shadow beneath the critter.
+                Ellipse()
+                    .fill(tint.opacity(0.16))
+                    .frame(width: size * 0.5, height: size * 0.12)
+                    .offset(y: size * 0.04)
+
+                critter
+                    .offset(y: bob ? -size * 0.1 : 0)   // gentle body bob for life
+            }
+            .padding(.bottom, 3)
+        }
+        .frame(width: trackW, height: size + 10)
+        .clipped()
+        .onAppear {
+            withAnimation(.linear(duration: 0.6).repeatForever(autoreverses: false)) { roll = true }
+            withAnimation(.easeOut(duration: 0.5).repeatForever(autoreverses: false)) { dust = true }
+            withAnimation(.easeInOut(duration: 0.22).repeatForever(autoreverses: true)) { bob = true }
+        }
+    }
+
+    /// The animal itself — a sprite-cycled run loop when frames are bundled, a
+    /// single still otherwise, or a plain SF Symbol hare as a last resort.
+    @ViewBuilder private var critter: some View {
+        let fr = frames
+        if fr.count > 1 {
+            TimelineView(.periodic(from: .now, by: frameStep)) { context in
+                let step = context.date.timeIntervalSinceReferenceDate / frameStep
+                let idx = Int(step.truncatingRemainder(dividingBy: Double(fr.count)))
+                Image(nsImage: fr[max(0, min(fr.count - 1, idx))])
+                    .resizable().interpolation(.high).scaledToFit()
+                    .frame(width: size, height: size)
+            }
+        } else if let one = fr.first {
+            Image(nsImage: one)
+                .resizable().interpolation(.high).scaledToFit()
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: "hare.fill")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(tint)
+        }
+    }
+
+    /// One strip of ground the width of the track — a row of little dashes.
+    private var ground: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<7, id: \.self) { _ in
+                Capsule().fill(tint.opacity(0.35)).frame(width: 6, height: 2)
+            }
+        }
+        .frame(width: trackW, alignment: .leading)
     }
 }
 
