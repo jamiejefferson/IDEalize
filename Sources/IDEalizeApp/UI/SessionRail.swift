@@ -183,23 +183,23 @@ private struct ProjectCard: View {
     }
 
     private var noteEditor: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            ZStack(alignment: .topLeading) {
-                if noteText.isEmpty {
-                    Text("What are all the chats in this project working on?")
-                        .font(style.font(11))
-                        .foregroundStyle(style.secondaryTextColor.opacity(0.7))
-                        .padding(.horizontal, 5).padding(.vertical, 6)
-                }
-                TextEditor(text: $noteText)
+        VStack(alignment: .leading, spacing: 10) {
+            // Shared Notes: a brief the human writes; every chat can read it. The
+            // native vertical TextField gives a placeholder that always sits
+            // exactly where typed text does (no manual alignment).
+            VStack(alignment: .leading, spacing: 4) {
+                sectionTitle("Shared Notes")
+                TextField("Jot anything every chat should know",
+                          text: $noteText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...6)
                     .font(style.font(11))
                     .foregroundStyle(style.textColor)
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 40, maxHeight: 110)
+                    .padding(.horizontal, 7).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(theme.background).opacity(0.5)))
                     .onChange(of: noteText) { _, new in
-                        // Debounce the disk write (and the resulting rail
-                        // re-render) so typing isn't a synchronous file write +
-                        // full re-render per keystroke.
+                        // Debounce the disk write (and resulting rail re-render)
+                        // so typing isn't a synchronous file write per keystroke.
                         noteSaveWork?.cancel()
                         let work = DispatchWorkItem { workspace.setProjectNote(group.path, new) }
                         noteSaveWork = work
@@ -207,26 +207,33 @@ private struct ProjectCard: View {
                     }
             }
 
-            // Live shared understanding: what each chat in the project is doing.
-            // Auto-derived from Claude's activity, or the chat's own `idealize
-            // note --mine`. Read-only here.
+            // Agent Notes: what each chat is doing — auto-derived from Claude's
+            // activity, or a chat's own `idealize note --mine`. Sits in the same
+            // boxed "field" as Shared Notes so the two sections read consistently.
             if !group.tabs.isEmpty {
-                Rectangle().fill(Color(theme.border)).frame(height: 1)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("WHAT EACH CHAT IS WORKING ON")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(style.secondaryTextColor.opacity(0.7))
-                    ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
-                        if let session = tab.sessions.first {
-                            ChatStatusRow(label: chatLabel(tab, index), session: session)
+                    sectionTitle("Agent Notes")
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
+                            if let session = tab.sessions.first {
+                                ChatStatusRow(label: chatLabel(tab, index), session: session)
+                            }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 7).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(theme.background).opacity(0.5)))
                 }
             }
         }
-        .padding(6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(theme.background).opacity(0.5)))
-        .padding(.horizontal, 2).padding(.bottom, 2)
+        .padding(.horizontal, 2).padding(.top, 2).padding(.bottom, 4)
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 9, weight: .semibold))
+            .tracking(0.4)
+            .foregroundStyle(style.secondaryTextColor.opacity(0.7))
     }
 
     private func toggleNote() {
