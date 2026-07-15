@@ -168,6 +168,21 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(recentFolders, forKey: "recentFolders") }
     }
 
+    /// Snapshot of the session rail (Projects → Chats) for restore-on-launch.
+    @Published var projectSnapshot: [PersistedProject] {
+        didSet {
+            if let data = try? JSONEncoder().encode(projectSnapshot) {
+                defaults.set(data, forKey: "projectSnapshot")
+            }
+        }
+    }
+
+    /// Project folders whose rail group is collapsed (persisted so it survives
+    /// relaunch). Stored as paths.
+    @Published var collapsedProjects: [String] {
+        didSet { defaults.set(collapsedProjects, forKey: "collapsedProjects") }
+    }
+
     // Panel widths / the browse pane height live in `PanelLayout` — a drag
     // rewrites them per mouse event, and publishing that from here would
     // re-render every view that observes these settings.
@@ -229,6 +244,9 @@ final class AppSettings: ObservableObject {
         self.hasSeenTour = defaults.object(forKey: "hasSeenTour") as? Bool ?? false
         self.lastSeenAnnouncementID = defaults.string(forKey: "lastSeenAnnouncementID") ?? ""
         self.recentFolders = defaults.stringArray(forKey: "recentFolders") ?? []
+        self.projectSnapshot = (defaults.data(forKey: "projectSnapshot")
+            .flatMap { try? JSONDecoder().decode([PersistedProject].self, from: $0) }) ?? []
+        self.collapsedProjects = defaults.stringArray(forKey: "collapsedProjects") ?? []
         self.browseFolders = defaults.dictionary(forKey: "browseFolders") as? [String: String] ?? [:]
         self.browseOpen = defaults.dictionary(forKey: "browseOpen") as? [String: Bool] ?? [:]
         self.panelAppearances = (defaults.data(forKey: "panelAppearances")

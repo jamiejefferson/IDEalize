@@ -16,6 +16,10 @@ struct IDEalizeApp: App {
                     // Check for a pushed announcement ("v0.x is ready", etc.) and
                     // surface it as a dismissible banner if it's new to this user.
                     AnnouncementStore.shared.refresh()
+                    // Restore the session rail (Projects → Chats) from last launch.
+                    if workspace.tabs.isEmpty {
+                        workspace.restoreProjects()
+                    }
                     // First run: drop straight into a chat (in Home) so the
                     // welcome card greets the user — no empty-screen dead end.
                     if !AppSettings.shared.hasSeenWelcome, workspace.tabs.isEmpty {

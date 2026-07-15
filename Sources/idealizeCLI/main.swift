@@ -38,6 +38,9 @@ func pngData(forFileAt path: String) -> Data? {
 //   idealize image path/to/file.png [--width 60] # render an image inline
 //   idealize reveal src/App.swift --open         # point the human at a file
 //   idealize status "running tests"              # set this tab's status text
+//   idealize note                                # read the project's shared note + what each chat is doing
+//   idealize note --set "use blue, not teal"     # set the shared brief (human-authored)
+//   idealize note --mine "building the hero"     # post what THIS chat is working on
 //   idealize whoami                              # print my session id
 //
 // Identity comes from the IDEALIZE_SESSION_ID env var that the app injects into
@@ -118,6 +121,7 @@ func printUsage() {
       type <session> <text>                 type text into another terminal
       image <path> [--width W] [--height H] render an image inline
       status <text>                         set this tab's status label
+      note [--set <text>] [--mine <text>]   read the shared note; --set the brief, --mine this chat's status
       whoami                                print my session id
       ping                                  check the app is reachable
 
@@ -274,6 +278,30 @@ case "focus":
     guard let target = rest.first else { fail("usage: idealize focus <session>") }
     let resp = sendRequest(IPCRequest(command: .focus, from: mySession, target: target))
     if !resp.ok { fail(resp.error ?? "focus failed") }
+
+case "note":
+    let flags = Flags(rest)   // `--set <text>` / `--mine <text>` take a value
+    if flags.values["mine"] != nil || flags.bools.contains("mine") {
+        // Post (or clear) what THIS chat is working on.
+        let text = flags.values["mine"] ?? ""
+        let resp = sendRequest(IPCRequest(command: .note, from: mySession, target: "mine", body: text))
+        if !resp.ok { fail(resp.error ?? "note failed") }
+        out(resp.info ?? "noted")
+    } else if let text = flags.values["set"] {
+        let resp = sendRequest(IPCRequest(command: .note, from: mySession, body: text))
+        if !resp.ok { fail(resp.error ?? "note failed") }
+        out(resp.info ?? "note updated")
+    } else if flags.bools.contains("set") {
+        // `--set` with no value → clear the brief.
+        let resp = sendRequest(IPCRequest(command: .note, from: mySession, body: ""))
+        if !resp.ok { fail(resp.error ?? "note failed") }
+        out("note cleared")
+    } else {
+        let resp = sendRequest(IPCRequest(command: .note, from: mySession))
+        if !resp.ok { fail(resp.error ?? "note failed") }
+        let note = resp.info ?? ""
+        out(note.isEmpty ? "(no project note yet)" : note)
+    }
 
 case "image":
     // Inline images are emitted directly to our own stdout; no socket needed.
