@@ -195,6 +195,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Hatch to drop this tab straight into a Claude dev session on IDEalize itself.
     var launchOverride: String?
 
+    /// Force a plain shell: skip the auto-launch (e.g. `claude …`) even when the
+    /// global default would run one. Set before `start()`. Used when restoring a
+    /// chat that was a bare shell, so it doesn't get an unexpected Claude on relaunch.
+    var suppressAutoLaunch: Bool = false
+
     /// This tab was opened via the Service Hatch (a Claude dev session on
     /// IDEalize's own source). Drives the themed opening banner in the chat.
     @Published var isServiceHatch: Bool = false
@@ -351,10 +356,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             if let o = launchOverride?.trimmingCharacters(in: .whitespacesAndNewlines), !o.isEmpty {
                 return o
             }
+            if suppressAutoLaunch { return "" }
             return settings.launchOnNewTerminal
                 ? settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
                 : ""
         }()
+        launchIsClaude = !launch.isEmpty
+            && launch.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
         if !launch.isEmpty {
             // Send when the shell shows its first prompt (reliable), with a
             // fallback in case the shell-integration event never arrives.
@@ -513,6 +521,56 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         return title
     }
 
+    /// "This chat has something new for you" — a finished or blocked Claude turn,
+    /// or an unread inter-agent message / background output. Drives the bold-text
+    /// unread signal in the session rail. Cleared by `markRead()` on focus.
+    var needsAttention: Bool {
+        hasActivity || unreadCount > 0 || agentStatus == .complete || agentStatus == .waiting
+    }
+
+    /// Whether this session is (or was) a Claude chat — its launch command was a
+    /// `claude` invocation, we bound a session id, or Claude is live now. Recorded
+    /// in the rail's persisted snapshot so a restored chat relaunches Claude.
+    /// `launchIsClaude` is set synchronously in `start()` so a chat saved before
+    /// Claude finishes coming up is still recorded correctly.
+    var wasClaudeLaunched: Bool { launchIsClaude || boundSessionId != nil || isClaudeRunning }
+
+    /// An explicit one-line "what I'm working on" the agent posts via
+    /// `idealize note --mine`. Overrides the auto-derived activity line in the
+    /// project's shared status view, so a chat can state its intent in its own
+    /// words. Cleared with an empty `--mine`.
+    @Published var agentNote: String?
+
+    /// A one-line "what this chat is working on", for the project's shared status
+    /// view. Prefers the agent's explicit note; otherwise derived from what Claude
+    /// is currently doing (its live status, last prompt, or last reply).
+    var activityLine: String {
+        if let n = agentNote?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
+            return n
+        }
+        func firstLine(_ s: String, _ limit: Int = 72) -> String {
+            let line = s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s
+            let t = line.trimmingCharacters(in: .whitespaces)
+            return t.count > limit ? String(t.prefix(limit)) + "…" : t
+        }
+        switch agentStatus {
+        case .waiting:
+            return "waiting on you"
+        case .working:
+            if let q = userQuestion, !q.isEmpty { return "working on: " + firstLine(q) }
+            return "working…"
+        case .complete:
+            if let a = assistantMessage, !a.isEmpty { return "just finished: " + firstLine(a) }
+            return "finished"
+        case .idle:
+            if let q = userQuestion, !q.isEmpty { return firstLine(q) }
+            return isClaudeRunning ? "ready" : "shell"
+        }
+    }
+
+    /// The resolved launch command for this session was a `claude` invocation.
+    private(set) var launchIsClaude = false
+
     var sessionInfo: IPCSessionInfo {
         IPCSessionInfo(
             id: id,
@@ -555,7 +613,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
         refreshAssistantMessage()
         detectPrompt()
+
+        // Session @Published changes don't reach the WorkspaceTab/Workspace that
+        // the session rail groups by, so nudge the workspace when this chat's
+        // unread/attention state flips — that's what re-evaluates the bold-text
+        // unread signal on the chat row and its project header.
+        let attn = needsAttention
+        if attn != lastAttention {
+            lastAttention = attn
+            workspace?.objectWillChange.send()
+        }
     }
+
+    private var lastAttention = false
 
     /// Read the visible terminal screen as plain text lines.
     private func readVisibleScreen() -> [String] {

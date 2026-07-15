@@ -36,6 +36,7 @@ public struct IPCRequest: Codable, Sendable {
         case blocks        // list captured command blocks for a session
         case input         // type text into a session's terminal (exec)
         case reveal        // select a file in the app's file explorer
+        case note          // read (or, with a body, set) the project's shared note
     }
 
     public var command: Command
