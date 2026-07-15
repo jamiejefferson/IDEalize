@@ -30,6 +30,12 @@ It downloads the latest release, replaces any existing copy in `/Applications`,
 clears the macOS quarantine flag, and launches it. **Run the same command again
 any time to update to the newest version** — it replaces the old app in place.
 
+> The installer sends one anonymous ping recording the installed version, your
+> macOS version, and a one-way hash of your machine's hardware id (not
+> reversible, not personally identifying) — just so we can see which versions
+> are in use. Nothing else is collected. It's the `report_install` function in
+> [`install.sh`](install.sh) if you want to read or remove it.
+
 ### Manual install
 
 1. Download the `.zip` from the

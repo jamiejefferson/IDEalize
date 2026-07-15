@@ -44,5 +44,30 @@ ditto -x -k "$TMP/IDEalize.zip" /Applications
 # Clear the download quarantine so the self-signed app opens without a prompt.
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
+# --- anonymous install ping ---------------------------------------------------
+# Best-effort, never blocks or fails the install. Records only the version that
+# was installed, macOS version, and a one-way SHA-256 hash of this Mac's hardware
+# UUID (not reversible, not personally identifying) so repeat installs from the
+# same machine can be de-duplicated. Same Supabase anon key the app already ships.
+report_install() {
+  local hwid mid os
+  hwid=$(ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null \
+    | awk -F'"' '/IOPlatformUUID/{print $4; exit}')
+  [ -n "${hwid:-}" ] || hwid="unknown"
+  mid=$(printf 'idealize-install::%s' "$hwid" | shasum -a 256 | cut -c1-16)
+  os=$(sw_vers -productVersion 2>/dev/null || echo "")
+  curl -fsS --max-time 5 \
+    "https://xlswtyprnmiymfjdbaez.supabase.co/rest/v1/idealize_installs" \
+    -H "Content-Type: application/json" \
+    -H "apikey: sb_publishable_ISmJRrzDN3Z6OEdEEZe2Cw_5YvSDGkt" \
+    -H "Authorization: Bearer sb_publishable_ISmJRrzDN3Z6OEdEEZe2Cw_5YvSDGkt" \
+    -H "Prefer: return=minimal" \
+    -d "{\"app_version\":\"$VERSION\",\"os_version\":\"$os\",\"machine_id\":\"$mid\"}" \
+    >/dev/null 2>&1
+}
+echo "==> Recording an anonymous install ping (version only, no personal data)…"
+report_install || true
+# -----------------------------------------------------------------------------
+
 echo "==> Done — IDEalize $VERSION is installed. Launching…"
 open "$APP"
