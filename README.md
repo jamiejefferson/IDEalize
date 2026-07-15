@@ -13,6 +13,37 @@ friends dramatically nicer to live in.
 
 ---
 
+## Download & install
+
+**Always-latest release:
+[github.com/jamiejefferson/IDEalize/releases/latest](https://github.com/jamiejefferson/IDEalize/releases/latest)**
+
+### One-line install / update (recommended)
+
+Open **Terminal** and paste:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jamiejefferson/IDEalize/main/install.sh | bash
+```
+
+It downloads the latest release, replaces any existing copy in `/Applications`,
+clears the macOS quarantine flag, and launches it. **Run the same command again
+any time to update to the newest version** — it replaces the old app in place.
+
+### Manual install
+
+1. Download the `.zip` from the
+   [latest release](https://github.com/jamiejefferson/IDEalize/releases/latest),
+   unzip it, and drag **IDEalize.app** into **Applications**.
+2. IDEalize is a small indie app, self-signed (not notarized), so the first time
+   you open it macOS says it "can't be verified." Clear that **once** with:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/IDEalize.app
+   ```
+   or via **System Settings → Privacy & Security → Open Anyway**.
+
+---
+
 ## Features
 
 ### Warp-style core
