@@ -9,6 +9,7 @@ struct SessionRail: View {
     @ObservedObject private var settings = AppSettings.shared
     @State private var renaming: WorkspaceTab?
     @State private var renameText = ""
+    @State private var showingArchive = false
 
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.sessions, base: 13, background: theme.chrome) }
@@ -35,6 +36,9 @@ struct SessionRail: View {
         .sheet(item: $renaming) { tab in
             renameSheet(tab)
         }
+        .sheet(isPresented: $showingArchive) {
+            ArchivedChatsSheet(workspace: workspace)
+        }
     }
 
     private var header: some View {
@@ -43,6 +47,21 @@ struct SessionRail: View {
                 .font(settings.ui(12, .semibold))
                 .foregroundStyle(Color(theme.secondaryForeground))
             Spacer()
+            if !settings.archivedChats.isEmpty {
+                Button(action: { showingArchive = true }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "archivebox")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("\(settings.archivedChats.count)")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundStyle(Color(theme.secondaryForeground))
+                    .frame(height: 26).padding(.horizontal, 8)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(Color(theme.surface)))
+                }
+                .buttonStyle(.raisedIconHover)
+                .help("View archived chats")
+            }
             Button(action: { workspace.newTabPickingFolder() }) {
                 Image(systemName: "plus")
                     .font(.system(size: 12, weight: .semibold))
@@ -300,8 +319,16 @@ private struct SessionCard: View {
                 .panelText(style)
                 .lineLimit(1)
             Spacer(minLength: 4)
+            if let primary { ContextMeter(session: primary) }
             trailing
             if hovering || isSelected {
+                Button(action: { workspace.archiveTab(tab) }) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color(theme.secondaryForeground))
+                }
+                .buttonStyle(.iconHover(padding: 2, radius: 4))
+                .help("Archive this chat — closes it but keeps it to reopen later")
                 Button(action: { workspace.closeTab(tab) }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .bold))
@@ -322,12 +349,15 @@ private struct SessionCard: View {
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        // Double-click the chat to rename it in place; a single click selects.
+        .onTapGesture(count: 2) { onRename() }
         .onTapGesture {
             workspace.selectedTabID = tab.id
             if let s = tab.sessions.first { workspace.focusSession(s.id) }
         }
         .contextMenu {
             Button("Rename…", action: onRename)
+            Button("Archive Chat") { workspace.archiveTab(tab) }
             Button("Close Chat") { workspace.closeTab(tab) }
         }
     }
@@ -363,6 +393,159 @@ private struct SessionCard: View {
         } else {
             Circle().fill(Color(theme.secondaryForeground)).frame(width: 8, height: 8)
         }
+    }
+}
+
+// MARK: - Context meter
+
+/// A compact gauge of how full a chat's Claude context is — a tinted bar that
+/// greens→ambers→reds as the conversation fills, so you can see at a glance when
+/// to archive it and start a fresh chat. Renders nothing for a non-Claude chat or
+/// before Claude has reported any usage.
+private struct ContextMeter: View {
+    @ObservedObject var session: TerminalSession
+    @ObservedObject private var settings = AppSettings.shared
+    private var theme: Theme { settings.theme }
+
+    var body: some View {
+        if let fraction = session.contextFraction, let tokens = session.contextTokens {
+            Capsule()
+                .fill(Color(theme.border))
+                .frame(width: 26, height: 4)
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(color(fraction))
+                        .frame(width: max(3, 26 * fraction), height: 4)
+                }
+                .help("Context ~\(Int(fraction * 100))% full (\(shortTokens(tokens)) tokens)"
+                      + (fraction >= 0.8 ? " — consider archiving and starting a fresh chat" : ""))
+        }
+    }
+
+    /// Neutral accent while there's room, amber past ⅗, red near full.
+    private func color(_ f: Double) -> Color {
+        if f >= 0.85 { return Color(red: 0.90, green: 0.30, blue: 0.24) }
+        if f >= 0.60 { return Color(red: 0.95, green: 0.61, blue: 0.14) }
+        return settings.actionStyle.color
+    }
+}
+
+/// "124k" / "980" — compact token counts for the rail's tight space.
+private func shortTokens(_ n: Int) -> String {
+    n >= 1000 ? String(format: "%.0fk", Double(n) / 1000) : "\(n)"
+}
+
+// MARK: - Archived chats
+
+/// A list of every archived chat, grouped by project, each reopenable (resuming
+/// its Claude conversation where possible) or deletable. Reached from the
+/// Projects header's archive button.
+private struct ArchivedChatsSheet: View {
+    @ObservedObject var workspace: Workspace
+    @ObservedObject private var settings = AppSettings.shared
+    @Environment(\.dismiss) private var dismiss
+    private var theme: Theme { settings.theme }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Archived Chats")
+                    .font(settings.ui(15, .semibold))
+                    .foregroundStyle(Color(theme.foreground))
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 12)
+            Rectangle().fill(Color(theme.border)).frame(height: 1)
+
+            if settings.archivedChats.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        ForEach(workspace.archivedByProject, id: \.path) { group in
+                            projectSection(group)
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+        }
+        .frame(width: 480, height: 540)
+        .background(Color(theme.chrome))
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "archivebox")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(Color(theme.secondaryForeground).opacity(0.6))
+            Text("No archived chats yet")
+                .font(settings.ui(13, .medium))
+                .foregroundStyle(Color(theme.secondaryForeground))
+            Text("Archive a chat from the rail to tuck it away here — you can reopen it any time.")
+                .font(settings.ui(11))
+                .foregroundStyle(Color(theme.secondaryForeground).opacity(0.7))
+                .multilineTextAlignment(.center).frame(width: 300)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func projectSection(_ group: (path: String, name: String, chats: [ArchivedChat])) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+                Text(group.name)
+                    .font(settings.ui(11, .semibold))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+            }
+            ForEach(group.chats) { chat in row(chat) }
+        }
+    }
+
+    private func row(_ chat: ArchivedChat) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(chat.name)
+                    .font(settings.ui(13, .medium))
+                    .foregroundStyle(Color(theme.foreground))
+                Text(subtitle(chat))
+                    .font(settings.ui(10.5))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+            }
+            Spacer(minLength: 8)
+            Button(action: { workspace.reopenArchived(chat); dismiss() }) {
+                Text("Reopen").font(settings.ui(11, .semibold))
+                    .foregroundStyle(settings.actionStyle.color)
+            }
+            .buttonStyle(.plain)
+            .help(chat.wasClaude ? "Reopen and resume this Claude conversation"
+                                 : "Reopen this chat")
+            Button(action: { workspace.deleteArchived(chat) }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+            }
+            .buttonStyle(.iconHover(padding: 3))
+            .help("Delete this archived chat permanently")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(theme.surface)))
+    }
+
+    private func subtitle(_ chat: ArchivedChat) -> String {
+        var parts: [String] = []
+        if let t = chat.contextTokens, t > 0 {
+            let limit = chat.contextLimit ?? ClaudeTranscript.defaultContextWindowLimit
+            let pct = Int(min(1, Double(t) / Double(limit)) * 100)
+            parts.append("\(shortTokens(t)) tokens · \(pct)% context")
+        } else if chat.wasClaude {
+            parts.append("Claude chat")
+        }
+        parts.append("archived \(chat.archivedAt.formatted(date: .abbreviated, time: .shortened))")
+        return parts.joined(separator: "  ·  ")
     }
 }
 

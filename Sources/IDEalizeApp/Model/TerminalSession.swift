@@ -86,6 +86,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// then it falls back to idle. Keyed to the message text so it survives the
     /// status being re-derived from scratch each poll.
     private var acknowledgedMessage: String?
+    /// How many tokens this chat's Claude conversation is currently carrying in
+    /// context (from the transcript's latest usage). Drives the per-chat context
+    /// readout in the rail. `nil` until Claude has written usage.
+    @Published var contextTokens: Int?
+    /// The context window that latest turn's model allows (200k, or 1M for a
+    /// `[1m]` session) — the denominator for `contextFraction`.
+    @Published var contextLimit: Int?
     /// Claude's live status line while working (e.g. "17m 43s · ↑ 31.9k tokens").
     @Published var workingStatus: String?
     /// Claude's current tip (e.g. "Use /btw to ask a quick side question…").
@@ -539,6 +546,22 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Claude finishes coming up is still recorded correctly.
     var wasClaudeLaunched: Bool { launchIsClaude || boundSessionId != nil || isClaudeRunning }
 
+    /// The Claude Code session id whose transcript this chat is following (the
+    /// transcript file's basename), if any. Lets an archived chat be reopened with
+    /// `--resume` so the conversation picks up where it left off.
+    var claudeSessionId: String? {
+        transcriptURL?.deletingPathExtension().lastPathComponent
+    }
+
+    /// How full this chat's Claude context is (0…1), or `nil` when unknown / not a
+    /// Claude chat. Feeds the per-chat context gauge that signals when to archive
+    /// and start fresh.
+    var contextFraction: Double? {
+        guard let t = contextTokens, t > 0 else { return nil }
+        let limit = contextLimit ?? ClaudeTranscript.defaultContextWindowLimit
+        return min(1, Double(t) / Double(limit))
+    }
+
     /// An explicit one-line "what I'm working on" the agent posts via
     /// `idealize note --mine`. Overrides the auto-derived activity line in the
     /// project's shared status view, so a chat can state its intent in its own
@@ -841,6 +864,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         transcriptMTime = mtime
         let all = ClaudeTranscript.allExchanges(in: url)
         if all != exchanges { exchanges = all }
+        let ctx = ClaudeTranscript.contextUsage(in: url)
+        if ctx?.tokens != contextTokens { contextTokens = ctx?.tokens }
+        if ctx?.limit != contextLimit { contextLimit = ctx?.limit }
         let q = all.last?.question
         let a = all.last?.answer
         if let q, q != userQuestion { userQuestion = q }

@@ -24,3 +24,27 @@ struct PersistedProject: Codable {
 
 // Collapse state persists separately (AppSettings.collapsedProjects), keyed by
 // project path, and is pruned to live projects on each save.
+
+/// A chat the user archived: its terminal is closed and freed, but this
+/// lightweight record survives so the chat can be reviewed — and reopened
+/// (resuming its Claude conversation) — later from the Archived Chats list.
+/// Stored in `AppSettings.archivedChats`, deliberately separate from
+/// `projectSnapshot` so archiving never disturbs restore-on-launch of live chats.
+struct ArchivedChat: Codable, Identifiable {
+    var id: UUID = UUID()
+    /// The project folder the chat belonged to (its grouping key).
+    var projectPath: String
+    /// The chat's display name at archive time (its custom name, or "Chat N").
+    var name: String
+    /// Whether it was a Claude session (so reopening relaunches Claude).
+    var wasClaude: Bool
+    /// The Claude session id, if known — lets reopening resume the conversation.
+    var sessionId: String?
+    /// How many context tokens it was carrying when archived (shown in the list).
+    var contextTokens: Int?
+    /// The context window its model allowed (200k or 1M) — the denominator for the
+    /// archived % readout. Nil for older records / non-Claude chats.
+    var contextLimit: Int?
+    /// When it was archived.
+    var archivedAt: Date
+}
