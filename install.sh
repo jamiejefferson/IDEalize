@@ -36,7 +36,7 @@ if pgrep -x IDEalize >/dev/null 2>&1; then
   sleep 1
 fi
 
-echo "==> Installing to $APP…"
+echo "==> Installing to ${APP}…"
 rm -rf "$APP"
 # ditto (not unzip) preserves the code signature the release was packaged with.
 ditto -x -k "$TMP/IDEalize.zip" /Applications
