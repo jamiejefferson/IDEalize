@@ -26,11 +26,13 @@ final class NotificationManager: NSObject {
     }
 
     func notify(title: String, body: String, sound: Bool) {
+        // Play our own completion chime (at a gentle level) rather than the
+        // system notification sound, so we control the tone and its volume.
+        if sound { DoneSound.play() }
         if usingUNCenter {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
-            if sound { content.sound = .default }
             let request = UNNotificationRequest(
                 identifier: UUID().uuidString,
                 content: content,
@@ -41,7 +43,6 @@ final class NotificationManager: NSObject {
             // without requiring notification entitlements.)
             DispatchQueue.main.async {
                 NSApp.requestUserAttention(.criticalRequest)
-                if sound { NSSound.beep() }
             }
             NSLog("IDEalize notify: \(title) — \(body)")
         }

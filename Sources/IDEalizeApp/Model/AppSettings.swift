@@ -149,6 +149,14 @@ final class AppSettings: ObservableObject {
     @Published var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: "notificationsEnabled") }
     }
+    /// Whether to play the "task complete" chime when Claude signals it's done.
+    @Published var completionSoundEnabled: Bool {
+        didSet { defaults.set(completionSoundEnabled, forKey: "completionSoundEnabled") }
+    }
+    /// Volume of the completion chime, 0…1. Gentle by default.
+    @Published var completionSoundVolume: Double {
+        didSet { defaults.set(completionSoundVolume, forKey: "completionSoundVolume") }
+    }
     /// False until the user dismisses the first-run welcome / sends a first message.
     @Published var hasSeenWelcome: Bool {
         didSet { defaults.set(hasSeenWelcome, forKey: "hasSeenWelcome") }
@@ -251,6 +259,8 @@ final class AppSettings: ObservableObject {
         self.shellPath = defaults.string(forKey: "shellPath")
             ?? (ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
+        self.completionSoundEnabled = defaults.object(forKey: "completionSoundEnabled") as? Bool ?? true
+        self.completionSoundVolume = defaults.object(forKey: "completionSoundVolume") as? Double ?? 0.4
         self.hasSeenWelcome = defaults.object(forKey: "hasSeenWelcome") as? Bool ?? false
         self.hasSeenTour = defaults.object(forKey: "hasSeenTour") as? Bool ?? false
         self.lastSeenAnnouncementID = defaults.string(forKey: "lastSeenAnnouncementID") ?? ""

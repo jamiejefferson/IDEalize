@@ -75,6 +75,8 @@ cp "$ROOT/Resources/AppIcon.icns" "$RES/AppIcon.icns"
 [ -d "$ROOT/Resources/FlowSkills" ] && cp -R "$ROOT/Resources/FlowSkills" "$RES/FlowSkills"
 # Bundle the "working" critter icons shown while Claude is busy.
 [ -d "$ROOT/Resources/Critters" ] && cp -R "$ROOT/Resources/Critters" "$RES/Critters"
+# Bundle the "task complete" chime played on notify --sound.
+[ -f "$ROOT/Resources/TaskComplete.mp3" ] && cp "$ROOT/Resources/TaskComplete.mp3" "$RES/TaskComplete.mp3"
 
 # Info.plist
 cat > "$CONTENTS/Info.plist" <<'PLIST'
@@ -88,7 +90,7 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <key>CFBundleIconFile</key>        <string>AppIcon</string>
   <key>CFBundleIdentifier</key>      <string>com.idealize.terminal</string>
   <key>CFBundleVersion</key>         <string>7</string>
-  <key>CFBundleShortVersionString</key> <string>0.4.0</string>
+  <key>CFBundleShortVersionString</key> <string>0.4.1</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>LSMinimumSystemVersion</key>  <string>14.0</string>
   <key>NSHighResolutionCapable</key> <true/>
