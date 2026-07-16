@@ -81,11 +81,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// `detectPrompt`; cleared back to `.idle` from `.complete` once the tab is
     /// focused (acknowledged).
     @Published var agentStatus: AgentStatus = .idle
-    /// Armed once we've seen this session actually working, so the "done" chime
-    /// fires on the eventual completion even if it lands via an intermediate
-    /// `.idle` poll — and *not* for a session found already-complete on relaunch
-    /// (which never went through `.working`). Disarmed when the chime plays.
-    private var chimeArmed = false
+    /// False until the first `updateAgentStatus()` for this session, so a session
+    /// that's *already* finished when the app launches/restores seeds its status
+    /// silently instead of firing the "done" chime on startup.
+    private var chimeSeeded = false
     /// The last completed reply the user has already looked at (set on focus).
     /// A finished, non-question reply shows `Complete` until it matches this —
     /// then it falls back to idle. Keyed to the message text so it survives the
@@ -778,18 +777,20 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         } else {
             next = .idle
         }
+        let previous = agentStatus
         agentStatus = next
 
-        // The "done" chime. Arm it whenever we see the session working, then fire
-        // once as soon as Claude finishes and hands back a response — whether
-        // that's a statement (`.complete`) or a question (`.waiting`). Arming
-        // covers completions that arrive via an intermediate `.idle` poll
-        // (working→idle→done) and keeps a freshly relaunched app — which finds
-        // sessions already finished, never having witnessed them working — silent.
-        if next == .working {
-            chimeArmed = true
-        } else if chimeArmed && (next == .complete || next == .waiting) {
-            chimeArmed = false
+        // The "done" chime: fire on the very transition that lights up the chat
+        // notification — entering an attention state (a response is ready:
+        // `.complete` or `.waiting`) from a non-attention one (`.idle`/`.working`).
+        // No dependency on having witnessed `.working`, which the poll can miss.
+        // The one-time seed swallows a session that's already finished at launch,
+        // so restoring the app doesn't chime for every completed tab.
+        let wasAttention = (previous == .complete || previous == .waiting)
+        let isAttention = (next == .complete || next == .waiting)
+        if !chimeSeeded {
+            chimeSeeded = true
+        } else if isAttention && !wasAttention {
             DoneSound.play()
         }
     }
