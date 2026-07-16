@@ -156,8 +156,8 @@ struct AnnouncementBanner: View {
                         .foregroundStyle(Color(theme.secondaryForeground))
                         .frame(width: 22, height: 22)
                 }
-                .buttonStyle(.plain)
-                .help("Dismiss")
+                .buttonStyle(.iconHover(padding: 2))
+                .help("Dismiss — you can catch up later from the banner")
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(Color(theme.surface))

@@ -50,7 +50,7 @@ struct SessionRail: View {
                     .frame(width: 26, height: 26)
                     .background(RoundedRectangle(cornerRadius: 7).fill(Color(theme.surface)))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.raisedIconHover)
             .help("Open a new project folder (⌘T)")
         }
         .padding(.horizontal, 12).frame(height: 34)
@@ -137,7 +137,8 @@ private struct ProjectCard: View {
                     .foregroundStyle(Color(theme.secondaryForeground))
                     .frame(width: 12)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
+            .help(collapsed ? "Show this project's chats" : "Collapse this project")
 
             Image(systemName: "folder.fill")
                 .font(.system(size: 11))
@@ -165,7 +166,7 @@ private struct ProjectCard: View {
                     .foregroundStyle(hasNote ? settings.actionStyle.color : Color(theme.secondaryForeground))
                     .frame(width: 18, height: 18)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
             .help("Shared note — every chat in this project can see it")
 
             Button(action: { workspace.newTab(projectPath: group.path) }) {
@@ -174,7 +175,7 @@ private struct ProjectCard: View {
                     .foregroundStyle(Color(theme.secondaryForeground))
                     .frame(width: 18, height: 18)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
             .help("New chat in \(group.displayName)")
         }
         .padding(.horizontal, 4).padding(.vertical, 2)
@@ -306,7 +307,7 @@ private struct SessionCard: View {
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Color(theme.secondaryForeground))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iconHover(padding: 2, radius: 4)).help("Close this chat")
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 7)

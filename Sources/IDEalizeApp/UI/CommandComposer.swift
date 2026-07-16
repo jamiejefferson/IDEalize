@@ -63,7 +63,8 @@ struct CommandComposer: View {
                         .foregroundStyle(.white)
                         .frame(width: 26, height: 26)
                         .background(Circle().fill(settings.actionStyle.fill))
-                }.buttonStyle(.plain)
+                }.buttonStyle(.raisedIconHover)
+                .help(inChat ? "Send" : "Run this command")
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)

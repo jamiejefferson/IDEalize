@@ -140,6 +140,7 @@ private struct BottomToolbar: View {
             toggle("doc.text", on: workspace.showViewer, help: "Toggle document panel") {
                 workspace.showViewer.toggle()
             }
+            .tourTarget(.documentPanel)
             iconButton("command", help: "Command palette (⌘P)") {
                 workspace.showCommandPalette.toggle()
             }
@@ -177,7 +178,7 @@ private struct BottomToolbar: View {
                 .background(RoundedRectangle(cornerRadius: 6)
                     .fill(on ? settings.actionStyle.softFill : AnyShapeStyle(Color.clear)))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iconHover)
         .help(help)
     }
 
@@ -188,7 +189,7 @@ private struct BottomToolbar: View {
                 .foregroundStyle(Color(theme.secondaryForeground))
                 .frame(width: 28, height: 24)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iconHover)
         .help(help)
     }
 }
@@ -397,6 +398,7 @@ private struct EmptyState: View {
                             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(theme.border), lineWidth: 1))
                             .contentShape(Rectangle())
                         }.buttonStyle(.plain)
+                        .help("Pick up where you left off in \((path as NSString).lastPathComponent)")
                     }
                 }
                 .frame(width: 360)

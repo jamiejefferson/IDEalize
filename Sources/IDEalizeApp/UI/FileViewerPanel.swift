@@ -97,7 +97,7 @@ struct FileViewerPanel: View {
                     Image(systemName: contextConfirm ? "checkmark" : "text.bubble")
                         .font(.system(size: 11))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iconHover(padding: 3))
                 .foregroundStyle(Color(contextConfirm ? theme.accent : theme.secondaryForeground))
                 .help("Use as context in the active chat")
             }
@@ -105,21 +105,21 @@ struct FileViewerPanel: View {
                 Button(action: { editingMarkdown.toggle() }) {
                     Image(systemName: editingMarkdown ? "eye" : "pencil").font(.system(size: 11))
                 }
-                .buttonStyle(.plain).foregroundStyle(Color(theme.secondaryForeground))
+                .buttonStyle(.iconHover(padding: 3)).foregroundStyle(Color(theme.secondaryForeground))
                 .help(editingMarkdown ? "Preview" : "Edit raw markdown")
             }
             if workspace.viewedFile != nil {
                 Button(action: save) { Image(systemName: "square.and.arrow.down").font(.system(size: 11)) }
-                    .buttonStyle(.plain).foregroundStyle(Color(dirty ? theme.accent : theme.secondaryForeground))
+                    .buttonStyle(.iconHover(padding: 3)).foregroundStyle(Color(dirty ? theme.accent : theme.secondaryForeground))
                     .help("Save (⌘S)").keyboardShortcut("s", modifiers: .command).disabled(!dirty)
                 Button(action: startCreate) { Image(systemName: "plus").font(.system(size: 11)) }
-                    .buttonStyle(.plain).foregroundStyle(Color(theme.secondaryForeground)).help("New document")
+                    .buttonStyle(.iconHover(padding: 3)).foregroundStyle(Color(theme.secondaryForeground)).help("New document")
             }
             Button(action: { save(); workspace.showViewer = false }) {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
                     .foregroundStyle(Color(theme.secondaryForeground))
             }
-            .buttonStyle(.plain).help("Close")
+            .buttonStyle(.iconHover(padding: 3)).help("Close")
         }
         .padding(.horizontal, 12).frame(height: 34)
     }
@@ -139,7 +139,7 @@ struct FileViewerPanel: View {
                 }
                 .foregroundStyle(Color(theme.accent))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
             .help("Stop recording and drop the transcript in")
         } else if active, recorder.state == .transcribing {
             HStack(spacing: 4) {
@@ -151,7 +151,7 @@ struct FileViewerPanel: View {
             Button(action: toggleRecord) {
                 Image(systemName: "mic.fill").font(.system(size: 11))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
             .foregroundStyle(Color(theme.secondaryForeground))
             .disabled(recorder.isBusy)   // a recording is already running elsewhere
             .help(recorder.isBusy ? "Recording in another document" : "Record a meeting into this document")
