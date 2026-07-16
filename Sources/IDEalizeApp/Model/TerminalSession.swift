@@ -755,22 +755,34 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Claude session already sitting idle (no need to have witnessed the
     /// working→idle transition).
     private func updateAgentStatus() {
+        let previous = agentStatus
+        let next: AgentStatus
         if pendingPrompt != nil || liveInteractivePrompt {
-            agentStatus = .waiting           // a choice box / live prompt is up
+            next = .waiting                  // a choice box / live prompt is up
         } else if botWorking {
-            agentStatus = .working
+            next = .working
         } else if let msg = assistantMessage, !msg.isEmpty {
             // Claude is idle at its prompt with a completed reply on the table.
             // Claude often asks its question in prose ("Want me to…?"), so any
             // question mark in the reply means Waiting; an answered-or-statement
             // reply is Complete until the tab is focused (then it's idle).
             if messageContainsQuestion(msg) {
-                agentStatus = .waiting
+                next = .waiting
             } else {
-                agentStatus = (msg == acknowledgedMessage) ? .idle : .complete
+                next = (msg == acknowledgedMessage) ? .idle : .complete
             }
         } else {
-            agentStatus = .idle
+            next = .idle
+        }
+        agentStatus = next
+
+        // The "done" chime: play once on the genuine working→complete edge — a
+        // turn we witnessed running has just finished. Gating on `previous ==
+        // .working` (rather than any →complete transition) keeps a freshly
+        // relaunched app from chiming for every session already sitting at a
+        // finished reply, since this mapping is re-derived statelessly each poll.
+        if next == .complete && previous == .working {
+            DoneSound.play()
         }
     }
 
