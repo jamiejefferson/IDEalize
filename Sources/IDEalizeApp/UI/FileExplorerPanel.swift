@@ -343,7 +343,7 @@ private struct FileExplorerInner: View {
                     .foregroundStyle(browseOpen ? settings.actionStyle.color
                                                 : Color(theme.secondaryForeground))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
             .disabled(rootPath.isEmpty)
             .help("Browse other folders — drag files in to add them to the project")
             Button(action: { newFolderName = ""; creatingFolder = true }) {
@@ -351,14 +351,14 @@ private struct FileExplorerInner: View {
                     .font(.system(size: 11))
                     .foregroundStyle(Color(theme.secondaryForeground))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
             .help("New folder")
             Button(action: { rebuild(force: true) }) {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 10))
                     .foregroundStyle(Color(theme.secondaryForeground))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
             .help("Refresh")
         }
         .padding(.horizontal, 12).frame(height: 34)
@@ -507,7 +507,7 @@ private struct FileBrowserPane: View {
                     .font(.system(size: 10))
                     .foregroundStyle(Color(theme.secondaryForeground))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 2))
             .disabled(rootPath == "/" || rootPath.isEmpty)
             .help("Enclosing folder")
             Menu {

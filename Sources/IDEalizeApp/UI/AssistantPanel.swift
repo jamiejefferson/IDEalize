@@ -528,7 +528,7 @@ struct QAChatBox: View {
                 Button(action: { copyToPasteboard(a) }) {
                     Image(systemName: "doc.on.doc").font(.system(size: size - 4))
                         .foregroundStyle(Color(theme.secondaryForeground))
-                }.buttonStyle(.plain).help("Copy response")
+                }.buttonStyle(.iconHover(padding: 3)).help("Copy response")
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -803,7 +803,7 @@ struct QAChatBox: View {
                             .frame(width: 28, height: 28)
                             .background(Circle().fill(settings.actionStyle.fill))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.raisedIconHover)
                     .keyboardShortcut(.cancelAction)   // Esc
                     .help("Stop (Esc)")
                 } else {
@@ -814,7 +814,7 @@ struct QAChatBox: View {
                             .frame(width: 28, height: 28)
                             .background(Circle().fill(settings.actionStyle.fill))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.raisedIconHover)
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(flowMode ? !canSendFlow : text.isEmpty)
                     .help(flowMode ? (flowIsResumable ? "Resume this flow where it left off"
@@ -853,14 +853,14 @@ struct QAChatBox: View {
                 .foregroundStyle(Color(settings.returnToSend ? theme.accent : theme.secondaryForeground))
                 .frame(width: 18, height: 16)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
             .help(settings.returnToSend ? "Return sends (click to use ⌘↩ instead)" : "Return inserts a newline; ⌘↩ sends")
 
             Button(action: attach) {
                 Image(systemName: "paperclip").font(.system(size: 12))
                     .foregroundStyle(Color(theme.secondaryForeground))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
             .help("Attach a file")
 
             // Press and hold to dictate (or hold Right Option ⌥).
@@ -891,7 +891,7 @@ struct QAChatBox: View {
                 .foregroundStyle(settings.voiceReleaseToSend ? settings.actionStyle.color : Color(theme.secondaryForeground))
                 .frame(width: 18, height: 16)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.iconHover(padding: 3))
             .help(settings.voiceReleaseToSend
                   ? "Release-to-send: on (releasing the mic sends the message)"
                   : "Release-to-send: off (dictation just fills the box)")
@@ -943,7 +943,7 @@ struct QAChatBox: View {
                             .lineLimit(1)
                         Button(action: { session.pendingAttachments.removeAll { $0 == url } }) {
                             Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-                        }.buttonStyle(.plain)
+                        }.buttonStyle(.iconHover(padding: 2, radius: 4)).help("Remove")
                     }
                     .foregroundStyle(settings.actionStyle.color)
                     .padding(.horizontal, 8).padding(.vertical, 4)

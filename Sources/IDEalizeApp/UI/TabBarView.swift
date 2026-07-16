@@ -27,7 +27,7 @@ struct TabBarView: View {
                     .frame(width: 26, height: 26)
                     .background(RoundedRectangle(cornerRadius: 7).fill(Color(theme.surface)))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.raisedIconHover)
             .padding(.horizontal, 10)
             .help("New terminal tab (⌘T)")
         }
@@ -82,7 +82,8 @@ private struct TabChip: View {
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(Color(theme.secondaryForeground))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.iconHover(padding: 2, radius: 4))
+                .help("Close tab (⌘W)")
             }
         }
         .padding(.horizontal, 11)

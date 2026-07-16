@@ -148,7 +148,7 @@ struct LeafPaneView: View {
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iconHover(padding: 2))
         .help("Close this terminal (⌘W)")
     }
 
@@ -311,12 +311,12 @@ private struct ExchangeNav: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            arrow("chevron.up", enabled: session.canGoBack) { session.historyBack() }
+            arrow("chevron.up", enabled: session.canGoBack, help: "An earlier reply") { session.historyBack() }
             Text("\(session.shownIndex + 1) of \(session.exchanges.count)")
                 .font(settings.ui(11, .semibold)).monospacedDigit()
                 .foregroundStyle(Color(theme.foreground))
                 .fixedSize()
-            arrow("chevron.down", enabled: session.canGoForward) { session.historyForward() }
+            arrow("chevron.down", enabled: session.canGoForward, help: "A later reply") { session.historyForward() }
         }
         .padding(.horizontal, 10).frame(height: 36)
         .background(
@@ -328,7 +328,7 @@ private struct ExchangeNav: View {
         .help("Jump up and down through the conversation")
     }
 
-    private func arrow(_ icon: String, enabled: Bool, _ action: @escaping () -> Void) -> some View {
+    private func arrow(_ icon: String, enabled: Bool, help: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .bold))
@@ -337,7 +337,7 @@ private struct ExchangeNav: View {
                 .frame(width: 22, height: 24)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain).disabled(!enabled)
+        .buttonStyle(.iconHover(padding: 2)).disabled(!enabled).help(help)
     }
 }
 

@@ -8,6 +8,7 @@ struct FeedbackButton: View {
     @State private var presenting = false
     @State private var text = ""
     @State private var sent = false
+    @State private var hovering = false
 
     private var theme: Theme { settings.theme }
 
@@ -19,11 +20,15 @@ struct FeedbackButton: View {
             }
             .foregroundStyle(Color(theme.secondaryForeground))
             .padding(.horizontal, 9).padding(.vertical, 5)
-            .background(Capsule().fill(Color(theme.surface)))
-            .overlay(Capsule().strokeBorder(Color(theme.border), lineWidth: 1))
+            .background(Capsule().fill(Color(hovering ? theme.surfaceHover : theme.surface)))
+            .overlay(Capsule().strokeBorder(
+                hovering ? settings.actionStyle.color.opacity(0.5) : Color(theme.border), lineWidth: 1))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help("Give feedback")
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .help("Tell us what you think — it goes straight to the team")
         .sheet(isPresented: $presenting) { sheet }
     }
 
