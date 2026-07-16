@@ -81,6 +81,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// `detectPrompt`; cleared back to `.idle` from `.complete` once the tab is
     /// focused (acknowledged).
     @Published var agentStatus: AgentStatus = .idle
+    /// Armed once we've seen this session actually working, so the "done" chime
+    /// fires on the eventual completion even if it lands via an intermediate
+    /// `.idle` poll — and *not* for a session found already-complete on relaunch
+    /// (which never went through `.working`). Disarmed when the chime plays.
+    private var chimeArmed = false
     /// The last completed reply the user has already looked at (set on focus).
     /// A finished, non-question reply shows `Complete` until it matches this —
     /// then it falls back to idle. Keyed to the message text so it survives the
@@ -776,12 +781,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
         agentStatus = next
 
-        // The "done" chime: play once on the genuine working→complete edge — a
-        // turn we witnessed running has just finished. Gating on `previous ==
-        // .working` (rather than any →complete transition) keeps a freshly
-        // relaunched app from chiming for every session already sitting at a
-        // finished reply, since this mapping is re-derived statelessly each poll.
-        if next == .complete && previous == .working {
+        // The "done" chime. Arm it whenever we see the session working, and fire
+        // once on the edge into `.complete` — even if completion arrives via an
+        // intermediate `.idle` poll (working→idle→complete), which the raw
+        // previous==.working test would miss. The arm gate keeps a freshly
+        // relaunched app (which finds sessions already `.complete`, never having
+        // witnessed them working) from chiming on launch.
+        if next == .working { chimeArmed = true }
+        if next == .complete && previous != .complete && chimeArmed {
+            chimeArmed = false
             DoneSound.play()
         }
     }
