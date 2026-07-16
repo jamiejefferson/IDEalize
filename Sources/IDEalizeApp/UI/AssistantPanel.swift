@@ -17,6 +17,7 @@ struct QAChatBox: View {
     @ObservedObject private var speech = SpeechDictation.shared
     @State private var text = ""
     @State private var micBase = ""
+    @State private var thanksHover = false
     @State private var keyMonitor: Any?
     /// The highlighted option in a single-select Claude prompt. Hover moves it,
     /// click answers immediately, Return answers the highlighted one.
@@ -899,7 +900,34 @@ struct QAChatBox: View {
                 Text("Listening…").font(settings.ui(10)).foregroundStyle(.red)
             }
             Spacer(minLength: 0)
+
+            // One-tap "thank you" — only while Claude is running, since it makes no
+            // sense at a plain shell. Sends a short note whose wording tells Claude
+            // no task is attached and a single emoji back is all that's wanted, so a
+            // warm gesture doesn't cost a long reply (or many tokens).
+            if session.tuiActive {
+                Button(action: sendThanks) {
+                    Image(systemName: thanksHover ? "heart.fill" : "heart")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(thanksHover ? settings.actionStyle.color : Color(theme.secondaryForeground))
+                        .frame(width: 18, height: 16)
+                        .scaleEffect(thanksHover ? 1.12 : 1)
+                        .animation(.easeOut(duration: 0.12), value: thanksHover)
+                }
+                .buttonStyle(.plain)
+                .onHover { thanksHover = $0 }
+                .help("Say thanks — Claude replies with just an emoji, no long response")
+            }
         }
+    }
+
+    /// A quick "thanks" you can send without typing.
+    private static let thanksMessage =
+        "❤️ Thanks — no task here, just appreciation. A single emoji back is perfect; no need to explain or do anything."
+
+    private func sendThanks() {
+        guard session.tuiActive else { return }
+        session.submitInput(Self.thanksMessage)
     }
 
     /// Tags for files dropped onto the pane (filename only, not the full path).
