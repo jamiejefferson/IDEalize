@@ -760,7 +760,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Claude session already sitting idle (no need to have witnessed the
     /// working→idle transition).
     private func updateAgentStatus() {
-        let previous = agentStatus
         let next: AgentStatus
         if pendingPrompt != nil || liveInteractivePrompt {
             next = .waiting                  // a choice box / live prompt is up
@@ -781,14 +780,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
         agentStatus = next
 
-        // The "done" chime. Arm it whenever we see the session working, and fire
-        // once on the edge into `.complete` — even if completion arrives via an
-        // intermediate `.idle` poll (working→idle→complete), which the raw
-        // previous==.working test would miss. The arm gate keeps a freshly
-        // relaunched app (which finds sessions already `.complete`, never having
-        // witnessed them working) from chiming on launch.
-        if next == .working { chimeArmed = true }
-        if next == .complete && previous != .complete && chimeArmed {
+        // The "done" chime. Arm it whenever we see the session working, then fire
+        // once as soon as Claude finishes and hands back a response — whether
+        // that's a statement (`.complete`) or a question (`.waiting`). Arming
+        // covers completions that arrive via an intermediate `.idle` poll
+        // (working→idle→done) and keeps a freshly relaunched app — which finds
+        // sessions already finished, never having witnessed them working — silent.
+        if next == .working {
+            chimeArmed = true
+        } else if chimeArmed && (next == .complete || next == .waiting) {
             chimeArmed = false
             DoneSound.play()
         }
