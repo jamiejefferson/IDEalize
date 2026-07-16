@@ -34,6 +34,7 @@ struct AppearancePanel: View {
                     appTypographyCard
                     chatCard
                     terminalCard
+                    soundCard
                     resetRow
                 }
                 .padding(16)
@@ -126,6 +127,29 @@ struct AppearancePanel: View {
         card("Terminal") {
             slider("Blur", $settings.terminalBlur, 0...20, step: 1) { String(format: "%.0f", $0) }
             slider("Margins", $settings.terminalMargin, 0...80, step: 2) { String(format: "%.0f", $0) }
+        }
+    }
+
+    private var soundCard: some View {
+        card("Sound") {
+            HStack {
+                Text("Task-complete chime").font(settings.ui(12)).foregroundStyle(Color(theme.secondaryForeground))
+                Spacer()
+                Toggle("", isOn: $settings.completionSoundEnabled).labelsHidden().controlSize(.mini)
+            }
+            if settings.completionSoundEnabled {
+                HStack(spacing: 8) {
+                    Text("Volume").font(settings.ui(12)).foregroundStyle(Color(theme.secondaryForeground))
+                        .frame(width: 100, alignment: .leading).lineLimit(1)
+                    Slider(value: $settings.completionSoundVolume, in: 0...1, step: 0.05).controlSize(.small)
+                    Button(action: { DoneSound.preview() }) {
+                        Image(systemName: "play.circle").font(.system(size: 15))
+                            .foregroundStyle(settings.actionStyle.color)
+                    }.buttonStyle(.plain).help("Preview")
+                }
+                Text("Plays a gentle shine when Claude finishes a task.")
+                    .font(settings.ui(10)).foregroundStyle(Color(theme.secondaryForeground))
+            }
         }
     }
 
