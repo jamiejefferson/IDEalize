@@ -37,12 +37,33 @@ if pgrep -x IDEalize >/dev/null 2>&1; then
 fi
 
 echo "==> Installing to ${APP}…"
-rm -rf "$APP"
+
+# Replacing the app means removing any existing copy and writing into
+# /Applications. Both fail with "Permission denied" if an old copy is owned by
+# another account (or this isn't an admin user) — and because `rm -rf` swallows
+# that error, ditto would otherwise spew a wall of permission failures. Detect
+# it up front and retry the privileged steps under sudo with a clear prompt.
+SUDO=""
+rm -rf "$APP" 2>/dev/null || true
+if [ -e "$APP" ] || [ ! -w /Applications ]; then
+  SUDO="sudo"
+  echo "==> /Applications needs administrator access to update IDEalize"
+  echo "    (an existing copy is owned by another account, or this isn't an"
+  echo "    admin user). You'll be prompted for your Mac password."
+  if ! sudo -v; then
+    echo "!! Couldn't get administrator access." >&2
+    echo "   Remove the old copy and re-run, e.g.:  sudo rm -rf \"$APP\"" >&2
+    echo "   or run this installer from an administrator account." >&2
+    exit 1
+  fi
+  sudo rm -rf "$APP"
+fi
+
 # ditto (not unzip) preserves the code signature the release was packaged with.
-ditto -x -k "$TMP/IDEalize.zip" /Applications
+$SUDO ditto -x -k "$TMP/IDEalize.zip" /Applications
 
 # Clear the download quarantine so the self-signed app opens without a prompt.
-xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+$SUDO xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
 # --- anonymous install ping ---------------------------------------------------
 # Best-effort, never blocks or fails the install. Records only the version that
