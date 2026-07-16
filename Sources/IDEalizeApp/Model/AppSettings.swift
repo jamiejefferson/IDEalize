@@ -183,6 +183,17 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(collapsedProjects, forKey: "collapsedProjects") }
     }
 
+    /// Chats the user has archived (across every project). Kept out of
+    /// `projectSnapshot` so archiving never affects restore-on-launch of the live
+    /// chats. Viewed and reopened from the Archived Chats list.
+    @Published var archivedChats: [ArchivedChat] {
+        didSet {
+            if let data = try? JSONEncoder().encode(archivedChats) {
+                defaults.set(data, forKey: "archivedChats")
+            }
+        }
+    }
+
     // Panel widths / the browse pane height live in `PanelLayout` — a drag
     // rewrites them per mouse event, and publishing that from here would
     // re-render every view that observes these settings.
@@ -247,6 +258,8 @@ final class AppSettings: ObservableObject {
         self.projectSnapshot = (defaults.data(forKey: "projectSnapshot")
             .flatMap { try? JSONDecoder().decode([PersistedProject].self, from: $0) }) ?? []
         self.collapsedProjects = defaults.stringArray(forKey: "collapsedProjects") ?? []
+        self.archivedChats = (defaults.data(forKey: "archivedChats")
+            .flatMap { try? JSONDecoder().decode([ArchivedChat].self, from: $0) }) ?? []
         self.browseFolders = defaults.dictionary(forKey: "browseFolders") as? [String: String] ?? [:]
         self.browseOpen = defaults.dictionary(forKey: "browseOpen") as? [String: Bool] ?? [:]
         self.panelAppearances = (defaults.data(forKey: "panelAppearances")

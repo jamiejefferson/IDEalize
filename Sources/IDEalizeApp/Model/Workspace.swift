@@ -592,6 +592,77 @@ final class Workspace: ObservableObject {
         scheduleSnapshotSave()
     }
 
+    // MARK: - Archive
+
+    /// Archive a chat: record it (name, project, and — for a Claude chat — its
+    /// session id and context size) in the Archived Chats list, then close it. The
+    /// live terminal is freed exactly like a normal close; only the lightweight
+    /// record survives, viewable and reopenable from the archive.
+    func archiveTab(_ tab: WorkspaceTab) {
+        let key = projectKey(for: tab)
+        let index = projectGroups.first { $0.path == key }?
+            .tabs.firstIndex { $0.id == tab.id } ?? 0
+        let session = tab.sessions.first
+        let record = ArchivedChat(
+            projectPath: key,
+            name: chatLabel(tab, index: index),
+            wasClaude: tab.sessions.contains { $0.wasClaudeLaunched },
+            sessionId: session?.claudeSessionId,
+            contextTokens: session?.contextTokens,
+            contextLimit: session?.contextLimit,
+            archivedAt: Date())
+        settings.archivedChats.append(record)
+        closeTab(tab)   // frees the terminal, fixes up selection, persists the rail
+    }
+
+    /// Archived chats grouped by their project, newest first within each group,
+    /// for the Archived Chats list. Includes projects that currently have no live
+    /// chats open — an archive can outlive its project's last open chat.
+    var archivedByProject: [(path: String, name: String, chats: [ArchivedChat])] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return Dictionary(grouping: settings.archivedChats, by: { $0.projectPath })
+            .map { path, chats in
+                let display = (path == home || path.isEmpty || path == "/")
+                    ? "Home" : (path as NSString).lastPathComponent
+                return (path, display, chats.sorted { $0.archivedAt > $1.archivedAt })
+            }
+            .sorted { $0.name.lowercased() < $1.name.lowercased() }
+    }
+
+    /// Reopen an archived chat in its project — resuming its Claude conversation
+    /// when a session id was captured — and drop it from the archive.
+    @discardableResult
+    func reopenArchived(_ chat: ArchivedChat) -> TerminalSession {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path: String? = (chat.projectPath == home) ? nil : chat.projectPath
+        let launch: String?
+        if chat.wasClaude {
+            if let id = chat.sessionId, !id.isEmpty {
+                launch = "claude --dangerously-skip-permissions --resume \(id)"
+            } else {
+                launch = "claude --dangerously-skip-permissions"
+            }
+        } else {
+            launch = nil
+        }
+        let session = newTab(projectPath: path,
+                             launchOverride: launch,
+                             suppressAutoLaunch: !chat.wasClaude)
+        // Carry the name over, but only if it was a real custom name — never pin a
+        // reopened chat to the positional "Chat N" it happened to show.
+        if !chat.name.isEmpty && !chat.name.hasPrefix("Chat ") {
+            tabs.last?.customName = chat.name
+        }
+        settings.archivedChats.removeAll { $0.id == chat.id }
+        scheduleSnapshotSave()
+        return session
+    }
+
+    /// Permanently drop an archived chat from the list.
+    func deleteArchived(_ chat: ArchivedChat) {
+        settings.archivedChats.removeAll { $0.id == chat.id }
+    }
+
     // MARK: - Shared Project Note
 
     /// Where a project's shared note lives: a plain markdown file inside the
