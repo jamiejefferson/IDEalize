@@ -40,6 +40,68 @@ enum ClaudeTranscript {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
     }
 
+    /// The default context window (tokens) before Claude Code auto-compacts, used
+    /// as the denominator when a turn's model is unknown. The 1M-context models
+    /// override this — see `contextWindowLimit(forModel:)`.
+    static let defaultContextWindowLimit = 200_000
+
+    /// The extended (1M-token) window some Claude models offer.
+    static let extendedContextWindowLimit = 1_000_000
+
+    /// The usable context window for a turn, given its model id and the tokens it
+    /// was observed carrying. Claude Code marks a 1M-context session with a `[1m]`
+    /// suffix on the model (e.g. `claude-opus-4-8[1m]`) — but the transcript often
+    /// logs the bare model id even for a 1M session, so we also treat any turn
+    /// already holding more than the standard window as proof of the larger one.
+    /// Everything else uses the standard ~200k window. The readout is a guide for
+    /// "when to start a fresh chat", not an exact mirror of Claude's own gauge.
+    static func contextWindowLimit(forModel model: String?, tokens: Int = 0) -> Int {
+        if model?.contains("[1m]") ?? false { return extendedContextWindowLimit }
+        return tokens > defaultContextWindowLimit ? extendedContextWindowLimit : defaultContextWindowLimit
+    }
+
+    /// The newest turn's context usage: the tokens it carries (input + cache-read
+    /// + cache-creation of the last assistant message with usage — what actually
+    /// fills the window) paired with the window that same turn's model allows.
+    /// `nil` when the transcript has no usage yet. Read to show a per-chat "how
+    /// full is this conversation" gauge, so you can see when to archive it and
+    /// move to a fresh chat.
+    struct ContextUsage: Equatable {
+        let tokens: Int
+        let limit: Int
+        var fraction: Double { min(1, Double(tokens) / Double(limit)) }
+    }
+
+    static func contextUsage(in url: URL) -> ContextUsage? {
+        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        var latestTokens: Int?
+        var latestModel: String?
+        for line in raw.split(separator: "\n") {
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (obj["type"] as? String) == "assistant",
+                  let message = obj["message"] as? [String: Any],
+                  let usage = message["usage"] as? [String: Any] else { continue }
+            func n(_ key: String) -> Int { (usage[key] as? NSNumber)?.intValue ?? 0 }
+            let total = n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens")
+            if total > 0 {                       // last turn with real usage wins
+                latestTokens = total
+                latestModel = message["model"] as? String
+            }
+        }
+        guard let tokens = latestTokens else { return nil }
+        return ContextUsage(tokens: tokens, limit: contextWindowLimit(forModel: latestModel, tokens: tokens))
+    }
+
+    /// One real user prompt and Claude's reply to it. `answer` is nil while
+    /// Claude is still working (no assistant text has followed the prompt yet).
+    struct Exchange: Equatable, Identifiable {
+        let index: Int
+        let question: String
+        let answer: String?
+        var id: Int { index }
+    }
+
     /// Every Q&A turn in the transcript, oldest→newest. Each real user prompt
     /// opens an exchange; the last assistant text before the next prompt is its
     /// answer (mirroring `lastExchange`'s "latest block wins" behaviour). Powers

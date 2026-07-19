@@ -99,6 +99,7 @@ struct FlowEditorView: View {
             .overlay(Capsule().strokeBorder(settings.actionStyle.color.opacity(0.3), lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .help("Add a step to the end of the flow")
         .padding(.leading, 18)
     }
 
@@ -415,7 +416,7 @@ private struct EditableStepCard: View {
                 .background(Circle().fill(Color(theme.surface)))
                 .overlay(Circle().strokeBorder(Color(theme.border), lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.raisedIconHover)
         .help(help)
     }
 

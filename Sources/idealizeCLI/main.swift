@@ -39,6 +39,9 @@ func pngData(forFileAt path: String) -> Data? {
 //   idealize image path/to/file.png [--width 60] # render an image inline
 //   idealize reveal src/App.swift --open         # point the human at a file
 //   idealize status "running tests"              # set this tab's status text
+//   idealize note                                # read the project's shared note + what each chat is doing
+//   idealize note --set "use blue, not teal"     # set the shared brief (human-authored)
+//   idealize note --mine "building the hero"     # post what THIS chat is working on
 //   idealize whoami                              # print my session id
 //
 // Identity comes from the IDEALIZE_SESSION_ID env var that the app injects into
@@ -125,6 +128,7 @@ func printUsage() {
       type <session> <text>                 type text into another terminal
       image <path> [--width W] [--height H] render an image inline
       status <text>                         set this tab's status label
+      note [--set <text>] [--mine <text>]   read the shared note; --set the brief, --mine this chat's status
       whoami                                print my session id
       ping                                  check the app is reachable
 
@@ -316,6 +320,29 @@ case "focus":
     guard let target = rest.first else { fail("usage: idealize focus <session>") }
     let resp = sendRequest(IPCRequest(command: .focus, from: mySession, target: target))
     if !resp.ok { fail(resp.error ?? "focus failed") }
+
+case "note":
+    // `--set`/`--mine` take ALL the remaining words as their value (so unquoted
+    // prose isn't silently truncated to the first word). No value → usage error,
+    // not a destructive clear.
+    if rest.first == "--set" || rest.first == "--mine" {
+        let mine = rest.first == "--mine"
+        let text = rest.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            fail("usage: idealize note \(rest.first!) <text>")
+        }
+        let resp = sendRequest(IPCRequest(command: .note, from: mySession,
+                                          target: mine ? "mine" : nil, body: text))
+        if !resp.ok { fail(resp.error ?? "note failed") }
+        out(resp.info ?? (mine ? "noted" : "note updated"))
+    } else if rest.isEmpty {
+        let resp = sendRequest(IPCRequest(command: .note, from: mySession))
+        if !resp.ok { fail(resp.error ?? "note failed") }
+        let note = resp.info ?? ""
+        out(note.isEmpty ? "(no project note yet)" : note)
+    } else {
+        fail("usage: idealize note [--set <text>] [--mine <text>]")
+    }
 
 case "image":
     // Inline images are emitted directly to our own stdout; no socket needed.

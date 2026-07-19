@@ -13,7 +13,7 @@ struct BlocksSidebar: View {
                 Spacer()
                 Button { workspace.showSidebar = false } label: {
                     Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
-                }.buttonStyle(.plain)
+                }.buttonStyle(.iconHover(padding: 3)).help("Hide the blocks sidebar")
             }
             .padding(.horizontal, 12).frame(height: 34)
             Divider()
@@ -81,10 +81,10 @@ private struct BlockRow: View {
                 if hovering {
                     Button { copy(block.command) } label: {
                         Image(systemName: "doc.on.doc").font(.system(size: 10))
-                    }.buttonStyle(.plain).help("Copy command")
+                    }.buttonStyle(.iconHover(padding: 3)).help("Copy command")
                     Button { session.rerun(block.command) } label: {
                         Image(systemName: "arrow.clockwise").font(.system(size: 10))
-                    }.buttonStyle(.plain).help("Re-run")
+                    }.buttonStyle(.iconHover(padding: 3)).help("Re-run")
                 }
             }
         }

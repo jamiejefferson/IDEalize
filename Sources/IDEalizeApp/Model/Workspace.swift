@@ -53,6 +53,10 @@ final class WorkspaceTab: ObservableObject, Identifiable {
         root.collectSessions(into: &out)
         return out
     }
+
+    /// Any session in this chat has something new for you — drives the bold-text
+    /// unread signal in the rail.
+    var hasUnread: Bool { sessions.contains { $0.needsAttention } }
 }
 
 /// Top-level model for one window: owns tabs, the focused session, and brokers
@@ -298,14 +302,28 @@ final class Workspace: ObservableObject {
     // MARK: - Tab / pane management
 
     @discardableResult
-    func newTab(projectPath: String? = nil, launchOverride: String? = nil) -> TerminalSession {
+    func newTab(projectPath: String? = nil,
+                launchOverride: String? = nil,
+                suppressAutoLaunch: Bool = false) -> TerminalSession {
         if let projectPath { settings.addRecentFolder(projectPath) }
-        let session = makeSession(projectPath: projectPath, launchOverride: launchOverride)
+        let session = makeSession(projectPath: projectPath,
+                                  launchOverride: launchOverride,
+                                  suppressAutoLaunch: suppressAutoLaunch)
         let tab = WorkspaceTab(root: PaneNode(session: session), name: session.label)
-        tabs.append(tab)
+        // Keep a project's chats contiguous in `tabs`: insert a new chat right
+        // after the last existing chat of the same project, else append. The rail
+        // groups by first-appearance order, so contiguity is what stops a
+        // within-project drag-reorder from reshuffling the whole project list.
+        let key = normalizedProjectKey(projectPath)
+        if let lastSameProject = tabs.lastIndex(where: { projectKey(for: $0) == key }) {
+            tabs.insert(tab, at: lastSameProject + 1)
+        } else {
+            tabs.append(tab)
+        }
         selectedTabID = tab.id
         focusedSessionID = session.id
         bindName(tab, to: session)
+        scheduleSnapshotSave()
         return session
     }
 
@@ -316,6 +334,7 @@ final class Workspace: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true   // show Finder's "New Folder" button
         panel.prompt = "Open Terminal Here"
         panel.message = "Choose a folder for the new terminal"
         if panel.runModal() == .OK, let url = panel.url {
@@ -347,9 +366,12 @@ final class Workspace: ObservableObject {
         return true
     }
 
-    private func makeSession(projectPath: String?, launchOverride: String? = nil) -> TerminalSession {
+    private func makeSession(projectPath: String?,
+                             launchOverride: String? = nil,
+                             suppressAutoLaunch: Bool = false) -> TerminalSession {
         let session = TerminalSession(settings: settings, workspace: self, projectPath: projectPath)
         session.launchOverride = launchOverride
+        session.suppressAutoLaunch = suppressAutoLaunch
         session.onFocusRequested = { [weak self] sid in self?.focusSession(sid) }
         session.onUserFocused = { [weak self] sid in self?.setFocusedFromUserInteraction(sid) }
         session.start()
@@ -512,6 +534,7 @@ final class Workspace: ObservableObject {
         tabs.removeAll { $0.sessions.isEmpty }
         if selectedTab == nil { selectedTabID = tabs.last?.id }
         if let next = selectedTab?.sessions.first { focusedSessionID = next.id }
+        scheduleSnapshotSave()
         objectWillChange.send()
     }
 
@@ -520,6 +543,7 @@ final class Workspace: ObservableObject {
         tabs.removeAll { $0.id == tab.id }
         if selectedTabID == tab.id { selectedTabID = tabs.last?.id }
         if let next = selectedTab?.sessions.first { focusedSessionID = next.id }
+        scheduleSnapshotSave()
     }
 
     func sessionDidTerminate(_ session: TerminalSession) {
@@ -533,6 +557,7 @@ final class Workspace: ObservableObject {
             }
             self.tabs.removeAll { $0.sessions.isEmpty }
             if self.selectedTab == nil { self.selectedTabID = self.tabs.last?.id }
+            self.scheduleSnapshotSave()
             self.objectWillChange.send()
         }
     }
@@ -619,6 +644,291 @@ final class Workspace: ObservableObject {
         }
     }
 
+    // MARK: - Projects (rail grouping)
+
+    /// A project: a folder path that one or more chats (tabs) live in. Built
+    /// fresh from `tabs` for the rail — the grouping key is the tab's primary
+    /// session's `projectPath` (folders with no project fall under Home).
+    struct ProjectGroup: Identifiable {
+        let path: String
+        var tabs: [WorkspaceTab]
+        var id: String { path }
+
+        var isHome: Bool { path == FileManager.default.homeDirectoryForCurrentUser.path }
+        var displayName: String {
+            if isHome || path.isEmpty || path == "/" { return "Home" }
+            return (path as NSString).lastPathComponent
+        }
+    }
+
+    /// The grouping key for a tab: its primary session's project folder, or Home
+    /// when it has none yet.
+    func projectKey(for tab: WorkspaceTab) -> String {
+        normalizedProjectKey(tab.sessions.first?.projectPath)
+    }
+
+    /// Normalise a raw project path to a grouping key (nil/empty/"/" → Home).
+    func normalizedProjectKey(_ path: String?) -> String {
+        let p = path ?? ""
+        if p.isEmpty || p == "/" { return FileManager.default.homeDirectoryForCurrentUser.path }
+        return p
+    }
+
+    /// How a chat is labelled in the rail and in the agent-facing shared note.
+    /// A custom name wins; otherwise an un-renamed chat would fall back to the
+    /// folder name (which the project header already shows), so give it a
+    /// distinct "Chat N" by its position within the project. One source of truth
+    /// so the rail and `idealize note` never disagree.
+    func chatLabel(_ tab: WorkspaceTab, index: Int) -> String {
+        if let c = tab.customName, !c.isEmpty { return c }
+        return "Chat \(index + 1)"
+    }
+
+    /// Tabs bucketed into projects, in first-appearance order (chats keep their
+    /// order within a project).
+    var projectGroups: [ProjectGroup] {
+        var order: [String] = []
+        var buckets: [String: [WorkspaceTab]] = [:]
+        for tab in tabs {
+            let key = projectKey(for: tab)
+            if buckets[key] == nil { order.append(key); buckets[key] = [] }
+            buckets[key]?.append(tab)
+        }
+        return order.map { ProjectGroup(path: $0, tabs: buckets[$0] ?? []) }
+    }
+
+    // MARK: Collapse state
+
+    func isCollapsed(_ path: String) -> Bool { settings.collapsedProjects.contains(path) }
+
+    func toggleCollapsed(_ path: String) {
+        if let i = settings.collapsedProjects.firstIndex(of: path) {
+            settings.collapsedProjects.remove(at: i)
+        } else {
+            settings.collapsedProjects.append(path)
+        }
+        objectWillChange.send()
+        scheduleSnapshotSave()
+    }
+
+    // MARK: Rename
+
+    /// Rename a chat (tab) and persist the change.
+    func renameTab(_ tab: WorkspaceTab, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        tab.customName = trimmed.isEmpty ? nil : trimmed
+        tab.objectWillChange.send()
+        objectWillChange.send()
+        scheduleSnapshotSave()
+    }
+
+    // MARK: - Archive
+
+    /// Archive a chat: record it (name, project, and — for a Claude chat — its
+    /// session id and context size) in the Archived Chats list, then close it. The
+    /// live terminal is freed exactly like a normal close; only the lightweight
+    /// record survives, viewable and reopenable from the archive.
+    func archiveTab(_ tab: WorkspaceTab) {
+        let key = projectKey(for: tab)
+        let index = projectGroups.first { $0.path == key }?
+            .tabs.firstIndex { $0.id == tab.id } ?? 0
+        let session = tab.sessions.first
+        let record = ArchivedChat(
+            projectPath: key,
+            name: chatLabel(tab, index: index),
+            wasClaude: tab.sessions.contains { $0.wasClaudeLaunched },
+            sessionId: session?.claudeSessionId,
+            contextTokens: session?.contextTokens,
+            contextLimit: session?.contextLimit,
+            archivedAt: Date())
+        settings.archivedChats.append(record)
+        closeTab(tab)   // frees the terminal, fixes up selection, persists the rail
+    }
+
+    /// Archived chats grouped by their project, newest first within each group,
+    /// for the Archived Chats list. Includes projects that currently have no live
+    /// chats open — an archive can outlive its project's last open chat.
+    var archivedByProject: [(path: String, name: String, chats: [ArchivedChat])] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return Dictionary(grouping: settings.archivedChats, by: { $0.projectPath })
+            .map { path, chats in
+                let display = (path == home || path.isEmpty || path == "/")
+                    ? "Home" : (path as NSString).lastPathComponent
+                return (path, display, chats.sorted { $0.archivedAt > $1.archivedAt })
+            }
+            .sorted { $0.name.lowercased() < $1.name.lowercased() }
+    }
+
+    /// Reopen an archived chat in its project — resuming its Claude conversation
+    /// when a session id was captured — and drop it from the archive.
+    @discardableResult
+    func reopenArchived(_ chat: ArchivedChat) -> TerminalSession {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path: String? = (chat.projectPath == home) ? nil : chat.projectPath
+        let launch: String?
+        if chat.wasClaude {
+            if let id = chat.sessionId, !id.isEmpty {
+                launch = "claude --dangerously-skip-permissions --resume \(id)"
+            } else {
+                launch = "claude --dangerously-skip-permissions"
+            }
+        } else {
+            launch = nil
+        }
+        let session = newTab(projectPath: path,
+                             launchOverride: launch,
+                             suppressAutoLaunch: !chat.wasClaude)
+        // Carry the name over, but only if it was a real custom name — never pin a
+        // reopened chat to the positional "Chat N" it happened to show.
+        if !chat.name.isEmpty && !chat.name.hasPrefix("Chat ") {
+            tabs.last?.customName = chat.name
+        }
+        settings.archivedChats.removeAll { $0.id == chat.id }
+        scheduleSnapshotSave()
+        return session
+    }
+
+    /// Permanently drop an archived chat from the list.
+    func deleteArchived(_ chat: ArchivedChat) {
+        settings.archivedChats.removeAll { $0.id == chat.id }
+    }
+
+    // MARK: - Shared Project Note
+
+    /// Where a project's shared note lives: a plain markdown file inside the
+    /// project folder, so it's durable and every chat in the project can read it
+    /// (the human via the rail, agents via `idealize note`).
+    func projectNoteURL(_ path: String) -> URL? {
+        guard !path.isEmpty, path != "/" else { return nil }
+        return URL(fileURLWithPath: path)
+            .appendingPathComponent(".idealize")
+            .appendingPathComponent("project-note.md")
+    }
+
+    func projectNote(_ path: String) -> String {
+        guard let url = projectNoteURL(path) else { return "" }
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    }
+
+    func setProjectNote(_ path: String, _ text: String) {
+        guard let url = projectNoteURL(path) else { return }
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            try? FileManager.default.removeItem(at: url)
+        } else {
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        objectWillChange.send()
+    }
+
+    func projectHasNote(_ path: String) -> Bool {
+        guard let url = projectNoteURL(path) else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// The shared understanding an agent gets from `idealize note`: the human's
+    /// brief, followed by a live line per chat in the project saying what it's
+    /// working on (the agent's own note, or auto-derived from Claude's activity).
+    func composedProjectNote(_ path: String) -> String {
+        var out: [String] = []
+        let brief = projectNote(path).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !brief.isEmpty { out.append(brief) }
+        let tabs = projectGroups.first { $0.path == path }?.tabs ?? []
+        let rows = tabs.enumerated().compactMap { index, tab -> String? in
+            guard let s = tab.sessions.first else { return nil }
+            return "- \(chatLabel(tab, index: index)): \(s.activityLine)"
+        }
+        if !rows.isEmpty {
+            if !out.isEmpty { out.append("") }
+            out.append("What each chat is working on:")
+            out.append(contentsOf: rows)
+        }
+        return out.joined(separator: "\n")
+    }
+
+    // MARK: - Persistence (restore-on-launch)
+
+    /// True while restoring so the per-tab saves from `newTab` don't clobber the
+    /// snapshot mid-rebuild.
+    private var isRestoring = false
+    private var snapshotSaveWork: DispatchWorkItem?
+
+    /// Rebuild the rail from the persisted snapshot. Reopens each project's
+    /// folders and re-launches its chats (Claude for chats that were Claude,
+    /// otherwise a bare shell). Call only when `tabs` is empty.
+    func restoreProjects() {
+        guard tabs.isEmpty else { return }
+        let snapshot = settings.projectSnapshot
+        guard !snapshot.isEmpty else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        // Force `claude` for chats that were Claude, so restore doesn't depend on
+        // the current global auto-launch toggle / default command (which could
+        // otherwise bring a Claude chat back as a bare shell and then re-persist
+        // it as wasClaude=false — permanently losing its Claude-ness).
+        let claudeLaunch: String = {
+            let d = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            return TerminalSession.isClaudeCommand(d) ? d : "claude --dangerously-skip-permissions"
+        }()
+        isRestoring = true
+        for project in snapshot {
+            // A Home chat has no real project folder; restore it with projectPath
+            // nil (matching a freshly-created Home chat) rather than materialising
+            // $HOME, which would otherwise let a shared note leak into ~/.idealize.
+            let restorePath: String? = (project.path == home) ? nil : project.path
+            for chat in project.chats {
+                newTab(projectPath: restorePath,
+                       launchOverride: chat.wasClaude ? claudeLaunch : nil,
+                       suppressAutoLaunch: !chat.wasClaude)
+                if let name = chat.customName, !name.isEmpty {
+                    tabs.last?.customName = name   // newTab just inserted this tab
+                }
+            }
+        }
+        isRestoring = false
+        saveProjectSnapshot()
+    }
+
+    /// Persist the current rail (debounced). No-op while restoring.
+    func scheduleSnapshotSave() {
+        guard !isRestoring else { return }
+        snapshotSaveWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.saveProjectSnapshot() }
+        snapshotSaveWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+    }
+
+    /// Persist the rail immediately, cancelling any pending debounce. Called on
+    /// app termination so a change made just before quit isn't lost to the 0.4s
+    /// debounce window.
+    func flushSnapshotSave() {
+        snapshotSaveWork?.cancel()
+        snapshotSaveWork = nil
+        saveProjectSnapshot()
+    }
+
+    private func saveProjectSnapshot() {
+        let snapshot: [PersistedProject] = projectGroups.map { group in
+            let chats: [PersistedChat] = group.tabs
+                // Don't persist the Service Hatch — it's launched by its own path.
+                .filter { !($0.sessions.first?.isServiceHatch ?? false) }
+                .map { tab in
+                    PersistedChat(customName: tab.customName,
+                                  wasClaude: tab.sessions.contains { $0.wasClaudeLaunched })
+                }
+            return PersistedProject(path: group.path, chats: chats)
+        }
+        // Drop projects that ended up with no persistable chats (e.g. a lone hatch).
+        let live = snapshot.filter { !$0.chats.isEmpty }
+        settings.projectSnapshot = live
+        // Prune collapse state for projects that no longer have any chats, so the
+        // set can't grow unbounded or leak a stale collapse onto a later reopen.
+        let livePaths = Set(live.map { $0.path })
+        let pruned = settings.collapsedProjects.filter { livePaths.contains($0) }
+        if pruned.count != settings.collapsedProjects.count { settings.collapsedProjects = pruned }
+    }
+
     // MARK: - IPC handling (called on main thread)
 
     private func handle(_ request: IPCRequest) -> IPCResponse {
@@ -698,6 +1008,25 @@ final class Workspace: ObservableObject {
             }
             s.customStatus = request.body
             return IPCResponse(ok: true)
+
+        case .note:
+            guard let from = request.from, let s = session(withID: from) else {
+                return .failure("unknown sender session")
+            }
+            guard let path = s.projectPath, !path.isEmpty, path != "/" else {
+                return .failure("this terminal isn't in a project folder")
+            }
+            if request.target == "mine" {         // --mine: set this chat's own line
+                let text = (request.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                s.agentNote = text.isEmpty ? nil : text
+                objectWillChange.send()
+                return IPCResponse(ok: true, info: text.isEmpty ? "your note cleared" : "noted")
+            }
+            if let body = request.body {          // --set: write the brief (empty clears)
+                setProjectNote(path, body)
+                return IPCResponse(ok: true, info: "note updated")
+            }
+            return IPCResponse(ok: true, info: composedProjectNote(path))   // get
 
         case .focus:
             guard let target = request.target else {

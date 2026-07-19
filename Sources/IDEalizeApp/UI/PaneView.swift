@@ -148,7 +148,7 @@ struct LeafPaneView: View {
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iconHover(padding: 2))
         .help("Close this terminal (⌘W)")
     }
 
@@ -177,6 +177,15 @@ struct LeafPaneView: View {
                 chatCard
                     // Collapse into / expand out of the toggle in the top corner.
                     .transition(.scale(scale: 0.04, anchor: .topTrailing).combined(with: .opacity))
+
+                // Jump up/down through the conversation — mirrors the mode toggle
+                // in the opposite (top-left) corner, same inset and pill styling.
+                if session.exchanges.count > 1 {
+                    ExchangeNav(session: session)
+                        .padding(.top, 22).padding(.leading, 22)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .transition(.opacity)
+                }
             }
 
             // The mode toggle lives in the top corner, inset to align with the
@@ -288,6 +297,87 @@ private struct ModeToggle: View {
             .scaleEffect(active ? 1 : 0.84)
             .symbolEffect(.bounce, value: isTerminal)
             .frame(width: slot, height: height)
+    }
+}
+
+/// Jump up/down through the conversation's exchanges. Lives in the chat's
+/// top-left corner, mirroring `ModeToggle` opposite it — same surface pill,
+/// border and shadow. Up steps to an earlier exchange, down returns toward the
+/// newest (and back to live); the transcript watches `historyIndex` to scroll.
+private struct ExchangeNav: View {
+    @ObservedObject var session: TerminalSession
+    @ObservedObject private var settings = AppSettings.shared
+    private var theme: Theme { settings.theme }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            arrow("chevron.up", enabled: session.canGoBack, help: "An earlier reply") { session.historyBack() }
+            Text("\(session.shownIndex + 1) of \(session.exchanges.count)")
+                .font(settings.ui(11, .semibold)).monospacedDigit()
+                .foregroundStyle(Color(theme.foreground))
+                .fixedSize()
+            arrow("chevron.down", enabled: session.canGoForward, help: "A later reply") { session.historyForward() }
+        }
+        .padding(.horizontal, 10).frame(height: 36)
+        .background(
+            Capsule()
+                .fill(Color(theme.surface).opacity(0.95))
+                .overlay(Capsule().strokeBorder(Color(theme.border), lineWidth: 1))
+        )
+        .shadow(color: .black.opacity(0.22), radius: 10, y: 3)
+        .help("Jump up and down through the conversation")
+    }
+
+    private func arrow(_ icon: String, enabled: Bool, help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(enabled ? settings.actionStyle.color
+                                         : Color(theme.secondaryForeground).opacity(0.35))
+                .frame(width: 22, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.iconHover(padding: 2)).disabled(!enabled).help(help)
+    }
+}
+
+private struct PaneHeader: View {
+    @ObservedObject var session: TerminalSession
+    @ObservedObject private var settings = AppSettings.shared
+    let isFocused: Bool
+
+    private var theme: Theme { settings.theme }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            StatusDot(session: session)
+            Text(session.label)
+                .font(settings.ui(11, .medium))
+                .foregroundStyle(Color(isFocused ? theme.foreground : theme.secondaryForeground))
+                .lineLimit(1)
+            if let status = session.customStatus, !status.isEmpty {
+                Text(status)
+                    .font(settings.ui(10))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text(session.processName)
+                .font(settings.mono(10))
+                .foregroundStyle(Color(theme.secondaryForeground))
+            if session.unreadCount > 0 {
+                Text("\(session.unreadCount)")
+                    .font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.red))
+                    .foregroundStyle(.white)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 24)
+        .background(Color(isFocused ? theme.surfaceHover : theme.chrome))
+        .contentShape(Rectangle())
+        .onTapGesture { session.onFocusRequested?(session.id) }
     }
 }
 

@@ -16,6 +16,9 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0"),
+        // Local, on-device speech-to-text (Parakeet/CoreML on the Neural Engine)
+        // for meeting transcription in the document panel. No audio leaves the Mac.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.4"),
     ],
     targets: [
         // Shared IPC protocol + socket helpers used by both the app and the CLI.
@@ -30,6 +33,7 @@ let package = Package(
             dependencies: [
                 "IDEalizeCore",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
+                .product(name: "FluidAudio", package: "FluidAudio"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

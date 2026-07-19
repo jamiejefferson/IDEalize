@@ -57,6 +57,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published var historyIndex: Int?
     /// The agent is actively generating a reply (drives the tab working spinner).
     @Published var botWorking: Bool = false
+    /// True from the instant a chat message is submitted until the agent visibly
+    /// starts (`botWorking`) or its reply lands. Bridges the ~1s gap where the
+    /// poll's `detectPrompt()` would otherwise recompute `botWorking = false`
+    /// because the agent hasn't drawn its "esc to interrupt" marker yet — so the
+    /// chat shows a solid "working" state the moment you hit send.
+    @Published var awaitingReply: Bool = false
+    /// When the current `awaitingReply` began — used for a safety long-stop so an
+    /// aborted launch can't wedge the working banner on forever.
+    private var pendingSince: Date?
+    /// Which "working" critter to show — bumped once per submitted task so the
+    /// animal is chosen at send and stays put for the whole turn (rather than
+    /// changing as the transcript's exchange count ticks up mid-task).
+    @Published var taskCritter: Int = 0
     /// A confirmation/choice prompt the agent is showing — answered from the chat UI.
     @Published var pendingPrompt: AgentPrompt?
     /// An interactive prompt is live on the terminal that we could NOT parse into
@@ -69,11 +82,22 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// `detectPrompt`; cleared back to `.idle` from `.complete` once the tab is
     /// focused (acknowledged).
     @Published var agentStatus: AgentStatus = .idle
+    /// False until the first `updateAgentStatus()` for this session, so a session
+    /// that's *already* finished when the app launches/restores seeds its status
+    /// silently instead of firing the "done" chime on startup.
+    private var chimeSeeded = false
     /// The last completed reply the user has already looked at (set on focus).
     /// A finished, non-question reply shows `Complete` until it matches this —
     /// then it falls back to idle. Keyed to the message text so it survives the
     /// status being re-derived from scratch each poll.
     private var acknowledgedMessage: String?
+    /// How many tokens this chat's agent conversation is currently carrying in
+    /// context (from the transcript's latest usage). Drives the per-chat context
+    /// readout in the rail. `nil` until the agent has written usage.
+    @Published var contextTokens: Int?
+    /// The context window that latest turn's model allows (200k, or 1M for a
+    /// `[1m]` session) — the denominator for `contextFraction`.
+    @Published var contextLimit: Int?
     /// The agent's live status line while working (e.g. "17m 43s · ↑ 31.9k tokens").
     @Published var workingStatus: String?
     /// The agent's current tip (e.g. "Use /btw to ask a quick side question…").
@@ -177,6 +201,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     private var transcriptGeneration = 0
     private var bgTranscriptURL: URL?
     private var bgTranscriptMTime: Date?
+    /// The transcript file this chat is following, mirrored onto the main thread
+    /// (bg state is transcriptQueue-only). Backs `claudeSessionId` for resume.
+    private var followedTranscriptURL: URL?
     /// Incremental parser for Claude transcripts (re-created if the URL changes).
     private var transcriptFollower: ClaudeTranscript.Follower?
     /// The session id we bound at launch, so we read exactly this terminal's
@@ -206,6 +233,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     var runningCommand: String? { blocks.last(where: { $0.isRunning })?.command }
     /// True whenever a TUI (agent CLI or another full-screen program) owns the pane.
     var tuiActive: Bool { inAltScreen || isAgentRunning }
+
+    /// A Claude Code session is the current foreground command. Reliable even
+    /// when Claude doesn't use the alternate screen / reports an odd proc name.
+    var isClaudeRunning: Bool {
+        guard let cmd = runningCommand?.lowercased() else { return false }
+        return TerminalSession.isClaudeCommand(cmd)
+    }
+
+    /// Whether a command string invokes `claude` — bare, with args, after a
+    /// separator (`&&`/`;`), or as a full path. Used by the persisted snapshot's
+    /// `wasClaude` and the rail's restore affordances. (Agent detection proper
+    /// lives in `AgentRegistry`; this is the launch-restore check.)
+    static func isClaudeCommand(_ command: String) -> Bool {
+        command.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
+    }
     /// A command (or bot) is currently running in this terminal.
     var isRunningCommand: Bool { blocks.last?.isRunning == true }
 
@@ -221,6 +263,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// (`settings.defaultLaunchCommand`). Set before `start()`. Used by the Service
     /// Hatch to drop this tab straight into an agent dev session on IDEalize itself.
     var launchOverride: String?
+
+    /// Force a plain shell: skip the auto-launch (e.g. `claude …`) even when the
+    /// global default would run one. Set before `start()`. Used when restoring a
+    /// chat that was a bare shell, so it doesn't get an unexpected agent on relaunch.
+    var suppressAutoLaunch: Bool = false
 
     /// This tab was opened via the Service Hatch (an agent dev session on
     /// IDEalize's own source). Drives the themed opening banner in the chat.
@@ -399,10 +446,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             if let o = launchOverride?.trimmingCharacters(in: .whitespacesAndNewlines), !o.isEmpty {
                 return o
             }
+            if suppressAutoLaunch { return "" }
             return settings.launchOnNewTerminal
                 ? settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
                 : ""
         }()
+        launchIsClaude = !launch.isEmpty && TerminalSession.isClaudeCommand(launch)
         if !launch.isEmpty {
             // Send when the shell shows its first prompt (reliable), with a
             // fallback in case the shell-integration event never arrives.
@@ -568,6 +617,72 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         return title
     }
 
+    /// "This chat has something new for you" — a finished or blocked Claude turn,
+    /// or an unread inter-agent message / background output. Drives the bold-text
+    /// unread signal in the session rail. Cleared by `markRead()` on focus.
+    var needsAttention: Bool {
+        hasActivity || unreadCount > 0 || agentStatus == .complete || agentStatus == .waiting
+    }
+
+    /// Whether this session is (or was) a Claude chat — its launch command was a
+    /// `claude` invocation, we bound a session id, or Claude is live now. Recorded
+    /// in the rail's persisted snapshot so a restored chat relaunches Claude.
+    /// `launchIsClaude` is set synchronously in `start()` so a chat saved before
+    /// Claude finishes coming up is still recorded correctly.
+    var wasClaudeLaunched: Bool { launchIsClaude || boundSessionId != nil || isClaudeRunning }
+
+    /// The Claude Code session id whose transcript this chat is following (the
+    /// transcript file's basename), if any. Lets an archived chat be reopened with
+    /// `--resume` so the conversation picks up where it left off.
+    var claudeSessionId: String? {
+        boundSessionId ?? followedTranscriptURL?.deletingPathExtension().lastPathComponent
+    }
+
+    /// How full this chat's Claude context is (0…1), or `nil` when unknown / not a
+    /// Claude chat. Feeds the per-chat context gauge that signals when to archive
+    /// and start fresh.
+    var contextFraction: Double? {
+        guard let t = contextTokens, t > 0 else { return nil }
+        let limit = contextLimit ?? ClaudeTranscript.defaultContextWindowLimit
+        return min(1, Double(t) / Double(limit))
+    }
+
+    /// An explicit one-line "what I'm working on" the agent posts via
+    /// `idealize note --mine`. Overrides the auto-derived activity line in the
+    /// project's shared status view, so a chat can state its intent in its own
+    /// words. Cleared with an empty `--mine`.
+    @Published var agentNote: String?
+
+    /// A one-line "what this chat is working on", for the project's shared status
+    /// view. Prefers the agent's explicit note; otherwise derived from what Claude
+    /// is currently doing (its live status, last prompt, or last reply).
+    var activityLine: String {
+        if let n = agentNote?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
+            return n
+        }
+        func firstLine(_ s: String, _ limit: Int = 72) -> String {
+            let line = s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s
+            let t = line.trimmingCharacters(in: .whitespaces)
+            return t.count > limit ? String(t.prefix(limit)) + "…" : t
+        }
+        switch agentStatus {
+        case .waiting:
+            return "waiting on you"
+        case .working:
+            if let q = userQuestion, !q.isEmpty { return "working on: " + firstLine(q) }
+            return "working…"
+        case .complete:
+            if let a = assistantMessage, !a.isEmpty { return "just finished: " + firstLine(a) }
+            return "finished"
+        case .idle:
+            if let q = userQuestion, !q.isEmpty { return firstLine(q) }
+            return isClaudeRunning ? "ready" : "shell"
+        }
+    }
+
+    /// The resolved launch command for this session was a `claude` invocation.
+    private(set) var launchIsClaude = false
+
     var sessionInfo: IPCSessionInfo {
         IPCSessionInfo(
             id: id,
@@ -611,7 +726,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         checkForUnknownAgent()
         refreshAssistantMessage()
         detectPrompt()
+
+        // Session @Published changes don't reach the WorkspaceTab/Workspace that
+        // the session rail groups by, so nudge the workspace when this chat's
+        // unread/attention state flips — that's what re-evaluates the bold-text
+        // unread signal on the chat row and its project header.
+        let attn = needsAttention
+        if attn != lastAttention {
+            lastAttention = attn
+            workspace?.objectWillChange.send()
+        }
     }
+
+    private var lastAttention = false
 
     /// Read the visible terminal screen as plain text lines.
     private func readVisibleScreen() -> [String] {
@@ -641,6 +768,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             if workingStatus != nil { workingStatus = nil }
             if workingTip != nil { workingTip = nil }
             if botWorking { botWorking = false }
+            if awaitingReply { awaitingReply = false }
             if agentStatus != .idle { agentStatus = .idle }
             return
         }
@@ -662,6 +790,16 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         let recentlyWorking = lastWorkingSeen.map { Date().timeIntervalSince($0) < 1.5 } ?? false
         let working = prompt == nil && (workingState.isWorking || recentlyWorking)
         if working != botWorking { botWorking = working }
+        // The submit-time `awaitingReply` banner hands off the moment the agent
+        // visibly starts (its marker → `working`) or puts up a prompt; a launch
+        // that stalls clears after a grace period so it can't wedge on forever.
+        if awaitingReply {
+            if working || pendingPrompt != nil || liveInteractivePrompt {
+                awaitingReply = false
+            } else if let since = pendingSince, Date().timeIntervalSince(since) > 90 {
+                awaitingReply = false
+            }
+        }
         if workingState.status != workingStatus { workingStatus = workingState.status }
         if workingState.tip != workingTip { workingTip = workingState.tip }
         // An interactive prompt we couldn't structure into buttons (arrow-key
@@ -693,22 +831,39 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// agent session already sitting idle (no need to have witnessed the
     /// working→idle transition).
     private func updateAgentStatus() {
+        let next: AgentStatus
         if pendingPrompt != nil || liveInteractivePrompt {
-            agentStatus = .waiting           // a choice box / live prompt is up
+            next = .waiting                  // a choice box / live prompt is up
         } else if botWorking {
-            agentStatus = .working
+            next = .working
         } else if let msg = assistantMessage, !msg.isEmpty {
             // The agent is idle at its prompt with a completed reply on the table.
             // Agents often ask their question in prose ("Want me to…?"), so any
             // question mark in the reply means Waiting; an answered-or-statement
             // reply is Complete until the tab is focused (then it's idle).
             if messageContainsQuestion(msg) {
-                agentStatus = .waiting
+                next = .waiting
             } else {
-                agentStatus = (msg == acknowledgedMessage) ? .idle : .complete
+                next = (msg == acknowledgedMessage) ? .idle : .complete
             }
         } else {
-            agentStatus = .idle
+            next = .idle
+        }
+        let previous = agentStatus
+        agentStatus = next
+
+        // The "done" chime: fire on the very transition that lights up the chat
+        // notification — entering an attention state (a response is ready:
+        // `.complete` or `.waiting`) from a non-attention one (`.idle`/`.working`).
+        // No dependency on having witnessed `.working`, which the poll can miss.
+        // The one-time seed swallows a session that's already finished at launch,
+        // so restoring the app doesn't chime for every completed tab.
+        let wasAttention = (previous == .complete || previous == .waiting)
+        let isAttention = (next == .complete || next == .waiting)
+        if !chimeSeeded {
+            chimeSeeded = true
+        } else if isAttention && !wasAttention {
+            DoneSound.play()
         }
     }
 
@@ -754,6 +909,17 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         agentStatus = .working
     }
 
+    /// Cancel the prompt the agent is currently working on. Sends ESC — the key
+    /// the agent's TUI itself advertises ("esc to interrupt") — to stop it mid-turn.
+    func interrupt() {
+        guard tuiActive else { return }
+        terminalView.send(txt: "\u{1b}")   // ESC
+        pendingPrompt = nil
+        // Reflect the stop immediately; the on-screen marker poll keeps it honest.
+        botWorking = false
+        agentStatus = .idle
+    }
+
     /// While an agent session is running here, pull its latest completed message
     /// from its transcript. The directory scan, stat and JSONL parsing all run
     /// on `transcriptQueue`; only the parsed exchanges hop back to the main
@@ -771,6 +937,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         transcriptQueue.async { [weak self] in
             guard let self else { return }
             var parsed: [AgentExchange]?
+            var usage: ClaudeTranscript.ContextUsage?
+            var changedURL: URL?
             if let url = agent.transcriptURL(forCwd: cwd, sessionId: sessionId) {
                 // Same debounce as before: only re-read when the file changes.
                 let mtime = (try? FileManager.default
@@ -778,6 +946,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 if url != self.bgTranscriptURL || mtime != self.bgTranscriptMTime {
                     self.bgTranscriptURL = url
                     self.bgTranscriptMTime = mtime
+                    changedURL = url
                     if agent.binaryName == "claude" {
                         // Incremental: parse only bytes appended since the last
                         // poll; the follower merges the new tail itself.
@@ -787,6 +956,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                         if let follower = self.transcriptFollower, follower.poll() {
                             parsed = follower.exchanges
                         }
+                        // The context-gauge readout (tokens carried vs the model's
+                        // window) rides the same change tick, off the main thread.
+                        usage = ClaudeTranscript.contextUsage(in: url)
                     } else {
                         parsed = agent.allExchanges(in: url)
                     }
@@ -795,15 +967,24 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.transcriptInFlight = false
+                if let changedURL { self.followedTranscriptURL = changedURL }
                 guard self.transcriptGeneration == generation, let all = parsed else { return }
                 // Transcripts are append-only, so count + last exchange decide
                 // whether anything changed — no deep compare of unchanged history.
                 guard all.count != self.exchanges.count || all.last != self.exchanges.last else { return }
                 self.exchanges = all
+                if let usage {
+                    if usage.tokens != self.contextTokens { self.contextTokens = usage.tokens }
+                    if usage.limit != self.contextLimit { self.contextLimit = usage.limit }
+                }
                 let q = all.last?.question
                 let a = all.last?.answer
                 if let q, q != self.userQuestion { self.userQuestion = q }
-                if a != self.assistantMessage { self.assistantMessage = a }
+                if a != self.assistantMessage {
+                    self.assistantMessage = a
+                    // A real reply landed — the submit-time working banner can stand down.
+                    if self.awaitingReply, let a, !a.isEmpty { self.awaitingReply = false }
+                }
                 // NB: botWorking is driven by the on-screen "working" marker in
                 // detectPrompt(), not the transcript — the transcript heuristic got stuck.
             }
@@ -835,8 +1016,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         return "\(i + 1) / \(exchanges.count)"
     }
 
-    /// The index currently shown (live = the last exchange).
-    private var shownIndex: Int { historyIndex ?? (exchanges.count - 1) }
+    /// The index currently shown (live = the last exchange). Read by the chat's
+    /// exchange stepper to label the position ("3 of 12").
+    var shownIndex: Int { historyIndex ?? (exchanges.count - 1) }
 
     var canGoBack: Bool { shownIndex > 0 }
     var canGoForward: Bool { historyIndex != nil }
@@ -863,8 +1045,24 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             priorAnswer = assistantMessage
             userQuestion = text
             botWorking = true
+            awaitingReply = true
+            pendingSince = Date()
+            taskCritter += 1
             agentStatus = .working
-            sendLineToTUI(text)
+            if pendingPrompt != nil {
+                // The agent is showing a selection prompt (numbered menu). Typing
+                // a fresh instruction into that menu gets swallowed — the menu
+                // reads it as a filter/selection — so the message silently
+                // vanished. Exit the menu first (ESC), then deliver the text to
+                // the clean input line a beat later so it registers as a message.
+                pendingPrompt = nil
+                terminalView.send(txt: "\u{1b}")   // ESC — leave the menu
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+                    self?.sendLineToTUI(text)
+                }
+            } else {
+                sendLineToTUI(text)
+            }
         } else if agentLaunchInFlight {
             // A launch we already issued (auto-launch, or an earlier message) is
             // still coming up. Deliver to it — never start a second agent, which
@@ -872,6 +1070,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             priorAnswer = assistantMessage
             userQuestion = text
             botWorking = true
+            awaitingReply = true
+            pendingSince = Date()
+            taskCritter += 1
             agentStatus = .working
             firePendingLaunch()   // no-op if the queued auto-launch already fired
             waitForAgentThenSend(text, attemptsLeft: 30)
@@ -886,6 +1087,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             priorAnswer = assistantMessage
             userQuestion = text
             botWorking = true
+            awaitingReply = true
+            pendingSince = Date()
+            taskCritter += 1
             agentStatus = .working
             agentLaunchInFlight = true
             let launch = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -138,7 +138,7 @@ struct BlockCard: View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: 11))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.iconHover(padding: 3))
         .foregroundStyle(Color(theme.secondaryForeground))
         .help(help)
     }

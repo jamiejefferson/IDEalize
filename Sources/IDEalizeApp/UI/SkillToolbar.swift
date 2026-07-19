@@ -143,6 +143,7 @@ private struct Pill: View {
     let icon: String
     let text: String
     @ObservedObject private var settings = AppSettings.shared
+    @State private var hovering = false
     init(_ icon: String, _ text: String) { self.icon = icon; self.text = text }
     private var theme: Theme { settings.theme }
     var body: some View {
@@ -154,8 +155,12 @@ private struct Pill: View {
                 .foregroundStyle(Color(theme.secondaryForeground))
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(Capsule().fill(Color(theme.surface)))
-        .overlay(Capsule().strokeBorder(Color(theme.border), lineWidth: 1))
+        .background(Capsule().fill(Color(hovering ? theme.surfaceHover : theme.surface)))
+        .overlay(Capsule().strokeBorder(
+            hovering ? settings.actionStyle.color.opacity(0.5) : Color(theme.border), lineWidth: 1))
+        .contentShape(Capsule())
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }
 
@@ -175,6 +180,7 @@ struct ChatToolbar: View {
     var body: some View {
         HStack(spacing: 7) {
             FlowModeToggle(on: $flowMode)
+                .tourTarget(.flow)
             if flowMode {
                 FlowLibraryButton(flowStore: flowStore)
                 VersionHistoryButton(flowStore: flowStore)

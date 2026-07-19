@@ -17,6 +17,8 @@ enum TourTarget: Hashable {
     case modeToggle
     case chatInput
     case skills
+    case flow
+    case documentPanel
     case toolbar
 }
 
@@ -64,7 +66,7 @@ enum TourScript {
             target: .sessions,
             icon: "sidebar.left",
             title: "Your sessions",
-            body: "Each folder you work in gets its own session, listed here. They keep running side by side, so you can leave your agent working on one and switch to another.\n\nUse + to start a new one."
+            body: "Each folder you work in gets its own session, listed here. They keep running side by side, so you can leave your agent working on one and switch to another. Unread chats turn bold, and each shows what your agent is up to live.\n\nUse + to start a new one — and every project has a shared note all its chats can see."
         ),
         TourStep(
             target: .files,
@@ -88,13 +90,25 @@ enum TourScript {
             target: .skills,
             icon: "slider.horizontal.3",
             title: "How your agent works",
-            body: "Choose which model to use and how long it should think before answering. Skills and commands are reusable instructions you've saved.\n\nFlow (on the left) is for longer jobs: sketch the steps first, then hand the whole plan over at once."
+            body: "Choose which model to use and how long it should think before answering.\n\nSkills and commands are reusable instructions you've saved — pick one and it drops straight into the box, ready to send."
+        ),
+        TourStep(
+            target: .flow,
+            icon: "arrow.triangle.branch",
+            title: "Plan the big jobs",
+            body: "For anything with a few steps, flip to Flow. Sketch the plan out as cards, let your agent look it over, then hand the whole thing across at once.\n\nYour flows are saved and ready to reuse in any project."
+        ),
+        TourStep(
+            target: .documentPanel,
+            icon: "doc.text",
+            title: "Notes that write themselves",
+            body: "This opens the document panel — read and edit your notes right beside the chat.\n\nHit record and it transcribes a meeting privately, on your Mac, dropping the text into your notes the moment you stop."
         ),
         TourStep(
             target: .toolbar,
             icon: "square.bottomhalf.filled",
             title: "Panels and tools",
-            body: "Show or hide any panel, open the command palette (⌘P), or split the view to see two terminals at once.\n\nThe spanner opens the service hatch — an agent session on IDEalize's own code, so you can change the app you're using."
+            body: "Show or hide any panel, split the view to see two terminals, or press ⌘P for the command palette — a keyboard jump to any session, command, or theme.\n\nThe spanner opens the service hatch (an agent session on IDEalize's own code), and the Feedback button sends a note straight to us."
         )
     ]
 }

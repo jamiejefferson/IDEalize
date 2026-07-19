@@ -163,6 +163,14 @@ final class AppSettings: ObservableObject {
     @Published var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: "notificationsEnabled") }
     }
+    /// Whether to play the "task complete" chime when Claude signals it's done.
+    @Published var completionSoundEnabled: Bool {
+        didSet { defaults.set(completionSoundEnabled, forKey: "completionSoundEnabled") }
+    }
+    /// Volume of the completion chime, 0…1. Gentle by default.
+    @Published var completionSoundVolume: Double {
+        didSet { defaults.set(completionSoundVolume, forKey: "completionSoundVolume") }
+    }
     /// False until the user dismisses the first-run welcome / sends a first message.
     @Published var hasSeenWelcome: Bool {
         didSet { defaults.set(hasSeenWelcome, forKey: "hasSeenWelcome") }
@@ -171,6 +179,11 @@ final class AppSettings: ObservableObject {
     /// `hasSeenWelcome`: the welcome card greets you, the tour shows you the room.
     @Published var hasSeenTour: Bool {
         didSet { defaults.set(hasSeenTour, forKey: "hasSeenTour") }
+    }
+    /// The id of the most recent announcement the user has dismissed. Empty until
+    /// they close their first one. Used to show each announcement banner once.
+    @Published var lastSeenAnnouncementID: String {
+        didSet { defaults.set(lastSeenAnnouncementID, forKey: "lastSeenAnnouncementID") }
     }
     /// Recently opened folders (most-recent first) for the File ▸ Open Recent menu.
     @Published var recentFolders: [String] {
@@ -211,6 +224,32 @@ final class AppSettings: ObservableObject {
     var miniModePreZoomed: Bool {
         get { defaults.object(forKey: "miniModePreZoomed") as? Bool ?? false }
         set { defaults.set(newValue, forKey: "miniModePreZoomed") }
+    }
+
+    /// Snapshot of the session rail (Projects → Chats) for restore-on-launch.
+    @Published var projectSnapshot: [PersistedProject] {
+        didSet {
+            if let data = try? JSONEncoder().encode(projectSnapshot) {
+                defaults.set(data, forKey: "projectSnapshot")
+            }
+        }
+    }
+
+    /// Project folders whose rail group is collapsed (persisted so it survives
+    /// relaunch). Stored as paths.
+    @Published var collapsedProjects: [String] {
+        didSet { defaults.set(collapsedProjects, forKey: "collapsedProjects") }
+    }
+
+    /// Chats the user has archived (across every project). Kept out of
+    /// `projectSnapshot` so archiving never affects restore-on-launch of the live
+    /// chats. Viewed and reopened from the Archived Chats list.
+    @Published var archivedChats: [ArchivedChat] {
+        didSet {
+            if let data = try? JSONEncoder().encode(archivedChats) {
+                defaults.set(data, forKey: "archivedChats")
+            }
+        }
     }
 
     // Panel widths / the browse pane height live in `PanelLayout` — a drag
@@ -271,12 +310,20 @@ final class AppSettings: ObservableObject {
         self.shellPath = defaults.string(forKey: "shellPath")
             ?? (ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
+        self.completionSoundEnabled = defaults.object(forKey: "completionSoundEnabled") as? Bool ?? true
+        self.completionSoundVolume = defaults.object(forKey: "completionSoundVolume") as? Double ?? 0.4
         self.hasSeenWelcome = defaults.object(forKey: "hasSeenWelcome") as? Bool ?? false
         self.hasSeenTour = defaults.object(forKey: "hasSeenTour") as? Bool ?? false
+        self.lastSeenAnnouncementID = defaults.string(forKey: "lastSeenAnnouncementID") ?? ""
         self.recentFolders = defaults.stringArray(forKey: "recentFolders") ?? []
         self.miniModeEnabled = defaults.object(forKey: "miniModeEnabled") as? Bool ?? false
         self.miniModeDockSide = DockSide(rawValue: defaults.string(forKey: "miniModeDockSide") ?? "") ?? .right
         self.miniModeAlwaysOnTop = defaults.object(forKey: "miniModeAlwaysOnTop") as? Bool ?? true
+        self.projectSnapshot = (defaults.data(forKey: "projectSnapshot")
+            .flatMap { try? JSONDecoder().decode([PersistedProject].self, from: $0) }) ?? []
+        self.collapsedProjects = defaults.stringArray(forKey: "collapsedProjects") ?? []
+        self.archivedChats = (defaults.data(forKey: "archivedChats")
+            .flatMap { try? JSONDecoder().decode([ArchivedChat].self, from: $0) }) ?? []
         self.browseFolders = defaults.dictionary(forKey: "browseFolders") as? [String: String] ?? [:]
         self.browseOpen = defaults.dictionary(forKey: "browseOpen") as? [String: Bool] ?? [:]
         self.panelAppearances = (defaults.data(forKey: "panelAppearances")

@@ -60,6 +60,7 @@ public struct IPCRequest: Codable, Sendable {
         case input         // type text into a session's terminal (exec)
         case reveal        // select a file in the app's file explorer
         case transcript    // read a session's recent chat exchanges
+        case note          // read (or, with a body, set) the project's shared note
     }
 
     public var command: Command
