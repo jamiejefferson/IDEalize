@@ -33,8 +33,9 @@ func pngData(forFileAt path: String) -> Data? {
 //   idealize notify "Build finished" --title "claude" --sound
 //   idealize send <session> "your turn"          # message another terminal
 //   idealize broadcast "deploying in 5"          # message all terminals
-//   idealize inbox [--wait]                       # read messages sent to me
+//   idealize inbox [--wait] [--timeout S]      # read messages sent to me
 //   idealize list                                # list active sessions
+//   idealize transcript <session> [--last N]     # read a chat's recent Q&A
 //   idealize image path/to/file.png [--width 60] # render an image inline
 //   idealize reveal src/App.swift --open         # point the human at a file
 //   idealize status "running tests"              # set this tab's status text
@@ -46,6 +47,9 @@ func pngData(forFileAt path: String) -> Data? {
 let args = Array(CommandLine.arguments.dropFirst())
 let env = ProcessInfo.processInfo.environment
 let mySession = env[IPC.sessionEnvKey]
+/// Capability token authorizing mutating commands: from the environment the app
+/// injected into this shell, else the app's token file (mode 0600).
+let ipcToken = IPC.loadToken()
 let client = IPCClient()
 
 func fail(_ message: String, code: Int32 = 1) -> Never {
@@ -91,6 +95,8 @@ func requireApp() {
 
 func sendRequest(_ req: IPCRequest) -> IPCResponse {
     requireApp()
+    var req = req
+    if req.token == nil { req.token = ipcToken }
     do {
         return try client.send(req)
     } catch {
@@ -109,10 +115,11 @@ func printUsage() {
       notify <text> [--title T] [--sound]   show a system notification
       send <session> <text>                 message another terminal's inbox
       broadcast <text>                      message every other terminal
-      inbox [--wait] [--json]               read & clear my messages
+      inbox [--wait] [--json] [--timeout S]  read & clear my messages
       peek [--json]                         read my messages without clearing
       list [--json]                         list active terminals
       blocks [session] [--json]             list recorded command blocks
+      transcript <session> [--last N] [--json]  read a chat's recent Q&A
       reveal <path> [--open]                show a file in the app's file explorer
       exec <session> <command>              run a command in another terminal
       type <session> <text>                 type text into another terminal
@@ -121,7 +128,8 @@ func printUsage() {
       whoami                                print my session id
       ping                                  check the app is reachable
 
-    Identity is taken from $\(IPC.sessionEnvKey).
+    Identity is taken from $\(IPC.sessionEnvKey); authorization from
+    $\(IPC.tokenEnvKey) (or the app's ipc.token file).
     """)
 }
 
@@ -172,11 +180,21 @@ case "inbox", "peek":
     let flags = Flags(rest, boolFlags: ["wait", "json"])
     let cmd: IPCRequest.Command = command == "inbox" ? .inbox : .peek
     let wantWait = flags.bools.contains("wait")
+    // --timeout SECS bounds --wait (0/absent = wait forever, as before).
+    var timeout: Double = 0
+    if let raw = flags.values["timeout"] {
+        guard let t = Double(raw), t >= 0 else { fail("invalid --timeout '\(raw)' (expected seconds)") }
+        timeout = t
+    }
+    let deadline = Date().addingTimeInterval(timeout)
     repeat {
         let resp = sendRequest(IPCRequest(command: cmd, from: mySession))
         if !resp.ok { fail(resp.error ?? "inbox failed") }
         let messages = resp.messages ?? []
         if messages.isEmpty && wantWait {
+            if timeout > 0, Date() >= deadline {
+                fail("timed out after \(Int(timeout))s waiting for messages", code: 2)
+            }
             Thread.sleep(forTimeInterval: 0.5)
             continue
         }
@@ -242,6 +260,30 @@ case "blocks":
             let status = b.running ? "…" : (b.exitCode == 0 ? "✓" : "✗ \(b.exitCode ?? -1)")
             let dur = b.durationMs.map { " (\($0)ms)" } ?? ""
             out("\(status)  \(b.command)\(dur)")
+        }
+    }
+
+case "transcript":
+    let flags = Flags(rest, boolFlags: ["json"])
+    guard let target = flags.positionals.first else { fail("usage: idealize transcript <session> [--last N] [--json]") }
+    var limit = 10
+    if let raw = flags.values["last"] {
+        guard let n = Int(raw), n > 0 else { fail("invalid --last '\(raw)' (expected a positive number)") }
+        limit = n
+    }
+    let resp = sendRequest(IPCRequest(command: .transcript, from: mySession, target: target, limit: limit))
+    if !resp.ok { fail(resp.error ?? "transcript failed") }
+    let exchanges = resp.exchanges ?? []
+    if flags.bools.contains("json") {
+        let data = try IPC.makeEncoder().encode(exchanges)
+        out(String(decoding: data, as: UTF8.self))
+    } else if exchanges.isEmpty {
+        out("(no exchanges yet)")
+    } else {
+        for e in exchanges {
+            out("Q: \(e.question)")
+            if let a = e.answer { out("A: \(a)") }
+            out("")
         }
     }
 

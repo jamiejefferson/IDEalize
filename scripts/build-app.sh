@@ -55,17 +55,21 @@ if [ -d "$BIN_DIR/SwiftTerm_SwiftTerm.bundle" ]; then
   chmod -R u+w "$RES/SwiftTerm_SwiftTerm.bundle" 2>/dev/null || true
 fi
 
-# App icon. Regenerate the .icns from the vector source if it's missing.
-if [ ! -f "$ROOT/Resources/AppIcon.icns" ]; then
+# App icon. Regenerate the .icns from the source if it's missing OR the logo
+# source is newer (otherwise logo changes silently ship a stale icon). Work in
+# a private mktemp dir — predictable shared /tmp paths are symlink-attackable.
+if [ ! -f "$ROOT/Resources/AppIcon.icns" ] || [ "$ROOT/Resources/IDEalizeLogo.png" -nt "$ROOT/Resources/AppIcon.icns" ]; then
   echo "==> Generating app icon…"
-  swift "$ROOT/scripts/make-icon.swift" /tmp/idealize-icon-master.png
-  ICONSET=/tmp/AppIcon.iconset; rm -rf "$ICONSET"; mkdir -p "$ICONSET"
+  ICON_TMP="$(mktemp -d "${TMPDIR:-/tmp}/idealize-icon.XXXXXX")"
+  swift "$ROOT/scripts/make-icon.swift" "$ICON_TMP/icon-master.png"
+  ICONSET="$ICON_TMP/AppIcon.iconset"; mkdir -p "$ICONSET"
   for s in 16 32 128 256 512; do
-    sips -z $s $s /tmp/idealize-icon-master.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
-    d=$((s*2)); sips -z $d $d /tmp/idealize-icon-master.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+    sips -z $s $s "$ICON_TMP/icon-master.png" --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+    d=$((s*2)); sips -z $d $d "$ICON_TMP/icon-master.png" --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
   done
   mkdir -p "$ROOT/Resources"
   iconutil -c icns "$ICONSET" -o "$ROOT/Resources/AppIcon.icns"
+  rm -rf "$ICON_TMP"
 fi
 cp "$ROOT/Resources/AppIcon.icns" "$RES/AppIcon.icns"
 # Bundle the wordmark logo for the in-app watermark.
@@ -116,19 +120,32 @@ fi
 # which codesign rejects as "resource fork … detritus".
 chmod -R u+w "$APP" 2>/dev/null || true
 xattr -cr "$APP" 2>/dev/null || true
-# Sign the helper first (the app's outer sign seals the SwiftTerm resource bundle).
-codesign --force --sign "$IDENTITY" "$HELPERS/idealize-cli" >/dev/null 2>&1 || true
-# The FinderInfo strip MUST be the last thing before the outer sign — signing the
-# helper (and the synced volume) re-stamps it, and codesign then rejects it.
-strip_and_sign() {
-  find "$APP" -exec xattr -d com.apple.FinderInfo {} \; 2>/dev/null || true
-  xattr -cr "$APP" 2>/dev/null || true
-  codesign --force --sign "$IDENTITY" "$APP" >/dev/null 2>&1
-}
-if strip_and_sign || strip_and_sign; then
-  echo "    Signed with: $(codesign -dvv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1)"
+if [ "${IDEALIZE_SKIP_SIGNING:-0}" = "1" ]; then
+  echo "⚠️  IDEALIZE_SKIP_SIGNING=1 — SKIPPING code signing entirely."
+  echo "    Dev-only escape hatch: notifications and permission persistence"
+  echo "    will NOT work in this build. Do not distribute it."
 else
-  echo "    (codesign failed — notifications may be limited)"
+  # Sign the helper first (the app's outer sign seals the SwiftTerm resource bundle).
+  # Signing failures are FATAL — an unsigned or mis-signed build must never ship.
+  if ! codesign --force --sign "$IDENTITY" "$HELPERS/idealize-cli"; then
+    echo "error: codesign failed for $HELPERS/idealize-cli" >&2
+    exit 1
+  fi
+  # The FinderInfo strip MUST be the last thing before the outer sign — signing the
+  # helper (and the synced volume) re-stamps it, and codesign then rejects it.
+  strip_and_sign() {
+    find "$APP" -exec xattr -d com.apple.FinderInfo {} \; 2>/dev/null || true
+    xattr -cr "$APP" 2>/dev/null || true
+    codesign --force --sign "$IDENTITY" "$APP"
+  }
+  if strip_and_sign || strip_and_sign; then
+    echo "    Signed with: $(codesign -dvv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1)"
+  else
+    echo "error: codesign failed for $APP — refusing to ship an unsigned build." >&2
+    echo "       Fix the signing setup (see scripts/setup-signing.sh), or set" >&2
+    echo "       IDEALIZE_SKIP_SIGNING=1 for a dev-only unsigned build." >&2
+    exit 1
+  fi
 fi
 
 # Move the finished (signed) bundle into the real dist/ location. The embedded
@@ -143,9 +160,26 @@ APP="$FINAL_APP"
 HELPERS="$APP/Contents/Helpers"
 
 echo "==> Done: $APP"
-echo "    Signature: $(codesign -dvv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1) ($(codesign -dv "$APP" 2>&1 | sed -n 's/.*flags=//p' | head -1))"
+if [ "${IDEALIZE_SKIP_SIGNING:-0}" = "1" ]; then
+  echo "    Signature: NONE (IDEALIZE_SKIP_SIGNING=1 — dev-only build)"
+else
+  echo "    Signature: $(codesign -dvv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1) ($(codesign -dv "$APP" 2>&1 | sed -n 's/.*flags=//p' | head -1))"
+fi
 echo "    Optionally expose the CLI globally:"
 echo "      ln -sf \"$HELPERS/idealize-cli\" /usr/local/bin/idealize"
+
+# Optional release zip (off by default; set IDEALIZE_MAKE_ZIP=1). Either way,
+# if a zip exists print its SHA-256 so it can be published with the download.
+ZIP="$ROOT/dist/IDEalize-macOS.zip"
+if [ "${IDEALIZE_MAKE_ZIP:-0}" = "1" ]; then
+  echo "==> Creating release zip: $ZIP"
+  rm -f "$ZIP"
+  ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+fi
+if [ -f "$ZIP" ]; then
+  echo "    SHA-256 (paste this into website/index.html DOWNLOAD_SHA256):"
+  shasum -a 256 "$ZIP"
+fi
 
 if [ "$OPEN_AFTER" = "1" ]; then
   open "$APP"

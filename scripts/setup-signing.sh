@@ -32,25 +32,54 @@ keyUsage = critical,digitalSignature
 extendedKeyUsage = critical,codeSigning
 EOF
 
-openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
-  -keyout "$TMP/key.pem" -out "$TMP/cert.pem" -config "$TMP/cert.conf" >/dev/null 2>&1
-openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
-  -out "$TMP/cert.p12" -passout pass:idealize -name "$CERT_NAME" >/dev/null 2>&1
+# The .p12 needs an export password for `security import`. It only protects a
+# temp file that is deleted on exit — but never hardcode one into the script.
+if [ -n "${IDEALIZE_P12_PASSWORD:-}" ]; then
+  P12_PASS="$IDEALIZE_P12_PASSWORD"
+else
+  read -r -s -p "Choose a one-time password for the temporary .p12: " P12_PASS
+  echo ""
+fi
+if [ -z "$P12_PASS" ]; then
+  echo "error: empty .p12 password (set IDEALIZE_P12_PASSWORD or type one when prompted)" >&2
+  exit 1
+fi
+
+# 3-year key lifetime (not 10): limits how long a leaked local dev key stays usable.
+if ! openssl req -x509 -newkey rsa:2048 -sha256 -days 1095 -nodes \
+  -keyout "$TMP/key.pem" -out "$TMP/cert.pem" -config "$TMP/cert.conf" >/dev/null 2>&1; then
+  echo "error: openssl failed to generate the self-signed certificate" >&2
+  exit 1
+fi
+if ! openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
+  -out "$TMP/cert.p12" -passout "pass:$P12_PASS" -name "$CERT_NAME" >/dev/null 2>&1; then
+  echo "error: openssl failed to export the .p12" >&2
+  exit 1
+fi
 
 echo "==> Importing into your login keychain (allows codesign to use it)…"
-security import "$TMP/cert.p12" -k "$KEYCHAIN" -P idealize -T /usr/bin/codesign
+if ! security import "$TMP/cert.p12" -k "$KEYCHAIN" -P "$P12_PASS" -T /usr/bin/codesign; then
+  echo "error: failed to import the certificate into $KEYCHAIN" >&2
+  exit 1
+fi
 
-# Mark the cert as trusted for code signing.
-security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem" 2>/dev/null || true
+# NOTE: deliberately NOT marking this cert as a code-signing trust root
+# (`security add-trusted-cert -r trustRoot`). Permission persistence (TCC)
+# only needs a STABLE signing identity, not a trusted one — and making a local
+# dev cert a trust root would let anything signed with it bypass trust checks
+# if the key ever leaked.
 
 # Avoid the repeated "codesign wants to use key" prompt by setting the partition
-# list. Needs your LOGIN PASSWORD (same one you log in to the Mac with).
+# list. Needs your LOGIN PASSWORD (same one you log in to the Mac with), read
+# silently. Note: `security set-key-partition-list` only accepts the password
+# as an argument, so it is briefly visible in `ps` while this one command runs.
 echo ""
 read -r -s -p "Enter your macOS login password (so codesign won't prompt each build): " PW
 echo ""
-security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KEYCHAIN" >/dev/null 2>&1 \
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KEYCHAIN" \
   && echo "==> Key access configured." \
   || echo "    (Could not set partition list — codesign may ask 'Always Allow' once; that's fine.)"
+unset PW
 
 echo ""
 echo "✅ Done. Now rebuild:  scripts/build-app.sh"

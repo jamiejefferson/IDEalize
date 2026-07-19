@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A small status tag shown on session tabs and rail cards: Working, Waiting,
-/// or Complete. "Waiting" (Claude asked you something and is blocked on your
+/// or Complete. "Waiting" (the agent asked you something and is blocked on your
 /// answer) is the one that needs attention, so it gently pulses. When there's
 /// no agent activity it falls back to a plain running/activity dot.
 struct AgentStatusBadge: View {
@@ -29,7 +29,7 @@ private struct WorkingSpinner: View {
             .tint(Color(red: 0.23, green: 0.51, blue: 0.96))
             .scaleEffect(compact ? 0.72 : 0.9)
             .frame(width: compact ? 16 : 20, height: compact ? 16 : 20)
-            .help("Claude is working")
+            .help("Agent is working")
     }
 }
 
@@ -60,8 +60,8 @@ private struct StatusPill: View {
                     pulse = true
                 }
             }
-            .help(isWaiting ? "Claude asked a question — waiting on you"
-                            : "Claude finished — nothing outstanding")
+            .help(isWaiting ? "Agent asked a question — waiting on you"
+                            : "Agent finished — nothing outstanding")
     }
 }
 

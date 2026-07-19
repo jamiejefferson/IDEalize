@@ -34,7 +34,7 @@ struct LeafPaneView: View {
     private var isFocused: Bool { workspace.focusedSessionID == session.id }
     private var isSplit: Bool { (workspace.selectedTab?.sessions.count ?? 1) > 1 }
     private var hasBlocks: Bool { !session.blocks.isEmpty }
-    /// A full-screen TUI (Claude Code, vim, …) is drawing — it owns the pane.
+    /// A full-screen TUI (agent CLI, vim, …) is drawing — it owns the pane.
     private var tuiActive: Bool { session.tuiActive }
     /// A normal (scrolling) command is currently running — show its live output
     /// under a capped blocks history. Driven by the block lifecycle (reliable),
@@ -152,10 +152,10 @@ struct LeafPaneView: View {
         .help("Close this terminal (⌘W)")
     }
 
-    /// Claude/TUI mode: a vertical split — the live terminal readout on top, the
+    /// Agent/TUI mode: a vertical split — the live terminal readout on top, the
     /// chat docked beneath it. The divider is a native, draggable VSplitView
     /// handle (reliable resizing, unlike a custom drag).
-    /// Claude/TUI mode toggles between two full-pane views: the chat overlay
+    /// Agent/TUI mode toggles between two full-pane views: the chat overlay
     /// (terminal blurred behind it) and the raw, interactive terminal. Only one
     /// input is ever on screen at a time.
     private var chatLayout: some View {
@@ -288,46 +288,6 @@ private struct ModeToggle: View {
             .scaleEffect(active ? 1 : 0.84)
             .symbolEffect(.bounce, value: isTerminal)
             .frame(width: slot, height: height)
-    }
-}
-
-private struct PaneHeader: View {
-    @ObservedObject var session: TerminalSession
-    @ObservedObject private var settings = AppSettings.shared
-    let isFocused: Bool
-
-    private var theme: Theme { settings.theme }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            StatusDot(session: session)
-            Text(session.label)
-                .font(settings.ui(11, .medium))
-                .foregroundStyle(Color(isFocused ? theme.foreground : theme.secondaryForeground))
-                .lineLimit(1)
-            if let status = session.customStatus, !status.isEmpty {
-                Text(status)
-                    .font(settings.ui(10))
-                    .foregroundStyle(Color(theme.secondaryForeground))
-                    .lineLimit(1)
-            }
-            Spacer()
-            Text(session.processName)
-                .font(settings.mono(10))
-                .foregroundStyle(Color(theme.secondaryForeground))
-            if session.unreadCount > 0 {
-                Text("\(session.unreadCount)")
-                    .font(.system(size: 9, weight: .bold))
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule().fill(Color.red))
-                    .foregroundStyle(.white)
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 24)
-        .background(Color(isFocused ? theme.surfaceHover : theme.chrome))
-        .contentShape(Rectangle())
-        .onTapGesture { session.onFocusRequested?(session.id) }
     }
 }
 

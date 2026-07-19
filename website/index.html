@@ -69,6 +69,8 @@
   .link { color: var(--accent); font-size: 17px; }
   .link:hover { text-decoration: underline; }
   .link .c { font-size: 0.9em; }
+  .sha { margin-top: 26px; font-family: var(--mono); font-size: 12px; color: var(--ter); word-break: break-all; }
+  .sha code { color: var(--sub); }
 
   /* ===== hero (tall scroll container for the sticky film) ===== */
   .hero { padding: clamp(150px, 21vh, 230px) 22px clamp(56px, 8vh, 104px); }
@@ -302,6 +304,7 @@
       <div class="actions">
         <a class="pill-btn js-gate" href="#">Download for macOS</a>
       </div>
+      <p class="sha" id="dl-sha" hidden>SHA-256: <code id="dl-sha-hash"></code></p>
     </div>
   </section>
 
@@ -394,6 +397,14 @@
   var SB_KEY = "sb_publishable_ISmJRrzDN3Z6OEdEEZe2Cw_5YvSDGkt";
   var DOMAIN = "eqtr.com";
   var EMAIL_RE = new RegExp("^[^\\s@]+@" + DOMAIN.replace(/\./g, "\\.") + "$", "i");
+
+  // Paste the release zip's SHA-256 here after each build; shown under the
+  // download button so users can verify integrity. Stays hidden while empty.
+  const DOWNLOAD_SHA256 = "";
+  if (DOWNLOAD_SHA256) {
+    var shaP = document.getElementById("dl-sha"), shaC = document.getElementById("dl-sha-hash");
+    if (shaP && shaC) { shaC.textContent = DOWNLOAD_SHA256; shaP.hidden = false; }
+  }
 
   async function api(path, payload) {
     var r = await fetch(FN + path, {
@@ -503,7 +514,7 @@
 </script>
 
 <!-- the re-skin screens as data URIs (so WebGL textures load on file:// and when deployed) -->
-<script src="assets/gallery-items.js"></script>
+<script src="assets/gallery-items.js" defer></script>
 <!-- CircularGallery (React Bits) ported to vanilla; ogl loaded as an ES module -->
 <script type="module">
 import { Camera, Mesh, Plane, Program, Renderer, Texture, Transform } from "https://esm.sh/ogl@1.0.11";
@@ -651,13 +662,25 @@ class App {
     window.addEventListener("touchmove", this.onTouchMove, { passive: true });
     window.addEventListener("touchend", this.onTouchUp);
     this.container.addEventListener("keydown", this.onKeyDown);
+    // pause the render loop when the tab is hidden or the gallery is off-screen
+    this.inView = true;
+    new IntersectionObserver((entries) => {
+      this.inView = entries[0].isIntersecting;
+      this.syncLoop();
+    }).observe(this.container);
+    document.addEventListener("visibilitychange", () => this.syncLoop());
+  }
+  syncLoop() {
+    const shouldRun = this.inView && !document.hidden;
+    if (shouldRun && this.raf == null) this.raf = window.requestAnimationFrame(this.update);
+    else if (!shouldRun && this.raf != null) { window.cancelAnimationFrame(this.raf); this.raf = null; }
   }
 }
 
 try { await document.fonts.ready; } catch (e) {}
 const galleryEl = document.getElementById("gallery");
 if (galleryEl && window.IDEALIZE_SCREENS) {
-  new App(galleryEl, {
+  const app = new App(galleryEl, {
     items: window.IDEALIZE_SCREENS,
     bend: 2.4,
     textColor: "#e9e9ec",
@@ -666,6 +689,8 @@ if (galleryEl && window.IDEALIZE_SCREENS) {
     scrollSpeed: 2,
     scrollEase: 0.045
   });
+  // honor prefers-reduced-motion (computed in the script above): no auto-drift
+  if (window.reduce) app.autoSpeed = 0;
 }
 </script>
 </body>

@@ -9,17 +9,21 @@ struct CommandComposer: View {
     @ObservedObject private var settings = AppSettings.shared
     @State private var text = ""
     @State private var historyIndex: Int? = nil
+    /// The focused session's deduped command history, newest first. Rebuilt only
+    /// when the underlying blocks change — as a computed property it was
+    /// re-deduped on every body evaluation, including every arrow keypress.
+    @State private var history: [String] = []
     @FocusState private var focused: Bool
 
     private var theme: Theme { settings.theme }
 
-    private var history: [String] {
-        guard let session = workspace.focusedSession else { return [] }
+    private func recomputeHistory() {
+        guard let session = workspace.focusedSession else { history = []; return }
         var seen = Set<String>(); var out: [String] = []
         for b in session.blocks.reversed() where !seen.contains(b.command) {
             seen.insert(b.command); out.append(b.command)
         }
-        return out
+        history = out
     }
 
     private var cwdLabel: String {
@@ -77,6 +81,9 @@ struct CommandComposer: View {
                 )
         )
         .padding(.horizontal, 14).padding(.top, 4).padding(.bottom, 12)
+        .onAppear { recomputeHistory() }
+        .onChange(of: workspace.focusedSessionID) { _, _ in recomputeHistory() }
+        .onChange(of: workspace.focusedSession?.blocks.count) { _, _ in recomputeHistory() }
     }
 
     private func send() {

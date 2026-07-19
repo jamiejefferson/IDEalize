@@ -40,48 +40,95 @@ enum ClaudeTranscript {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
     }
 
-    /// One real user prompt and Claude's reply to it. `answer` is nil while
-    /// Claude is still working (no assistant text has followed the prompt yet).
-    struct Exchange: Equatable, Identifiable {
-        let index: Int
-        let question: String
-        let answer: String?
-        var id: Int { index }
-    }
-
     /// Every Q&A turn in the transcript, oldest→newest. Each real user prompt
     /// opens an exchange; the last assistant text before the next prompt is its
     /// answer (mirroring `lastExchange`'s "latest block wins" behaviour). Powers
     /// the chat's back/forward history navigation.
-    static func allExchanges(in url: URL) -> [Exchange] {
-        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        var out: [Exchange] = []
-        var question: String?
-        var answer: String?
-        func flush() {
-            guard let q = question else { return }
-            out.append(Exchange(index: out.count, question: q, answer: answer))
+    static func allExchanges(in url: URL) -> [AgentExchange] {
+        let follower = Follower(url: url)
+        _ = follower.poll()
+        return follower.exchanges
+    }
+
+    /// Incremental reader for one transcript file: remembers the byte offset
+    /// already consumed (and any partial-line remainder) between polls, so
+    /// appended content is read and parsed exactly once instead of re-parsing
+    /// the whole (possibly multi-MB) file on every change.
+    final class Follower {
+        let url: URL
+        private var offset: UInt64 = 0
+        private var remainder = Data()
+        private var complete: [AgentExchange] = []
+        private var question: String?
+        private var answer: String?
+
+        init(url: URL) { self.url = url }
+
+        /// All exchanges parsed so far, including the pending (unflushed) tail.
+        var exchanges: [AgentExchange] {
+            guard let q = question else { return complete }
+            return complete + [AgentExchange(index: complete.count, question: q, answer: answer)]
         }
-        for line in raw.split(separator: "\n") {
-            guard let data = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let type = obj["type"] as? String else { continue }
-            if type == "user", let t = userText(obj), isUserPrompt(t) {
-                flush(); question = t; answer = nil
-            } else if type == "assistant", let t = assistantText(obj), question != nil {
-                answer = t
+
+        /// Parse the bytes appended since the last poll. Returns true when
+        /// `exchanges` changed. A truncated/rotated file (now smaller than the
+        /// consumed offset) is re-parsed from scratch.
+        func poll() -> Bool {
+            guard let fh = try? FileHandle(forReadingFrom: url) else { return false }
+            defer { try? fh.close() }
+            let size = fh.seekToEndOfFile()
+            if size < offset {
+                offset = 0
+                remainder.removeAll(keepingCapacity: true)
+                complete.removeAll(keepingCapacity: true)
+                question = nil
+                answer = nil
             }
+            guard size > offset else { return false }
+            fh.seek(toFileOffset: offset)
+            let data = fh.readData(ofLength: Int(size - offset))
+            offset += UInt64(data.count)
+            var buffer = remainder
+            buffer.append(data)
+            remainder.removeAll(keepingCapacity: true)
+            var changed = false
+            var start = buffer.startIndex
+            // Process complete lines only; keep the partial tail for next time.
+            while let nl = buffer[start...].firstIndex(of: 0x0A) {
+                let line = buffer[start..<nl]
+                start = buffer.index(after: nl)
+                if !line.isEmpty, fold(Data(line)) { changed = true }
+            }
+            remainder = Data(buffer[start...])
+            return changed
         }
-        flush()
-        return out
+
+        /// Fold one transcript line into the running Q&A state. Returns true
+        /// when it changed the parsed exchanges.
+        private func fold(_ line: Data) -> Bool {
+            guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  let type = obj["type"] as? String else { return false }
+            if type == "user", let t = ClaudeTranscript.userText(obj), ClaudeTranscript.isUserPrompt(t) {
+                if let q = question {
+                    complete.append(AgentExchange(index: complete.count, question: q, answer: answer))
+                }
+                question = t
+                answer = nil
+                return true
+            }
+            if type == "assistant", let t = ClaudeTranscript.assistantText(obj), question != nil, t != answer {
+                answer = t
+                return true
+            }
+            return false
+        }
     }
 
     /// The latest user prompt and Claude's answer to it. `answer` is nil while
     /// Claude is still working (the most recent message is the user's question
     /// with no assistant reply after it yet).
-    static func lastExchange(in url: URL) -> (question: String?, answer: String?) {
-        guard let last = allExchanges(in: url).last else { return (nil, nil) }
-        return (last.question, last.answer)
+    static func lastExchange(in url: URL) -> AgentExchange? {
+        allExchanges(in: url).last
     }
 
     private static func assistantText(_ obj: [String: Any]) -> String? {

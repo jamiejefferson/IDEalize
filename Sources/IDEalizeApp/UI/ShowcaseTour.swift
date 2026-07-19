@@ -58,43 +58,43 @@ enum TourScript {
             target: nil,
             icon: "sparkles",
             title: "Welcome to IDEalize",
-            body: "This is a workspace for building things with Claude — your files on one side, a conversation on the other, and Claude able to see and change both.\n\nHere's a quick look at where everything lives."
+            body: "This is a workspace for building things with an AI agent — your files on one side, a conversation on the other, and the agent able to see and change both.\n\nHere's a quick look at where everything lives."
         ),
         TourStep(
             target: .sessions,
             icon: "sidebar.left",
             title: "Your sessions",
-            body: "Each folder you work in gets its own session, listed here. They keep running side by side, so you can leave Claude working on one and switch to another.\n\nUse + to start a new one."
+            body: "Each folder you work in gets its own session, listed here. They keep running side by side, so you can leave your agent working on one and switch to another.\n\nUse + to start a new one."
         ),
         TourStep(
             target: .files,
             icon: "folder",
             title: "The project's files",
-            body: "Everything in the folder you're working in. Click a file to open it, and Claude can read and edit anything you see here.\n\nThe tray icon at the top lets you browse the rest of your Mac and drag other files in."
+            body: "Everything in the folder you're working in. Click a file to open it, and your agent can read and edit anything you see here.\n\nThe tray icon at the top lets you browse the rest of your Mac and drag other files in."
         ),
         TourStep(
             target: .modeToggle,
             icon: "arrow.left.arrow.right",
             title: "Chat or Terminal",
-            body: "Two views of the same session. Chat is where you talk to Claude in plain English. Terminal is the raw text interface underneath — the thing Claude is actually driving.\n\nNothing is hidden from you; flip between them whenever you're curious."
+            body: "Two views of the same session. Chat is where you talk to your agent in plain English. Terminal is the raw text interface underneath — the thing the agent is actually driving.\n\nNothing is hidden from you; flip between them whenever you're curious."
         ),
         TourStep(
             target: .chatInput,
             icon: "text.cursor",
             title: "Ask for anything",
-            body: "Describe what you want in your own words — \"make the header sticky\", \"why is this crashing?\" — and Claude works in the project directly.\n\nDrag a file onto the pane to attach it to the conversation."
+            body: "Describe what you want in your own words — \"make the header sticky\", \"why is this crashing?\" — and your agent works in the project directly.\n\nDrag a file onto the pane to attach it to the conversation."
         ),
         TourStep(
             target: .skills,
             icon: "slider.horizontal.3",
-            title: "How Claude works",
-            body: "Choose which Claude model to use and how long it should think before answering. Skills and commands are reusable instructions you've saved.\n\nFlow (on the left) is for longer jobs: sketch the steps first, then hand the whole plan over at once."
+            title: "How your agent works",
+            body: "Choose which model to use and how long it should think before answering. Skills and commands are reusable instructions you've saved.\n\nFlow (on the left) is for longer jobs: sketch the steps first, then hand the whole plan over at once."
         ),
         TourStep(
             target: .toolbar,
             icon: "square.bottomhalf.filled",
             title: "Panels and tools",
-            body: "Show or hide any panel, open the command palette (⌘P), or split the view to see two terminals at once.\n\nThe spanner opens the service hatch — a Claude session on IDEalize's own code, so you can change the app you're using."
+            body: "Show or hide any panel, open the command palette (⌘P), or split the view to see two terminals at once.\n\nThe spanner opens the service hatch — an agent session on IDEalize's own code, so you can change the app you're using."
         )
     ]
 }

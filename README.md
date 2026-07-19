@@ -84,7 +84,7 @@ ln -sf "/Applications/IDEalize.app/Contents/Helpers/idealize-cli" /usr/local/bin
 idealize notify <text> [--title T] [--sound]   show a system notification
 idealize send <session> <text>                 message another terminal's inbox
 idealize broadcast <text>                       message every other terminal
-idealize inbox [--wait] [--json]               read & clear my messages
+idealize inbox [--wait] [--timeout S] [--json] read & clear my messages
 idealize peek  [--json]                          read my messages without clearing
 idealize list  [--json]                          list active terminals
 idealize blocks [session] [--json]               list recorded command blocks + exit codes
@@ -195,8 +195,12 @@ turns those into `CommandBlock`s. The bytes still flow to SwiftTerm unchanged
 
 **IPC transport.** The app listens on a Unix domain socket at
 `~/Library/Application Support/IDEalize/ipc.sock`. Each spawned shell gets
-`IDEALIZE_SESSION_ID` (its identity) and `IDEALIZE_SOCK` in its environment. The
-`idealize` CLI connects, sends one JSON request, and reads one JSON response.
+`IDEALIZE_SESSION_ID` (its identity), `IDEALIZE_SOCK`, and `IDEALIZE_TOKEN` in
+its environment. The `idealize` CLI connects, sends one JSON request, and
+reads one JSON response. Mutating commands (send/exec/inbox/…) require a valid
+`IDEALIZE_TOKEN` — a per-app-instance secret also stored at
+`~/Library/Application Support/IDEalize/ipc.token` (mode 0600) so a CLI
+symlinked outside the app keeps working. `ping` and `list` stay open.
 
 **Why a CLI shim.** macOS filesystems are case-insensitive, so the app binary
 `IDEalize` and a CLI named `idealize` cannot coexist in one directory. The CLI

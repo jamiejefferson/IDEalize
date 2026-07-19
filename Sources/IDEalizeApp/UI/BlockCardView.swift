@@ -36,6 +36,16 @@ struct BlockCard: View {
     let session: TerminalSession
     @ObservedObject private var settings = AppSettings.shared
     @State private var hovering = false
+    /// The output pre-converted for SwiftUI. NSAttributedString → AttributedString
+    /// walks every attribute run, and body re-evaluates on each hover enter/exit —
+    /// so convert once per output value (init + onChange), not per render.
+    @State private var convertedOutput: AttributedString?
+
+    init(block: CommandBlock, session: TerminalSession) {
+        self.block = block
+        self.session = session
+        self._convertedOutput = State(initialValue: block.output.map { AttributedString($0) })
+    }
 
     private var theme: Theme { settings.theme }
 
@@ -49,7 +59,7 @@ struct BlockCard: View {
                     bodyLabel("Interactive session", icon: "macwindow")
                 } else if let output = block.output, output.length > 0 {
                     Divider().overlay(Color(theme.border))
-                    outputView(output)
+                    outputView
                 } else if block.isRunning {
                     bodyLabel("Running…", icon: "circle.dotted")
                 }
@@ -59,6 +69,9 @@ struct BlockCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(theme.border), lineWidth: 1))
         .onHover { hovering = $0 }
+        .onChange(of: block.output) { _, new in
+            convertedOutput = new.map { AttributedString($0) }
+        }
     }
 
     private var header: some View {
@@ -97,8 +110,8 @@ struct BlockCard: View {
     }
 
     @ViewBuilder
-    private func outputView(_ output: NSAttributedString) -> some View {
-        let text = Text(AttributedString(output))
+    private var outputView: some View {
+        let text = Text(convertedOutput ?? AttributedString())
             .font(.custom(settings.fontName, size: settings.fontSize))
             .textSelection(.enabled)
             .multilineTextAlignment(.leading)

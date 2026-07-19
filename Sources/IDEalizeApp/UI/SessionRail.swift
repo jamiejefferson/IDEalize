@@ -15,6 +15,9 @@ struct SessionRail: View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(Color(theme.border)).frame(height: 1)
+            if workspace.suggestedProjectAgentPath != nil {
+                projectAgentSuggestion
+            }
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(workspace.tabs) { tab in
@@ -57,6 +60,47 @@ struct SessionRail: View {
             .help("New terminal tab in a folder (⌘T)")
         }
         .padding(.horizontal, 12).frame(height: 34)
+    }
+
+    /// A gentle nudge, shown when several chats share the focused project with
+    /// no project agent coordinating them yet. Dismissed per project for the
+    /// run of the app.
+    private var projectAgentSuggestion: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 12))
+                .foregroundStyle(settings.actionStyle.color)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Several chats are working in this project. A project agent can keep them in sync.")
+                    .font(style.font(11, .medium))
+                    .foregroundStyle(style.textColor)
+                    .panelText(style)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Start project agent") { workspace.openProjectAgent() }
+                    .font(style.font(10, .semibold))
+                    .foregroundStyle(settings.actionStyle.color)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Capsule().fill(settings.actionStyle.softFill))
+                    .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+            Button(action: dismissProjectAgentSuggestion) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+            }
+            .buttonStyle(.plain)
+            .help("Not now")
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Color(theme.surface)))
+        .padding(.horizontal, 8).padding(.top, 8)
+    }
+
+    private func dismissProjectAgentSuggestion() {
+        guard let p = workspace.suggestedProjectAgentPath else { return }
+        workspace.dismissedProjectAgentSuggestions.insert(p)
     }
 
     private func renameSheet(_ tab: WorkspaceTab) -> some View {
@@ -119,18 +163,7 @@ private struct SessionCard: View {
                     .truncationMode(.head)
             }
             Spacer(minLength: 4)
-            if let primary, primary.agentStatus != .idle {
-                AgentStatusBadge(session: primary)
-            } else {
-                let unread = tab.sessions.reduce(0) { $0 + $1.unreadCount }
-                if unread > 0 {
-                    Text("\(unread)")
-                        .font(.system(size: 9, weight: .bold))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Capsule().fill(Color.red))
-                        .foregroundStyle(.white)
-                }
-            }
+            SessionCardStatus(sessions: tab.sessions)
             if hovering || isSelected {
                 Button(action: { workspace.closeTab(tab) }) {
                     Image(systemName: "xmark")
@@ -162,16 +195,12 @@ private struct SessionCard: View {
         }
     }
 
-    /// A small leading marker for the card: Claude's glyph when a Claude session
-    /// is running here, otherwise a plain running/activity dot. The live
+    /// A small leading marker for the card: the agent's glyph when an agent
+    /// session is running here, otherwise a plain running/activity dot. The live
     /// Working/Waiting/Complete tag is carried by the trailing `AgentStatusBadge`.
     @ViewBuilder private var leadingIcon: some View {
         if let primary {
-            if primary.isClaudeRunning {
-                Image(systemName: "sparkles").font(.system(size: 13)).foregroundStyle(Color(theme.accent))
-            } else {
-                SessionStatusDot(session: primary)
-            }
+            SessionCardLeading(session: primary)
         } else {
             Circle().fill(Color(theme.secondaryForeground)).frame(width: 8, height: 8)
         }
@@ -182,6 +211,91 @@ private struct SessionCard: View {
         if path == home { return "~" }
         if path.hasPrefix(home) { return "~" + path.dropFirst(home.count) }
         return path
+    }
+}
+
+/// Re-evaluates `content` whenever `session` publishes. TerminalSession changes
+/// (agentStatus, unreadCount, isAgentRunning) fire the session's own
+/// objectWillChange — not the tab's or workspace's — so rail-card bits driven by
+/// session state are wrapped in one of these to actually re-render.
+private struct SessionObserver<Content: View>: View {
+    @ObservedObject var session: TerminalSession
+    @ViewBuilder var content: () -> Content
+
+    var body: some View { content() }
+}
+
+/// The leading session marker, observed: the agent's glyph when an agent is
+/// running on this session, otherwise the plain running/activity dot.
+private struct SessionCardLeading: View {
+    @ObservedObject var session: TerminalSession
+    @ObservedObject private var settings = AppSettings.shared
+
+    private var theme: Theme { settings.theme }
+
+    var body: some View {
+        if session.isAgentRunning {
+            Image(systemName: "sparkles").font(.system(size: 13)).foregroundStyle(Color(theme.accent))
+        } else {
+            SessionStatusDot(session: session)
+        }
+    }
+}
+
+/// The trailing status cluster: the agent badge while the primary session has
+/// agent activity, else the unread pill. Extracted from the card so the
+/// deciding property (`agentStatus`, published by the session) is observed.
+private struct SessionCardStatus: View {
+    let sessions: [TerminalSession]
+
+    var body: some View {
+        if let primary = sessions.first {
+            SessionObserver(session: primary) {
+                if primary.agentStatus != .idle {
+                    AgentStatusBadge(session: primary)
+                } else {
+                    SessionUnreadPill(sessions: sessions)
+                }
+            }
+        }
+    }
+}
+
+/// The tab's combined unread count. Any session in a split can accrue unread
+/// while unfocused, so every session is observed (one `SessionObserver` each);
+/// when any publishes, the sum is re-read and the pill re-renders.
+private struct SessionUnreadPill: View {
+    let sessions: [TerminalSession]
+
+    private var unread: Int { sessions.reduce(0) { $0 + $1.unreadCount } }
+
+    var body: some View {
+        ObserveSessions(sessions: sessions[...]) {
+            if unread > 0 {
+                Text("\(unread)")
+                    .font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.red))
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+}
+
+/// Observes every session in the slice, re-evaluating `content` when any of
+/// them publishes. Recursive so a tab with several split sessions is covered.
+private struct ObserveSessions<Content: View>: View {
+    let sessions: ArraySlice<TerminalSession>
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        if let first = sessions.first {
+            SessionObserver(session: first) {
+                ObserveSessions(sessions: sessions.dropFirst(), content: content)
+            }
+        } else {
+            content()
+        }
     }
 }
 

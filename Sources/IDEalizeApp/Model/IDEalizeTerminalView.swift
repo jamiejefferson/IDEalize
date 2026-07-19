@@ -24,25 +24,42 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
     private var inAltScreen = false
     private let maxCapture = 800_000
 
-    // alt-screen enter / leave sequences.
-    private static let altSeqs: [[UInt8]] = [
-        Array("\u{1B}[?1049h".utf8), Array("\u{1B}[?1047h".utf8), Array("\u{1B}[?47h".utf8),
-    ]
-    private static let altLeaveSeqs: [[UInt8]] = [
-        Array("\u{1B}[?1049l".utf8), Array("\u{1B}[?1047l".utf8), Array("\u{1B}[?47l".utf8),
-    ]
+    private static let ESC: UInt8 = 0x1B
+
+    /// Alternate-screen enter/leave sequences, matched in one pass. Enter and
+    /// leave share the `ESC [ ? …` prefix shape, so partial tails are carried
+    /// between chunks (a sequence can straddle a read boundary).
+    private static let altNeedles: [(seq: [UInt8], entering: Bool)] = {
+        let enters = ["\u{1B}[?1049h", "\u{1B}[?1047h", "\u{1B}[?47h"]
+        let leaves = ["\u{1B}[?1049l", "\u{1B}[?1047l", "\u{1B}[?47l"]
+        return enters.map { (Array($0.utf8), true) } + leaves.map { (Array($0.utf8), false) }
+    }()
+    /// Tail of the previous chunk that is a prefix of an enter/leave sequence.
+    /// Bounded by the longest needle minus one (8 bytes).
+    private var altCarry: [UInt8] = []
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
-        let events = parser.consume(slice)
+        let scan = scanAltSequences(slice)
 
-        // Track alternate-screen transitions live so the UI can hand the whole
-        // pane to a TUI the moment it starts drawing.
-        updateAltScreen(slice)
+        // Feed the shell-integration parser only when the chunk can contain (or
+        // complete) a marker — most chunks carry no ESC byte, and consume()
+        // copies the slice into its buffer.
+        let events = (scan.sawESC || parser.hasPendingCarry) ? parser.consume(slice) : []
 
-        // Capture output that arrives while a command is running.
+        // Alternate-screen transitions, applied in order so a chunk containing
+        // both an enter and a leave lands on the right final state.
+        for entering in scan.transitions {
+            if capturing, entering { altScreenSeen = true }
+            guard entering != inAltScreen else { continue }
+            inAltScreen = entering
+            let cb = onAltScreenChanged
+            DispatchQueue.main.async { cb?(entering) }
+        }
+
+        // Capture output that arrives while a command is running (bounded).
         if capturing {
-            if captured.count < maxCapture { captured.append(contentsOf: slice) }
-            if !altScreenSeen, containsAltScreen(slice) { altScreenSeen = true }
+            let room = maxCapture - captured.count
+            if room > 0 { captured.append(contentsOf: slice.prefix(room)) }
         }
 
         for event in events {
@@ -77,43 +94,40 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
         DispatchQueue.main.async { handler?(event) }
     }
 
-    /// Detect alternate-screen enter/leave within this chunk and notify on a
-    /// genuine state change.
-    private func updateAltScreen(_ slice: ArraySlice<UInt8>) {
-        if !inAltScreen {
-            if Self.altSeqs.contains(where: { contains(slice, $0) }) {
-                inAltScreen = true
-                let cb = onAltScreenChanged
-                DispatchQueue.main.async { cb?(true) }
-            }
-        } else {
-            if Self.altLeaveSeqs.contains(where: { contains(slice, $0) }) {
-                inAltScreen = false
-                let cb = onAltScreenChanged
-                DispatchQueue.main.async { cb?(false) }
-            }
-        }
-    }
+    /// Single pass over the (carried tail + new) bytes finding alt-screen
+    /// enter/leave sequences. Returns whether any ESC byte was seen (cheap
+    /// gate for the OSC parser) and the transitions found, in order.
+    private func scanAltSequences(_ slice: ArraySlice<UInt8>) -> (sawESC: Bool, transitions: [Bool]) {
+        var buffer = altCarry
+        buffer.append(contentsOf: slice)
+        altCarry.removeAll(keepingCapacity: true)
 
-    private func containsAltScreen(_ slice: ArraySlice<UInt8>) -> Bool {
-        for seq in Self.altSeqs where contains(slice, seq) { return true }
-        return false
-    }
-
-    /// Substring search over the slice in place — no `Array(slice)` copy. This runs
-    /// on every PTY chunk, and a resize floods the PTY (SIGWINCH → full TUI repaint),
-    /// so avoiding the copy matters exactly when it's hottest.
-    private func contains(_ haystack: ArraySlice<UInt8>, _ needle: [UInt8]) -> Bool {
-        let n = needle.count
-        guard n > 0, haystack.count >= n else { return false }
-        let last = haystack.endIndex - n
-        var i = haystack.startIndex
-        while i <= last {
-            var match = true
-            for j in 0..<n where haystack[i + j] != needle[j] { match = false; break }
-            if match { return true }
+        var sawESC = false
+        var transitions: [Bool] = []   // true = enter, false = leave
+        var i = 0
+        let n = buffer.count
+        scan: while i < n {
+            guard buffer[i] == Self.ESC else { i += 1; continue }
+            sawESC = true
+            for (seq, entering) in Self.altNeedles {
+                let avail = n - i
+                let cmp = min(avail, seq.count)
+                var match = true
+                for j in 0..<cmp where buffer[i + j] != seq[j] { match = false; break }
+                guard match else { continue }
+                if avail >= seq.count {
+                    transitions.append(entering)
+                    i += seq.count
+                    continue scan
+                }
+                // Buffer tail is a prefix of this sequence — carry it into the
+                // next chunk so split sequences still match, and stop scanning:
+                // everything from here on is the carried tail.
+                altCarry = Array(buffer[i...])
+                break scan
+            }
             i += 1
         }
-        return false
+        return (sawESC, transitions)
     }
 }

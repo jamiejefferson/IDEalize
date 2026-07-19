@@ -35,6 +35,21 @@ public enum InlineGraphics {
     static let ESC = "\u{1B}"
     static let BEL = "\u{07}"
 
+    /// Refuse to load (and base64-buffer) files past this size.
+    public static let maxFileBytes = 50 * 1024 * 1024 // 50 MB
+
+    /// Errors thrown by `sequence(forFileAt:)`.
+    public enum GraphicsError: Error, CustomStringConvertible {
+        case fileTooLarge(path: String, bytes: Int)
+
+        public var description: String {
+            switch self {
+            case .fileTooLarge(let path, let bytes):
+                return "image at \(path) is \(bytes) bytes, over the \(maxFileBytes)-byte limit"
+            }
+        }
+    }
+
     /// Encode raw image bytes into an inline-image escape sequence.
     public static func sequence(for data: Data, options: Options = Options()) -> String {
         var args: [String] = []
@@ -51,9 +66,15 @@ public enum InlineGraphics {
         return "\(ESC)]1337;File=\(args.joined(separator: ";")):\(b64)\(BEL)"
     }
 
-    /// Convenience: build the sequence for a file on disk. Returns nil if unreadable.
-    public static func sequence(forFileAt path: String, options: Options = Options()) -> String? {
+    /// Convenience: build the sequence for a file on disk. Returns nil if
+    /// unreadable; throws `GraphicsError.fileTooLarge` above `maxFileBytes`.
+    public static func sequence(forFileAt path: String, options: Options = Options()) throws -> String? {
         let url = URL(fileURLWithPath: path)
+        // Check the size before loading so an oversized file is never read in.
+        if let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+           let size = values.fileSize, size > maxFileBytes {
+            throw GraphicsError.fileTooLarge(path: path, bytes: size)
+        }
         guard let data = try? Data(contentsOf: url) else { return nil }
         var opts = options
         if opts.name == nil { opts.name = url.lastPathComponent }
@@ -89,17 +110,20 @@ public enum KittyGraphics {
     ///   - cols: optional display width in terminal cells (`c=`).
     ///   - rows: optional display height in terminal cells (`r=`).
     public static func sequence(png: Data, cols: Int? = nil, rows: Int? = nil) -> String {
-        let b64 = png.base64EncodedString()
-        let chunks = stride(from: 0, to: b64.count, by: chunkSize).map { start -> Substring in
-            let s = b64.index(b64.startIndex, offsetBy: start)
-            let e = b64.index(s, offsetBy: min(chunkSize, b64.count - start))
-            return b64[s..<e]
-        }
+        // Chunk the raw bytes so each chunk base64-encodes to ≤ chunkSize
+        // chars (3 raw bytes → 4 base64 chars). No monolithic base64 String,
+        // no character-offset indexing. Boundaries land on 3-byte groups, so
+        // the emitted bytes are identical to splitting the whole-image base64
+        // at chunkSize characters.
+        let rawChunkSize = chunkSize / 4 * 3
+        let chunkCount = png.isEmpty ? 0 : (png.count + rawChunkSize - 1) / rawChunkSize
 
         var output = ""
-        for (i, chunk) in chunks.enumerated() {
+        for i in 0..<chunkCount {
+            let start = i * rawChunkSize
+            let chunk = png[start..<min(start + rawChunkSize, png.count)]
             let isFirst = i == 0
-            let isLast = i == chunks.count - 1
+            let isLast = i == chunkCount - 1
             var control: [String] = []
             if isFirst {
                 control.append("a=T")   // transmit and display
@@ -108,9 +132,8 @@ public enum KittyGraphics {
                 if let rows { control.append("r=\(rows)") }
             }
             control.append("m=\(isLast ? 0 : 1)")
-            output += APC_START + "G" + control.joined(separator: ",") + ";" + chunk + ST
+            output += APC_START + "G" + control.joined(separator: ",") + ";" + chunk.base64EncodedString() + ST
         }
-        // A trailing newline moves the cursor below the image block.
         return output
     }
 }

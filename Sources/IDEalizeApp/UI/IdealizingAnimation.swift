@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The "working" indicator: the word "Idealizing" where each letter constantly
 /// re-randomises its font weight, design (serif/rounded/mono), italic, outline
-/// and colour — a lively typographic shimmer while Claude works.
+/// and colour — a lively typographic shimmer while the agent works.
 struct IdealizingAnimation: View {
     var size: CGFloat = 18
     @ObservedObject private var settings = AppSettings.shared

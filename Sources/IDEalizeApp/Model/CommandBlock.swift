@@ -44,6 +44,11 @@ final class ShellIntegrationParser {
     // "]1771;"
     private static let prefix: [UInt8] = Array("\u{1B}]1771;".utf8)
 
+    /// True while a partial sequence is buffered waiting for its remainder.
+    /// Callers can skip `consume` for chunks that neither contain an ESC byte
+    /// nor could complete a carried marker.
+    var hasPendingCarry: Bool { !carry.isEmpty }
+
     /// Feed bytes; returns any complete events found.
     func consume(_ bytes: ArraySlice<UInt8>) -> [ShellEvent] {
         var buffer = carry

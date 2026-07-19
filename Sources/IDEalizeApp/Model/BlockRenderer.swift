@@ -64,7 +64,28 @@ enum BlockRenderer {
         }
         if lastCol < 0 { return NSAttributedString() }
 
+        // Coalesce consecutive cells with identical attributes into a single
+        // run — appending one NSAttributedString per character fragments large
+        // outputs into hundreds of thousands of tiny strings.
+        struct Run: Equatable {
+            var bold: Bool
+            var color: NSColor
+            var background: NSColor?
+            var underline: Bool
+        }
         let out = NSMutableAttributedString()
+        var run: Run?
+        var runChars = ""
+        func flush() {
+            guard let run, !runChars.isEmpty else { return }
+            var attrs: [NSAttributedString.Key: Any] = [
+                .font: run.bold ? boldFont : font,
+                .foregroundColor: run.color,
+            ]
+            if let bg = run.background { attrs[.backgroundColor] = bg }
+            if run.underline { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            out.append(NSAttributedString(string: runChars, attributes: attrs))
+        }
         for col in 0...lastCol {
             let cd = line[col]
             var ch = cd.getCharacter()
@@ -75,18 +96,18 @@ enum BlockRenderer {
             if attr.style.contains(.inverse) {
                 color = AnsiColor.foreground(attr.bg, theme: theme)
             }
-            var attrs: [NSAttributedString.Key: Any] = [
-                .font: bold ? boldFont : font,
-                .foregroundColor: color,
-            ]
-            if let bg = AnsiColor.background(attr.bg, theme: theme), !attr.style.contains(.inverse) {
-                attrs[.backgroundColor] = bg
+            let background = attr.style.contains(.inverse) ? nil : AnsiColor.background(attr.bg, theme: theme)
+            let cell = Run(bold: bold, color: color, background: background,
+                           underline: attr.style.contains(.underline))
+            if cell == run {
+                runChars.append(ch)
+            } else {
+                flush()
+                run = cell
+                runChars = String(ch)
             }
-            if attr.style.contains(.underline) {
-                attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
-            }
-            out.append(NSAttributedString(string: String(ch), attributes: attrs))
         }
+        flush()
         return out
     }
 }
