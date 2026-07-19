@@ -145,8 +145,9 @@ final class DirectoryWatcher {
                                        retain: nil, release: nil, copyDescription: nil)
         let cb: FSEventStreamCallback = { _, info, _, paths, _, _ in
             guard let info else { return }
-            // With kFSEventStreamCreateFlagFileEvents, `paths` is a CFArray of
-            // per-file path strings.
+            // `paths` is a CFArray of per-file path strings only because the
+            // stream is created with kFSEventStreamCreateFlagUseCFTypes;
+            // without that flag it is a raw char** and this cast crashes.
             let changed = (unsafeBitCast(paths, to: CFArray.self) as? [String]) ?? []
             Unmanaged<DirectoryWatcher>.fromOpaque(info).takeUnretainedValue().onChange?(changed)
         }
@@ -154,7 +155,9 @@ final class DirectoryWatcher {
             kCFAllocatorDefault, cb, &ctx, [path] as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             0.4,   // latency: coalesce bursts of writes into one fire
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer)
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes
+                                     | kFSEventStreamCreateFlagFileEvents
+                                     | kFSEventStreamCreateFlagNoDefer)
         ) else { return }
         stream = s
         FSEventStreamSetDispatchQueue(s, .main)
