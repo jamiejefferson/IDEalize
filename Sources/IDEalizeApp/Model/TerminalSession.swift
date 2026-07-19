@@ -635,7 +635,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// transcript file's basename), if any. Lets an archived chat be reopened with
     /// `--resume` so the conversation picks up where it left off.
     var claudeSessionId: String? {
-        boundSessionId ?? followedTranscriptURL?.deletingPathExtension().lastPathComponent
+        // Prefer the transcript actually being followed: after a stillborn
+        // `--session-id` launch the adapter follows the newest real transcript,
+        // and resuming the dead bound id would lose the conversation.
+        followedTranscriptURL?.deletingPathExtension().lastPathComponent ?? boundSessionId
     }
 
     /// How full this chat's Claude context is (0…1), or `nil` when unknown / not a
@@ -968,15 +971,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 guard let self else { return }
                 self.transcriptInFlight = false
                 if let changedURL { self.followedTranscriptURL = changedURL }
-                guard self.transcriptGeneration == generation, let all = parsed else { return }
-                // Transcripts are append-only, so count + last exchange decide
-                // whether anything changed — no deep compare of unchanged history.
-                guard all.count != self.exchanges.count || all.last != self.exchanges.last else { return }
-                self.exchanges = all
+                guard self.transcriptGeneration == generation else { return }
+                // Apply the context gauge before the exchange guards: tool-only
+                // appends grow token usage without changing the visible Q&A, and
+                // the mtime debounce means this tick is the only chance to show it.
                 if let usage {
                     if usage.tokens != self.contextTokens { self.contextTokens = usage.tokens }
                     if usage.limit != self.contextLimit { self.contextLimit = usage.limit }
                 }
+                guard let all = parsed else { return }
+                // Transcripts are append-only, so count + last exchange decide
+                // whether anything changed — no deep compare of unchanged history.
+                guard all.count != self.exchanges.count || all.last != self.exchanges.last else { return }
+                self.exchanges = all
                 let q = all.last?.question
                 let a = all.last?.answer
                 if let q, q != self.userQuestion { self.userQuestion = q }
