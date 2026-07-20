@@ -324,6 +324,7 @@ final class Workspace: ObservableObject {
         focusedSessionID = session.id
         bindName(tab, to: session)
         scheduleSnapshotSave()
+        maybeSuggestProjectAgent(for: session, launchOverride: launchOverride)
         return session
     }
 
@@ -418,6 +419,12 @@ final class Workspace: ObservableObject {
     /// next run.
     @Published var dismissedProjectAgentSuggestions: Set<String> = []
 
+    /// The project a "start a project agent?" prompt is currently offered for,
+    /// if any. Set when a project first gains a second chat; drives the modal in
+    /// `WorkspaceView`. Carries the project path so the modal targets the right
+    /// project no matter what's focused when the user answers.
+    @Published var pendingProjectAgentPrompt: ProjectAgentPrompt?
+
     /// The project agent chat for `path`, if one is running.
     func projectAgentSession(forProject path: String) -> TerminalSession? {
         allSessions.first { $0.isProjectAgent && $0.projectPath == path }
@@ -439,25 +446,37 @@ final class Workspace: ObservableObject {
         ProjectAgent.isCoordinatable(focusedSession?.projectPath)
     }
 
-    /// The focused project, when it's worth suggesting a project agent for it:
-    /// two or more chats at work, none coordinating yet, and the user hasn't
-    /// dismissed the suggestion.
-    var suggestedProjectAgentPath: String? {
-        guard let p = focusedSession?.projectPath,
-              ProjectAgent.isCoordinatable(p),
-              !dismissedProjectAgentSuggestions.contains(p),
-              projectAgentSession(forProject: p) == nil,
-              allSessions.filter({ $0.projectPath == p }).count >= 2 else { return nil }
-        return p
+    /// Offer a project agent for the *focused* session's project when it's just
+    /// grown to two or more chats, none coordinating yet, and the user hasn't
+    /// dismissed the suggestion for it. Surfaced as a one-time modal (see
+    /// `pendingProjectAgentPrompt`) rather than a standing banner. Called as a
+    /// real chat is added; no-op during restore or for the hatch/agent's own
+    /// launches (those pass a `launchOverride`).
+    private func maybeSuggestProjectAgent(for session: TerminalSession, launchOverride: String?) {
+        guard !isRestoring, launchOverride == nil,
+              let project = session.projectPath,
+              ProjectAgent.isCoordinatable(project),
+              !dismissedProjectAgentSuggestions.contains(project),
+              projectAgentSession(forProject: project) == nil,
+              allSessions.filter({ $0.projectPath == project && !$0.isProjectAgent }).count >= 2
+        else { return }
+        pendingProjectAgentPrompt = ProjectAgentPrompt(path: project)
     }
 
-    /// Open a project agent chat for the focused session's project: a regular
-    /// agent chat preloaded with the `/project-agent` coordinating guide, named
-    /// so it's instantly distinguishable from the chats it watches. Beeps when
+    /// Open a project agent for the focused session's project. Beeps when
     /// there's no real project folder to coordinate.
     func openProjectAgent() {
-        guard let project = focusedSession?.projectPath,
-              ProjectAgent.isCoordinatable(project) else { NSSound.beep(); return }
+        guard let project = focusedSession?.projectPath else { NSSound.beep(); return }
+        openProjectAgent(forProject: project)
+    }
+
+    /// Open a project agent for `project`: a regular agent chat preloaded with
+    /// the `/project-agent` coordinating guide, named so it's instantly
+    /// distinguishable from the chats it watches. Enforces one agent per
+    /// project — if one is already running it's simply focused, never
+    /// duplicated. Beeps when the path isn't a real project folder.
+    func openProjectAgent(forProject project: String) {
+        guard ProjectAgent.isCoordinatable(project) else { NSSound.beep(); return }
         if let existing = projectAgentSession(forProject: project) {
             focusSession(existing.id)   // already running — just show it
             return
@@ -657,6 +676,30 @@ final class Workspace: ObservableObject {
         var isHome: Bool { path == FileManager.default.homeDirectoryForCurrentUser.path }
         var displayName: String {
             if isHome || path.isEmpty || path == "/" { return "Home" }
+            return (path as NSString).lastPathComponent
+        }
+
+        /// The project's coordinating agent tab, if one is running. Shown
+        /// attached to the project container rather than among the chats.
+        var agentTab: WorkspaceTab? {
+            tabs.first { $0.sessions.first?.isProjectAgent == true }
+        }
+
+        /// The ordinary chats in this project — everything but the agent.
+        var chatTabs: [WorkspaceTab] {
+            tabs.filter { $0.sessions.first?.isProjectAgent != true }
+        }
+    }
+
+    /// Identifies the project a "start a project agent?" prompt is offered for,
+    /// so the modal can act on that project regardless of what's focused when
+    /// the user answers.
+    struct ProjectAgentPrompt: Identifiable {
+        let path: String
+        var id: String { path }
+        var displayName: String {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            if path == home || path.isEmpty || path == "/" { return "Home" }
             return (path as NSString).lastPathComponent
         }
     }
@@ -878,6 +921,12 @@ final class Workspace: ObservableObject {
             // $HOME, which would otherwise let a shared note leak into ~/.idealize.
             let restorePath: String? = (project.path == home) ? nil : project.path
             for chat in project.chats {
+                // A legacy snapshot (from before agents were excluded above) may
+                // still carry a persisted "Project agent" chat. Don't restore it
+                // as an ordinary chat — the agent is launched on demand, and a
+                // lingering copy would read as a duplicate. It's dropped from the
+                // snapshot on the next save.
+                if chat.customName == "Project agent" { continue }
                 newTab(projectPath: restorePath,
                        launchOverride: chat.wasClaude ? claudeLaunch : nil,
                        suppressAutoLaunch: !chat.wasClaude)
@@ -911,8 +960,12 @@ final class Workspace: ObservableObject {
     private func saveProjectSnapshot() {
         let snapshot: [PersistedProject] = projectGroups.map { group in
             let chats: [PersistedChat] = group.tabs
-                // Don't persist the Service Hatch — it's launched by its own path.
-                .filter { !($0.sessions.first?.isServiceHatch ?? false) }
+                // Don't persist the Service Hatch or the project agent — each is
+                // launched on demand by its own command, and restoring the agent
+                // as a plain chat would strip its coordinating role (and could
+                // duplicate a freshly-started one).
+                .filter { !($0.sessions.first?.isServiceHatch ?? false)
+                          && !($0.sessions.first?.isProjectAgent ?? false) }
                 .map { tab in
                     PersistedChat(customName: tab.customName,
                                   wasClaude: tab.sessions.contains { $0.wasClaudeLaunched })

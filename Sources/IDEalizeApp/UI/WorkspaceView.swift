@@ -98,6 +98,21 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.pendingWorkflow) { wf in
             WorkflowSheet(workflow: wf, workspace: workspace)
         }
+        .sheet(item: $workspace.pendingProjectAgentPrompt) { prompt in
+            ProjectAgentPromptSheet(
+                projectName: prompt.displayName,
+                onStart: {
+                    workspace.openProjectAgent(forProject: prompt.path)
+                    workspace.pendingProjectAgentPrompt = nil
+                },
+                onDismiss: {
+                    // "Not now" settles the suggestion for this project so it
+                    // doesn't reappear as more chats open this run.
+                    workspace.dismissedProjectAgentSuggestions.insert(prompt.path)
+                    workspace.pendingProjectAgentPrompt = nil
+                }
+            )
+        }
         .sheet(item: sessionAwaitingSetupBinding) { session in
             AgentSetupSheet(
                 binary: session.pendingAgentSetup ?? "agent",
@@ -158,6 +173,45 @@ private struct WindowDragBar: NSViewRepresentable {
 
     private final class DragView: NSView {
         override var mouseDownCanMoveWindow: Bool { true }
+    }
+}
+
+/// A one-time, friendly modal offered the moment a project gains a second chat:
+/// a project agent can sit alongside the chats and keep their work in sync.
+/// Replaces the old standing rail banner — same offer, surfaced when it's
+/// actually relevant. "Not now" settles the suggestion for that project.
+private struct ProjectAgentPromptSheet: View {
+    let projectName: String
+    let onStart: () -> Void
+    let onDismiss: () -> Void
+    @ObservedObject private var settings = AppSettings.shared
+    private var theme: Theme { settings.theme }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 18))
+                    .foregroundStyle(settings.actionStyle.color)
+                Text("Add a project agent?")
+                    .font(settings.ui(16, .semibold))
+                    .foregroundStyle(Color(theme.foreground))
+            }
+            Text("“\(projectName)” now has a few chats working in it. A project agent sits alongside them and keeps their work in sync — spotting when two chats might clash and helping everything come together. It doesn't touch your files itself.")
+                .font(settings.ui(12.5))
+                .foregroundStyle(Color(theme.secondaryForeground))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Not now", action: onDismiss)
+                    .keyboardShortcut(.cancelAction)
+                Button("Start project agent", action: onStart)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 380)
+        .background(Color(theme.chrome))
     }
 }
 
