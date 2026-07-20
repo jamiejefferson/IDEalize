@@ -93,8 +93,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key>      <string>IDEalize</string>
   <key>CFBundleIconFile</key>        <string>AppIcon</string>
   <key>CFBundleIdentifier</key>      <string>com.idealize.terminal</string>
-  <key>CFBundleVersion</key>         <string>7</string>
-  <key>CFBundleShortVersionString</key> <string>0.4.1</string>
+  <key>CFBundleVersion</key>         <string>8</string>
+  <key>CFBundleShortVersionString</key> <string>0.5.0</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>LSMinimumSystemVersion</key>  <string>14.0</string>
   <key>NSHighResolutionCapable</key> <true/>
