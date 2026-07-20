@@ -30,14 +30,14 @@ struct KimiAgentAdapter: AgentAdapter {
 
     func detectWorkingState(lines: [String]) -> AgentWorkingState {
         // Kimi's TUI shows a working indicator with a spinner and a status line.
-        // Until we have a sampled prompt format, reuse the generic screen parser
-        // for prompts and look for Kimi-specific working markers.
+        // Careful with the idle screen: its footer always shows the
+        // thinking-effort readout ("K3 thinking: max") and token/context
+        // counts, so bare "thinking"/"tokens" would read as permanently busy.
         let working = lines.contains { l in
             let s = l.lowercased()
+            if s.contains("esc to interrupt") { return true }
+            if s.contains("thinking"), !s.contains("thinking:") { return true }
             return s.contains("working")
-                || s.contains("thinking")
-                || s.contains("esc to interrupt")
-                || s.contains("tokens")
         }
         let (status, tip) = AgentPromptParser.statusAndTip(lines)
         return AgentWorkingState(isWorking: working, status: status, tip: tip)
@@ -106,6 +106,14 @@ enum KimiTranscript {
             out.append(AgentExchange(index: out.count, question: q, answer: answer.isEmpty ? nil : answer))
         }
 
+        // Kimi injects harness events (background-task completions, system
+        // reminders) into the transcript as user-role messages. They are not
+        // things the user typed — never surface them as chat questions.
+        func isInjected(_ text: String) -> Bool {
+            let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.hasPrefix("<notification") || t.hasPrefix("<system")
+        }
+
         for line in raw.split(separator: "\n") {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -116,7 +124,8 @@ enum KimiTranscript {
                 if let input = obj["input"] as? [[String: Any]],
                    let first = input.first,
                    first["type"] as? String == "text",
-                   let text = first["text"] as? String {
+                   let text = first["text"] as? String,
+                   !isInjected(text) {
                     flush()
                     question = text
                     answerParts = []
@@ -127,7 +136,7 @@ enum KimiTranscript {
                    let content = message["content"] as? [[String: Any]] {
                     let texts = content.compactMap { $0["text"] as? String }
                     let joined = texts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !joined.isEmpty {
+                    if !joined.isEmpty, !isInjected(joined) {
                         flush()
                         question = joined
                         answerParts = []

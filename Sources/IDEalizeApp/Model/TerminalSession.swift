@@ -986,7 +986,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 self.exchanges = all
                 let q = all.last?.question
                 let a = all.last?.answer
-                if let q, q != self.userQuestion { self.userQuestion = q }
+                // Assign even when nil: switching to a fresh (empty) session
+                // must clear the previous session's question, or the panel
+                // keeps showing a bubble from a chat that's no longer followed.
+                if q != self.userQuestion { self.userQuestion = q }
                 if a != self.assistantMessage {
                     self.assistantMessage = a
                     // A real reply landed — the submit-time working banner can stand down.
