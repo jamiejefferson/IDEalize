@@ -9,6 +9,17 @@ struct ClaudeAgentAdapter: AgentAdapter {
         command.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
     }
 
+    var launchCommand: String? { "claude --dangerously-skip-permissions" }
+
+    func resumeCommand(sessionId: String) -> String? {
+        "claude --dangerously-skip-permissions --resume \(sessionId)"
+    }
+
+    func sessionId(fromTranscriptURL url: URL) -> String? {
+        // Claude transcripts are ~/.claude/projects/<dir>/<session-uuid>.jsonl.
+        url.deletingPathExtension().lastPathComponent
+    }
+
     func transcriptURL(forCwd cwd: String, sessionId: String?) -> URL? {
         if let id = sessionId,
            let bound = ClaudeTranscript.transcript(forCwd: cwd, sessionId: id) {

@@ -733,11 +733,13 @@ final class Workspace: ObservableObject {
         let index = projectGroups.first { $0.path == key }?
             .tabs.firstIndex { $0.id == tab.id } ?? 0
         let session = tab.sessions.first
+        let binary = tab.sessions.compactMap(\.agentBinary).first
         let record = ArchivedChat(
             projectPath: key,
             name: chatLabel(tab, index: index),
-            wasClaude: tab.sessions.contains { $0.wasClaudeLaunched },
-            sessionId: session?.claudeSessionId,
+            wasClaude: binary == "claude",
+            agentBinary: binary,
+            sessionId: session?.agentSessionId,
             contextTokens: session?.contextTokens,
             contextLimit: session?.contextLimit,
             archivedAt: Date())
@@ -759,25 +761,24 @@ final class Workspace: ObservableObject {
             .sorted { $0.name.lowercased() < $1.name.lowercased() }
     }
 
-    /// Reopen an archived chat in its project — resuming its Claude conversation
-    /// when a session id was captured — and drop it from the archive.
+    /// Reopen an archived chat in its project — resuming its agent's
+    /// conversation when a session id was captured — and drop it from the archive.
     @discardableResult
     func reopenArchived(_ chat: ArchivedChat) -> TerminalSession {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let path: String? = (chat.projectPath == home) ? nil : chat.projectPath
-        let launch: String?
-        if chat.wasClaude {
-            if let id = chat.sessionId, !id.isEmpty {
-                launch = "claude --dangerously-skip-permissions --resume \(id)"
-            } else {
-                launch = "claude --dangerously-skip-permissions"
+        let launch: String? = {
+            guard let adapter = AgentRegistry.adapter(forBinary: chat.effectiveAgentBinary)
+            else { return nil }
+            if let id = chat.sessionId, !id.isEmpty,
+               let resume = adapter.resumeCommand(sessionId: id) {
+                return resume
             }
-        } else {
-            launch = nil
-        }
+            return adapter.launchCommand
+        }()
         let session = newTab(projectPath: path,
                              launchOverride: launch,
-                             suppressAutoLaunch: !chat.wasClaude)
+                             suppressAutoLaunch: launch == nil)
         // Carry the name over, but only if it was a real custom name — never pin a
         // reopened chat to the positional "Chat N" it happened to show.
         if !chat.name.isEmpty && !chat.name.hasPrefix("Chat ") {
@@ -863,14 +864,17 @@ final class Workspace: ObservableObject {
         let snapshot = settings.projectSnapshot
         guard !snapshot.isEmpty else { return }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        // Force `claude` for chats that were Claude, so restore doesn't depend on
-        // the current global auto-launch toggle / default command (which could
-        // otherwise bring a Claude chat back as a bare shell and then re-persist
-        // it as wasClaude=false — permanently losing its Claude-ness).
-        let claudeLaunch: String = {
-            let d = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-            return TerminalSession.isClaudeCommand(d) ? d : "claude --dangerously-skip-permissions"
-        }()
+        // Force the chat's own agent on restore, so it doesn't depend on the
+        // current global auto-launch toggle / default command (which could
+        // otherwise bring an agent chat back as a bare shell and then re-persist
+        // it as a shell — permanently losing its agent-ness). The user's default
+        // command wins when it invokes the same agent (it may carry their flags).
+        let defaultCommand = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        func agentLaunch(_ binary: String?) -> String? {
+            guard let adapter = AgentRegistry.adapter(forBinary: binary) else { return nil }
+            if adapter.matches(command: defaultCommand.lowercased()) { return defaultCommand }
+            return adapter.launchCommand
+        }
         isRestoring = true
         for project in snapshot {
             // A Home chat has no real project folder; restore it with projectPath
@@ -878,9 +882,10 @@ final class Workspace: ObservableObject {
             // $HOME, which would otherwise let a shared note leak into ~/.idealize.
             let restorePath: String? = (project.path == home) ? nil : project.path
             for chat in project.chats {
+                let launch = agentLaunch(chat.effectiveAgentBinary)
                 newTab(projectPath: restorePath,
-                       launchOverride: chat.wasClaude ? claudeLaunch : nil,
-                       suppressAutoLaunch: !chat.wasClaude)
+                       launchOverride: launch,
+                       suppressAutoLaunch: launch == nil)
                 if let name = chat.customName, !name.isEmpty {
                     tabs.last?.customName = name   // newTab just inserted this tab
                 }
@@ -914,8 +919,10 @@ final class Workspace: ObservableObject {
                 // Don't persist the Service Hatch — it's launched by its own path.
                 .filter { !($0.sessions.first?.isServiceHatch ?? false) }
                 .map { tab in
-                    PersistedChat(customName: tab.customName,
-                                  wasClaude: tab.sessions.contains { $0.wasClaudeLaunched })
+                    let binary = tab.sessions.compactMap(\.agentBinary).first
+                    return PersistedChat(customName: tab.customName,
+                                         wasClaude: binary == "claude",
+                                         agentBinary: binary)
                 }
             return PersistedProject(path: group.path, chats: chats)
         }

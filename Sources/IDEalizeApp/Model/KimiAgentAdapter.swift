@@ -31,6 +31,19 @@ struct KimiAgentAdapter: AgentAdapter {
         return nil
     }
 
+    var launchCommand: String? { "kimi" }
+
+    func resumeCommand(sessionId: String) -> String? { "kimi -S \(sessionId)" }
+
+    func sessionId(fromTranscriptURL url: URL) -> String? {
+        // Wire transcripts are …/<session-id>/agents/main/wire.jsonl.
+        let dir = url.deletingLastPathComponent()   // main/
+            .deletingLastPathComponent()            // agents/
+            .deletingLastPathComponent()            // session dir
+            .lastPathComponent
+        return dir.hasPrefix("session_") ? dir : nil
+    }
+
     func allExchanges(in url: URL) -> [AgentExchange] {
         KimiTranscript.allExchanges(in: url)
     }

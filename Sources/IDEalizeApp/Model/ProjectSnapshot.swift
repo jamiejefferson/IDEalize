@@ -10,9 +10,16 @@ import Foundation
 struct PersistedChat: Codable {
     /// The user's custom tab name, if they renamed it.
     var customName: String?
-    /// Whether this chat was a Claude session (so it relaunches Claude on
-    /// restore, rather than coming up as a bare shell).
+    /// Legacy (pre-0.5) agent flag — kept so old snapshots decode and old app
+    /// versions reading a new snapshot still restore Claude chats. Read via
+    /// `effectiveAgentBinary`, never directly.
     var wasClaude: Bool
+    /// The agent this chat ran (adapter `binaryName`), so restore relaunches
+    /// the same agent. nil = plain shell (or a legacy record; see below).
+    var agentBinary: String?
+
+    /// The agent to restore, honouring legacy records that only knew "Claude".
+    var effectiveAgentBinary: String? { agentBinary ?? (wasClaude ? "claude" : nil) }
 }
 
 struct PersistedProject: Codable {
@@ -36,9 +43,13 @@ struct ArchivedChat: Codable, Identifiable {
     var projectPath: String
     /// The chat's display name at archive time (its custom name, or "Chat N").
     var name: String
-    /// Whether it was a Claude session (so reopening relaunches Claude).
+    /// Legacy (pre-0.5) agent flag — read via `effectiveAgentBinary`.
     var wasClaude: Bool
-    /// The Claude session id, if known — lets reopening resume the conversation.
+    /// The agent this chat ran (adapter `binaryName`); nil = plain shell or a
+    /// legacy record.
+    var agentBinary: String?
+    /// The agent's session id, if known — lets reopening resume the conversation
+    /// via the adapter's resume command.
     var sessionId: String?
     /// How many context tokens it was carrying when archived (shown in the list).
     var contextTokens: Int?
@@ -47,4 +58,7 @@ struct ArchivedChat: Codable, Identifiable {
     var contextLimit: Int?
     /// When it was archived.
     var archivedAt: Date
+
+    /// The agent to reopen with, honouring legacy records that only knew "Claude".
+    var effectiveAgentBinary: String? { agentBinary ?? (wasClaude ? "claude" : nil) }
 }

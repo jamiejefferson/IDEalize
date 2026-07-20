@@ -565,8 +565,12 @@ private struct ArchivedChatsSheet: View {
                     .foregroundStyle(settings.actionStyle.color)
             }
             .buttonStyle(.plain)
-            .help(chat.wasClaude ? "Reopen and resume this Claude conversation"
-                                 : "Reopen this chat")
+            .help({
+                if let agent = AgentRegistry.adapter(forBinary: chat.effectiveAgentBinary) {
+                    return "Reopen and resume this \(agent.name) conversation"
+                }
+                return "Reopen this chat"
+            }())
             Button(action: { workspace.deleteArchived(chat) }) {
                 Image(systemName: "trash")
                     .font(.system(size: 11))
@@ -585,8 +589,8 @@ private struct ArchivedChatsSheet: View {
             let limit = chat.contextLimit ?? ClaudeTranscript.defaultContextWindowLimit
             let pct = Int(min(1, Double(t) / Double(limit)) * 100)
             parts.append("\(shortTokens(t)) tokens · \(pct)% context")
-        } else if chat.wasClaude {
-            parts.append("Claude chat")
+        } else if let agent = AgentRegistry.adapter(forBinary: chat.effectiveAgentBinary) {
+            parts.append("\(agent.name) chat")
         }
         parts.append("archived \(chat.archivedAt.formatted(date: .abbreviated, time: .shortened))")
         return parts.joined(separator: "  ·  ")

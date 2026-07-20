@@ -202,7 +202,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     private var bgTranscriptURL: URL?
     private var bgTranscriptMTime: Date?
     /// The transcript file this chat is following, mirrored onto the main thread
-    /// (bg state is transcriptQueue-only). Backs `claudeSessionId` for resume.
+    /// (bg state is transcriptQueue-only). Backs `agentSessionId` for resume.
     private var followedTranscriptURL: URL?
     /// Incremental parser for Claude transcripts (re-created if the URL changes).
     private var transcriptFollower: ClaudeTranscript.Follower?
@@ -239,20 +239,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// True whenever a TUI (agent CLI or another full-screen program) owns the pane.
     var tuiActive: Bool { inAltScreen || isAgentRunning }
 
-    /// A Claude Code session is the current foreground command. Reliable even
-    /// when Claude doesn't use the alternate screen / reports an odd proc name.
-    var isClaudeRunning: Bool {
-        guard let cmd = runningCommand?.lowercased() else { return false }
-        return TerminalSession.isClaudeCommand(cmd)
-    }
-
-    /// Whether a command string invokes `claude` — bare, with args, after a
-    /// separator (`&&`/`;`), or as a full path. Used by the persisted snapshot's
-    /// `wasClaude` and the rail's restore affordances. (Agent detection proper
-    /// lives in `AgentRegistry`; this is the launch-restore check.)
-    static func isClaudeCommand(_ command: String) -> Bool {
-        command.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
-    }
     /// A command (or bot) is currently running in this terminal.
     var isRunningCommand: Bool { blocks.last?.isRunning == true }
 
@@ -456,7 +442,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 ? settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
                 : ""
         }()
-        launchIsClaude = !launch.isEmpty && TerminalSession.isClaudeCommand(launch)
+        launchAgentBinary = launch.isEmpty
+            ? nil : AgentRegistry.adapter(forCommand: launch.lowercased())?.binaryName
         if !launch.isEmpty {
             // Send when the shell shows its first prompt (reliable), with a
             // fallback in case the shell-integration event never arrives.
@@ -629,24 +616,34 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         hasActivity || unreadCount > 0 || agentStatus == .complete || agentStatus == .waiting
     }
 
-    /// Whether this session is (or was) a Claude chat — its launch command was a
-    /// `claude` invocation, we bound a session id, or Claude is live now. Recorded
-    /// in the rail's persisted snapshot so a restored chat relaunches Claude.
-    /// `launchIsClaude` is set synchronously in `start()` so a chat saved before
-    /// Claude finishes coming up is still recorded correctly.
-    var wasClaudeLaunched: Bool { launchIsClaude || boundAgentBinary == "claude" || isClaudeRunning }
+    /// The agent this chat is (or was) running — its adapter `binaryName`, from
+    /// the launch command, the bound session, or the live foreground command.
+    /// nil for a plain shell. Recorded in the rail's persisted snapshot so a
+    /// restored or reopened chat relaunches the *same* agent.
+    var agentBinary: String? {
+        launchAgentBinary ?? boundAgentBinary ?? runningAgentBinary
+    }
 
-    /// The Claude Code session id whose transcript this chat is following (the
-    /// transcript file's basename), if any. Lets an archived chat be reopened with
-    /// `--resume` so the conversation picks up where it left off.
-    var claudeSessionId: String? {
-        // Claude chats only: a Kimi chat follows …/agents/main/wire.jsonl, whose
-        // basename ("wire") is not a resumable id.
-        guard wasClaudeLaunched else { return nil }
+    /// The agent running in the foreground right now, if any.
+    private var runningAgentBinary: String? {
+        guard let cmd = runningCommand?.lowercased(),
+              let binary = AgentRegistry.adapter(forCommand: cmd)?.binaryName,
+              !binary.isEmpty else { return nil }
+        return binary
+    }
+
+    /// The agent session id whose transcript this chat is following, if any —
+    /// asks the chat's adapter to read the id out of the transcript's location.
+    /// Lets an archived chat be reopened with the agent's resume command.
+    var agentSessionId: String? {
+        guard let binary = agentBinary,
+              let adapter = AgentRegistry.adapters.first(where: { $0.binaryName == binary })
+        else { return nil }
         // Prefer the transcript actually being followed: after a stillborn
         // `--session-id` launch the adapter follows the newest real transcript,
         // and resuming the dead bound id would lose the conversation.
-        return followedTranscriptURL?.deletingPathExtension().lastPathComponent ?? boundSessionId
+        let followed = followedTranscriptURL.flatMap { adapter.sessionId(fromTranscriptURL: $0) }
+        return followed ?? (boundAgentBinary == binary ? boundSessionId : nil)
     }
 
     /// How full this chat's Claude context is (0…1), or `nil` when unknown / not a
@@ -687,12 +684,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             return "finished"
         case .idle:
             if let q = userQuestion, !q.isEmpty { return firstLine(q) }
-            return isClaudeRunning ? "ready" : "shell"
+            return runningAgentBinary != nil ? "ready" : "shell"
         }
     }
 
-    /// The resolved launch command for this session was a `claude` invocation.
-    private(set) var launchIsClaude = false
+    /// The agent the resolved launch command invokes (its adapter `binaryName`),
+    /// set synchronously in `start()` so a chat saved before the agent finishes
+    /// coming up is still recorded correctly. nil for a plain shell.
+    private(set) var launchAgentBinary: String?
 
     var sessionInfo: IPCSessionInfo {
         IPCSessionInfo(
