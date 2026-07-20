@@ -81,6 +81,16 @@ protocol AgentAdapter {
 
     /// Reasoning-effort keywords this agent understands.
     var effortKeywords: [String: String] { get }
+
+    /// Lift the agent's own session id from the visible screen, for agents that
+    /// print it (Kimi's welcome box shows "Session: session_…") but don't accept
+    /// one at launch. Lets the chat panel follow exactly this terminal's session
+    /// instead of guessing "newest in this directory". nil when not shown.
+    func detectSessionId(lines: [String]) -> String?
+}
+
+extension AgentAdapter {
+    func detectSessionId(lines: [String]) -> String? { nil }
 }
 
 // MARK: - Agent registry

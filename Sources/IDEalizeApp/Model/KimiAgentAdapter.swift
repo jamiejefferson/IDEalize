@@ -10,10 +10,25 @@ struct KimiAgentAdapter: AgentAdapter {
     }
 
     func transcriptURL(forCwd cwd: String, sessionId: String?) -> URL? {
-        // Kimi doesn't accept a --session-id at launch the way Claude does, so we
-        // can't bind a session id ahead of time. Instead we find the newest Kimi
-        // session whose recorded working directory matches ours.
-        KimiTranscript.newestSession(forCwd: cwd)
+        // Kimi doesn't accept a --session-id at launch the way Claude does, but
+        // its welcome box prints one, which `detectSessionId` binds. Prefer that
+        // exact session; fall back to the newest Kimi session whose recorded
+        // working directory matches ours (binding missed, e.g. scrolled away).
+        if let sessionId, let wire = KimiTranscript.wire(forSessionId: sessionId) {
+            return wire
+        }
+        return KimiTranscript.newestSession(forCwd: cwd)
+    }
+
+    func detectSessionId(lines: [String]) -> String? {
+        // The welcome box shows "Session:  session_<uuid>".
+        for l in lines where l.contains("Session:") {
+            if let m = l.range(of: "session_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                               options: .regularExpression) {
+                return String(l[m])
+            }
+        }
+        return nil
     }
 
     func allExchanges(in url: URL) -> [AgentExchange] {
@@ -59,6 +74,21 @@ enum KimiTranscript {
     private static func sessionsRoot() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".kimi-code/sessions", isDirectory: true)
+    }
+
+    /// The wire transcript of a specific session (bound from the welcome box),
+    /// wherever its workdir directory lives.
+    static func wire(forSessionId sessionId: String) -> URL? {
+        let fm = FileManager.default
+        guard let workdirDirs = try? fm.contentsOfDirectory(
+            at: sessionsRoot(), includingPropertiesForKeys: nil) else { return nil }
+        for workdirDir in workdirDirs where workdirDir.hasDirectoryPath {
+            let wire = workdirDir
+                .appendingPathComponent(sessionId, isDirectory: true)
+                .appendingPathComponent("agents/main/wire.jsonl")
+            if fm.fileExists(atPath: wire.path) { return wire }
+        }
+        return nil
     }
 
     /// The newest wire transcript for a given working directory, if any.

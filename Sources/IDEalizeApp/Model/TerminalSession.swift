@@ -206,10 +206,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     private var followedTranscriptURL: URL?
     /// Incremental parser for Claude transcripts (re-created if the URL changes).
     private var transcriptFollower: ClaudeTranscript.Follower?
-    /// The session id we bound at launch, so we read exactly this terminal's
-    /// transcript rather than the newest file in the project dir. nil when the
-    /// agent was started by hand or doesn't support session binding.
+    /// The session id we bound at launch (Claude, via --session-id) or lifted
+    /// from the agent's own screen (Kimi's welcome box), so we read exactly this
+    /// terminal's transcript rather than the newest file in the project dir.
+    /// nil when the agent was started by hand or doesn't support binding.
     private var boundSessionId: String?
+    /// Which agent `boundSessionId` belongs to (its `binaryName`) — a Kimi id
+    /// must never feed Claude-only affordances like `claude --resume`.
+    private var boundAgentBinary: String?
 
     /// Augment an agent launch with a fresh session id when the adapter supports
     /// it, so its transcript is identifiable. Returns the command unchanged for
@@ -223,6 +227,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             || command.hasSuffix(" -r") || command.hasSuffix(" -c") { return command }
         let uuid = UUID().uuidString.lowercased()
         boundSessionId = uuid
+        boundAgentBinary = agent.binaryName
         return command + " --session-id \(uuid)"
     }
 
@@ -629,16 +634,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// in the rail's persisted snapshot so a restored chat relaunches Claude.
     /// `launchIsClaude` is set synchronously in `start()` so a chat saved before
     /// Claude finishes coming up is still recorded correctly.
-    var wasClaudeLaunched: Bool { launchIsClaude || boundSessionId != nil || isClaudeRunning }
+    var wasClaudeLaunched: Bool { launchIsClaude || boundAgentBinary == "claude" || isClaudeRunning }
 
     /// The Claude Code session id whose transcript this chat is following (the
     /// transcript file's basename), if any. Lets an archived chat be reopened with
     /// `--resume` so the conversation picks up where it left off.
     var claudeSessionId: String? {
+        // Claude chats only: a Kimi chat follows …/agents/main/wire.jsonl, whose
+        // basename ("wire") is not a resumable id.
+        guard wasClaudeLaunched else { return nil }
         // Prefer the transcript actually being followed: after a stillborn
         // `--session-id` launch the adapter follows the newest real transcript,
         // and resuming the dead bound id would lose the conversation.
-        followedTranscriptURL?.deletingPathExtension().lastPathComponent ?? boundSessionId
+        return followedTranscriptURL?.deletingPathExtension().lastPathComponent ?? boundSessionId
     }
 
     /// How full this chat's Claude context is (0…1), or `nil` when unknown / not a
@@ -777,6 +785,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
         let lines = readVisibleScreen()
         let agent = currentAgent ?? GenericAgentAdapter()
+        // Agents that print their session id on screen (Kimi) bind here; a new
+        // id on screen (e.g. /new started a fresh session) rebinds. Never
+        // cleared on nil — the id scrolls away but the binding stays good.
+        if let sid = agent.detectSessionId(lines: lines), sid != boundSessionId {
+            boundSessionId = sid
+            boundAgentBinary = agent.binaryName
+        }
         let prompt = agent.parsePrompt(lines: lines)
         if prompt != pendingPrompt {
             pendingPrompt = prompt
