@@ -202,6 +202,18 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// What unknown agents taught us about themselves via the first-run
+    /// introduction (the in-chat handshake), keyed by the launch command's
+    /// first token (e.g. "aider"). A `format: "none"` entry records "asked,
+    /// couldn't help" so the beat doesn't replay on every launch.
+    @Published var agentHandshakeCache: [String: HandshakeAgentDescriptor] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentHandshakeCache) {
+                defaults.set(data, forKey: "agentHandshakeCache")
+            }
+        }
+    }
+
     // Panel widths / the browse pane height live in `PanelLayout` — a drag
     // rewrites them per mouse event, and publishing that from here would
     // re-render every view that observes these settings.
@@ -270,6 +282,8 @@ final class AppSettings: ObservableObject {
         self.collapsedProjects = defaults.stringArray(forKey: "collapsedProjects") ?? []
         self.archivedChats = (defaults.data(forKey: "archivedChats")
             .flatMap { try? JSONDecoder().decode([ArchivedChat].self, from: $0) }) ?? []
+        self.agentHandshakeCache = (defaults.data(forKey: "agentHandshakeCache")
+            .flatMap { try? JSONDecoder().decode([String: HandshakeAgentDescriptor].self, from: $0) }) ?? [:]
         self.browseFolders = defaults.dictionary(forKey: "browseFolders") as? [String: String] ?? [:]
         self.browseOpen = defaults.dictionary(forKey: "browseOpen") as? [String: Bool] ?? [:]
         self.panelAppearances = (defaults.data(forKey: "panelAppearances")

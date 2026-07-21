@@ -25,7 +25,7 @@ struct SettingsView: View {
                 TextField("Command", text: $settings.defaultLaunchCommand)
                     .font(.system(.body, design: .monospaced))
                     .disabled(!settings.launchOnNewTerminal)
-                Text("e.g. claude --dangerously-skip-permissions")
+                Text("e.g. claude --dangerously-skip-permissions — or another agent, like kimi")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Shell") {

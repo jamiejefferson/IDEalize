@@ -65,12 +65,9 @@ enum ClaudeTranscript {
     /// fills the window) paired with the window that same turn's model allows.
     /// `nil` when the transcript has no usage yet. Read to show a per-chat "how
     /// full is this conversation" gauge, so you can see when to archive it and
-    /// move to a fresh chat.
-    struct ContextUsage: Equatable {
-        let tokens: Int
-        let limit: Int
-        var fraction: Double { min(1, Double(tokens) / Double(limit)) }
-    }
+    /// move to a fresh chat. (Now the shared `AgentContextUsage` shape, so every
+    /// agent's adapter feeds the same gauge.)
+    typealias ContextUsage = AgentContextUsage
 
     static func contextUsage(in url: URL) -> ContextUsage? {
         guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
@@ -93,14 +90,10 @@ enum ClaudeTranscript {
         return ContextUsage(tokens: tokens, limit: contextWindowLimit(forModel: latestModel, tokens: tokens))
     }
 
-    /// One real user prompt and Claude's reply to it. `answer` is nil while
-    /// Claude is still working (no assistant text has followed the prompt yet).
-    struct Exchange: Equatable, Identifiable {
-        let index: Int
-        let question: String
-        let answer: String?
-        var id: Int { index }
-    }
+    /// One real user prompt and Claude's reply to it — the shared
+    /// `AgentExchange` shape, so chat history renders identically for every
+    /// agent's adapter.
+    typealias Exchange = AgentExchange
 
     /// Every Q&A turn in the transcript, oldest→newest. Each real user prompt
     /// opens an exchange; the last assistant text before the next prompt is its

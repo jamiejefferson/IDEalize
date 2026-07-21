@@ -122,6 +122,8 @@ func printUsage() {
       image <path> [--width W] [--height H] render an image inline
       status <text>                         set this tab's status label
       note [--set <text>] [--mine <text>]   read the shared note; --set the brief, --mine this chat's status
+      agent-hello --name <n> --format <f>   introduce a coding agent to IDEalize (handshake);
+                [--transcript <path>] [--nonce <n>] [--resume <template>] [--map <json>]
       whoami                                print my session id
       ping                                  check the app is reachable
 
@@ -301,6 +303,35 @@ case "note":
     } else {
         fail("usage: idealize note [--set <text>] [--mine <text>]")
     }
+
+case "agent-hello":
+    // The handshake: a coding agent (running inside an IDEalize terminal)
+    // introduces itself — its name, where its transcript lives, and how to
+    // read it — so the app can render its conversation as chat bubbles.
+    // Typically run BY the agent, prompted by IDEalize's first-run message.
+    let flags = Flags(rest)
+    guard let name = flags.values["name"], !name.isEmpty else {
+        fail("agent-hello needs --name <agent name>")
+    }
+    let format = flags.values["format"] ?? "jsonl"
+    var payload: [String: Any] = ["name": name, "format": format]
+    if let t = flags.values["transcript"] { payload["transcript"] = t }
+    if let n = flags.values["nonce"] { payload["nonce"] = n }
+    if let r = flags.values["resume"] { payload["resume"] = r }
+    if let m = flags.values["map"] {
+        guard let data = m.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            fail("--map must be a JSON object")
+        }
+        payload["map"] = obj
+    }
+    guard let bodyData = try? JSONSerialization.data(withJSONObject: payload),
+          let body = String(data: bodyData, encoding: .utf8) else {
+        fail("could not encode the hello payload")
+    }
+    let resp = sendRequest(IPCRequest(command: .agentHello, from: mySession, body: body))
+    if !resp.ok { fail(resp.error ?? "agent-hello failed") }
+    out(resp.info ?? "hello received — IDEalize can read this agent now")
 
 case "image":
     // Inline images are emitted directly to our own stdout; no socket needed.

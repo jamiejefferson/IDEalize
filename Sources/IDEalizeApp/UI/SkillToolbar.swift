@@ -174,8 +174,12 @@ struct ChatToolbar: View {
                 // pane is narrow — the toggle stays pinned on the left.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 7) {
-                        ModelPill(session: session)
-                        EffortPill(session: session)
+                        // Model/effort switching is a per-agent capability
+                        // (Claude's `/model` + thinking keywords) — hidden for
+                        // agents that don't support it.
+                        let caps = session.activeAgentProfile?.capabilities
+                        if caps?.modelPicker ?? true { ModelPill(session: session) }
+                        if caps?.effortPicker ?? true { EffortPill(session: session) }
                         SkillsPill(session: session, draft: $draft, focus: focus)
                         CommandsPill(session: session)
                     }

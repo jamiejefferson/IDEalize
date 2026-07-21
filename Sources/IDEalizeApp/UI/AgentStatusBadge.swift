@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A small status tag shown on session tabs and rail cards: Working, Waiting,
-/// or Complete. "Waiting" (Claude asked you something and is blocked on your
+/// or Complete. "Waiting" (the agent asked you something and is blocked on your
 /// answer) is the one that needs attention, so it gently pulses. When there's
 /// no agent activity it falls back to a plain running/activity dot.
 struct AgentStatusBadge: View {
@@ -12,9 +12,9 @@ struct AgentStatusBadge: View {
     var body: some View {
         switch session.agentStatus {
         case .idle:     SessionStatusDot(session: session)
-        case .working:  WorkingSpinner(compact: compact)
-        case .waiting:  StatusPill(kind: .waiting, compact: compact)
-        case .complete: StatusPill(kind: .complete, compact: compact)
+        case .working:  WorkingSpinner(compact: compact, agentName: session.agentDisplayName)
+        case .waiting:  StatusPill(kind: .waiting, compact: compact, agentName: session.agentDisplayName)
+        case .complete: StatusPill(kind: .complete, compact: compact, agentName: session.agentDisplayName)
         }
     }
 }
@@ -23,13 +23,14 @@ struct AgentStatusBadge: View {
 /// action colour) so it reads as "in progress".
 private struct WorkingSpinner: View {
     let compact: Bool
+    let agentName: String
     var body: some View {
         ProgressView()
             .controlSize(.small)
             .tint(Color(red: 0.23, green: 0.51, blue: 0.96))
             .scaleEffect(compact ? 0.72 : 0.9)
             .frame(width: compact ? 16 : 20, height: compact ? 16 : 20)
-            .help("Claude is working")
+            .help("\(agentName) is working")
     }
 }
 
@@ -38,6 +39,7 @@ private struct WorkingSpinner: View {
 private struct StatusPill: View {
     let kind: AgentStatus        // .waiting or .complete
     let compact: Bool
+    let agentName: String
     @ObservedObject private var settings = AppSettings.shared
     @State private var pulse = false
 
@@ -60,8 +62,8 @@ private struct StatusPill: View {
                     pulse = true
                 }
             }
-            .help(isWaiting ? "Claude asked a question — waiting on you"
-                            : "Claude finished — nothing outstanding")
+            .help(isWaiting ? "\(agentName) asked a question — waiting on you"
+                            : "\(agentName) finished — nothing outstanding")
     }
 }
 

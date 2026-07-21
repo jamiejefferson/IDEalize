@@ -379,11 +379,11 @@ private struct SessionCard: View {
         }
     }
 
-    /// A small leading marker: Claude's glyph when a Claude session is running
+    /// A small leading marker: the agent glyph when an agent session is running
     /// here, otherwise a plain running/activity dot.
     @ViewBuilder private var leadingIcon: some View {
         if let primary {
-            if primary.isClaudeRunning {
+            if primary.runningAgentProfile != nil {
                 Image(systemName: "sparkles")
                     .font(.system(size: 12))
                     .foregroundStyle(settings.actionStyle.color)
@@ -521,8 +521,8 @@ private struct ArchivedChatsSheet: View {
                     .foregroundStyle(settings.actionStyle.color)
             }
             .buttonStyle(.plain)
-            .help(chat.wasClaude ? "Reopen and resume this Claude conversation"
-                                 : "Reopen this chat")
+            .help(chat.effectiveAgentId != nil ? "Reopen and resume this conversation"
+                                               : "Reopen this chat")
             Button(action: { workspace.deleteArchived(chat) }) {
                 Image(systemName: "trash")
                     .font(.system(size: 11))
@@ -541,8 +541,10 @@ private struct ArchivedChatsSheet: View {
             let limit = chat.contextLimit ?? ClaudeTranscript.defaultContextWindowLimit
             let pct = Int(min(1, Double(t) / Double(limit)) * 100)
             parts.append("\(shortTokens(t)) tokens · \(pct)% context")
-        } else if chat.wasClaude {
-            parts.append("Claude chat")
+        } else if let agentId = chat.effectiveAgentId {
+            let name = AgentRegistry.profile(forId: agentId, settings: AppSettings.shared)?
+                .displayName ?? "Agent"
+            parts.append("\(name) chat")
         }
         parts.append("archived \(chat.archivedAt.formatted(date: .abbreviated, time: .shortened))")
         return parts.joined(separator: "  ·  ")

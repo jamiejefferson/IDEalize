@@ -121,10 +121,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// "ultrathink") to dial Claude's reasoning effort up.
     var effortKeyword: String = ""
 
-    /// Switch the running Claude's model via its `/model` command.
+    /// Switch the running Claude's model via its `/model` command. No-ops for
+    /// agents without the model-picker capability (their pill is hidden too).
     func setModel(_ id: String, _ label: String) {
         modelLabel = label
-        guard tuiActive else { return }   // only a running Claude can switch
+        guard tuiActive else { return }   // only a running agent can switch
+        guard runningAgentProfile?.capabilities.modelPicker != false else { return }
         sendLineToTUI("/model \(id)")
     }
 
@@ -158,20 +160,36 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// we read exactly this terminal's transcript rather than the newest file in
     /// the project dir. Without it, a Claude running elsewhere in the same folder
     /// (Warp, another tab, a bare CLI) can be picked up instead, and its messages
-    /// would bleed into this chat. nil when Claude was started by hand.
+    /// would bleed into this chat. nil when Claude was started by hand, and for
+    /// agents that can't pre-seed an id (their reader discovers it post-launch).
     private var boundSessionId: String?
 
-    /// Augment a `claude …` launch with a fresh `--session-id` so its transcript
-    /// is identifiable, unless the command already selects a session. Returns the
-    /// command unchanged for non-Claude launches.
-    private func augmentClaudeLaunch(_ command: String) -> String {
-        guard TerminalSession.isClaudeCommand(command) else { return command }
-        let selectors = ["--session-id", "--resume", "--continue", " -r ", " -c "]
-        if selectors.contains(where: { command.contains($0) })
-            || command.hasSuffix(" -r") || command.hasSuffix(" -c") { return command }
-        let uuid = UUID().uuidString.lowercased()
-        boundSessionId = uuid
-        return command + " --session-id \(uuid)"
+    /// The profile of the agent this session launched, resolved when the launch
+    /// is issued (and synchronously in `start()` for the auto-launch, so a chat
+    /// saved before the agent finishes coming up is still recorded correctly).
+    private(set) var launchProfile: AgentProfile?
+    /// This pane's view onto its agent's on-disk transcript. Created when an
+    /// agent launch is issued (or lazily for a hand-launched agent).
+    private var reader: AgentTranscriptReader?
+    /// Which profile `reader` was built for — recreate on change (e.g. Claude
+    /// exited, Kimi started by hand in the same shell).
+    private var readerProfileId: String?
+
+    /// Augment an agent launch so its session is identifiable (Claude gains a
+    /// fresh `--session-id`; agents without a pre-seedable id pass through) and
+    /// stand up the transcript reader for it. Non-agent commands are unchanged.
+    private func augmentAgentLaunch(_ command: String) -> String {
+        guard let profile = AgentRegistry.profile(forCommand: command, settings: settings) else {
+            return command
+        }
+        let (cmd, planned) = profile.augmentLaunch(command)
+        boundSessionId = planned
+        launchProfile = profile
+        if let cwd = projectPath, !cwd.isEmpty {
+            reader = profile.makeReader(cwd: cwd, plannedSessionId: planned, launchedAt: Date())
+            readerProfileId = profile.id
+        }
+        return cmd
     }
 
     // Blocks (Warp-style command tracking via shell integration).
@@ -179,12 +197,24 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published var lastExitCode: Int32?
     /// Command currently running (if any).
     var runningCommand: String? { blocks.last(where: { $0.isRunning })?.command }
-    /// A Claude Code session is the current foreground command. Reliable even
-    /// when Claude doesn't use the alternate screen / reports an odd proc name.
-    var isClaudeRunning: Bool {
-        guard let cmd = runningCommand?.lowercased() else { return false }
-        return TerminalSession.isClaudeCommand(cmd)
+    /// The profile of the agent currently in the foreground, if any. Reliable
+    /// even when the agent doesn't use the alternate screen / reports an odd
+    /// proc name — it's derived from the running command, not the process.
+    var runningAgentProfile: AgentProfile? {
+        guard let cmd = runningCommand?.lowercased() else { return nil }
+        return AgentRegistry.profile(forCommand: cmd, settings: settings)
     }
+
+    /// The agent this pane is (or is becoming) about: running now, or launched
+    /// and still coming up. Feeds capability gates and UI naming.
+    var activeAgentProfile: AgentProfile? { runningAgentProfile ?? launchProfile }
+
+    /// The agent's human name for UI strings ("Claude is working" → "Kimi is
+    /// working"). Defaults to Claude — the flagship — when nothing is resolved.
+    var agentDisplayName: String { activeAgentProfile?.displayName ?? "Claude" }
+
+    /// A Claude Code session is the current foreground command.
+    var isClaudeRunning: Bool { runningAgentProfile?.id == "claude" }
 
     /// Whether a command string invokes `claude` — bare, with args, after a
     /// separator (`&&`/`;`), or as a full path. The single source of truth for
@@ -193,8 +223,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     static func isClaudeCommand(_ command: String) -> Bool {
         command.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
     }
-    /// True whenever a TUI (Claude or another full-screen program) owns the pane.
-    var tuiActive: Bool { inAltScreen || isClaudeRunning }
+    /// True whenever a TUI (a recognized agent, or another full-screen program)
+    /// owns the pane.
+    var tuiActive: Bool { inAltScreen || runningAgentProfile != nil }
     /// A command (or bot) is currently running in this terminal.
     var isRunningCommand: Bool { blocks.last?.isRunning == true }
 
@@ -377,7 +408,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 ? settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
                 : ""
         }()
-        launchIsClaude = !launch.isEmpty && TerminalSession.isClaudeCommand(launch)
+        launchProfile = launch.isEmpty ? nil : AgentRegistry.profile(forCommand: launch, settings: settings)
         if !launch.isEmpty {
             // Send when the shell shows its first prompt (reliable), with a
             // fallback in case the shell-integration event never arrives.
@@ -405,7 +436,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         guard let cmd = pendingLaunchCommand else { return }
         pendingLaunchCommand = nil
         claudeLaunchInFlight = true
-        terminalView.send(txt: "\u{15}" + augmentClaudeLaunch(cmd) + "\n")   // Ctrl-U clears any partial line
+        terminalView.send(txt: "\u{15}" + augmentAgentLaunch(cmd) + "\n")   // Ctrl-U clears any partial line
     }
 
     func terminate() {
@@ -557,6 +588,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         transcriptURL?.deletingPathExtension().lastPathComponent
     }
 
+    /// The agent-interpreted resumable session id: the reader knows its own
+    /// scheme (Claude: transcript basename; Kimi: `session_*` dir name).
+    /// Recorded when a chat is archived so reopening can resume it.
+    var agentSessionId: String? {
+        reader?.sessionId ?? (isClaudeRunning || launchIsClaude ? claudeSessionId : nil)
+    }
+
     /// How full this chat's Claude context is (0…1), or `nil` when unknown / not a
     /// Claude chat. Feeds the per-chat context gauge that signals when to archive
     /// and start fresh.
@@ -595,12 +633,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             return "finished"
         case .idle:
             if let q = userQuestion, !q.isEmpty { return firstLine(q) }
-            return isClaudeRunning ? "ready" : "shell"
+            return runningAgentProfile != nil ? "ready" : "shell"
         }
     }
 
     /// The resolved launch command for this session was a `claude` invocation.
-    private(set) var launchIsClaude = false
+    var launchIsClaude: Bool { launchProfile?.id == "claude" }
+
+    /// The agent id to record in this chat's persisted snapshot, so a restore
+    /// (or archive-reopen) relaunches the same agent. nil for a plain shell.
+    var launchedAgentId: String? {
+        launchProfile?.id ?? runningAgentProfile?.id ?? (boundSessionId != nil ? "claude" : nil)
+    }
 
     var sessionInfo: IPCSessionInfo {
         IPCSessionInfo(
@@ -677,10 +721,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         return out
     }
 
-    /// Detect a Claude confirmation/choice prompt on screen so the chat UI can
-    /// offer answer buttons; also lift Claude's status line + tip.
+    /// Detect an agent confirmation/choice prompt on screen so the chat UI can
+    /// offer answer buttons; also lift the agent's status line + tip. Prompt
+    /// parsing and status wording are per-agent capabilities — for agents
+    /// without them the generic footer heuristics below still apply.
     private func detectPrompt() {
-        guard isClaudeRunning || inAltScreen else {
+        guard tuiActive else {
             if pendingPrompt != nil { pendingPrompt = nil }
             if liveInteractivePrompt { liveInteractivePrompt = false }
             if workingStatus != nil { workingStatus = nil }
@@ -690,28 +736,35 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             if agentStatus != .idle { agentStatus = .idle }
             return
         }
+        let caps = activeAgentProfile?.capabilities
         let lines = readVisibleScreen()
-        let prompt = ClaudePromptParser.parse(lines)
+        let prompt = (caps?.permissionMenus ?? true) ? ClaudePromptParser.parse(lines) : nil
         if prompt != pendingPrompt {
             pendingPrompt = prompt
             // Surface the question even if the modal was minimised.
             if prompt != nil { chatMinimised = false }
         }
-        // Claude is actively generating while its working status is on screen.
-        // Markers flicker between spinner frames / tool calls, so once seen we
-        // keep "working" for a short grace period to avoid the animation
-        // dropping back to the last message mid-task. The marker disappearing
-        // for >1.5s (Claude idle at its prompt) ends it — no permanent stuck.
-        // Match on PREFIXES — a narrow pane truncates the line (e.g. the marker
-        // renders as "esc to inter…"), so the full "esc to interrupt" string
-        // often isn't present on screen.
-        let markerVisible = lines.contains { l in
+        // The agent is actively generating while its working marker is on
+        // screen. Markers flicker between spinner frames / tool calls, so once
+        // seen we keep "working" for a short grace period to avoid the
+        // animation dropping back to the last message mid-task. The marker
+        // disappearing for >1.5s (agent idle at its prompt) ends it — no
+        // permanent stuck. Markers are matched as PREFIX fragments — a narrow
+        // pane truncates the line (e.g. "esc to inter…"), so the full string
+        // often isn't present on screen. An unrecognized alt-screen TUI falls
+        // back to Claude's markers (the old behavior).
+        let markers = activeAgentProfile?.workingMarkers ?? AgentRegistry.claude.workingMarkers
+        var markerVisible = lines.contains { l in
             let s = l.lowercased()
-            return s.contains("esc to inter")     // "esc to interrupt" (poss. truncated)
-                || s.contains("esc to canc")      // "esc to cancel" (poss. truncated)
-                || s.contains("to interrupt")
-                || s.contains("ctrl+t to")
-                || s.contains("· interrupt")
+            return markers.contains { s.contains($0) }
+        }
+        // Agents without screen markers (Kimi) signal work through their
+        // transcript tail instead; the same grace period bridges the sub-second
+        // gaps between their steps, exactly as it bridges spinner flicker.
+        if markers.isEmpty, !markerVisible, let reader,
+           let url = reader.currentTranscriptURL(),
+           reader.isGenerating(in: url) == true {
+            markerVisible = true
         }
         if markerVisible { lastWorkingSeen = Date() }
         let recentlyWorking = lastWorkingSeen.map { Date().timeIntervalSince($0) < 1.5 } ?? false
@@ -727,7 +780,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 awaitingReply = false
             }
         }
-        let (status, tip) = working ? ClaudePromptParser.statusAndTip(lines) : (nil, nil)
+        let (status, tip) = (working && (caps?.statusAndTip ?? true))
+            ? ClaudePromptParser.statusAndTip(lines) : (nil, nil)
         if status != workingStatus { workingStatus = status }
         if tip != workingTip { workingTip = tip }
         // An interactive prompt we couldn't structure into buttons (arrow-key
@@ -848,44 +902,116 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         agentStatus = .idle
     }
 
-    /// While a Claude session is running here, pull its latest completed message
-    /// from Claude Code's transcript (only re-reading when the file changes).
+    // MARK: - Agent handshake (first-run introduction)
+
+    /// The nonce the handshake beat included in its injected prompt, so a
+    /// descriptor arriving over IPC (or scraped off the screen) can be proven
+    /// to come from *this* session's agent. nil when no handshake is running —
+    /// a voluntary `idealize agent-hello` is then accepted on path checks alone.
+    var handshakeNonce: String?
+
+    /// An unknown agent introduced itself (`idealize agent-hello`, relayed by
+    /// the app's IPC hub). Parse, verify, and cache its descriptor so this —
+    /// and every future — launch of the same command gets the full chat
+    /// surface. Returns a problem description, or nil on success.
+    func receiveAgentHello(json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return "hello payload is not valid JSON"
+        }
+        guard let name = (payload["name"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+            return "hello payload is missing the agent name"
+        }
+        // The cache key: the program the pane is actually running (or launching).
+        guard let command = runningCommand ?? pendingLaunchCommand ?? launchOverride,
+              let token = HandshakeAgentProfile.commandToken(command) else {
+            return "no running command to attach this agent to"
+        }
+        // A handshake we initiated must echo our nonce — otherwise any process
+        // in the shell could rebind the chat's transcript.
+        if let expected = handshakeNonce, (payload["nonce"] as? String) != expected {
+            return "nonce mismatch — expected the one from IDEalize's introduction"
+        }
+        let format = ((payload["format"] as? String) ?? "none").lowercased()
+        let map = payload["map"] as? [String: Any]
+        var descriptor = HandshakeAgentDescriptor(
+            displayName: name,
+            transcriptPathTemplate: payload["transcript"] as? String,
+            format: format == "jsonl" ? "jsonl" : "none",   // unknown formats degrade, not break
+            userMatch: map?["userMatch"] as? [String: String],
+            userTextPath: map?["userTextPath"] as? String,
+            assistantMatch: map?["assistantMatch"] as? [String: String],
+            assistantTextPath: map?["assistantTextPath"] as? String,
+            contextTokensPath: map?["contextTokensPath"] as? String,
+            contextLimit: (map?["contextLimit"] as? NSNumber)?.intValue,
+            resumeTemplate: payload["resume"] as? String,
+            learnedAt: Date(),
+            verified: false)
+
+        // Verify the transcript claim before trusting it: resolvable, inside
+        // $HOME, existing — and carrying our nonce when we issued one (which
+        // proves it's this very session's transcript, not a guessed path).
+        if descriptor.format == "jsonl" {
+            guard let cwd = projectPath,
+                  let url = descriptor.transcriptURL(cwd: cwd) else {
+                return "transcript path is missing or outside your home folder"
+            }
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                return "transcript file does not exist at \(url.path)"
+            }
+            if let nonce = handshakeNonce {
+                let tail = (try? String(contentsOf: url, encoding: .utf8))?.suffix(65_536) ?? ""
+                guard tail.contains(nonce) else {
+                    return "transcript at \(url.path) does not contain this session's nonce"
+                }
+            }
+            descriptor.verified = true
+        }
+
+        settings.agentHandshakeCache[token] = descriptor
+        handshakeNonce = nil
+        // Drop any stale reader so the next poll rebuilds it from the newly
+        // learned profile and the bubbles start flowing.
+        reader = nil
+        readerProfileId = nil
+        transcriptURL = nil
+        transcriptMTime = nil
+        return nil
+    }
+
+    /// While an agent session is running here, pull its latest completed message
+    /// from the agent's own transcript (only re-reading when the file changes).
+    /// All agent-format knowledge lives in the reader; this function only moves
+    /// generic exchanges/usage into the published UI state.
     private func refreshAssistantMessage() {
         guard let cwd = projectPath, !cwd.isEmpty else { return }
-        guard isClaudeRunning || inAltScreen else { return }
-        // Prefer the transcript for the session we launched (so a Claude running
-        // elsewhere in the same folder can't bleed in); fall back to newest only
-        // when Claude was started by hand and we never bound a session id.
-        let url: URL
-        if let id = boundSessionId, let bound = ClaudeTranscript.transcript(forCwd: cwd, sessionId: id) {
-            // Normally read exactly the session we launched. But the auto-launch
-            // can go stillborn (Claude writes a few init lines under our
-            // --session-id, then the user's real conversation ends up under a
-            // different id). When the bound transcript holds no real exchange yet
-            // a strictly-newer transcript exists in the same folder, the user is
-            // really talking to that one — follow it, or the chat reads the empty
-            // bound file forever. A live parallel-tab Claude has real content, so
-            // this still won't bleed it in.
-            if let newest = ClaudeTranscript.newestTranscript(forCwd: cwd),
-               newest != bound,
-               ClaudeTranscript.modDate(newest) > ClaudeTranscript.modDate(bound),
-               transcriptIsStillborn(bound) {
-                url = newest
-            } else {
-                url = bound
-            }
-        } else if boundSessionId == nil, let newest = ClaudeTranscript.newestTranscript(forCwd: cwd) {
-            url = newest
+        // Which agent's transcript to follow: the one running now, the one we
+        // launched, or — for an unrecognized alt-screen TUI — Claude's reader,
+        // preserving the old "newest ~/.claude transcript" fallback behavior.
+        let profile: AgentProfile
+        if let p = runningAgentProfile ?? launchProfile {
+            profile = p
+        } else if inAltScreen {
+            profile = AgentRegistry.claude
         } else {
-            return   // bound session's file not written yet — wait, don't grab another
+            return
         }
+        guard runningAgentProfile != nil || inAltScreen else { return }
+        // Stand up (or swap) the reader for a hand-launched agent — the
+        // launch-time path couldn't have created it.
+        if reader == nil || readerProfileId != profile.id {
+            reader = profile.makeReader(cwd: cwd, plannedSessionId: boundSessionId, launchedAt: Date())
+            readerProfileId = profile.id
+        }
+        guard let reader, let url = reader.currentTranscriptURL() else { return }
         let mtime = ClaudeTranscript.modDate(url)
         if url == transcriptURL, mtime == transcriptMTime { return }
         transcriptURL = url
         transcriptMTime = mtime
-        let all = ClaudeTranscript.allExchanges(in: url)
+        let all = reader.allExchanges(in: url)
         if all != exchanges { exchanges = all }
-        let ctx = ClaudeTranscript.contextUsage(in: url)
+        let ctx = reader.contextUsage(in: url)
         if ctx?.tokens != contextTokens { contextTokens = ctx?.tokens }
         if ctx?.limit != contextLimit { contextLimit = ctx?.limit }
         let q = all.last?.question
@@ -896,15 +1022,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             // A real reply landed — the submit-time working banner can stand down.
             if awaitingReply, let a, !a.isEmpty { awaitingReply = false }
         }
-        // NB: botWorking is driven by the on-screen "esc to interrupt" marker in
-        // detectPrompt(), not the transcript — the transcript heuristic got stuck.
-    }
-
-    /// A transcript with no real prompt or answer — e.g. a `--session-id` launch
-    /// that wrote a few init lines, then never carried a conversation.
-    private func transcriptIsStillborn(_ url: URL) -> Bool {
-        let e = ClaudeTranscript.lastExchange(in: url)
-        return e.question == nil && e.answer == nil
+        // NB: botWorking is driven by detectPrompt() (on-screen markers, or the
+        // reader's transcript tail for agents without markers) — not by this
+        // exchange parse, whose heuristic got stuck.
     }
 
     /// Send a line of input: to the running TUI (e.g. Claude) on the alternate
@@ -979,6 +1099,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             } else {
                 sendLineToTUI(text)
             }
+            reader?.noteSubmitted(text)
         } else if claudeLaunchInFlight {
             // A launch we already issued (auto-launch, or an earlier message) is
             // still coming up. Deliver to it — never start a second Claude, which
@@ -992,6 +1113,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             taskCritter += 1
             agentStatus = .working
             firePendingLaunch()   // no-op if the queued auto-launch already fired
+            reader?.noteSubmitted(text)
             waitForClaudeThenSend(text, attemptsLeft: 30)
         } else if blocks.isEmpty {
             // Fresh terminal — treat the first input as a chat: launch Claude,
@@ -1005,8 +1127,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             agentStatus = .working
             claudeLaunchInFlight = true
             let launch = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-            let cmd = launch.isEmpty ? "claude --dangerously-skip-permissions" : launch
-            terminalView.send(txt: "\u{15}" + augmentClaudeLaunch(cmd) + "\n")
+            let cmd = launch.isEmpty
+                ? AgentRegistry.claude.launchCommand(resuming: nil, settings: settings)
+                : launch
+            terminalView.send(txt: "\u{15}" + augmentAgentLaunch(cmd) + "\n")
+            reader?.noteSubmitted(text)
             waitForClaudeThenSend(text, attemptsLeft: 30)
         } else {
             // The shell is in use (e.g. after exiting Claude) — run as a normal
@@ -1016,8 +1141,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
     }
 
-    /// Poll until Claude has taken over (alt-screen / running), then deliver the
-    /// queued first message. Stops if Claude never appears.
+    /// Poll until the agent has taken over (alt-screen / running), then deliver
+    /// the queued first message. Stops if the agent never appears. The delay
+    /// between "TUI is up" and delivery is per-agent — Claude's input is ready
+    /// almost immediately, Kimi's swallows input for a few more seconds.
     private func waitForClaudeThenSend(_ text: String, attemptsLeft: Int) {
         guard attemptsLeft > 0 else {
             claudeLaunchInFlight = false   // gave up — let a later message relaunch
@@ -1026,8 +1153,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self else { return }
             if self.tuiActive {
-                self.claudeLaunchInFlight = false   // Claude is up; it owns the pane now
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.claudeLaunchInFlight = false   // the agent is up; it owns the pane now
+                let ready = self.activeAgentProfile?.inputReadyDelay ?? 1.0
+                DispatchQueue.main.asyncAfter(deadline: .now() + ready) {
                     self.sendLineToTUI(text)
                 }
             } else {

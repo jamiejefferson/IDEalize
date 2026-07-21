@@ -323,12 +323,12 @@ struct QAChatBox: View {
                 Text("Welcome to IDEalize")
                     .font(chatStyle.font(size + 5, .semibold)).foregroundStyle(chatTextColor)
             }
-            Text("This is your AI workspace — no coding needed. Just tell Claude what you'd like to do, in plain English, and it gets to work.")
+            Text("This is your AI workspace — no coding needed. Just tell \(session.agentDisplayName) what you'd like to do, in plain English, and it gets to work.")
                 .font(chatStyle.font(size)).foregroundStyle(chatTextColor)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 9) {
                 welcomeBullet("sidebar.left", "On the left — your sessions and files.")
-                welcomeBullet("bubble.left.and.bubble.right.fill", "Right here — chat with Claude, your assistant.")
+                welcomeBullet("bubble.left.and.bubble.right.fill", "Right here — chat with \(session.agentDisplayName), your assistant.")
                 welcomeBullet("paintpalette", "Bottom bar — change how everything looks, any time.")
             }
             Text("Tap one to get started — or just type your own below:")
@@ -425,7 +425,7 @@ struct QAChatBox: View {
     /// returning-user confirmation that the agent is up and waiting for a prompt.
     private var showReady: Bool {
         settings.hasSeenWelcome
-            && session.isClaudeRunning
+            && session.runningAgentProfile != nil
             && chatIsEmpty
             && !working
             && session.pendingPrompt == nil
@@ -442,7 +442,7 @@ struct QAChatBox: View {
                 .frame(width: 20)
                 .padding(.top, size * 0.16)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Claude is ready")
+                Text("\(session.agentDisplayName) is ready")
                     .font(chatStyle.font(size, .semibold))
                     .foregroundStyle(chatTextColor)
                 Text("Tell it what you'd like to do, in plain English — type below to get started.")
@@ -482,8 +482,8 @@ struct QAChatBox: View {
                     .font(chatStyle.font(size - 1).italic())
                     .foregroundStyle(chatStyle.secondaryTextColor)
                     .fixedSize(horizontal: false, vertical: true)
-                if !session.isClaudeRunning {
-                    Text("Claude is starting…")
+                if session.runningAgentProfile == nil {
+                    Text("\(session.agentDisplayName) is starting…")
                         .font(chatStyle.font(size - 2))
                         .foregroundStyle(chatStyle.secondaryTextColor.opacity(0.8))
                         .padding(.top, 2)
@@ -497,7 +497,7 @@ struct QAChatBox: View {
     /// Placeholder hint for the input: a flow note, or — when Claude is showing a
     /// single-pick prompt — that you can type your own answer instead of choosing.
     private var inputPlaceholder: String? {
-        if flowMode { return "Add a note for Claude (optional)…" }
+        if flowMode { return "Add a note for \(session.agentDisplayName) (optional)…" }
         if let p = session.pendingPrompt, !p.isMultiSelect { return "Pick an option, or type your own answer…" }
         return nil
     }
@@ -684,7 +684,7 @@ struct QAChatBox: View {
             Image(systemName: "keyboard.badge.ellipsis")
                 .font(.system(size: 30))
                 .foregroundStyle(Color(theme.accent)).opacity(0.85)
-            Text("Claude is waiting for you in the terminal")
+            Text("\(session.agentDisplayName) is waiting for you in the terminal")
                 .font(chatStyle.font(size, .medium))
                 .foregroundStyle(chatTextColor)
                 .multilineTextAlignment(.center)
@@ -818,7 +818,7 @@ struct QAChatBox: View {
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(flowMode ? !canSendFlow : text.isEmpty)
                     .help(flowMode ? (flowIsResumable ? "Resume this flow where it left off"
-                                                      : "Send this flow to Claude to carry out") : "Send")
+                                                      : "Send this flow to \(session.agentDisplayName) to carry out") : "Send")
                 }
             }
             miniMenu
@@ -916,7 +916,7 @@ struct QAChatBox: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { thanksHover = $0 }
-                .help("Say thanks — Claude replies with just an emoji, no long response")
+                .help("Say thanks — \(session.agentDisplayName) replies with just an emoji, no long response")
             }
         }
     }

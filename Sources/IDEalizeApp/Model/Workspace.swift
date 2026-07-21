@@ -603,11 +603,13 @@ final class Workspace: ObservableObject {
         let index = projectGroups.first { $0.path == key }?
             .tabs.firstIndex { $0.id == tab.id } ?? 0
         let session = tab.sessions.first
+        let agentId = tab.sessions.compactMap { $0.launchedAgentId }.first
         let record = ArchivedChat(
             projectPath: key,
             name: chatLabel(tab, index: index),
-            wasClaude: tab.sessions.contains { $0.wasClaudeLaunched },
-            sessionId: session?.claudeSessionId,
+            wasClaude: agentId == "claude",
+            agentId: agentId,
+            sessionId: session?.agentSessionId,
             contextTokens: session?.contextTokens,
             contextLimit: session?.contextLimit,
             archivedAt: Date())
@@ -636,18 +638,17 @@ final class Workspace: ObservableObject {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let path: String? = (chat.projectPath == home) ? nil : chat.projectPath
         let launch: String?
-        if chat.wasClaude {
-            if let id = chat.sessionId, !id.isEmpty {
-                launch = "claude --dangerously-skip-permissions --resume \(id)"
-            } else {
-                launch = "claude --dangerously-skip-permissions"
-            }
+        if let agentId = chat.effectiveAgentId,
+           let profile = AgentRegistry.profile(forId: agentId, settings: settings) {
+            let id = (chat.sessionId?.isEmpty == false && profile.capabilities.resumable)
+                ? chat.sessionId : nil
+            launch = profile.launchCommand(resuming: id, settings: settings)
         } else {
             launch = nil
         }
         let session = newTab(projectPath: path,
                              launchOverride: launch,
-                             suppressAutoLaunch: !chat.wasClaude)
+                             suppressAutoLaunch: launch == nil)
         // Carry the name over, but only if it was a real custom name — never pin a
         // reopened chat to the positional "Chat N" it happened to show.
         if !chat.name.isEmpty && !chat.name.hasPrefix("Chat ") {
@@ -733,14 +734,6 @@ final class Workspace: ObservableObject {
         let snapshot = settings.projectSnapshot
         guard !snapshot.isEmpty else { return }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        // Force `claude` for chats that were Claude, so restore doesn't depend on
-        // the current global auto-launch toggle / default command (which could
-        // otherwise bring a Claude chat back as a bare shell and then re-persist
-        // it as wasClaude=false — permanently losing its Claude-ness).
-        let claudeLaunch: String = {
-            let d = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-            return TerminalSession.isClaudeCommand(d) ? d : "claude --dangerously-skip-permissions"
-        }()
         isRestoring = true
         for project in snapshot {
             // A Home chat has no real project folder; restore it with projectPath
@@ -748,9 +741,18 @@ final class Workspace: ObservableObject {
             // $HOME, which would otherwise let a shared note leak into ~/.idealize.
             let restorePath: String? = (project.path == home) ? nil : project.path
             for chat in project.chats {
+                // Force the chat's recorded agent, so restore doesn't depend on
+                // the current global auto-launch toggle / default command (which
+                // could otherwise bring an agent chat back as a bare shell and
+                // then re-persist it as agentId=nil — permanently losing it).
+                // `launchCommand` respects the configured default when it
+                // matches the same agent (extra flags survive).
+                let launch: String? = chat.effectiveAgentId
+                    .flatMap { AgentRegistry.profile(forId: $0, settings: settings) }
+                    .map { $0.launchCommand(resuming: nil, settings: settings) }
                 newTab(projectPath: restorePath,
-                       launchOverride: chat.wasClaude ? claudeLaunch : nil,
-                       suppressAutoLaunch: !chat.wasClaude)
+                       launchOverride: launch,
+                       suppressAutoLaunch: launch == nil)
                 if let name = chat.customName, !name.isEmpty {
                     tabs.last?.customName = name   // newTab just inserted this tab
                 }
@@ -784,8 +786,10 @@ final class Workspace: ObservableObject {
                 // Don't persist the Service Hatch — it's launched by its own path.
                 .filter { !($0.sessions.first?.isServiceHatch ?? false) }
                 .map { tab in
-                    PersistedChat(customName: tab.customName,
-                                  wasClaude: tab.sessions.contains { $0.wasClaudeLaunched })
+                    let agentId = tab.sessions.compactMap { $0.launchedAgentId }.first
+                    return PersistedChat(customName: tab.customName,
+                                         wasClaude: agentId == "claude",
+                                         agentId: agentId)
                 }
             return PersistedProject(path: group.path, chats: chats)
         }
@@ -900,6 +904,21 @@ final class Workspace: ObservableObject {
         case .reveal:
             guard let path = request.target, !path.isEmpty else { return .failure("missing path") }
             return reveal(path: path, open: request.open ?? false)
+
+        case .agentHello:
+            // An unknown agent answering the first-run introduction — hand the
+            // descriptor to its session, which verifies (nonce, path bounds)
+            // and caches it. The IPC path beats the printed-sentinel fallback.
+            guard let from = request.from, let s = session(withID: from) else {
+                return .failure("unknown sender session")
+            }
+            guard let body = request.body, !body.isEmpty else {
+                return .failure("missing hello payload")
+            }
+            if let problem = s.receiveAgentHello(json: body) {
+                return .failure(problem)
+            }
+            return IPCResponse(ok: true, info: "hello received — IDEalize can read this agent now")
 
         case .blocks:
             let target = request.target ?? request.from

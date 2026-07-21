@@ -10,9 +10,16 @@ import Foundation
 struct PersistedChat: Codable {
     /// The user's custom tab name, if they renamed it.
     var customName: String?
-    /// Whether this chat was a Claude session (so it relaunches Claude on
-    /// restore, rather than coming up as a bare shell).
+    /// Legacy "this was a Claude session" flag. Still ENCODED (as
+    /// `agentId == "claude"`) so an older app build reading the same defaults
+    /// keeps restoring correctly; superseded by `agentId` for reading.
     var wasClaude: Bool
+    /// Which agent this chat ran ("claude", "kimi", …) so restore relaunches
+    /// the same one. nil on records written before multi-agent support.
+    var agentId: String?
+
+    /// The agent to restore: the recorded id, or Claude for legacy records.
+    var effectiveAgentId: String? { agentId ?? (wasClaude ? "claude" : nil) }
 }
 
 struct PersistedProject: Codable {
@@ -36,9 +43,14 @@ struct ArchivedChat: Codable, Identifiable {
     var projectPath: String
     /// The chat's display name at archive time (its custom name, or "Chat N").
     var name: String
-    /// Whether it was a Claude session (so reopening relaunches Claude).
+    /// Legacy "was a Claude session" flag — still encoded for older builds;
+    /// superseded by `agentId` for reading (see `effectiveAgentId`).
     var wasClaude: Bool
-    /// The Claude session id, if known — lets reopening resume the conversation.
+    /// Which agent the chat ran ("claude", "kimi", …) so reopening relaunches
+    /// the same one. nil on records written before multi-agent support.
+    var agentId: String?
+    /// The agent's session id, if known — lets reopening resume the
+    /// conversation (Claude: transcript basename; Kimi: `session_*` dir name).
     var sessionId: String?
     /// How many context tokens it was carrying when archived (shown in the list).
     var contextTokens: Int?
@@ -47,4 +59,7 @@ struct ArchivedChat: Codable, Identifiable {
     var contextLimit: Int?
     /// When it was archived.
     var archivedAt: Date
+
+    /// The agent to reopen with: the recorded id, or Claude for legacy records.
+    var effectiveAgentId: String? { agentId ?? (wasClaude ? "claude" : nil) }
 }

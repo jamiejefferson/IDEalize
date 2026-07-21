@@ -37,6 +37,7 @@ public struct IPCRequest: Codable, Sendable {
         case input         // type text into a session's terminal (exec)
         case reveal        // select a file in the app's file explorer
         case note          // read (or, with a body, set) the project's shared note
+        case agentHello    // an unknown agent introduces itself (handshake); body = descriptor JSON
     }
 
     public var command: Command
