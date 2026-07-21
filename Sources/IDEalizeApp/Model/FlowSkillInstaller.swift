@@ -1,9 +1,10 @@
 import Foundation
 
-/// Provisions IDEalize's "companion" Claude skill + commands into the user's
+/// Provisions IDEalize's "companion" agent skill + commands into the user's
 /// `~/.claude/` on launch, so any project the user opens can review and run (and
-/// resume) Flows. Mirrors `ShellIntegration.install()` and `CLIInstaller`: app
-/// machinery pushed into the user's environment, idempotently, on startup.
+/// resume) Flows. Currently Claude-only: the flow commands are implemented as
+/// Claude slash commands. Mirrors `ShellIntegration.install()` and `CLIInstaller`:
+/// app machinery pushed into the user's environment, idempotently, on startup.
 ///
 /// User scope is deliberate. The runner is *app behaviour*, so it should be
 /// available everywhere — while a flow's `flow.json` stays project-scoped and
@@ -21,15 +22,21 @@ enum FlowSkillInstaller {
     /// v2: flow file moved to the global path (project-independent).
     /// v3: added `flow-improve` (Claude applies its review suggestions to the flow).
     /// v4: added `idealize-service-hatch` (self-service dev session guide).
-    static let version = 4
+    /// v5: added `/flows` (model-agnostic workflow coach for the Flows interview).
+    /// v6: added `project-agent` (the coordinating chat for a project's chats).
+    static let version = 6
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
     private static let files: [(src: String, dest: String)] = [
         ("FlowSkills/skills/flow-run/SKILL.md",          "skills/flow-run/SKILL.md"),
+        ("FlowSkills/skills/flows/SKILL.md",             "skills/flows/SKILL.md"),
+        ("FlowSkills/skills/project-agent/SKILL.md",     "skills/project-agent/SKILL.md"),
         ("FlowSkills/commands/flow-run.md",              "commands/flow-run.md"),
         ("FlowSkills/commands/flow-review.md",           "commands/flow-review.md"),
         ("FlowSkills/commands/flow-improve.md",          "commands/flow-improve.md"),
+        ("FlowSkills/commands/flows.md",                 "commands/flows.md"),
         ("FlowSkills/commands/idealize-service-hatch.md", "commands/idealize-service-hatch.md"),
+        ("FlowSkills/commands/project-agent.md",         "commands/project-agent.md"),
     ]
 
     private static var claudeDir: URL {

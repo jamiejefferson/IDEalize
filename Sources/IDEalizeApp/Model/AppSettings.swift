@@ -26,7 +26,7 @@ final class AppSettings: ObservableObject {
     @Published var uiFontSize: Double {
         didSet { defaults.set(uiFontSize, forKey: "uiFontSize") }
     }
-    /// Base text size for the Claude chat answer panel (proportional). Larger
+    /// Base text size for the agent chat answer panel (proportional). Larger
     /// than the terminal by default since it's the primary reading surface.
     @Published var chatFontSize: Double {
         didSet { defaults.set(chatFontSize, forKey: "chatFontSize") }
@@ -98,16 +98,30 @@ final class AppSettings: ObservableObject {
     // MARK: Per-panel appearance (the USP)
     /// Typography + background overrides keyed by `PanelKind.rawValue`.
     @Published var panelAppearances: [String: PanelAppearance] {
-        didSet {
-            if let d = try? JSONEncoder().encode(panelAppearances) {
-                defaults.set(d, forKey: "panelAppearances")
-            }
-        }
+        didSet { scheduleAppearancePersist() }
     }
     /// Global action colour for primary buttons + selected-panel highlight.
     @Published var actionAppearance: ActionAppearance {
-        didSet {
-            if let d = try? JSONEncoder().encode(actionAppearance) {
+        didSet { scheduleAppearancePersist() }
+    }
+
+    /// Persisting these JSON-encodes on every change, and a colour drag in the
+    /// Appearance inspector fires a change per tick — so coalesce rapid edits
+    /// into one write a beat after the last change (the same debounce FlowStore
+    /// uses for flow.json). Scalar settings keep their immediate didSet writes.
+    private var appearancePersistTask: Task<Void, Never>?
+
+    private func scheduleAppearancePersist() {
+        appearancePersistTask?.cancel()
+        let panels = panelAppearances
+        let action = actionAppearance
+        appearancePersistTask = Task { [defaults] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            if let d = try? JSONEncoder().encode(panels) {
+                defaults.set(d, forKey: "panelAppearances")
+            }
+            if let d = try? JSONEncoder().encode(action) {
                 defaults.set(d, forKey: "actionAppearance")
             }
         }
@@ -176,6 +190,42 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(recentFolders, forKey: "recentFolders") }
     }
 
+    // MARK: Mini Mode
+    /// Whether the app is currently in the narrow docked mini-mode.
+    @Published var miniModeEnabled: Bool {
+        didSet { defaults.set(miniModeEnabled, forKey: "miniModeEnabled") }
+    }
+    /// Which screen edge the mini-mode column docks to.
+    @Published var miniModeDockSide: DockSide {
+        didSet { defaults.set(miniModeDockSide.rawValue, forKey: "miniModeDockSide") }
+    }
+    /// Keep the mini-mode window floating above other apps.
+    @Published var miniModeAlwaysOnTop: Bool {
+        didSet { defaults.set(miniModeAlwaysOnTop, forKey: "miniModeAlwaysOnTop") }
+    }
+    /// The window frame captured before entering mini-mode, used to restore on exit.
+    var miniModePreFrame: NSRect? {
+        get {
+            guard let d = defaults.dictionary(forKey: "miniModePreFrame") as? [String: Double],
+                  let x = d["x"], let y = d["y"],
+                  let width = d["width"], let height = d["height"] else { return nil }
+            return NSRect(x: x, y: y, width: width, height: height)
+        }
+        set {
+            if let r = newValue {
+                defaults.set(["x": r.minX, "y": r.minY, "width": r.width, "height": r.height],
+                             forKey: "miniModePreFrame")
+            } else {
+                defaults.removeObject(forKey: "miniModePreFrame")
+            }
+        }
+    }
+    /// Whether the window was zoomed (green-button maximised) before mini-mode.
+    var miniModePreZoomed: Bool {
+        get { defaults.object(forKey: "miniModePreZoomed") as? Bool ?? false }
+        set { defaults.set(newValue, forKey: "miniModePreZoomed") }
+    }
+
     /// Snapshot of the session rail (Projects → Chats) for restore-on-launch.
     @Published var projectSnapshot: [PersistedProject] {
         didSet {
@@ -198,18 +248,6 @@ final class AppSettings: ObservableObject {
         didSet {
             if let data = try? JSONEncoder().encode(archivedChats) {
                 defaults.set(data, forKey: "archivedChats")
-            }
-        }
-    }
-
-    /// What unknown agents taught us about themselves via the first-run
-    /// introduction (the in-chat handshake), keyed by the launch command's
-    /// first token (e.g. "aider"). A `format: "none"` entry records "asked,
-    /// couldn't help" so the beat doesn't replay on every launch.
-    @Published var agentHandshakeCache: [String: HandshakeAgentDescriptor] {
-        didSet {
-            if let data = try? JSONEncoder().encode(agentHandshakeCache) {
-                defaults.set(data, forKey: "agentHandshakeCache")
             }
         }
     }
@@ -266,8 +304,9 @@ final class AppSettings: ObservableObject {
         self.themeName = defaults.string(forKey: "themeName") ?? Theme.idealizeDark.name
         self.defaultLaunchCommand = defaults.string(forKey: "defaultLaunchCommand")
             ?? "claude --dangerously-skip-permissions"
-        // Claude-native by default: new sessions drop straight into Claude Code.
-        self.launchOnNewTerminal = defaults.object(forKey: "launchOnNewTerminal") as? Bool ?? true
+        // Opt-in: auto-launching an agent (with permissions skipped) on every new
+        // terminal is off unless the user flips the switch.
+        self.launchOnNewTerminal = defaults.object(forKey: "launchOnNewTerminal") as? Bool ?? false
         self.shellPath = defaults.string(forKey: "shellPath")
             ?? (ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
@@ -277,13 +316,14 @@ final class AppSettings: ObservableObject {
         self.hasSeenTour = defaults.object(forKey: "hasSeenTour") as? Bool ?? false
         self.lastSeenAnnouncementID = defaults.string(forKey: "lastSeenAnnouncementID") ?? ""
         self.recentFolders = defaults.stringArray(forKey: "recentFolders") ?? []
+        self.miniModeEnabled = defaults.object(forKey: "miniModeEnabled") as? Bool ?? false
+        self.miniModeDockSide = DockSide(rawValue: defaults.string(forKey: "miniModeDockSide") ?? "") ?? .right
+        self.miniModeAlwaysOnTop = defaults.object(forKey: "miniModeAlwaysOnTop") as? Bool ?? true
         self.projectSnapshot = (defaults.data(forKey: "projectSnapshot")
             .flatMap { try? JSONDecoder().decode([PersistedProject].self, from: $0) }) ?? []
         self.collapsedProjects = defaults.stringArray(forKey: "collapsedProjects") ?? []
         self.archivedChats = (defaults.data(forKey: "archivedChats")
             .flatMap { try? JSONDecoder().decode([ArchivedChat].self, from: $0) }) ?? []
-        self.agentHandshakeCache = (defaults.data(forKey: "agentHandshakeCache")
-            .flatMap { try? JSONDecoder().decode([String: HandshakeAgentDescriptor].self, from: $0) }) ?? [:]
         self.browseFolders = defaults.dictionary(forKey: "browseFolders") as? [String: String] ?? [:]
         self.browseOpen = defaults.dictionary(forKey: "browseOpen") as? [String: Bool] ?? [:]
         self.panelAppearances = (defaults.data(forKey: "panelAppearances")
@@ -294,11 +334,11 @@ final class AppSettings: ObservableObject {
 
     /// Resolve the configured terminal font. An empty name means the macOS
     /// system font (San Francisco) — a *proportional* font, so the terminal and
-    /// Claude Code render in proper typography rather than monospace. Font
+    /// the agent CLI render in proper typography rather than monospace. Font
     /// pickers hand back *family* names (e.g. "JetBrains Mono"), which
     /// `NSFont(name:)` often can't resolve, so fall back to a family lookup
     /// before the system monospace default. This is what makes a chosen terminal
-    /// font actually apply to the live terminal (including Claude Code).
+    /// font actually apply to the live terminal (including the agent CLI).
     func resolvedFont() -> NSFont {
         if fontName.isEmpty {
             return NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
@@ -333,12 +373,14 @@ final class AppSettings: ObservableObject {
     }
 
     /// Every font family installed on the system (sorted), for the picker.
-    static func allFontFamilies() -> [String] {
-        NSFontManager.shared.availableFontFamilies.sorted()
-    }
+    /// Enumerating fonts walks every installed family, and the pickers call this
+    /// at view init / as a default parameter — so it ran on every parent
+    /// re-render. Cache it once per app run instead.
+    private static let cachedAllFontFamilies = NSFontManager.shared.availableFontFamilies.sorted()
 
-    /// Monospaced font families available on the system, for the picker.
-    static func monospacedFontFamilies() -> [String] {
+    static func allFontFamilies() -> [String] { cachedAllFontFamilies }
+
+    private static let cachedMonospacedFontFamilies: [String] = {
         let all = NSFontManager.shared.availableFontFamilies
         // Heuristic: keep families that have a fixed-pitch member.
         var result: [String] = []
@@ -358,5 +400,8 @@ final class AppSettings: ObservableObject {
         let present = favorites.filter { result.contains($0) }
         let others = result.filter { !present.contains($0) }.sorted()
         return present + others
-    }
+    }()
+
+    /// Monospaced font families available on the system, for the picker.
+    static func monospacedFontFamilies() -> [String] { cachedMonospacedFontFamilies }
 }

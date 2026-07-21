@@ -19,6 +19,29 @@ public enum IPC {
     /// Environment variable the app injects into every spawned shell so a
     /// process (e.g. Claude Code) knows which session it belongs to.
     public static let sessionEnvKey = "IDEALIZE_SESSION_ID"
+
+    /// Environment variable carrying the per-app-instance capability token that
+    /// authorizes mutating IPC commands. The app generates one at startup and
+    /// injects it into every spawned shell.
+    public static let tokenEnvKey = "IDEALIZE_TOKEN"
+
+    /// Where the app mirrors the capability token (mode 0600), so a CLI invoked
+    /// outside an IDEalize-spawned shell (e.g. via a symlink) can still
+    /// authenticate. Lives beside the socket.
+    public static var tokenFilePath: String {
+        (socketPath as NSString).deletingLastPathComponent + "/ipc.token"
+    }
+
+    /// The capability token for this process: `$IDEALIZE_TOKEN` if set, else
+    /// the contents of the app's token file. nil when neither exists.
+    public static func loadToken() -> String? {
+        if let t = ProcessInfo.processInfo.environment[tokenEnvKey], !t.isEmpty { return t }
+        guard let data = FileManager.default.contents(atPath: tokenFilePath),
+              let t = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !t.isEmpty else { return nil }
+        return t
+    }
 }
 
 /// A request sent from the CLI to the app.
@@ -36,6 +59,7 @@ public struct IPCRequest: Codable, Sendable {
         case blocks        // list captured command blocks for a session
         case input         // type text into a session's terminal (exec)
         case reveal        // select a file in the app's file explorer
+        case transcript    // read a session's recent chat exchanges
         case note          // read (or, with a body, set) the project's shared note
         case agentHello    // an unknown agent introduces itself (handshake); body = descriptor JSON
     }
@@ -43,6 +67,8 @@ public struct IPCRequest: Codable, Sendable {
     public var command: Command
     /// Identity of the calling session (from `IDEALIZE_SESSION_ID`), if any.
     public var from: String?
+    /// Capability token (`IDEALIZE_TOKEN`) authorizing mutating commands.
+    public var token: String?
     /// Target session id, name, or project path (interpretation depends on command).
     public var target: String?
     /// Free-form message body / notification text.
@@ -53,21 +79,27 @@ public struct IPCRequest: Codable, Sendable {
     public var sound: Bool?
     /// Used by `reveal`: also open the file in the document panel.
     public var open: Bool?
+    /// Used by `transcript`: max number of recent exchanges to return.
+    public var limit: Int?
 
     public init(command: Command,
                 from: String? = nil,
+                token: String? = nil,
                 target: String? = nil,
                 body: String? = nil,
                 title: String? = nil,
                 sound: Bool? = nil,
-                open: Bool? = nil) {
+                open: Bool? = nil,
+                limit: Int? = nil) {
         self.command = command
         self.from = from
+        self.token = token
         self.target = target
         self.body = body
         self.title = title
         self.sound = sound
         self.open = open
+        self.limit = limit
     }
 }
 
@@ -103,6 +135,20 @@ public struct IPCBlock: Codable, Sendable {
     }
 }
 
+/// One question/answer pair from a chat's transcript, returned by `transcript`.
+/// Lets an agent (e.g. a project agent) read what another chat has been doing.
+public struct IPCExchange: Codable, Sendable {
+    public var index: Int
+    public var question: String
+    public var answer: String?
+
+    public init(index: Int, question: String, answer: String?) {
+        self.index = index
+        self.question = question
+        self.answer = answer
+    }
+}
+
 /// Lightweight description of a live session, returned by `list`.
 public struct IPCSessionInfo: Codable, Sendable {
     public var id: String
@@ -129,6 +175,7 @@ public struct IPCResponse: Codable, Sendable {
     public var sessions: [IPCSessionInfo]?
     public var messages: [IPCMessage]?
     public var blocks: [IPCBlock]?
+    public var exchanges: [IPCExchange]?
     public var info: String?
 
     public init(ok: Bool,
@@ -136,12 +183,14 @@ public struct IPCResponse: Codable, Sendable {
                 sessions: [IPCSessionInfo]? = nil,
                 messages: [IPCMessage]? = nil,
                 blocks: [IPCBlock]? = nil,
+                exchanges: [IPCExchange]? = nil,
                 info: String? = nil) {
         self.ok = ok
         self.error = error
         self.sessions = sessions
         self.messages = messages
         self.blocks = blocks
+        self.exchanges = exchanges
         self.info = info
     }
 

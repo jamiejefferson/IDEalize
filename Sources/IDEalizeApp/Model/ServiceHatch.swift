@@ -1,15 +1,15 @@
 import Foundation
 
-/// The "service hatch": a one-click Claude dev session opened *inside* IDEalize,
+/// The "service hatch": a one-click agent dev session opened *inside* IDEalize,
 /// rooted in IDEalize's own source, so the app can be safely serviced from within
 /// itself. This enum resolves the paths and builds the launch command; the tab
 /// itself is created by `Workspace.openServiceHatch()`.
 enum ServiceHatch {
     /// IDEalize's source repo — where the hatch session cd's to. Resolved from the
     /// running context: a dev `swift run` build's working directory, or a packaged
-    /// `.app` sitting at `<repo>/dist/IDEalize.app`. Falls back to the known dev
-    /// checkout. Each candidate is validated as a real IDEalize checkout so a stray
-    /// path never sends the session somewhere meaningless.
+    /// `.app` sitting at `<repo>/dist/IDEalize.app`. Each candidate is validated as
+    /// a real IDEalize checkout so a stray path never sends the session somewhere
+    /// meaningless. If nothing resolves, returns nil and the hatch does not open.
     static func repoRoot() -> String? {
         let fm = FileManager.default
         func isRepo(_ path: String) -> Bool {
@@ -24,25 +24,26 @@ enum ServiceHatch {
             .deletingLastPathComponent()   // …/dist
             .deletingLastPathComponent()   // …/<repo>
         candidates.append(fromBundle.path)
-        // Last resort: the known checkout.
-        candidates.append("/Users/jamie.jefferson/Documents/_AppDev/IDEalize")
         return candidates.first(where: isRepo)
     }
 
     /// The project's docs in the Obsidian vault — the source of truth for status
-    /// and thinking (see `CLAUDE.md`). Handed to Claude as an in-scope directory so
-    /// the hatch session can read and update `_index.md` without a permission gate.
+    /// and thinking. Handed to the agent as an in-scope directory so the hatch
+    /// session can read and update `_index.md` without a permission gate.
+    /// The vault location is per-developer, so no path is hardcoded here: until a
+    /// general resolution exists this returns nil and the hatch launches without
+    /// an `--add-dir`.
     static func vaultDocsDir() -> String? {
-        let path = "/Users/jamie.jefferson/Documents/_Obsidian Vaults/JacqVault/Projects/IDEalize"
-        return FileManager.default.fileExists(atPath: path) ? path : nil
+        nil
     }
 
-    /// The command a hatch tab runs once its shell is ready: Claude with
-    /// permissions skipped, the vault docs added as an in-scope directory, and the
+    /// The command a hatch tab runs once its shell is ready: the configured default
+    /// agent, the vault docs added as an in-scope directory, and the
     /// `/idealize-service-hatch` guide loaded as the opening turn. (The session's
-    /// own `--session-id` is appended later by `TerminalSession`.)
+    /// own session id is appended later by `TerminalSession` when supported.)
     static func launchCommand() -> String {
-        var cmd = "claude --dangerously-skip-permissions"
+        var cmd = AppSettings.shared.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cmd.isEmpty { cmd = "claude --dangerously-skip-permissions" }
         if let docs = vaultDocsDir() {
             cmd += " --add-dir \(quote(docs))"
         }

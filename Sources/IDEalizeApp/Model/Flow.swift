@@ -18,11 +18,61 @@ struct Flow: Codable, Equatable {
     /// Its presence is what lets a stopped run be picked up where it left off — the
     /// pause/resume contract lives entirely in this zone, on disk.
     var run: FlowRun?
+    /// Library + version metadata. Optional so existing `flow.json` files decode
+    /// unchanged; treated as empty when absent.
+    var metadata: FlowMetadata?
 
     struct Graph: Codable, Equatable {
         var blocks: [FlowBlock]
         var connections: [FlowConnection]
+        /// The conversation-built stage tree (optional so existing graphs decode).
+        /// When present, it is the primary structure the Flows UI renders; blocks
+        /// remain the canonical run-graph for `/flow-run` compatibility.
+        var stages: [FlowStage]?
     }
+
+    /// Metadata with defaults applied — never nil at the UI layer.
+    var resolvedMetadata: FlowMetadata {
+        get { metadata ?? FlowMetadata() }
+        set { metadata = newValue }
+    }
+}
+
+/// Library-facing metadata for a flow. All fields have defaults so a flow saved
+/// before metadata existed still decodes and displays sensibly.
+struct FlowMetadata: Codable, Equatable {
+    var description: String = ""
+    var createdBy: String = ""
+    var lastEdited: String = ""        // ISO-8601, display-only for Phase 1
+    var tags: [String] = []
+    var version: Int = 1
+}
+
+/// A conversation-level stage in the workflow. Stages are how non-technical users
+/// think about the job; the block graph underneath remains the run-time structure.
+/// A stage can nest children for progressive refinement.
+struct FlowStage: Codable, Equatable, Identifiable {
+    var id: String
+    var title: String
+    var text: String
+    var definitionOfDone: String
+    var children: [FlowStage]?
+
+    init(id: String, title: String, text: String = "", definitionOfDone: String = "", children: [FlowStage]? = nil) {
+        self.id = id
+        self.title = title
+        self.text = text
+        self.definitionOfDone = definitionOfDone
+        self.children = children
+    }
+}
+
+/// A snapshot of a flow at a point in time, used for version history.
+struct FlowVersion: Codable, Equatable, Identifiable {
+    var id: String
+    var createdAt: String              // ISO-8601
+    var note: String
+    var snapshot: Flow
 }
 
 /// One step. `type` drives the icon/affordances; `text` is always plain language.
@@ -358,6 +408,64 @@ extension Flow.Graph {
     }
 }
 
+// MARK: - Stage ↔ block graph bridging
+
+extension Flow.Graph {
+    /// Derive a simple, flat stage list from the existing block graph for the
+    /// Flows timeline. Used when an older flow (blocks only) is opened.
+    func stagesFromBlocks() -> [FlowStage] {
+        blocks.map { block in
+            FlowStage(
+                id: block.id,
+                title: block.type.label,
+                text: block.text,
+                definitionOfDone: block.type == .end ? "This path ends here." : "",
+                children: nil
+            )
+        }
+    }
+
+    /// Convert a stage tree into a plain block graph so `/flow-run` can execute it.
+    /// The result is a linear spine: start → one block per stage → end.
+    /// Branches/conditions are flattened into the stage text for now; the AI
+    /// interview can refine them later.
+    static func blocksFromStages(_ stages: [FlowStage], title: String) -> (blocks: [FlowBlock], connections: [FlowConnection]) {
+        var blocks: [FlowBlock] = []
+        var connections: [FlowConnection] = []
+        var previousID: String?
+
+        // Flatten nested stages depth-first so children become sequential steps.
+        func flatten(_ stage: FlowStage, into out: inout [FlowStage]) {
+            out.append(stage)
+            if let children = stage.children {
+                for child in children { flatten(child, into: &out) }
+            }
+        }
+        var flat: [FlowStage] = []
+        for stage in stages { flatten(stage, into: &flat) }
+
+        guard !flat.isEmpty else { return ([], []) }
+
+        let startID = "b1"
+        blocks.append(FlowBlock(id: startID, type: .start, text: title, hint: nil))
+        previousID = startID
+
+        for (index, stage) in flat.enumerated() {
+            let id = "b\(index + 2)"
+            let text = stage.text.isEmpty ? stage.title : "\(stage.title) — \(stage.text)"
+            blocks.append(FlowBlock(id: id, type: .tool, text: text, hint: nil))
+            connections.append(FlowConnection(from: previousID!, to: id, label: nil))
+            previousID = id
+        }
+
+        let endID = "b\(flat.count + 2)"
+        blocks.append(FlowBlock(id: endID, type: .end, text: "Done", hint: nil))
+        connections.append(FlowConnection(from: previousID!, to: endID, label: nil))
+
+        return (blocks, connections)
+    }
+}
+
 // MARK: - Pre-flight validation (deterministic, no LLM)
 
 /// A structural problem found by the deterministic pre-flight, before any Claude
@@ -518,6 +626,11 @@ struct SavedFlowRef: Identifiable, Equatable {
 /// legible.
 @MainActor
 final class FlowStore: ObservableObject {
+    /// The single store every chat box observes. `flow.json` is one global file,
+    /// so per-pane stores silently overwrote each other (last debounced save won);
+    /// one shared instance keeps every pane on the same in-memory flow.
+    static let shared = FlowStore()
+
     @Published var flow: Flow { didSet { if !suspendSave { scheduleSave() } } }
     /// True while we assign `flow` programmatically (initial load / opening a saved
     /// flow), so the `didSet` doesn't echo it straight back to disk.
@@ -540,6 +653,19 @@ final class FlowStore: ObservableObject {
 
     static func load() -> Flow? {
         let url = activeFileURL(create: false)
+        if let flow = decode(url) { return flow }
+        // A corrupt or half-written flow.json falls back to the last good backup
+        // before giving up — without this, the next save would write `.example`
+        // straight over the user's flow.
+        let bak = url.appendingPathExtension("bak")
+        if let flow = decode(bak) {
+            NSLog("IDEalize: flow.json unreadable; restored from backup")
+            return flow
+        }
+        return nil
+    }
+
+    private static func decode(_ url: URL) -> Flow? {
         guard let data = try? Data(contentsOf: url),
               let flow = try? JSONDecoder().decode(Flow.self, from: data) else { return nil }
         return flow
@@ -614,7 +740,19 @@ final class FlowStore: ObservableObject {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]   // legible, stable diffs
         guard let data = try? enc.encode(flow) else { return }
-        try? data.write(to: activeFileURL(create: true))
+        let url = activeFileURL(create: true)
+        // Keep the previous good file as flow.json.bak before overwriting, and
+        // write atomically so a crash mid-write can never leave a torn file.
+        if FileManager.default.fileExists(atPath: url.path) {
+            let bak = url.appendingPathExtension("bak")
+            try? FileManager.default.removeItem(at: bak)
+            try? FileManager.default.copyItem(at: url, to: bak)
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            NSLog("IDEalize: failed to write flow.json: \(error.localizedDescription)")
+        }
     }
 
     // MARK: Library — named flows you can save and re-open
@@ -677,10 +815,14 @@ final class FlowStore: ObservableObject {
         let url = dir.appendingPathComponent(slug + ".json")
         var copy = flow
         copy.title = title
+        // Stamp the save in the metadata so the library can sort/filter by it.
+        copy.resolvedMetadata.lastEdited = ISO8601DateFormatter().string(from: Date())
+        copy.resolvedMetadata.version += 1
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? enc.encode(copy), (try? data.write(to: url)) != nil else { return nil }
         flow.title = title   // keep the working flow in step with what was saved
+        flow.resolvedMetadata = copy.resolvedMetadata
         return SavedFlowRef(url: url, title: title)
     }
 
@@ -696,6 +838,95 @@ final class FlowStore: ObservableObject {
     /// Remove a saved flow from the library. Does not touch the working flow.
     func deleteSaved(_ ref: SavedFlowRef) {
         try? FileManager.default.removeItem(at: ref.url)
+    }
+
+    /// Duplicate a saved flow into the library under a new name. The copy starts
+    /// at version 1 with "(copy)" appended to its title.
+    @discardableResult
+    func duplicateSaved(_ ref: SavedFlowRef) -> SavedFlowRef? {
+        guard let data = try? Data(contentsOf: ref.url),
+              var copy = try? JSONDecoder().decode(Flow.self, from: data) else { return nil }
+        copy.title = "\(copy.title) copy"
+        copy.resolvedMetadata.version = 1
+        copy.resolvedMetadata.lastEdited = ISO8601DateFormatter().string(from: Date())
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let newData = try? encoder.encode(copy) else { return nil }
+        let dir = Self.flowsDir(create: true)
+        let base = ref.url.deletingPathExtension().lastPathComponent
+        var url = dir.appendingPathComponent("\(base)-copy.json")
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = dir.appendingPathComponent("\(base)-copy-\(n).json")
+            n += 1
+        }
+        guard (try? newData.write(to: url)) != nil else { return nil }
+        return SavedFlowRef(url: url, title: copy.title)
+    }
+
+    /// Move a saved flow into the archive folder beside the library. The flow is
+    /// no longer listed in the main library but is preserved on disk.
+    func archiveSaved(_ ref: SavedFlowRef) {
+        let archiveDir = Self.flowsDir(create: true)
+            .deletingLastPathComponent()
+            .appendingPathComponent("flows-archive")
+        try? FileManager.default.createDirectory(at: archiveDir, withIntermediateDirectories: true)
+        let dest = archiveDir.appendingPathComponent(ref.url.lastPathComponent)
+        try? FileManager.default.moveItem(at: ref.url, to: dest)
+    }
+
+    // MARK: Version history — snapshots of significant edits
+
+    /// Where numbered flow snapshots live, beside the library.
+    static func versionsDir(create: Bool) -> URL {
+        let dir = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/IDEalize/flows-versions")
+        if create { try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        return dir
+    }
+
+    /// Capture the current flow as a new version. Called on significant edits
+    /// (stage confirmed, suggestion accepted, explicit save).
+    @discardableResult
+    func saveVersion(note: String) -> FlowVersion {
+        let fmt = ISO8601DateFormatter()
+        let now = fmt.string(from: Date())
+        let id = UUID().uuidString
+        var snapshot = flow
+        snapshot.resolvedMetadata.version = (snapshot.metadata?.version ?? 0) + 1
+        snapshot.resolvedMetadata.lastEdited = now
+        let version = FlowVersion(id: id, createdAt: now, note: note, snapshot: snapshot)
+        let url = Self.versionsDir(create: true).appendingPathComponent(id + ".json")
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? enc.encode(version) { try? data.write(to: url) }
+        // Keep the working flow's version counter in step.
+        flow.resolvedMetadata = snapshot.resolvedMetadata
+        return version
+    }
+
+    /// All saved versions, newest first.
+    func versions() -> [FlowVersion] {
+        let dir = Self.versionsDir(create: false)
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        else { return [] }
+        return files.filter { $0.pathExtension == "json" }.compactMap { url in
+            guard let data = try? Data(contentsOf: url),
+                  let v = try? JSONDecoder().decode(FlowVersion.self, from: data) else { return nil }
+            return v
+        }.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Restore a previous version as the working flow. The restored snapshot keeps
+    /// its own metadata (including its version number).
+    func restore(version: FlowVersion) {
+        flow = version.snapshot
+    }
+
+    /// Remove a version snapshot.
+    func deleteVersion(id: String) {
+        let url = Self.versionsDir(create: false).appendingPathComponent(id + ".json")
+        try? FileManager.default.removeItem(at: url)
     }
 }
 

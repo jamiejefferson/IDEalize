@@ -7,6 +7,10 @@ struct AppearancePanel: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject private var settings = AppSettings.shared
 
+    /// In mini-mode the inspector fills a narrow full-width column instead of
+    /// docking as a fixed 360-wide trailing panel (which would overflow ~320px).
+    var compact: Bool = false
+
     private let allFamilies = AppSettings.allFontFamilies()
     private let terminalFamilies: [String] = {
         let mono = AppSettings.monospacedFontFamilies()
@@ -41,10 +45,13 @@ struct AppearancePanel: View {
                 .padding(.bottom, 28)   // clear the last card from the window edge
             }
         }
-        .frame(width: 360)
+        // Fixed 360 as a docked column; fills the column in mini-mode.
+        .frame(minWidth: compact ? nil : 360, maxWidth: compact ? .infinity : 360)
         .frame(maxHeight: .infinity)
         .background(Color(theme.chrome))
-        .overlay(alignment: .leading) { Rectangle().fill(Color(theme.border)).frame(width: 1) }
+        .overlay(alignment: .leading) {
+            if !compact { Rectangle().fill(Color(theme.border)).frame(width: 1) }
+        }
     }
 
     // MARK: - Cards (grouped, spaced — the gaps give the scroll wheel a target

@@ -80,20 +80,42 @@ final class WorkflowStore: ObservableObject {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL),
-              let decoded = try? JSONDecoder().decode([Workflow].self, from: data) else { return }
-        workflows = decoded
+        if let decoded = Self.decode(fileURL) {
+            workflows = decoded
+        } else if let decoded = Self.decode(fileURL.appendingPathExtension("bak")) {
+            // The main file is corrupt or half-written — fall back to the backup
+            // rather than reseeding the starters over the user's workflows.
+            NSLog("IDEalize: workflows.json unreadable; restored from backup")
+            workflows = decoded
+        }
+    }
+
+    private static func decode(_ url: URL) -> [Workflow]? {
+        guard let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode([Workflow].self, from: data) else { return nil }
+        return decoded
     }
 
     private func save() {
         guard let data = try? JSONEncoder().encode(workflows) else { return }
-        try? data.write(to: fileURL)
+        // Keep the previous good file as workflows.json.bak before overwriting,
+        // and write atomically so a crash mid-write can't leave a torn file.
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            let bak = fileURL.appendingPathExtension("bak")
+            try? FileManager.default.removeItem(at: bak)
+            try? FileManager.default.copyItem(at: fileURL, to: bak)
+        }
+        do {
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            NSLog("IDEalize: failed to write workflows.json: \(error.localizedDescription)")
+        }
     }
 
     static let starters: [Workflow] = [
-        Workflow(name: "Launch Claude Code",
-                 command: "claude --dangerously-skip-permissions",
-                 description: "Start Claude Code in this directory", parameters: []),
+        Workflow(name: "Launch Agent",
+                 command: "{{defaultAgentCommand}}",
+                 description: "Start your configured agent in this directory", parameters: []),
         Workflow(name: "Git: commit all",
                  command: "git add -A && git commit -m \"{{message}}\"",
                  description: "Stage everything and commit",

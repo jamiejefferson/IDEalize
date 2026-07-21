@@ -34,7 +34,7 @@ struct LeafPaneView: View {
     private var isFocused: Bool { workspace.focusedSessionID == session.id }
     private var isSplit: Bool { (workspace.selectedTab?.sessions.count ?? 1) > 1 }
     private var hasBlocks: Bool { !session.blocks.isEmpty }
-    /// A full-screen TUI (Claude Code, vim, …) is drawing — it owns the pane.
+    /// A full-screen TUI (agent CLI, vim, …) is drawing — it owns the pane.
     private var tuiActive: Bool { session.tuiActive }
     /// A normal (scrolling) command is currently running — show its live output
     /// under a capped blocks history. Driven by the block lifecycle (reliable),
@@ -152,10 +152,10 @@ struct LeafPaneView: View {
         .help("Close this terminal (⌘W)")
     }
 
-    /// Claude/TUI mode: a vertical split — the live terminal readout on top, the
+    /// Agent/TUI mode: a vertical split — the live terminal readout on top, the
     /// chat docked beneath it. The divider is a native, draggable VSplitView
     /// handle (reliable resizing, unlike a custom drag).
-    /// Claude/TUI mode toggles between two full-pane views: the chat overlay
+    /// Agent/TUI mode toggles between two full-pane views: the chat overlay
     /// (terminal blurred behind it) and the raw, interactive terminal. Only one
     /// input is ever on screen at a time.
     private var chatLayout: some View {

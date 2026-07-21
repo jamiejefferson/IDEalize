@@ -7,21 +7,21 @@ import SwiftUI
 /// the graph to rewire and lets `spine()` re-derive the layout. No coordinates.
 struct FlowEditorView: View {
     @Binding var flow: Flow
-    /// Fires the deterministic→Claude review (defined in the panel). The pre-flight
-    /// gates it: errors disable the button, so no Claude turn is spent on a flow
+    /// Fires the deterministic→agent review (defined in the panel). The pre-flight
+    /// gates it: errors disable the button, so no agent turn is spent on a flow
     /// that can't run.
     var onReview: () -> Void = {}
-    /// True while Claude is reviewing — swaps the button for a spinner.
+    /// True while the agent is reviewing — swaps the button for a spinner.
     var reviewing: Bool = false
-    /// Ask Claude to apply its review suggestions to the flow (the `flow-improve`
+    /// Ask the agent to apply its review suggestions to the flow (the `flow-improve`
     /// command). Surfaced on the review banner whenever there are notes to act on.
     var onImprove: () -> Void = {}
-    /// True while Claude is applying improvements — swaps the button for a spinner.
+    /// True while the agent is applying improvements — swaps the button for a spinner.
     var improving: Bool = false
     @ObservedObject private var settings = AppSettings.shared
     private var theme: Theme { settings.theme }
 
-    /// Claude's review notes grouped by the block they pin to, threaded down to
+    /// The agent's review notes grouped by the block they pin to, threaded down to
     /// the cards alongside the deterministic pre-flight issues.
     private var notesByBlock: [String: [FlowReview.Note]] {
         Dictionary(grouping: flow.review?.notes ?? [], by: { $0.block })

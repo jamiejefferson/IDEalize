@@ -25,7 +25,7 @@ struct SettingsView: View {
                 TextField("Command", text: $settings.defaultLaunchCommand)
                     .font(.system(.body, design: .monospaced))
                     .disabled(!settings.launchOnNewTerminal)
-                Text("e.g. claude --dangerously-skip-permissions — or another agent, like kimi")
+                Text("e.g. claude --dangerously-skip-permissions, kimi, or another agent CLI")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Shell") {
@@ -40,11 +40,23 @@ struct SettingsView: View {
         Form {
             Section("Notifications") {
                 Toggle("Enable notifications (idealize notify)", isOn: $settings.notificationsEnabled)
-                Text("Claude Code can raise notifications with `idealize notify \"text\"`.")
+                Text("Your agent can raise notifications with `idealize notify \"text\"`.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Mini Mode") {
+                Picker("Dock side", selection: $settings.miniModeDockSide) {
+                    ForEach(DockSide.allCases) { side in
+                        Text(side.displayName).tag(side)
+                    }
+                }
+                Toggle("Keep window on top", isOn: $settings.miniModeAlwaysOnTop)
+                Text("Mini-mode shrinks IDEalize to a narrow docked column so it stays beside your work on a single screen.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+        .onChange(of: settings.miniModeDockSide) { MiniModeManager.shared.refreshIfNeeded() }
+        .onChange(of: settings.miniModeAlwaysOnTop) { MiniModeManager.shared.refreshIfNeeded() }
     }
 }
 

@@ -1,0 +1,11 @@
+# Minimal Supabase CLI config. Link first with:
+#   supabase link --project-ref xlswtyprnmiymfjdbaez
+project_id = "xlswtyprnmiymfjdbaez"
+
+# Both functions are public (the website calls them with the publishable key),
+# so the gateway must not demand a user JWT.
+[functions.request-download]
+verify_jwt = false
+
+[functions.verify-download]
+verify_jwt = false

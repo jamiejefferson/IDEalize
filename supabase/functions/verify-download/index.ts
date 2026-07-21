@@ -1,10 +1,11 @@
 // verify-download — checks a 6-digit code and, on success, returns a short-lived
 // signed URL to the private release and logs the download. Public (verify_jwt=false).
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// The atomic verify+redeem (attempts cap of 5, single-use) lives in the
+// redeem_download_code() RPC — see supabase/migrations/0001_init.sql.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 const BUCKET = "releases";
 const FILE = "IDEalize-macOS.zip";
-const MAX_ATTEMPTS = 5;
 const SIGNED_TTL_S = 120;
 const EMAIL_RE = /^[^\s@]+@eqtr\.com$/i;
 
@@ -12,6 +13,7 @@ const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Cache-Control": "no-store",
 };
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...cors, "Content-Type": "application/json" } });
@@ -32,29 +34,25 @@ Deno.serve(async (req) => {
     code = (b.code ?? "").toString().trim();
   } catch { return json({ error: "bad request" }, 400); }
 
-  if (!EMAIL_RE.test(email) || !/^\d{6}$/.test(code)) return json({ error: "Invalid code." });
+  if (!EMAIL_RE.test(email) || !/^\d{6}$/.test(code))
+    return json({ error: "Invalid or expired code. Request a new one." }, 400);
 
   const sb = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  const { data: rows } = await sb.from("download_codes")
-    .select("*").eq("email", email).is("consumed_at", null)
-    .order("created_at", { ascending: false }).limit(1);
-  const row = rows?.[0];
+  // One atomic transaction: caps attempts, enforces single-use. The hash
+  // comparison happens inside Postgres, so no client-side compare remains.
+  const code_hash = await sha256(`${email}:${code}`);
+  const { data: status, error: rpcErr } = await sb.rpc("redeem_download_code", {
+    p_email: email,
+    p_code_hash: code_hash,
+  });
+  if (rpcErr) { console.error("redeem", rpcErr); return json({ error: "server error" }, 500); }
 
-  if (!row) return json({ error: "No active code. Request a new one." });
-  if (new Date(row.expires_at).getTime() < Date.now()) return json({ error: "Code expired. Request a new one." });
-  if (row.attempts >= MAX_ATTEMPTS) return json({ error: "Too many attempts. Request a new code." });
-
-  const hash = await sha256(`${email}:${code}`);
-  if (hash !== row.code_hash) {
-    await sb.from("download_codes").update({ attempts: row.attempts + 1 }).eq("id", row.id);
-    return json({ error: "That code didn't match. Try again." });
-  }
-
-  await sb.from("download_codes").update({ consumed_at: new Date().toISOString() }).eq("id", row.id);
+  if (status === "too_many_attempts") return json({ error: "Too many attempts. Request a new code." }, 429);
+  if (status !== "redeemed") return json({ error: "Invalid or expired code. Request a new one." }, 400);
 
   const { data: signed, error: signErr } = await sb.storage.from(BUCKET)
     .createSignedUrl(FILE, SIGNED_TTL_S, { download: FILE });

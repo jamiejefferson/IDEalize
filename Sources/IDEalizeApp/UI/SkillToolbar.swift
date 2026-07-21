@@ -18,8 +18,8 @@ struct CatalogItem: Identifiable, Hashable {
     }
 }
 
-/// Discovers Agent Skills (`.claude/skills/*/SKILL.md`) and slash commands
-/// (`.claude/commands/*.md` + built-ins) from the project and the user home.
+/// Discovers Agent Skills and slash commands from the project and the user home.
+/// Searches `.claude/…` (Claude), `.idealize/…` (agent-neutral), and built-ins.
 enum SkillCatalog {
     static let builtins: [(String, String)] = [
         ("compact", "Summarise the conversation to reclaim context"),
@@ -27,8 +27,8 @@ enum SkillCatalog {
         ("review", "Review the current changes"),
         ("cost", "Show token usage and cost"),
         ("context", "See what's filling the context window"),
-        ("init", "Generate a CLAUDE.md for this project"),
-        ("memory", "Edit Claude's memory files"),
+        ("init", "Generate an AGENTS.md for this project"),
+        ("memory", "Edit the agent's memory files"),
     ]
 
     static func load(projectPath: String?) -> (skills: [CatalogItem], commands: [CatalogItem]) {
@@ -37,9 +37,14 @@ enum SkillCatalog {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
 
-        var roots: [(URL, String)] = [(home.appendingPathComponent(".claude"), "user")]
+        // Agent-neutral IDEalize skills/commands, then Claude-specific ones.
+        var roots: [(URL, String)] = [
+            (home.appendingPathComponent(".idealize"), "user"),
+            (home.appendingPathComponent(".claude"), "user"),
+        ]
         if let p = projectPath, !p.isEmpty, p != "/" {
-            roots.insert((URL(fileURLWithPath: p).appendingPathComponent(".claude"), "project"), at: 0)
+            roots.insert((URL(fileURLWithPath: p).appendingPathComponent(".idealize"), "project"), at: 0)
+            roots.insert((URL(fileURLWithPath: p).appendingPathComponent(".claude"), "project"), at: 1)
         }
 
         for (root, scope) in roots {
@@ -58,6 +63,10 @@ enum SkillCatalog {
             if let files = try? fm.contentsOfDirectory(at: cmdDir, includingPropertiesForKeys: nil) {
                 for f in files where f.pathExtension == "md" {
                     let name = f.deletingPathExtension().lastPathComponent
+                    // Command names are typed verbatim into the shell when clicked
+                    // (`/name`), so only names without shell metacharacters are
+                    // safe to offer.
+                    guard isSafeName(name) else { continue }
                     let (_, desc) = meta(f, fallback: name)
                     if seenCmd.insert(name.lowercased()).inserted {
                         commands.append(CatalogItem(name: name, description: desc, kind: .command, scope: scope))
@@ -71,6 +80,12 @@ enum SkillCatalog {
         skills.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         commands.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         return (skills, commands)
+    }
+
+    /// Command names run verbatim in the shell, so allow only `[A-Za-z0-9._-]`.
+    private static let safeNameCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+    private static func isSafeName(_ name: String) -> Bool {
+        !name.isEmpty && name.unicodeScalars.allSatisfy(safeNameCharacters.contains)
     }
 
     private static let blockIndicators: Set<String> = ["|", "|-", "|+", ">", ">-", ">+"]
@@ -154,11 +169,11 @@ private struct Pill: View {
 struct ChatToolbar: View {
     @ObservedObject var session: TerminalSession
     @Binding var draft: String
-    /// Switches the chat region between the conversation and the Flow editor —
+    /// Switches the chat region between the conversation and the Flows designer —
     /// the "second view" in the input field.
     @Binding var flowMode: Bool
     /// The flow library lives beside the toggle: save the working flow, or open a
-    /// saved one. Only surfaced while sketching a flow.
+    /// saved one. Only surfaced while designing a flow.
     @ObservedObject var flowStore: FlowStore
     var focus: () -> Void
 
@@ -168,18 +183,19 @@ struct ChatToolbar: View {
                 .tourTarget(.flow)
             if flowMode {
                 FlowLibraryButton(flowStore: flowStore)
+                VersionHistoryButton(flowStore: flowStore)
                 Spacer(minLength: 0)
             } else {
                 // The action pills scroll horizontally rather than clip when the
                 // pane is narrow — the toggle stays pinned on the left.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 7) {
-                        // Model/effort switching is a per-agent capability
-                        // (Claude's `/model` + thinking keywords) — hidden for
-                        // agents that don't support it.
-                        let caps = session.activeAgentProfile?.capabilities
-                        if caps?.modelPicker ?? true { ModelPill(session: session) }
-                        if caps?.effortPicker ?? true { EffortPill(session: session) }
+                        if session.currentAgent?.supportsRuntimeModelSwitch == true {
+                            ModelPill(session: session)
+                        }
+                        if session.currentAgent?.supportsReasoningEffort == true {
+                            EffortPill(session: session)
+                        }
                         SkillsPill(session: session, draft: $draft, focus: focus)
                         CommandsPill(session: session)
                     }
@@ -191,7 +207,7 @@ struct ChatToolbar: View {
 }
 
 /// A sliding two-icon toggle flipping the chat region between the conversation
-/// and the Flow editor. Deliberately the same slide-toggle language as the pane's
+/// and the Flows designer. Deliberately the same slide-toggle language as the pane's
 /// Chat/Terminal `ModeToggle` — a springy knob under the active icon, icons that
 /// bounce, a press dip — so the two reads as members of one family.
 private struct FlowModeToggle: View {
@@ -232,7 +248,7 @@ private struct FlowModeToggle: View {
         .simultaneousGesture(TapGesture().onEnded {
             withAnimation(.spring(response: 0.34, dampingFraction: 0.6)) { on.toggle() }
         })
-        .help(on ? "Back to chat" : "Sketch a flow — define the steps of a longer job")
+        .help(on ? "Back to chat" : "Design a flow — describe the outcome and let the interview build it")
     }
 
     private func icon(_ name: String, active: Bool) -> some View {
@@ -245,9 +261,9 @@ private struct FlowModeToggle: View {
     }
 }
 
-/// The flow library, sat beside the toggle while sketching: save the working flow
-/// under a name, or re-open a saved one. Storage is the project's `.idealize/flows`
-/// folder (see `FlowStore`), so a project's flows travel with its code.
+/// The flow library, sat beside the toggle while designing: save the working flow
+/// under a name, or re-open a saved one. Storage is the global flows folder
+/// (see `FlowStore`), so flows are available in every project.
 private struct FlowLibraryButton: View {
     @ObservedObject var flowStore: FlowStore
     @State private var open = false
@@ -256,92 +272,33 @@ private struct FlowLibraryButton: View {
     var body: some View {
         Button(action: { open.toggle() }) { Pill("tray.full", "Library") }
             .buttonStyle(.plain)
-            .help("Save this flow, or open a saved one")
+            .help("Open the flows library")
             .popover(isPresented: $open, arrowEdge: .top) {
-                FlowLibraryPopover(flowStore: flowStore) { open = false }
+                FlowsLibraryView(flowStore: flowStore,
+                                 onRun: { _ in open = false },
+                                 onEdit: { ref in
+                                     flowStore.openSaved(ref)
+                                     open = false
+                                 },
+                                 onClose: { open = false })
             }
     }
 }
 
-private struct FlowLibraryPopover: View {
+/// A button that opens the version history for the working flow.
+private struct VersionHistoryButton: View {
     @ObservedObject var flowStore: FlowStore
-    let onClose: () -> Void
+    @State private var open = false
     @ObservedObject private var settings = AppSettings.shared
-    @State private var saveName = ""
-    @State private var saved: [SavedFlowRef] = []
-    private var theme: Theme { settings.theme }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("FLOW LIBRARY").font(settings.ui(9, .semibold)).tracking(0.8)
-                .foregroundStyle(Color(theme.secondaryForeground))
-                .padding(.horizontal, 12).padding(.top, 11).padding(.bottom, 7)
-
-            // Save the working flow.
-            HStack(spacing: 7) {
-                TextField("Name this flow…", text: $saveName)
-                    .textFieldStyle(.plain).font(settings.ui(12))
-                    .onSubmit(save)
-                Button(action: save) {
-                    Image(systemName: "square.and.arrow.down.fill").font(.system(size: 12))
-                        .foregroundStyle(.white)
-                        .frame(width: 26, height: 22)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(settings.actionStyle.fill))
-                }
-                .buttonStyle(.raisedIconHover).help("Save this flow")
-                .disabled(flowStore.flow.flow.blocks.isEmpty)
+        Button(action: { open.toggle() }) { Pill("clock.arrow.circlepath", "History") }
+            .buttonStyle(.plain)
+            .help("Browse and restore previous versions")
+            .popover(isPresented: $open, arrowEdge: .top) {
+                FlowsVersionHistoryView(flowStore: flowStore,
+                                        onClose: { open = false })
             }
-            .padding(.horizontal, 10).padding(.bottom, 9)
-
-            Divider()
-
-            if saved.isEmpty {
-                Text("No saved flows yet — name and save one above.")
-                    .font(settings.ui(11)).foregroundStyle(Color(theme.secondaryForeground))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(14)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(saved) { ref in row(ref) }
-                    }
-                    .padding(.vertical, 4)
-                }
-                .frame(maxHeight: 280)
-            }
-        }
-        .frame(width: 300)
-        .background(Color(theme.chrome))
-        .onAppear { saveName = flowStore.flow.title; reload() }
-    }
-
-    private func reload() { saved = flowStore.savedFlows() }
-
-    private func save() {
-        guard !flowStore.flow.flow.blocks.isEmpty else { return }
-        flowStore.saveCurrent(named: saveName)
-        reload()
-    }
-
-    private func row(_ ref: SavedFlowRef) -> some View {
-        HStack(spacing: 9) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 11)).foregroundStyle(settings.actionStyle.color).frame(width: 16)
-            Button(action: { flowStore.openSaved(ref); onClose() }) {
-                Text(ref.title).font(settings.ui(12, .medium))
-                    .foregroundStyle(Color(theme.foreground)).lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).help("Open this flow")
-            Button(action: { flowStore.deleteSaved(ref); reload() }) {
-                Image(systemName: "trash").font(.system(size: 10))
-                    .foregroundStyle(Color(theme.secondaryForeground))
-            }
-            .buttonStyle(.iconHover(padding: 2)).help("Delete this saved flow")
-        }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .contentShape(Rectangle())
     }
 }
 
@@ -349,7 +306,7 @@ private struct ModelPill: View {
     @ObservedObject var session: TerminalSession
     @State private var open = false
     static let models: [(label: String, id: String, blurb: String)] = [
-        ("Auto", "default", "Let Claude choose"),
+        ("Auto", "default", "Let the agent choose"),
         ("Opus", "opus", "Most capable"),
         ("Sonnet", "sonnet", "Balanced & fast"),
         ("Haiku", "haiku", "Fastest"),
@@ -357,7 +314,7 @@ private struct ModelPill: View {
     var body: some View {
         Button(action: { open.toggle() }) { Pill("brain.head.profile", session.modelLabel) }
             .buttonStyle(.plain)
-            .help("Claude model")
+            .help("\(session.currentAgent?.name ?? "Agent") model")
             .popover(isPresented: $open, arrowEdge: .top) {
                 OptionList(title: "Model",
                            options: Self.models.map { ($0.label, $0.blurb) },
@@ -372,21 +329,27 @@ private struct ModelPill: View {
 private struct EffortPill: View {
     @ObservedObject var session: TerminalSession
     @State private var open = false
-    static let levels: [(label: String, keyword: String, blurb: String)] = [
-        ("Standard", "", "Answers directly"),
-        ("Extended", "think", "Thinks first"),
-        ("Deep", "think hard", "Thinks harder"),
-        ("Maximum", "ultrathink", "Thinks the longest"),
-    ]
+
+    /// Levels derived from the active agent's effort keywords, if any.
+    private var levels: [(label: String, keyword: String, blurb: String)] {
+        var list: [(String, String, String)] = [("Standard", "", "Answers directly")]
+        if let keywords = session.currentAgent?.effortKeywords {
+            for (label, keyword) in keywords.sorted(by: { $0.key < $1.key }) {
+                list.append((label, keyword, "Thinks \(label.lowercased())"))
+            }
+        }
+        return list
+    }
+
     var body: some View {
         Button(action: { open.toggle() }) { Pill("speedometer", session.effortLabel) }
             .buttonStyle(.plain)
-            .help("How long Claude thinks before answering")
+            .help("How long the agent thinks before answering")
             .popover(isPresented: $open, arrowEdge: .top) {
                 OptionList(title: "Effort",
-                           options: Self.levels.map { ($0.label, $0.blurb) },
+                           options: levels.map { ($0.label, $0.blurb) },
                            current: session.effortLabel) { label in
-                    if let l = Self.levels.first(where: { $0.label == label }) { session.setEffort(l.keyword, l.label) }
+                    if let l = levels.first(where: { $0.label == label }) { session.setEffort(l.keyword, l.label) }
                     open = false
                 }
             }

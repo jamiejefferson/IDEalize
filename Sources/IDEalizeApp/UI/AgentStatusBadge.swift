@@ -12,9 +12,9 @@ struct AgentStatusBadge: View {
     var body: some View {
         switch session.agentStatus {
         case .idle:     SessionStatusDot(session: session)
-        case .working:  WorkingSpinner(compact: compact, agentName: session.agentDisplayName)
-        case .waiting:  StatusPill(kind: .waiting, compact: compact, agentName: session.agentDisplayName)
-        case .complete: StatusPill(kind: .complete, compact: compact, agentName: session.agentDisplayName)
+        case .working:  WorkingSpinner(compact: compact)
+        case .waiting:  StatusPill(kind: .waiting, compact: compact)
+        case .complete: StatusPill(kind: .complete, compact: compact)
         }
     }
 }
@@ -23,14 +23,13 @@ struct AgentStatusBadge: View {
 /// action colour) so it reads as "in progress".
 private struct WorkingSpinner: View {
     let compact: Bool
-    let agentName: String
     var body: some View {
         ProgressView()
             .controlSize(.small)
             .tint(Color(red: 0.23, green: 0.51, blue: 0.96))
             .scaleEffect(compact ? 0.72 : 0.9)
             .frame(width: compact ? 16 : 20, height: compact ? 16 : 20)
-            .help("\(agentName) is working")
+            .help("Agent is working")
     }
 }
 
@@ -39,7 +38,6 @@ private struct WorkingSpinner: View {
 private struct StatusPill: View {
     let kind: AgentStatus        // .waiting or .complete
     let compact: Bool
-    let agentName: String
     @ObservedObject private var settings = AppSettings.shared
     @State private var pulse = false
 
@@ -62,8 +60,8 @@ private struct StatusPill: View {
                     pulse = true
                 }
             }
-            .help(isWaiting ? "\(agentName) asked a question — waiting on you"
-                            : "\(agentName) finished — nothing outstanding")
+            .help(isWaiting ? "Agent asked a question — waiting on you"
+                            : "Agent finished — nothing outstanding")
     }
 }
 

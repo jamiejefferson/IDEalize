@@ -2,8 +2,8 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-/// The unified Claude chat box: your latest question (condensed) on top, a
-/// gentle divider, then Claude's answer, then the input — all in one card that
+/// The unified agent chat box: your latest question (condensed) on top, a
+/// gentle divider, then the agent's answer, then the input — all in one card that
 /// floats over a blurred view of the terminal "thinking" behind it.
 struct QAChatBox: View {
     @ObservedObject var session: TerminalSession
@@ -19,20 +19,25 @@ struct QAChatBox: View {
     @State private var micBase = ""
     @State private var thanksHover = false
     @State private var keyMonitor: Any?
-    /// The highlighted option in a single-select Claude prompt. Hover moves it,
+    /// The highlighted option in a single-select agent prompt. Hover moves it,
     /// click answers immediately, Return answers the highlighted one.
     @State private var selectedOption = 1
-    /// When true, the chat region shows the Flow editor instead of the answer.
+    /// When true, the chat region shows the Flows designer instead of the answer.
     @State private var flowMode = false
     /// The flow being sketched — a single global document (like a skill), the same
-    /// in every session and tab. Persisted to the app's global flow path.
-    @StateObject private var flowStore = FlowStore()
-    /// True from sending a flow to Claude until its turn ends — drives the editor's
-    /// spinner and triggers the review reload when Claude finishes.
+    /// in every session and tab. Every chat box observes the one shared store, so
+    /// edits and agent reloads in any pane are visible in all of them (per-pane
+    /// stores used to overwrite each other's debounced saves). Persisted to the
+    /// app's global flow path.
+    @ObservedObject private var flowStore = FlowStore.shared
+    /// The guided interview that builds the flow conversation-first.
+    @StateObject private var interview = FlowsInterview()
+    /// True from sending a flow to the agent until its turn ends — drives the editor's
+    /// spinner and triggers the review reload when the agent finishes.
     @State private var reviewingFlow = false
-    /// True while Claude is carrying out the flow (the verdict-gated Run).
+    /// True while the agent is carrying out the flow (the verdict-gated Run).
     @State private var runningFlow = false
-    /// True from asking Claude to apply its review suggestions until its turn ends —
+    /// True from asking the agent to apply its review suggestions until its turn ends —
     /// drives the editor's spinner and triggers the improved-flow reload.
     @State private var improvingFlow = false
     @FocusState private var focused: Bool
@@ -86,12 +91,12 @@ struct QAChatBox: View {
         .onAppear { installDictationKey() }
         .onChange(of: session.botWorking) { _, working in
             guard !working else { return }
-            // The review turn has ended — adopt Claude's `review` from disk.
+            // The review turn has ended — adopt the agent's `review` from disk.
             if reviewingFlow { reviewingFlow = false; flowStore.reloadReview() }
-            // The run turn has ended — adopt Claude's `run` checkpoint from disk so
+            // The run turn has ended — adopt the agent's `run` checkpoint from disk so
             // the editor shows progress and can offer Resume if it stopped partway.
             if runningFlow { runningFlow = false; flowStore.reloadRun() }
-            // The improve turn has ended — adopt Claude's rewritten flow + refreshed
+            // The improve turn has ended — adopt the agent's rewritten flow + refreshed
             // review, then reopen the editor so the improvements are right there.
             if improvingFlow {
                 improvingFlow = false
@@ -103,7 +108,7 @@ struct QAChatBox: View {
     }
 
     /// A single message turn shown in the transcript — the user's question and
-    /// (once it arrives) Claude's answer to it.
+    /// (once it arrives) the agent's answer to it.
     private struct ChatTurn: Identifiable {
         let id: Int
         let question: String
@@ -227,8 +232,8 @@ struct QAChatBox: View {
         }
     }
 
-    /// Send the sketched flow to Claude for review. The pre-flight already gated
-    /// the button, so by here the structure is sound. We flush the file (Claude
+    /// Send the sketched flow to the agent for review. The pre-flight already gated
+    /// the button, so by here the structure is sound. We flush the file (the agent
     /// reads it), close the editor so the work is visible, and run `/flow-review`;
     /// `onChange(botWorking)` reloads the verdict when the turn ends.
     private func reviewFlow() {
@@ -238,8 +243,8 @@ struct QAChatBox: View {
         session.runCommand("/flow-review")
     }
 
-    /// Ask Claude to apply its own review suggestions to the flow. Flushes the file
-    /// (Claude reads it), closes the editor so the work is visible, and runs
+    /// Ask the agent to apply its own review suggestions to the flow. Flushes the file
+    /// (the agent reads it), closes the editor so the work is visible, and runs
     /// `/flow-improve`; `onChange(botWorking)` adopts the rewritten flow and reopens
     /// the editor when the turn ends.
     private func improveFlow() {
@@ -249,14 +254,35 @@ struct QAChatBox: View {
         session.runCommand("/flow-improve")
     }
 
-    /// True when the working flow is worth handing to Claude: it has steps and no
+    /// Adopt the interview-built flow and hand it to the agent to run.
+    private func runInterviewFlow(_ flow: Flow) {
+        flowStore.flow = flow
+        flowStore.flushSave()
+        sendFlow()
+    }
+
+    /// Adopt the interview-built flow and save it into the library.
+    private func saveInterviewFlow(_ flow: Flow) {
+        flowStore.flow = flow
+        flowStore.saveCurrent(named: flow.title)
+    }
+
+    /// Hand the interview over to the terminal AI. Writes the current session to
+    /// `flows-session.json` and runs `/flows` so the agent can continue the
+    /// conversation and write the resulting flow to `flow.json`.
+    private func askAgentToInterview() {
+        interview.exportSession()
+        session.runCommand("/flows")
+    }
+
+    /// True when the working flow is worth handing to the agent: it has steps and no
     /// blocking structural errors. Drives the input's send arrow in flow mode.
     private var canSendFlow: Bool {
         !flowStore.flow.flow.blocks.isEmpty &&
         !flowStore.flow.flow.validate().contains { $0.severity == .error }
     }
 
-    /// The primary "send to Claude" path for a flow: hand it over to be carried
+    /// The primary "send to the agent" path for a flow: hand it over to be carried
     /// out. Bound to the input's send arrow while in flow mode. Flushes the file,
     /// closes the editor to watch the work, and runs `/flow-run`.
     /// True when the working flow has a stopped run to pick up — the send arrow
@@ -323,12 +349,12 @@ struct QAChatBox: View {
                 Text("Welcome to IDEalize")
                     .font(chatStyle.font(size + 5, .semibold)).foregroundStyle(chatTextColor)
             }
-            Text("This is your AI workspace — no coding needed. Just tell \(session.agentDisplayName) what you'd like to do, in plain English, and it gets to work.")
+            Text("This is your AI workspace — no coding needed. Just tell your agent what you'd like to do, in plain English, and it gets to work.")
                 .font(chatStyle.font(size)).foregroundStyle(chatTextColor)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 9) {
                 welcomeBullet("sidebar.left", "On the left — your sessions and files.")
-                welcomeBullet("bubble.left.and.bubble.right.fill", "Right here — chat with \(session.agentDisplayName), your assistant.")
+                welcomeBullet("bubble.left.and.bubble.right.fill", "Right here — chat with your assistant.")
                 welcomeBullet("paintpalette", "Bottom bar — change how everything looks, any time.")
             }
             Text("Tap one to get started — or just type your own below:")
@@ -420,12 +446,12 @@ struct QAChatBox: View {
             && (session.userQuestion?.isEmpty ?? true)
     }
 
-    /// Show the "Claude is ready" greeting: the agent is loaded and idle, the chat
+    /// Show the "agent is ready" greeting: the agent is loaded and idle, the chat
     /// is blank, and we're past first-run (the welcome card owns that case). It's a
     /// returning-user confirmation that the agent is up and waiting for a prompt.
     private var showReady: Bool {
         settings.hasSeenWelcome
-            && session.runningAgentProfile != nil
+            && session.isAgentRunning
             && chatIsEmpty
             && !working
             && session.pendingPrompt == nil
@@ -442,7 +468,7 @@ struct QAChatBox: View {
                 .frame(width: 20)
                 .padding(.top, size * 0.16)
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(session.agentDisplayName) is ready")
+                Text("\(session.currentAgent?.name ?? "Agent") is ready")
                     .font(chatStyle.font(size, .semibold))
                     .foregroundStyle(chatTextColor)
                 Text("Tell it what you'd like to do, in plain English — type below to get started.")
@@ -457,8 +483,8 @@ struct QAChatBox: View {
     }
 
     /// The Service Hatch opening banner — a playful sci-fi "warning" shown in a
-    /// fresh hatch tab's chat while Claude spins up on IDEalize's own source. Gives
-    /// way to the live conversation the moment Claude's first reply lands.
+    /// fresh hatch tab's chat while the agent spins up on IDEalize's own source. Gives
+    /// way to the live conversation the moment the agent's first reply lands.
     private var hatchBanner: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "wrench.and.screwdriver.fill")
@@ -482,8 +508,8 @@ struct QAChatBox: View {
                     .font(chatStyle.font(size - 1).italic())
                     .foregroundStyle(chatStyle.secondaryTextColor)
                     .fixedSize(horizontal: false, vertical: true)
-                if session.runningAgentProfile == nil {
-                    Text("\(session.agentDisplayName) is starting…")
+                if !session.isAgentRunning {
+                    Text("Agent is starting…")
                         .font(chatStyle.font(size - 2))
                         .foregroundStyle(chatStyle.secondaryTextColor.opacity(0.8))
                         .padding(.top, 2)
@@ -494,22 +520,22 @@ struct QAChatBox: View {
         .transition(.opacity)
     }
 
-    /// Placeholder hint for the input: a flow note, or — when Claude is showing a
+    /// Placeholder hint for the input: a flow note, or — when the agent is showing a
     /// single-pick prompt — that you can type your own answer instead of choosing.
     private var inputPlaceholder: String? {
-        if flowMode { return "Add a note for \(session.agentDisplayName) (optional)…" }
+        if flowMode { return "Add a note for the agent (optional)…" }
         if let p = session.pendingPrompt, !p.isMultiSelect { return "Pick an option, or type your own answer…" }
         return nil
     }
 
-    /// A live, in-flight Claude turn. `awaitingReply` covers the moment right after
-    /// you hit send, before Claude has drawn its on-screen "working" marker — so the
-    /// working animation appears the instant you send, beneath your new message.
+    /// A live, in-flight agent turn. `awaitingReply` covers the moment right after
+    /// you hit send, before the agent has drawn its on-screen "working" marker — so
+    /// the working animation appears the instant you send, beneath your new message.
     private var isActiveTurn: Bool {
         session.pendingPrompt == nil && (working || session.awaitingReply)
     }
 
-    /// Claude's finished reply, rendered as markdown with a copy button.
+    /// The agent's finished reply, rendered as markdown with a copy button.
     private func answerBubble(_ a: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
@@ -542,9 +568,9 @@ struct QAChatBox: View {
         )
     }
 
-    /// The inline "what Claude's doing" line shown above the pinned answer while a
+    /// The inline "what the agent's doing" line shown above the pinned answer while a
     /// turn runs, beneath the newest message: a pulsing spark, the working status
-    /// (time · tokens), and Claude's current tip. The reply itself streams into the
+    /// (time · tokens), and the agent's current tip. The reply itself streams into the
     /// answer bubble just above, so this stays a compact "still working" line.
     private var workingBanner: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -583,8 +609,8 @@ struct QAChatBox: View {
         )
     }
 
-    /// Claude is asking a question — show it with answer buttons.
-    private func promptView(_ prompt: ClaudePrompt) -> some View {
+    /// The agent is asking a question — show it with answer buttons.
+    private func promptView(_ prompt: AgentPrompt) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "questionmark.circle.fill")
@@ -626,9 +652,9 @@ struct QAChatBox: View {
         .onChange(of: prompt.question) { _, _ in selectedOption = 1 }
     }
 
-    /// A tappable checkbox option (multi-select). Tapping toggles it in Claude;
+    /// A tappable checkbox option (multi-select). Tapping toggles it in the agent;
     /// the screen re-parses and the tick updates.
-    private func checkboxRow(_ opt: ClaudePrompt.Option) -> some View {
+    private func checkboxRow(_ opt: AgentPrompt.Option) -> some View {
         let on = opt.checkState == .checked
         return Button(action: { session.togglePromptOption(opt) }) {
             HStack(spacing: 11) {
@@ -650,7 +676,7 @@ struct QAChatBox: View {
     /// A single-pick / action option (sends its number and proceeds). The
     /// highlighted row tracks `selectedOption`; hovering moves the highlight,
     /// clicking answers immediately, and Return answers the highlighted one.
-    private func actionRow(_ opt: ClaudePrompt.Option, selected: Bool) -> some View {
+    private func actionRow(_ opt: AgentPrompt.Option, selected: Bool) -> some View {
         Button(action: { session.answerPrompt(opt) }) {
             HStack(spacing: 10) {
                 Text("\(opt.number)")
@@ -676,7 +702,7 @@ struct QAChatBox: View {
         .onHover { if $0 { selectedOption = opt.number } }
     }
 
-    /// Shown when Claude is sitting on an interactive prompt the chat can't
+    /// Shown when the agent is sitting on an interactive prompt the chat can't
     /// render (an arrow-key menu, a trust dialog). Keeps the chat honest about
     /// the live state and sends you to the terminal to answer.
     private var terminalAttentionView: some View {
@@ -684,7 +710,7 @@ struct QAChatBox: View {
             Image(systemName: "keyboard.badge.ellipsis")
                 .font(.system(size: 30))
                 .foregroundStyle(Color(theme.accent)).opacity(0.85)
-            Text("\(session.agentDisplayName) is waiting for you in the terminal")
+            Text("\(session.currentAgent?.name ?? "Agent") is waiting for you in the terminal")
                 .font(chatStyle.font(size, .medium))
                 .foregroundStyle(chatTextColor)
                 .multilineTextAlignment(.center)
@@ -718,20 +744,19 @@ struct QAChatBox: View {
                         flowStore: flowStore, focus: { focused = true })
                 .tourTarget(.skills)
 
-            // Flow mode: the builder lives inside this same container, which has
-            // grown upward to hold it. It scrolls; the note field stays pinned at
-            // the bottom so you can add an instruction to send with the flow.
+            // Flow mode: the conversation-first designer lives inside this same
+            // container, which has grown upward to hold it. The interview fills the
+            // body; the note field stays pinned at the bottom so you can add an
+            // instruction to send with the flow.
             if flowMode {
                 Rectangle().fill(Color(theme.border).opacity(0.45)).frame(height: 1)
                     .padding(.vertical, 1)
-                ScrollView {
-                    FlowEditorView(flow: $flowStore.flow,
-                                   onReview: reviewFlow, reviewing: reviewingFlow,
-                                   onImprove: improveFlow, improving: improvingFlow)
-                        .padding(.vertical, 2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                FlowsBuilderView(interview: interview,
+                                 onRun: { flow in runInterviewFlow(flow) },
+                                 onSave: { flow in saveInterviewFlow(flow) },
+                                 onAskAgent: askAgentToInterview,
+                                 agentAvailable: session.isAgentRunning)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Rectangle().fill(Color(theme.border).opacity(0.45)).frame(height: 1)
                     .padding(.vertical, 1)
             }
@@ -792,9 +817,9 @@ struct QAChatBox: View {
                                 .allowsHitTesting(false)
                         }
                     }
-                // While Claude is working, the send button becomes a Stop button —
+                // While the agent is working, the send button becomes a Stop button —
                 // cancelling the in-flight prompt (ESC). Otherwise it sends (⌘↩),
-                // or in flow mode hands the whole flow to Claude.
+                // or in flow mode hands the whole flow to the agent.
                 if session.botWorking && !flowMode {
                     Button(action: { session.interrupt() }) {
                         Image(systemName: "stop.fill")
@@ -818,7 +843,7 @@ struct QAChatBox: View {
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(flowMode ? !canSendFlow : text.isEmpty)
                     .help(flowMode ? (flowIsResumable ? "Resume this flow where it left off"
-                                                      : "Send this flow to \(session.agentDisplayName) to carry out") : "Send")
+                                                      : "Send this flow to the agent to carry out") : "Send")
                 }
             }
             miniMenu
@@ -916,7 +941,7 @@ struct QAChatBox: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { thanksHover = $0 }
-                .help("Say thanks — \(session.agentDisplayName) replies with just an emoji, no long response")
+                .help("Say thanks — Claude replies with just an emoji, no long response")
             }
         }
     }
@@ -994,11 +1019,11 @@ struct QAChatBox: View {
         NSPasteboard.general.setString(s, forType: .string)
     }
 
-    /// Return key behaviour: if a single-select Claude prompt is up and you
+    /// Return key behaviour: if a single-select agent prompt is up and you
     /// haven't typed anything, answer the highlighted option; otherwise send the
     /// message (honouring the return-to-send setting).
     private func onReturn() {
-        // In flow mode, Return hands the flow to Claude (honouring return-to-send),
+        // In flow mode, Return hands the flow to the agent (honouring return-to-send),
         // so the note field doesn't swallow the primary action.
         if flowMode {
             if settings.returnToSend { sendFlow() }
@@ -1015,16 +1040,16 @@ struct QAChatBox: View {
 
     private func send() {
         let msg = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Answering a Claude prompt with a typed custom answer: deliver it verbatim,
+        // Answering an agent prompt with a typed custom answer: deliver it verbatim,
         // with no effort keyword or attachment decoration that would corrupt it.
         // (Pair with clicking the prompt's "write your own" option first, which
-        // opens Claude's text field.)
+        // opens the agent's text field.)
         if session.pendingPrompt != nil, !msg.isEmpty {
             session.submitInput(msg)
             text = ""
             return
         }
-        // Attached files (shown as tags) are sent as their paths so Claude can act on them.
+        // Attached files (shown as tags) are sent as their paths so the agent can act on them.
         let attachPaths = session.pendingAttachments
             .map { $0.path.contains(" ") ? "\"\($0.path)\"" : $0.path }
             .joined(separator: " ")
@@ -1040,7 +1065,7 @@ struct QAChatBox: View {
 }
 
 /// A little critter that runs on the spot while the ground scrolls beneath it —
-/// a charmingly alive "Claude is working" indicator. One critter per task: the
+/// a charmingly alive "agent is working" indicator. One critter per task: the
 /// animal is chosen from a stable `seed` so it doesn't change mid-turn. When the
 /// critter has a run-cycle (multiple frames) those are played as a sprite loop;
 /// otherwise a single still image is shown with a gentle body bob. `tint` only
@@ -1133,12 +1158,18 @@ struct WorkingCritter: View {
     }
 }
 
-/// A lightweight markdown renderer for Claude's prose. Handles fenced code
+/// A lightweight markdown renderer for the agent's prose. Handles fenced code
 /// blocks (monospace), headings, bullet lists, and inline bold/italic/code.
 struct MarkdownText: View {
     let text: String
     var baseSize: CGFloat = 13
     @ObservedObject private var settings = AppSettings.shared
+    /// The parsed blocks, with inline markdown already resolved per line. The
+    /// parse depends only on `text` — never on appearance settings — so it runs
+    /// once per text change, not on every body evaluation (this view observes
+    /// AppSettings, and an appearance tick used to re-split and re-parse the
+    /// whole document, building an AttributedString per line each time).
+    @State private var parsed: [Block]
     private var theme: Theme { settings.theme }
     /// The per-panel Chat appearance (typography + colour).
     private var style: PanelStyle { settings.panelStyle(.chat, base: baseSize, background: theme.background) }
@@ -1148,23 +1179,42 @@ struct MarkdownText: View {
     }
     private var ls: CGFloat { CGFloat(settings.chatLineSpacing) + style.lineSpacing }
 
-    private enum Block: Identifiable {
-        case prose(String)
-        case code(String)
-        var id: String {
-            switch self {
-            case .prose(let s): return "p" + s
-            case .code(let s): return "c" + s
-            }
+    init(text: String, baseSize: CGFloat = 13) {
+        self.text = text
+        self.baseSize = baseSize
+        self._parsed = State(initialValue: Self.parse(text))
+    }
+
+    /// A parsed block. Identity is positional (its index), never the content —
+    /// content-keyed ids collided whenever two paragraphs had identical text.
+    private struct Block: Identifiable {
+        enum Content {
+            case prose([Line])
+            case code(String)
         }
+        let id: Int
+        let content: Content
+    }
+
+    /// A prose line with its inline markdown already resolved (headings,
+    /// bullets, and blanks pre-classified in `parse`).
+    private struct Line: Identifiable {
+        enum Content {
+            case blank
+            case heading(Int, AttributedString)
+            case bullet(AttributedString)
+            case plain(AttributedString)
+        }
+        let id: Int
+        let content: Content
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: max(4, AppSettings.shared.chatLineSpacing + 4)) {
-            ForEach(blocks) { block in
-                switch block {
-                case .prose(let s):
-                    proseView(s)
+            ForEach(parsed) { block in
+                switch block.content {
+                case .prose(let lines):
+                    proseView(lines)
                 case .code(let s):
                     Text(s)
                         .font(settings.mono(baseSize - 2))
@@ -1177,9 +1227,11 @@ struct MarkdownText: View {
                 }
             }
         }
+        .onChange(of: text) { _, new in parsed = Self.parse(new) }
     }
 
-    private var blocks: [Block] {
+    /// Split the document into blocks and resolve every line's inline markdown.
+    private static func parse(_ text: String) -> [Block] {
         var result: [Block] = []
         let parts = text.components(separatedBy: "```")
         for (i, part) in parts.enumerated() {
@@ -1187,40 +1239,57 @@ struct MarkdownText: View {
                 var code = part
                 if let nl = code.firstIndex(of: "\n") { code = String(code[code.index(after: nl)...]) }
                 let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { result.append(.code(trimmed)) }
+                if !trimmed.isEmpty { result.append(Block(id: result.count, content: .code(trimmed))) }
             } else {
                 let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { result.append(.prose(trimmed)) }
+                if !trimmed.isEmpty { result.append(Block(id: result.count, content: .prose(parseLines(trimmed)))) }
             }
         }
-        return result.isEmpty ? [.prose(text)] : result
+        return result.isEmpty ? [Block(id: 0, content: .prose(parseLines(text)))] : result
+    }
+
+    private static func parseLines(_ s: String) -> [Line] {
+        s.components(separatedBy: "\n").enumerated().map { i, raw in
+            let t = raw.trimmingCharacters(in: .whitespaces)
+            let content: Line.Content
+            if t.isEmpty {
+                content = .blank
+            } else if let level = headingLevel(t) {
+                content = .heading(level, inline(String(t.drop(while: { $0 == "#" || $0 == " " }))))
+            } else if t.hasPrefix("- ") || t.hasPrefix("* ") {
+                content = .bullet(inline(String(t.dropFirst(2))))
+            } else {
+                content = .plain(inline(t))
+            }
+            return Line(id: i, content: content)
+        }
     }
 
     @ViewBuilder
-    private func proseView(_ s: String) -> some View {
+    private func proseView(_ lines: [Line]) -> some View {
         VStack(alignment: .leading, spacing: max(2, ls)) {
-            ForEach(Array(s.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
+            ForEach(lines) { line in
                 lineView(line)
             }
         }
     }
 
     @ViewBuilder
-    private func lineView(_ line: String) -> some View {
-        let t = line.trimmingCharacters(in: .whitespaces)
-        if t.isEmpty {
+    private func lineView(_ line: Line) -> some View {
+        switch line.content {
+        case .blank:
             Spacer().frame(height: 2)
-        } else if let level = headingLevel(t) {
-            Text(inline(String(t.drop(while: { $0 == "#" || $0 == " " }))))
+        case .heading(let level, let attr):
+            Text(attr)
                 .font(style.font(baseSize + (level == 1 ? 4 : (level == 2 ? 2 : 1)), .semibold))
                 .tracking(style.tracking)
                 .foregroundStyle(resolvedTextColor)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-        } else if t.hasPrefix("- ") || t.hasPrefix("* ") {
+        case .bullet(let attr):
             HStack(alignment: .top, spacing: 7) {
                 Text("•").foregroundStyle(Color(theme.secondaryForeground))
-                Text(inline(String(t.dropFirst(2))))
+                Text(attr)
                     .font(style.font(baseSize))
                     .tracking(style.tracking)
                     .lineSpacing(ls)
@@ -1228,8 +1297,8 @@ struct MarkdownText: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
-        } else {
-            Text(inline(t))
+        case .plain(let attr):
+            Text(attr)
                 .font(style.font(baseSize))
                 .tracking(style.tracking)
                 .lineSpacing(ls)
@@ -1239,13 +1308,13 @@ struct MarkdownText: View {
         }
     }
 
-    private func headingLevel(_ t: String) -> Int? {
+    private static func headingLevel(_ t: String) -> Int? {
         guard t.hasPrefix("#") else { return nil }
         let hashes = t.prefix(while: { $0 == "#" }).count
         return (hashes >= 1 && hashes <= 6 && t.dropFirst(hashes).hasPrefix(" ")) ? hashes : nil
     }
 
-    private func inline(_ s: String) -> AttributedString {
+    private static func inline(_ s: String) -> AttributedString {
         (try? AttributedString(
             markdown: s,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))

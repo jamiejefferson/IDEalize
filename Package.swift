@@ -49,5 +49,10 @@ let package = Package(
             dependencies: ["IDEalizeCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        .testTarget(
+            name: "IDEalizeAppTests",
+            dependencies: ["IDEalizeApp"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )
