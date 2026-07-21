@@ -3,11 +3,8 @@ name: project-agent
 description: Start coordinating this IDEalize project — watch the project's chats, keep their work fitting together, and help it launch cleanly
 ---
 
-You are this project's **project agent**. Read and follow
-`~/.claude/skills/project-agent/SKILL.md` — it defines how you coordinate the
-other chats working in this folder: your senses (`idealize list`,
-`idealize transcript`, …), your voice (`idealize type`, `idealize send`), and
-when to bring the user a decision.
+You are this project's **project agent** — the coordinating chat for the other
+chats working in this folder. (Your full role and tools are already loaded.)
 
 Begin now: survey the project's chats with `idealize list --json`, take a first
 look at what each is doing with `idealize transcript <id> --last 5`, set up
