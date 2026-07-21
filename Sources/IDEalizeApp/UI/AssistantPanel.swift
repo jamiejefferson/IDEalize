@@ -2,6 +2,17 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+/// Scales the chat's type down proportionally without touching the user's own
+/// font-size setting — mini-mode sets this so a "large" chat stays relatively
+/// large but fits the narrow column. Defaults to 1 (no scaling) everywhere else.
+private struct ChatFontScaleKey: EnvironmentKey { static let defaultValue: CGFloat = 1 }
+extension EnvironmentValues {
+    var chatFontScale: CGFloat {
+        get { self[ChatFontScaleKey.self] }
+        set { self[ChatFontScaleKey.self] = newValue }
+    }
+}
+
 /// The unified agent chat box: your latest question (condensed) on top, a
 /// gentle divider, then the agent's answer, then the input — all in one card that
 /// floats over a blurred view of the terminal "thinking" behind it.
@@ -49,9 +60,11 @@ struct QAChatBox: View {
     /// earlier turns isn't yanked back down.
     @State private var atBottom = true
 
+    /// Proportional type scale (1 = normal; mini-mode passes a smaller value).
+    @Environment(\.chatFontScale) private var chatFontScale
     private var theme: Theme { settings.theme }
-    private var size: CGFloat { settings.chatFontSize }
-    private var chatStyle: PanelStyle { settings.panelStyle(.chat, base: settings.chatFontSize, background: theme.background) }
+    private var size: CGFloat { settings.chatFontSize * chatFontScale }
+    private var chatStyle: PanelStyle { settings.panelStyle(.chat, base: settings.chatFontSize * chatFontScale, background: theme.background) }
     /// Chat text colour: the per-panel override if set, else the chat setting.
     private var chatTextColor: Color {
         if let c = NSColor(hex: settings.appearance(.chat).textColorHex) { return Color(c) }

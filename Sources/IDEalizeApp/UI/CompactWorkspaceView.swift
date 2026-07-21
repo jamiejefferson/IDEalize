@@ -13,6 +13,8 @@ struct CompactWorkspaceView: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject private var settings = AppSettings.shared
     @State private var active: MiniTab = .chat
+    @State private var renaming: WorkspaceTab?
+    @State private var renameText = ""
 
     private var theme: Theme { settings.theme }
 
@@ -26,6 +28,7 @@ struct CompactWorkspaceView: View {
             MiniTabBar(active: $active, workspace: workspace)
         }
         .background(Color(theme.background))
+        .sheet(item: $renaming) { tab in renameSheet(tab) }
         // Opening a file (from the explorer or elsewhere) or the Appearance
         // inspector surfaces that panel; closing it returns to the chat.
         .onChange(of: workspace.showViewer) {
@@ -109,6 +112,36 @@ struct CompactWorkspaceView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        // Right-click the current chat name to rename it, mirroring the rail.
+        .contextMenu {
+            if let tab = workspace.selectedTab {
+                Button("Rename Chat…") {
+                    renameText = tab.customName ?? ""
+                    renaming = tab
+                }
+            }
+        }
+    }
+
+    private func renameSheet(_ tab: WorkspaceTab) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Rename Chat").font(settings.ui(15, .semibold))
+            TextField("Chat name", text: $renameText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 260)
+                .onSubmit { commitRename(tab) }
+            HStack {
+                Spacer()
+                Button("Cancel") { renaming = nil }
+                Button("Rename") { commitRename(tab) }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+    }
+
+    private func commitRename(_ tab: WorkspaceTab) {
+        workspace.renameTab(tab, to: renameText)
+        renaming = nil
     }
 
     private var currentChatName: String {
@@ -138,7 +171,11 @@ struct CompactWorkspaceView: View {
         switch active {
         case .chat:
             if let session = workspace.focusedSession {
-                LeafPaneView(session: session, workspace: workspace).id(session.id)
+                LeafPaneView(session: session, workspace: workspace, compact: true)
+                    .id(session.id)
+                    // Shrink the chat type proportionally so it fits the narrow
+                    // column without overriding the user's own size setting.
+                    .environment(\.chatFontScale, 0.72)
             } else {
                 EmptyState(workspace: workspace)
             }
@@ -190,14 +227,15 @@ struct MiniTabBar: View {
     @ObservedObject private var settings = AppSettings.shared
 
     private var theme: Theme { settings.theme }
-    private let primary: [MiniTab] = [.chat, .sessions, .files, .viewer]
+    // Every destination is a direct icon now — Appearance included. Exiting
+    // mini-mode is the header's expand control, so there's no overflow menu.
+    private let primary: [MiniTab] = [.chat, .sessions, .files, .viewer, .appearance]
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(primary) { tab in
                 tabButton(tab)
             }
-            overflow
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -214,28 +252,6 @@ struct MiniTabBar: View {
         }
         .buttonStyle(.iconHover)
         .help(tab.label)
-    }
-
-    private var overflow: some View {
-        let on = active == .appearance
-        return Menu {
-            Button {
-                withAnimation(.easeOut(duration: 0.22)) { active = .appearance }
-            } label: {
-                Label("Appearance", systemImage: "paintpalette")
-            }
-            Divider()
-            Button {
-                MiniModeManager.shared.toggle()
-            } label: {
-                Label("Exit Mini Mode", systemImage: "arrow.up.left.and.arrow.down.right")
-            }
-        } label: {
-            label(icon: "ellipsis", text: "More", on: on)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(maxWidth: .infinity)
     }
 
     private func label(icon: String, text: String, on: Bool) -> some View {
