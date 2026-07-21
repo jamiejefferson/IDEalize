@@ -225,6 +225,12 @@ final class AppSettings: ObservableObject {
         get { defaults.object(forKey: "miniModePreZoomed") as? Bool ?? false }
         set { defaults.set(newValue, forKey: "miniModePreZoomed") }
     }
+    /// Whether the window was in native full-screen before mini-mode, so exiting
+    /// mini-mode returns to full-screen rather than a windowed frame.
+    var miniModePreFullScreen: Bool {
+        get { defaults.object(forKey: "miniModePreFullScreen") as? Bool ?? false }
+        set { defaults.set(newValue, forKey: "miniModePreFullScreen") }
+    }
 
     /// Snapshot of the session rail (Projects → Chats) for restore-on-launch.
     @Published var projectSnapshot: [PersistedProject] {

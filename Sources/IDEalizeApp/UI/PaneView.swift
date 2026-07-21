@@ -30,6 +30,9 @@ struct PaneView: View {
 struct LeafPaneView: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var workspace: Workspace
+    /// Mini-mode: render the chat full-bleed (no floating card, no terminal
+    /// bleed-through) so it reads as a proper mobile chat in the narrow column.
+    var compact: Bool = false
 
     private var isFocused: Bool { workspace.focusedSessionID == session.id }
     private var isSplit: Bool { (workspace.selectedTab?.sessions.count ?? 1) > 1 }
@@ -62,7 +65,9 @@ struct LeafPaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            paneHeader
+            // In mini-mode the compact header already carries the chat name and
+            // controls, so the pane's own title bar would just be clutter.
+            if !compact { paneHeader }
             if tuiActive {
                 chatLayout
             } else {
@@ -164,9 +169,11 @@ struct LeafPaneView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // `opaque: true` treats the content edges as solid so the blur
                 // doesn't fade to a grey halo at the pane edges; clip to bounds.
-                .blur(radius: backdropBlur, opaque: true)
+                .blur(radius: compact ? 0 : backdropBlur, opaque: true)
                 .clipped()
-                .opacity(session.revealTerminal ? 1 : 0.5)
+                // Mini-mode hides the terminal entirely behind the full-bleed
+                // chat (no translucent bleed-through); tap the toggle to reveal it.
+                .opacity(session.revealTerminal ? 1 : (compact ? 0 : 0.5))
                 .allowsHitTesting(session.revealTerminal)
                 .animation(Self.modeAnim, value: session.revealTerminal)
 
@@ -205,12 +212,19 @@ struct LeafPaneView: View {
 
     /// The chat overlay: the chat panel as a translucent card over the blurred
     /// terminal.
-    private var chatCard: some View {
-        QAChatBox(session: session, workspace: workspace, docked: true)
-            .clipShape(RoundedRectangle(cornerRadius: 18))
-            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(theme.border), lineWidth: 1))
-            .shadow(color: .black.opacity(settings.chatShadowOpacity), radius: 26, y: 12)
-            .padding(16)
+    @ViewBuilder private var chatCard: some View {
+        if compact {
+            // Full-bleed chat: fills the narrow column, opaque so the hidden
+            // terminal never shows through. No card inset / rounding / shadow.
+            QAChatBox(session: session, workspace: workspace, docked: true)
+                .background(Color(theme.background))
+        } else {
+            QAChatBox(session: session, workspace: workspace, docked: true)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(theme.border), lineWidth: 1))
+                .shadow(color: .black.opacity(settings.chatShadowOpacity), radius: 26, y: 12)
+                .padding(16)
+        }
     }
 
     /// Plain shell mode: command-block history above a live terminal, with the
