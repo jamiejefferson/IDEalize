@@ -5,8 +5,14 @@ struct WorkspaceView: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var settings = AppSettings.shared
     @ObservedObject private var layout = PanelLayout.shared
+    @ObservedObject private var miniMode = MiniModeManager.shared
 
     private var theme: Theme { settings.theme }
+
+    /// Below this content width the layout reflows to the compact, mobile-style
+    /// single column (spec §5.3). Mini-mode docks the window narrower than this;
+    /// widening it manually past the breakpoint restores the desktop layout.
+    private static let compactBreakpoint: CGFloat = 560
 
     /// The first session with an unrecognised agent awaiting setup, if any.
     private var sessionAwaitingSetup: TerminalSession? {
@@ -22,51 +28,22 @@ struct WorkspaceView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            titleBar
-            AnnouncementBanner()
-            // A plain HStack with hairline dividers — HSplitView's native divider
-            // renders as a hard black line, which reads as "heavy".
-            HStack(spacing: 0) {
-                if workspace.showSessionRail {
-                    SessionRail(workspace: workspace).frame(width: layout.railWidth)
-                        .tourTarget(.sessions)
-                    ResizeHandle(width: $layout.railWidth, range: 150...320)
-                }
-                if workspace.showFileExplorer {
-                    FileExplorerPanel(workspace: workspace).frame(width: layout.filesWidth)
-                        .tourTarget(.files)
-                    ResizeHandle(width: $layout.filesWidth, range: 150...380)
-                }
-                if workspace.showViewer {
-                    FileViewerPanel(workspace: workspace).frame(width: layout.viewerWidth)
-                    ResizeHandle(width: $layout.viewerWidth, range: 260...800)
-                }
-                VStack(spacing: 0) {
-                    Group {
-                        if let tab = workspace.selectedTab {
-                            PaneView(node: tab.root, workspace: workspace)
-                                .id(tab.id)
-                        } else {
-                            EmptyState(workspace: workspace)
-                        }
-                    }
-                    BottomToolbar(workspace: workspace)
-                        .tourTarget(.toolbar)
-                }
-                .frame(minWidth: 420, maxWidth: .infinity)
-                // The Appearance inspector docks as a real trailing column (not a
-                // float over the pane). Overlaying it on top of the live terminal
-                // NSView let SwiftTerm swallow the scroll wheel in the panel's
-                // region; as its own column there's no terminal view beneath it, so
-                // it scrolls — and the terminal stays fully interactive.
-                if workspace.showAppearance {
-                    AppearancePanel(workspace: workspace)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+        GeometryReader { proxy in
+            Group {
+                if proxy.size.width < Self.compactBreakpoint {
+                    CompactWorkspaceView(workspace: workspace)
+                } else {
+                    desktopBody
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 900, minHeight: 460)
+        // Mini-mode needs the window to actually shrink to a narrow column; the
+        // 900-wide floor (propagated to the window's min content size) would clamp
+        // it. Relax the floor while in mini-mode so the docked column can reach
+        // its ~320 target and the compact layout can engage.
+        .frame(minWidth: miniMode.isEnabled ? MiniModeManager.minWidth : 900,
+               minHeight: miniMode.isEnabled ? 380 : 460)
         .background(Color(settings.theme.background))
         .background(WindowConfigurator(background: settings.theme.chrome, isDark: settings.theme.isDark))
         .animation(.easeOut(duration: 0.18), value: workspace.showAppearance)
@@ -132,6 +109,54 @@ struct WorkspaceView: View {
         .onChange(of: settings.panelAppearances) { throttledReapplyAppearance() }
     }
 
+    /// The full desktop layout: title bar, then the resizable multi-column split.
+    private var desktopBody: some View {
+        VStack(spacing: 0) {
+            titleBar
+            AnnouncementBanner()
+            // A plain HStack with hairline dividers — HSplitView's native divider
+            // renders as a hard black line, which reads as "heavy".
+            HStack(spacing: 0) {
+                if workspace.showSessionRail {
+                    SessionRail(workspace: workspace).frame(width: layout.railWidth)
+                        .tourTarget(.sessions)
+                    ResizeHandle(width: $layout.railWidth, range: 150...320)
+                }
+                if workspace.showFileExplorer {
+                    FileExplorerPanel(workspace: workspace).frame(width: layout.filesWidth)
+                        .tourTarget(.files)
+                    ResizeHandle(width: $layout.filesWidth, range: 150...380)
+                }
+                if workspace.showViewer {
+                    FileViewerPanel(workspace: workspace).frame(width: layout.viewerWidth)
+                    ResizeHandle(width: $layout.viewerWidth, range: 260...800)
+                }
+                VStack(spacing: 0) {
+                    Group {
+                        if let tab = workspace.selectedTab {
+                            PaneView(node: tab.root, workspace: workspace)
+                                .id(tab.id)
+                        } else {
+                            EmptyState(workspace: workspace)
+                        }
+                    }
+                    BottomToolbar(workspace: workspace)
+                        .tourTarget(.toolbar)
+                }
+                .frame(minWidth: 420, maxWidth: .infinity)
+                // The Appearance inspector docks as a real trailing column (not a
+                // float over the pane). Overlaying it on top of the live terminal
+                // NSView let SwiftTerm swallow the scroll wheel in the panel's
+                // region; as its own column there's no terminal view beneath it, so
+                // it scrolls — and the terminal stays fully interactive.
+                if workspace.showAppearance {
+                    AppearancePanel(workspace: workspace)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+        }
+    }
+
     @State private var lastAppearanceApply = Date.distantPast
     @State private var appearanceApplyTask: Task<Void, Never>?
 
@@ -167,7 +192,7 @@ struct WorkspaceView: View {
 
 /// A transparent AppKit view that lets a click-drag move the window. Scoped to
 /// the title bar so it never hijacks gestures elsewhere (e.g. the chat resize).
-private struct WindowDragBar: NSViewRepresentable {
+struct WindowDragBar: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { DragView() }
     func updateNSView(_ nsView: NSView, context: Context) {}
 
@@ -442,7 +467,7 @@ private struct WindowConfigurator: NSViewRepresentable {
     }
 }
 
-private struct EmptyState: View {
+struct EmptyState: View {
     @ObservedObject var workspace: Workspace
 
     @ObservedObject private var settings = AppSettings.shared

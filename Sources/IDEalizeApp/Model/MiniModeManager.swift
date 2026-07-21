@@ -94,6 +94,13 @@ final class MiniModeManager: ObservableObject {
             height: visible.height
         )
 
+        // Drop the window's minimum content size *now*, synchronously: the root
+        // view's `.frame(minWidth:)` propagates to `contentMinSize`, and while
+        // that floor is still 900 (SwiftUI only relaxes it on the next render)
+        // AppKit would clamp this resize back up. Setting it here lets the column
+        // actually reach its narrow target; SwiftUI then reconciles to the same
+        // value once `isEnabled` re-renders.
+        window.contentMinSize = NSSize(width: Self.minWidth, height: 380)
         window.setFrame(targetFrame, display: true, animate: true)
         window.level = AppSettings.shared.miniModeAlwaysOnTop ? .floating : .normal
 
@@ -101,6 +108,8 @@ final class MiniModeManager: ObservableObject {
     }
 
     private func disable(window: NSWindow) {
+        // Let the window grow back before SwiftUI restores the 900 floor.
+        window.contentMinSize = NSSize(width: Self.minWidth, height: 380)
         if let frame = savedFrame ?? AppSettings.shared.miniModePreFrame {
             window.setFrame(frame, display: true, animate: true)
             let shouldZoom = savedIsZoomed ?? AppSettings.shared.miniModePreZoomed

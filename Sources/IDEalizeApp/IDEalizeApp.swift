@@ -99,7 +99,12 @@ struct IDEalizeCommands: Commands {
             Button("Re-run Last Command") { rerunLast() }
                 .keyboardShortcut("r", modifiers: [.control])
         }
-        CommandMenu("View") {
+        // Inject into the standard "View" menu rather than declaring our own
+        // CommandMenu("View"): a second CommandMenu with that title sits alongside
+        // AppKit's built-in View menu instead of merging, giving two "View" menus
+        // in the bar. The .sidebar placement lands these items in the one real
+        // View menu.
+        CommandGroup(after: .sidebar) {
             Button(miniMode.isEnabled ? "Exit Mini Mode" : "Enter Mini Mode") {
                 miniMode.toggle()
             }
