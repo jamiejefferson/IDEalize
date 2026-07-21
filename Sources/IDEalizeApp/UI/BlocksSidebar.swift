@@ -43,15 +43,13 @@ private struct SessionBlocks: View {
                 Spacer()
             }.padding()
         } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(session.blocks.reversed()) { block in
-                            BlockRow(block: block, session: session)
-                        }
+            ScrollView {
+                LazyVStack(spacing: 4) {
+                    ForEach(session.blocks.reversed()) { block in
+                        BlockRow(block: block, session: session)
                     }
-                    .padding(8)
                 }
+                .padding(8)
             }
         }
     }

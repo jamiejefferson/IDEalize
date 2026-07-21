@@ -8,6 +8,19 @@ struct WorkspaceView: View {
 
     private var theme: Theme { settings.theme }
 
+    /// The first session with an unrecognised agent awaiting setup, if any.
+    private var sessionAwaitingSetup: TerminalSession? {
+        workspace.allSessions.first { $0.pendingAgentSetup != nil }
+    }
+
+    /// Binding for the setup sheet: presents when a session reports an unknown agent.
+    private var sessionAwaitingSetupBinding: Binding<TerminalSession?> {
+        Binding(
+            get: { sessionAwaitingSetup },
+            set: { _ in }   // dismissal handled by the sheet's save/skip actions
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             titleBar
@@ -85,10 +98,61 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.pendingWorkflow) { wf in
             WorkflowSheet(workflow: wf, workspace: workspace)
         }
+        .sheet(item: $workspace.pendingProjectAgentPrompt) { prompt in
+            ProjectAgentPromptSheet(
+                projectName: prompt.displayName,
+                onStart: {
+                    workspace.openProjectAgent(forProject: prompt.path)
+                    workspace.pendingProjectAgentPrompt = nil
+                },
+                onDismiss: {
+                    // "Not now" settles the suggestion for this project so it
+                    // doesn't reappear as more chats open this run.
+                    workspace.dismissedProjectAgentSuggestions.insert(prompt.path)
+                    workspace.pendingProjectAgentPrompt = nil
+                }
+            )
+        }
+        .sheet(item: sessionAwaitingSetupBinding) { session in
+            AgentSetupSheet(
+                binary: session.pendingAgentSetup ?? "agent",
+                onSave: { profile in
+                    AgentProfileStore.shared.save(profile)
+                    session.currentAgent = CustomAgentAdapter(profile: profile)
+                    session.completeAgentSetup()
+                },
+                onSkip: {
+                    session.completeAgentSetup()
+                }
+            )
+        }
         .onChange(of: settings.themeName) { workspace.reapplyAppearance() }
         .onChange(of: settings.fontName) { workspace.reapplyAppearance() }
         .onChange(of: settings.fontSize) { workspace.reapplyAppearance() }
-        .onChange(of: settings.panelAppearances) { workspace.reapplyAppearance() }
+        .onChange(of: settings.panelAppearances) { throttledReapplyAppearance() }
+    }
+
+    @State private var lastAppearanceApply = Date.distantPast
+    @State private var appearanceApplyTask: Task<Void, Never>?
+
+    /// `reapplyAppearance()` re-themes EVERY live terminal — far too expensive
+    /// to run per tick of an Appearance-inspector colour drag. Throttle to at
+    /// most one apply per ~100ms, with a trailing apply so the drag's final
+    /// state always lands on the terminals.
+    private func throttledReapplyAppearance() {
+        appearanceApplyTask?.cancel()
+        let wait = 0.1 - Date().timeIntervalSince(lastAppearanceApply)
+        if wait <= 0 {
+            lastAppearanceApply = Date()
+            workspace.reapplyAppearance()
+        } else {
+            appearanceApplyTask = Task {
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                lastAppearanceApply = Date()
+                workspace.reapplyAppearance()
+            }
+        }
     }
 
     /// A unified chrome strip across the top, behind the traffic lights. Dragging
@@ -109,6 +173,45 @@ private struct WindowDragBar: NSViewRepresentable {
 
     private final class DragView: NSView {
         override var mouseDownCanMoveWindow: Bool { true }
+    }
+}
+
+/// A one-time, friendly modal offered the moment a project gains a second chat:
+/// a project agent can sit alongside the chats and keep their work in sync.
+/// Replaces the old standing rail banner — same offer, surfaced when it's
+/// actually relevant. "Not now" settles the suggestion for that project.
+private struct ProjectAgentPromptSheet: View {
+    let projectName: String
+    let onStart: () -> Void
+    let onDismiss: () -> Void
+    @ObservedObject private var settings = AppSettings.shared
+    private var theme: Theme { settings.theme }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 18))
+                    .foregroundStyle(settings.actionStyle.color)
+                Text("Add a project agent?")
+                    .font(settings.ui(16, .semibold))
+                    .foregroundStyle(Color(theme.foreground))
+            }
+            Text("“\(projectName)” now has a few chats working in it. A project agent sits alongside them and keeps their work in sync — spotting when two chats might clash and helping everything come together. It doesn't touch your files itself.")
+                .font(settings.ui(12.5))
+                .foregroundStyle(Color(theme.secondaryForeground))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Not now", action: onDismiss)
+                    .keyboardShortcut(.cancelAction)
+                Button("Start project agent", action: onStart)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 380)
+        .background(Color(theme.chrome))
     }
 }
 
@@ -147,9 +250,14 @@ private struct BottomToolbar: View {
             iconButton("rectangle.split.2x1", help: "Split right (⌘D)") {
                 workspace.splitFocused(axis: .horizontal)
             }
-            toggle("wrench.and.screwdriver", on: workspace.isServiceHatchOpen, help: "Service hatch — open a Claude dev session on IDEalize's own code (click again to close)") {
+            toggle("wrench.and.screwdriver", on: workspace.isServiceHatchOpen, help: "Service hatch — open an agent dev session on IDEalize's own code (click again to close)") {
                 workspace.toggleServiceHatch()
             }
+            toggle("bubble.left.and.bubble.right", on: workspace.isProjectAgentOpen, help: "Project agent — a chat that keeps this project's chats working well together (click again to close)") {
+                workspace.toggleProjectAgent()
+            }
+            .disabled(!workspace.canOpenProjectAgent)
+            .opacity(workspace.canOpenProjectAgent ? 1 : 0.4)
             toggle("paintpalette", on: workspace.showAppearance, help: "Appearance (⌘⌥A)") {
                 workspace.showAppearance.toggle()
             }
@@ -191,36 +299,6 @@ private struct BottomToolbar: View {
         }
         .buttonStyle(.iconHover)
         .help(help)
-    }
-}
-
-/// The bottom command bar. Only shown when the focused shell is idle at its
-/// prompt — when a foreground program is running it owns the screen instead.
-/// Observes the focused session so it appears/disappears reactively.
-private struct ComposerBar: View {
-    @ObservedObject var workspace: Workspace
-
-    var body: some View {
-        if let session = workspace.focusedSession {
-            ComposerBarInner(session: session, workspace: workspace)
-        }
-    }
-}
-
-private struct ComposerBarInner: View {
-    @ObservedObject var session: TerminalSession
-    @ObservedObject var workspace: Workspace
-
-    private var hasBlocks: Bool { !session.blocks.isEmpty }
-    private var isRunningCommand: Bool { session.blocks.last?.isRunning == true }
-
-    var body: some View {
-        // Plain shell command bar — at an idle prompt with history. Hidden in
-        // Claude/TUI mode (the floating chat box carries its own input) and
-        // while a normal command scrolls or on a bare fresh shell.
-        if !session.tuiActive, hasBlocks, !isRunningCommand {
-            CommandComposer(workspace: workspace)
-        }
     }
 }
 
@@ -340,6 +418,11 @@ private struct WindowConfigurator: NSViewRepresentable {
 
         func configure(_ window: NSWindow?, background: NSColor, isDark: Bool) {
             guard let window else { return }
+            // Tag the main window so mini-mode can find it even when another
+            // window (e.g. Settings) is key.
+            if window.identifier?.rawValue != "main" {
+                window.identifier = NSUserInterfaceItemIdentifier("main")
+            }
             // These are cheap and idempotent (no relayout) — safe to set each call.
             window.titlebarAppearsTransparent = true
             window.titlebarSeparatorStyle = .none

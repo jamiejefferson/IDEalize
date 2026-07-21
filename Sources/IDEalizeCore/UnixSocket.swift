@@ -13,6 +13,7 @@ public enum SocketError: Error, CustomStringConvertible {
     case listen(Int32)
     case connect(Int32)
     case pathTooLong
+    case timeout(TimeInterval)
     case io(String)
 
     public var description: String {
@@ -22,6 +23,7 @@ public enum SocketError: Error, CustomStringConvertible {
         case .listen(let e): return "listen() failed: \(String(cString: strerror(e)))"
         case .connect(let e): return "connect() failed: \(String(cString: strerror(e)))"
         case .pathTooLong: return "socket path is too long"
+        case .timeout(let s): return "read timed out after \(Int(s))s"
         case .io(let m): return m
         }
     }
@@ -48,6 +50,13 @@ public enum UnixSocket {
         return (addr, len)
     }
 
+    /// Prevent SIGPIPE when a peer closes early: writes then fail with EPIPE
+    /// (surfaced as a thrown error) instead of killing the whole process.
+    private static func setNoSigPipe(_ fd: Int32) {
+        var one: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+    }
+
     /// Create, bind and listen on a Unix socket at `path`. Removes any stale
     /// socket file first. Returns the listening file descriptor.
     ///
@@ -67,6 +76,7 @@ public enum UnixSocket {
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw SocketError.create(errno) }
+        setNoSigPipe(fd)
 
         // Constrain the socket node's mode at creation time so there is no window
         // in which it is world-connectable between bind() and chmod().
@@ -88,13 +98,18 @@ public enum UnixSocket {
 
     /// Accept a single connection on a listening fd. Returns the client fd.
     public static func accept(_ listenFD: Int32) -> Int32 {
-        return Foundation.accept(listenFD, nil, nil)
+        let fd = Foundation.accept(listenFD, nil, nil)
+        // Belt-and-braces: Darwin inherits SO_NOSIGPIPE from the listener, but
+        // the accepted fd is where the server actually writes responses.
+        if fd >= 0 { setNoSigPipe(fd) }
+        return fd
     }
 
     /// Connect to a Unix socket at `path`. Returns the connected fd.
     public static func connect(to path: String) throws -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw SocketError.create(errno) }
+        setNoSigPipe(fd)
         var (addr, len) = try makeAddr(path)
         let result = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
@@ -108,7 +123,9 @@ public enum UnixSocket {
     /// Write all bytes of `data` to the fd.
     public static func writeAll(_ fd: Int32, _ data: Data) throws {
         try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-            var ptr = raw.baseAddress!
+            // Empty Data has no base address — nothing to write.
+            guard let base = raw.baseAddress, !raw.isEmpty else { return }
+            var ptr = base
             var remaining = raw.count
             while remaining > 0 {
                 let n = write(fd, ptr, remaining)
@@ -134,28 +151,67 @@ public enum UnixSocket {
     /// bound (which would let one connection exhaust memory).
     public static let maxLineBytes = 8 * 1024 * 1024 // 8 MiB
 
-    /// Read a single newline-terminated line from the fd. Returns nil on EOF.
-    /// Throws if the line exceeds `maxLineBytes` before a newline arrives.
-    public static func readLine(_ fd: Int32, maxBytes: Int = maxLineBytes) throws -> String? {
-        var buffer = Data()
-        var byte: UInt8 = 0
+    /// Default deadline for `readLine`/`readLineBytes`: a peer that stops
+    /// sending mid-request must not pin a worker thread forever.
+    public static let defaultReadTimeout: TimeInterval = 30
+
+    /// Read a single newline-terminated line from the fd as raw bytes.
+    /// Returns nil on clean EOF (peer closed before any byte of this line
+    /// arrived). Throws on EOF mid-line, when the line would exceed
+    /// `maxBytes`, or when the line is not completed within `timeout` seconds.
+    public static func readLineBytes(_ fd: Int32,
+                                     maxBytes: Int = maxLineBytes,
+                                     timeout: TimeInterval = defaultReadTimeout) throws -> Data? {
+        var line = Data()
+        line.reserveCapacity(4096)
+        var chunk = [UInt8](repeating: 0, count: 4096)
+        let deadline = Date().addingTimeInterval(timeout)
         while true {
-            let n = read(fd, &byte, 1)
+            // Wait (bounded by the deadline) for the fd to become readable.
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { throw SocketError.timeout(timeout) }
+            var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let ready = withUnsafeMutablePointer(to: &pfd) { ptr in
+                poll(ptr, 1, Int32(min(remaining * 1000, Double(Int32.max))))
+            }
+            if ready < 0 {
+                if errno == EINTR { continue }
+                throw SocketError.io("poll() failed: \(String(cString: strerror(errno)))")
+            }
+            if ready == 0 { throw SocketError.timeout(timeout) }
+
+            let n = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
             if n < 0 {
                 if errno == EINTR { continue }
                 throw SocketError.io("read() failed: \(String(cString: strerror(errno)))")
             }
             if n == 0 {
-                return buffer.isEmpty ? nil : String(decoding: buffer, as: UTF8.self)
+                // EOF: clean only when no partial line was buffered.
+                if line.isEmpty { return nil }
+                throw SocketError.io("connection closed mid-line (EOF before newline)")
             }
-            if byte == 0x0A { // newline
-                return String(decoding: buffer, as: UTF8.self)
+            let bytes = chunk.prefix(n)
+            if let nl = bytes.firstIndex(of: 0x0A) { // newline
+                guard line.count + bytes.distance(from: bytes.startIndex, to: nl) <= maxBytes else {
+                    throw SocketError.io("line exceeded \(maxBytes) bytes without a newline")
+                }
+                line.append(contentsOf: bytes[..<nl])
+                return line
             }
-            buffer.append(byte)
-            if buffer.count >= maxBytes {
+            line.append(contentsOf: bytes)
+            if line.count > maxBytes {
                 throw SocketError.io("line exceeded \(maxBytes) bytes without a newline")
             }
         }
+    }
+
+    /// Read a single newline-terminated line from the fd. Returns nil on clean
+    /// EOF. See `readLineBytes` for the error cases.
+    public static func readLine(_ fd: Int32,
+                                maxBytes: Int = maxLineBytes,
+                                timeout: TimeInterval = defaultReadTimeout) throws -> String? {
+        try readLineBytes(fd, maxBytes: maxBytes, timeout: timeout)
+            .map { String(decoding: $0, as: UTF8.self) }
     }
 
     public static func closeFD(_ fd: Int32) {

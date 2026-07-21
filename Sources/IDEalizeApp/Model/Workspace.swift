@@ -2,6 +2,12 @@ import SwiftUI
 import AppKit
 import IDEalizeCore
 
+/// A simple message-carrying error used when a session target can't be resolved.
+struct TargetResolutionError: Error, CustomStringConvertible {
+    let message: String
+    var description: String { message }
+}
+
 /// A node in a tab's split tree. A node is either a leaf (one terminal) or a
 /// split with an axis and child nodes.
 final class PaneNode: ObservableObject, Identifiable {
@@ -91,6 +97,9 @@ final class Workspace: ObservableObject {
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         var name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty { name = "untitled" }
+        // The name becomes a single path component — reject anything that could
+        // climb out of the project directory.
+        guard name != "..", !name.contains("/"), !name.contains("\\") else { return nil }
         if (name as NSString).pathExtension.isEmpty { name += ".md" }
         var url = URL(fileURLWithPath: dir).appendingPathComponent(name)
         var n = 2
@@ -122,17 +131,25 @@ final class Workspace: ObservableObject {
     /// This is what `idealize reveal` calls, so an agent can point the human at
     /// a file it just wrote or wants to talk about.
     func reveal(path: String, open: Bool) -> IPCResponse {
-        let url = URL(fileURLWithPath: path).standardizedFileURL
+        // Resolve symlinks before any prefix check: `standardizedFileURL` does
+        // NOT resolve them, so a symlink inside a project could otherwise point
+        // the reveal (and its authorization) outside the project.
+        let url = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
         guard FileManager.default.fileExists(atPath: url.path) else {
             return .failure("no such file: \(url.path)")
         }
         guard let owner = sessionOwning(url) else {
             return .failure("\(url.path) isn't inside any folder open in IDEalize")
         }
+        // A session without a project directory owns nothing — the old
+        // whole-home fallback made anything under ~ revealable.
+        guard let explorerRoot = owner.explorerRoot else {
+            return .failure("no project directory for this session")
+        }
         // The tree never lists dotfiles, so it can't scroll to one. Only the part
         // of the path *below* the root matters — the root itself is free to live
         // somewhere hidden, like ~/.config/something.
-        let root = URL(fileURLWithPath: owner.explorerRoot).standardizedFileURL.path
+        let root = URL(fileURLWithPath: explorerRoot).standardizedFileURL.resolvingSymlinksInPath().path
         let relative = url.path.dropFirst(root.count)
         if let hidden = relative.split(separator: "/").first(where: { $0.hasPrefix(".") }) {
             return .failure("'\(hidden)' is hidden — the file explorer doesn't show hidden files")
@@ -149,10 +166,13 @@ final class Workspace: ObservableObject {
 
     /// The session whose explorer tree contains `url`. The focused session wins
     /// ties, so revealing a file in a project that's open in two tabs doesn't yank
-    /// the user off to the other one.
+    /// the user off to the other one. Both sides are symlink-resolved so a link
+    /// inside a project can't escape the prefix check.
     private func sessionOwning(_ url: URL) -> TerminalSession? {
         func contains(_ session: TerminalSession) -> Bool {
-            let root = URL(fileURLWithPath: session.explorerRoot).standardizedFileURL.path
+            // Sessions without a project directory own nothing (no home fallback).
+            guard let explorerRoot = session.explorerRoot else { return false }
+            let root = URL(fileURLWithPath: explorerRoot).standardizedFileURL.resolvingSymlinksInPath().path
             return url.path == root || url.path.hasPrefix(root + "/")
         }
         if let focused = focusedSession, contains(focused) { return focused }
@@ -212,6 +232,18 @@ final class Workspace: ObservableObject {
     let settings: AppSettings
     private(set) var ipcHub: IPCHub?
 
+    /// Per-instance capability token authorizing mutating IPC commands. Generated
+    /// at startup, injected into every spawned shell as `IDEALIZE_TOKEN`, and
+    /// mirrored to `IPC.tokenFilePath` (0600) so a CLI running outside an
+    /// IDEalize-spawned shell (e.g. via a symlink) can still authenticate.
+    let ipcToken: String = Workspace.generateToken()
+
+    private static func generateToken() -> String {
+        // UUID + 16 random hex bytes; Swift's RNG is a CSPRNG on Darwin.
+        let hex = (0..<16).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined()
+        return UUID().uuidString.lowercased() + "-" + hex
+    }
+
     /// Single shared registry so terminals across all tabs/panes (and projects)
     /// can address one another over IPC.
     static let shared = Workspace()
@@ -223,6 +255,7 @@ final class Workspace: ObservableObject {
     /// Start the IPC hub once (first window). Safe to call repeatedly.
     func startIPCIfNeeded() {
         guard ipcHub == nil else { return }
+        writeTokenFile()
         let hub = IPCHub { [weak self] request in
             // Hub runs on a background queue; mutate model on main.
             var response = IPCResponse.failure("workspace gone")
@@ -236,6 +269,21 @@ final class Workspace: ObservableObject {
         } catch {
             NSLog("IDEalize: failed to start IPC hub: \(error)")
         }
+    }
+
+    /// Mirror the capability token to disk, owner-only, so `idealize` works when
+    /// invoked without the app's environment (see `IPC.tokenFilePath`).
+    private func writeTokenFile() {
+        let path = IPC.tokenFilePath
+        let dir = (path as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(
+            atPath: dir, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        FileManager.default.createFile(
+            atPath: path, contents: Data(ipcToken.utf8),
+            attributes: [.posixPermissions: 0o600])
+        // Tighten even if the file already existed with looser perms.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
     }
 
     var selectedTab: WorkspaceTab? {
@@ -276,6 +324,7 @@ final class Workspace: ObservableObject {
         focusedSessionID = session.id
         bindName(tab, to: session)
         scheduleSnapshotSave()
+        maybeSuggestProjectAgent(for: session, launchOverride: launchOverride)
         return session
     }
 
@@ -331,7 +380,7 @@ final class Workspace: ObservableObject {
     }
 
     /// Open a "service hatch": a new tab rooted in IDEalize's own source, dropping
-    /// straight into a Claude dev session (permissions skipped, vault docs in scope)
+    /// straight into an agent dev session (permissions skipped, vault docs in scope)
     /// preloaded with the `/idealize-service-hatch` safe-editing guide. Beeps if the
     /// source checkout can't be located.
     func openServiceHatch() {
@@ -359,6 +408,105 @@ final class Workspace: ObservableObject {
         }
     }
 
+    // MARK: - Project agent
+
+    /// Watches over each coordinated project, keyed by project path. Started
+    /// with the project agent's chat, stopped when it closes.
+    private var projectMonitors: [String: ProjectMonitor] = [:]
+
+    /// Projects whose "start a project agent?" suggestion the user has
+    /// dismissed. In-memory only — the suggestion may be worth seeing again
+    /// next run.
+    @Published var dismissedProjectAgentSuggestions: Set<String> = []
+
+    /// The project a "start a project agent?" prompt is currently offered for,
+    /// if any. Set when a project first gains a second chat; drives the modal in
+    /// `WorkspaceView`. Carries the project path so the modal targets the right
+    /// project no matter what's focused when the user answers.
+    @Published var pendingProjectAgentPrompt: ProjectAgentPrompt?
+
+    /// The project agent chat for `path`, if one is running.
+    func projectAgentSession(forProject path: String) -> TerminalSession? {
+        allSessions.first { $0.isProjectAgent && $0.projectPath == path }
+    }
+
+    /// The project agent for the *focused* session's project — what the
+    /// toolbar toggle acts on.
+    var focusedProjectAgent: TerminalSession? {
+        guard let p = focusedSession?.projectPath else { return nil }
+        return projectAgentSession(forProject: p)
+    }
+
+    /// Whether the focused session's project has a live project agent.
+    var isProjectAgentOpen: Bool { focusedProjectAgent != nil }
+
+    /// Whether the focused project can have a project agent (a real folder,
+    /// not home or root) — drives the toolbar toggle's enabled state.
+    var canOpenProjectAgent: Bool {
+        ProjectAgent.isCoordinatable(focusedSession?.projectPath)
+    }
+
+    /// Offer a project agent for the *focused* session's project when it's just
+    /// grown to two or more chats, none coordinating yet, and the user hasn't
+    /// dismissed the suggestion for it. Surfaced as a one-time modal (see
+    /// `pendingProjectAgentPrompt`) rather than a standing banner. Called as a
+    /// real chat is added; no-op during restore or for the hatch/agent's own
+    /// launches (those pass a `launchOverride`).
+    private func maybeSuggestProjectAgent(for session: TerminalSession, launchOverride: String?) {
+        guard !isRestoring, launchOverride == nil,
+              let project = session.projectPath,
+              ProjectAgent.isCoordinatable(project),
+              !dismissedProjectAgentSuggestions.contains(project),
+              projectAgentSession(forProject: project) == nil,
+              allSessions.filter({ $0.projectPath == project && !$0.isProjectAgent }).count >= 2
+        else { return }
+        pendingProjectAgentPrompt = ProjectAgentPrompt(path: project)
+    }
+
+    /// Open a project agent for the focused session's project. Beeps when
+    /// there's no real project folder to coordinate.
+    func openProjectAgent() {
+        guard let project = focusedSession?.projectPath else { NSSound.beep(); return }
+        openProjectAgent(forProject: project)
+    }
+
+    /// Open a project agent for `project`: a regular agent chat preloaded with
+    /// the `/project-agent` coordinating guide, named so it's instantly
+    /// distinguishable from the chats it watches. Enforces one agent per
+    /// project — if one is already running it's simply focused, never
+    /// duplicated. Beeps when the path isn't a real project folder.
+    func openProjectAgent(forProject project: String) {
+        guard ProjectAgent.isCoordinatable(project) else { NSSound.beep(); return }
+        if let existing = projectAgentSession(forProject: project) {
+            focusSession(existing.id)   // already running — just show it
+            return
+        }
+        let session = newTab(projectPath: project, launchOverride: ProjectAgent.launchCommand())
+        session.isProjectAgent = true
+        if let tab = tabs.first(where: { t in t.sessions.contains { $0.id == session.id } }) {
+            tab.customName = "Project agent"
+        }
+        projectMonitors[project] = ProjectMonitor(
+            projectPath: project, coordinator: session, workspace: self)
+    }
+
+    /// Toggle the project agent for the focused session's project, like the
+    /// service-hatch toggle: open one if none is running, otherwise close it.
+    func toggleProjectAgent() {
+        if let agent = focusedProjectAgent {
+            closeSession(agent)
+        } else {
+            openProjectAgent()
+        }
+    }
+
+    /// Stop watching a project whose agent chat just closed.
+    private func stopProjectMonitor(for session: TerminalSession) {
+        guard session.isProjectAgent, let p = session.projectPath else { return }
+        projectMonitors[p]?.stop()
+        projectMonitors[p] = nil
+    }
+
     /// Keep the tab name following the focused terminal's label.
     private func bindName(_ tab: WorkspaceTab, to session: TerminalSession) {
         tab.name = session.label
@@ -375,7 +523,6 @@ final class Workspace: ObservableObject {
         }
         let newSession = makeSession(projectPath: node.session?.projectPath)
         let movedLeaf = PaneNode(session: node.session!)
-        movedLeaf.onCopyFocus(from: node)
         let newLeaf = PaneNode(session: newSession)
         // Convert the focused leaf into a split in place.
         node.session = nil
@@ -388,6 +535,7 @@ final class Workspace: ObservableObject {
     /// Close a session: remove its leaf, collapse single-child splits, and drop
     /// empty tabs.
     func closeSession(_ session: TerminalSession) {
+        stopProjectMonitor(for: session)
         // If the session is a tab's sole (root) terminal, close the whole tab —
         // `removeLeaf` only inspects child nodes, not the root leaf itself.
         if let tab = tabs.first(where: { $0.root.session?.id == session.id }) {
@@ -410,7 +558,7 @@ final class Workspace: ObservableObject {
     }
 
     func closeTab(_ tab: WorkspaceTab) {
-        tab.sessions.forEach { $0.terminate() }
+        tab.sessions.forEach { stopProjectMonitor(for: $0); $0.terminate() }
         tabs.removeAll { $0.id == tab.id }
         if selectedTabID == tab.id { selectedTabID = tabs.last?.id }
         if let next = selectedTab?.sessions.first { focusedSessionID = next.id }
@@ -421,6 +569,7 @@ final class Workspace: ObservableObject {
         // If a shell exits on its own, clean up its pane.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            self.stopProjectMonitor(for: session)
             for tab in self.tabs where tab.sessions.contains(where: { $0.id == session.id }) {
                 _ = self.removeLeaf(in: tab.root, sessionID: session.id, parent: nil)
                 self.collapse(tab.root)
@@ -527,6 +676,30 @@ final class Workspace: ObservableObject {
         var isHome: Bool { path == FileManager.default.homeDirectoryForCurrentUser.path }
         var displayName: String {
             if isHome || path.isEmpty || path == "/" { return "Home" }
+            return (path as NSString).lastPathComponent
+        }
+
+        /// The project's coordinating agent tab, if one is running. Shown
+        /// attached to the project container rather than among the chats.
+        var agentTab: WorkspaceTab? {
+            tabs.first { $0.sessions.first?.isProjectAgent == true }
+        }
+
+        /// The ordinary chats in this project — everything but the agent.
+        var chatTabs: [WorkspaceTab] {
+            tabs.filter { $0.sessions.first?.isProjectAgent != true }
+        }
+    }
+
+    /// Identifies the project a "start a project agent?" prompt is offered for,
+    /// so the modal can act on that project regardless of what's focused when
+    /// the user answers.
+    struct ProjectAgentPrompt: Identifiable {
+        let path: String
+        var id: String { path }
+        var displayName: String {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            if path == home || path.isEmpty || path == "/" { return "Home" }
             return (path as NSString).lastPathComponent
         }
     }
@@ -748,6 +921,12 @@ final class Workspace: ObservableObject {
             // $HOME, which would otherwise let a shared note leak into ~/.idealize.
             let restorePath: String? = (project.path == home) ? nil : project.path
             for chat in project.chats {
+                // A legacy snapshot (from before agents were excluded above) may
+                // still carry a persisted "Project agent" chat. Don't restore it
+                // as an ordinary chat — the agent is launched on demand, and a
+                // lingering copy would read as a duplicate. It's dropped from the
+                // snapshot on the next save.
+                if chat.customName == "Project agent" { continue }
                 newTab(projectPath: restorePath,
                        launchOverride: chat.wasClaude ? claudeLaunch : nil,
                        suppressAutoLaunch: !chat.wasClaude)
@@ -781,8 +960,12 @@ final class Workspace: ObservableObject {
     private func saveProjectSnapshot() {
         let snapshot: [PersistedProject] = projectGroups.map { group in
             let chats: [PersistedChat] = group.tabs
-                // Don't persist the Service Hatch — it's launched by its own path.
-                .filter { !($0.sessions.first?.isServiceHatch ?? false) }
+                // Don't persist the Service Hatch or the project agent — each is
+                // launched on demand by its own command, and restoring the agent
+                // as a plain chat would strip its coordinating role (and could
+                // duplicate a freshly-started one).
+                .filter { !($0.sessions.first?.isServiceHatch ?? false)
+                          && !($0.sessions.first?.isProjectAgent ?? false) }
                 .map { tab in
                     PersistedChat(customName: tab.customName,
                                   wasClaude: tab.sessions.contains { $0.wasClaudeLaunched })
@@ -802,6 +985,17 @@ final class Workspace: ObservableObject {
     // MARK: - IPC handling (called on main thread)
 
     private func handle(_ request: IPCRequest) -> IPCResponse {
+        // Unauthenticated peers may only probe (ping/list). Everything else can
+        // read mailboxes or inject keystrokes into terminals, so it requires the
+        // per-instance capability token.
+        switch request.command {
+        case .ping, .list:
+            break
+        default:
+            guard isAuthorized(request) else {
+                return .failure("unauthorized: missing or invalid IDEALIZE_TOKEN")
+            }
+        }
         switch request.command {
         case .ping:
             return IPCResponse(ok: true, info: "pong")
@@ -821,7 +1015,11 @@ final class Workspace: ObservableObject {
 
         case .send:
             guard let target = request.target else { return .failure("missing target") }
-            guard let dest = resolveTarget(target) else { return .failure("no session matching '\(target)'") }
+            let dest: TerminalSession
+            switch resolveTarget(target) {
+            case .success(let s): dest = s
+            case .failure(let error): return .failure(error.message)
+            }
             let msg = IPCMessage(
                 from: request.from ?? "?",
                 fromLabel: request.from.flatMap { session(withID: $0)?.label },
@@ -884,17 +1082,31 @@ final class Workspace: ObservableObject {
             return IPCResponse(ok: true, info: composedProjectNote(path))   // get
 
         case .focus:
-            guard let target = request.target, let s = resolveTarget(target) else {
+            guard let target = request.target else {
                 return .failure("no session matching target")
             }
-            focusSession(s.id)
-            return IPCResponse(ok: true)
+            switch resolveTarget(target) {
+            case .success(let s):
+                focusSession(s.id)
+                return IPCResponse(ok: true)
+            case .failure(let error):
+                return .failure(error.message)
+            }
 
         case .input:
-            guard let target = request.target, let s = resolveTarget(target) else {
+            guard let target = request.target else {
                 return .failure("no session matching target")
             }
-            s.insert(request.body ?? "")
+            let s: TerminalSession
+            switch resolveTarget(target) {
+            case .success(let found): s = found
+            case .failure(let error): return .failure(error.message)
+            }
+            let body = request.body ?? ""
+            guard !body.isEmpty else { return .failure("missing text") }
+            // Ctrl-U first clears any partial text in the target's line editor,
+            // so the injected body can't inherit a stray prefix (as `rerun` does).
+            s.insert("\u{15}" + body)
             return IPCResponse(ok: true, info: "sent to \(s.label)")
 
         case .reveal:
@@ -903,8 +1115,11 @@ final class Workspace: ObservableObject {
 
         case .blocks:
             let target = request.target ?? request.from
-            guard let t = target, let s = resolveTarget(t) ?? session(withID: t) else {
-                return .failure("unknown session")
+            guard let t = target else { return .failure("unknown session") }
+            let s: TerminalSession
+            switch resolveTarget(t) {
+            case .success(let found): s = found
+            case .failure(let error): return .failure(error.message)
             }
             let blocks = s.blocks.suffix(50).map { b in
                 IPCBlock(command: b.command,
@@ -914,18 +1129,63 @@ final class Workspace: ObservableObject {
                          durationMs: b.duration.map { Int($0 * 1000) })
             }
             return IPCResponse(ok: true, blocks: Array(blocks))
+
+        case .transcript:
+            // Read another chat's recent Q&A — the project agent's eyes into
+            // what each chat has been doing and deciding.
+            let target = request.target ?? request.from
+            guard let t = target else { return .failure("unknown session") }
+            let s: TerminalSession
+            switch resolveTarget(t) {
+            case .success(let found): s = found
+            case .failure(let error): return .failure(error.message)
+            }
+            let limit = max(1, min(request.limit ?? 10, 50))
+            let exchanges = s.exchanges.suffix(limit).map { e in
+                // Cap each answer so a huge reply can't bloat the wire.
+                let answer = e.answer.map { $0.count > 4000 ? String($0.prefix(4000)) + "…" : $0 }
+                return IPCExchange(index: e.index, question: e.question, answer: answer)
+            }
+            return IPCResponse(ok: true, exchanges: exchanges)
         }
     }
 
+    /// Whether the request carries the per-instance capability token. Compared
+    /// as raw bytes (Data equality) rather than early-exit string shortcuts.
+    private func isAuthorized(_ request: IPCRequest) -> Bool {
+        guard let token = request.token, !token.isEmpty else { return false }
+        return Data(token.utf8) == Data(ipcToken.utf8)
+    }
+
     /// Resolve a target string to a session by id, then by tab/label, then by
-    /// project directory name.
-    private func resolveTarget(_ target: String) -> TerminalSession? {
-        if let exact = session(withID: target) { return exact }
+    /// project directory name. A name matching several sessions is an ambiguity
+    /// error listing the candidates — never a silent pick of the first.
+    private func resolveTarget(_ target: String) -> Result<TerminalSession, TargetResolutionError> {
+        if let exact = session(withID: target) { return .success(exact) }
         let lower = target.lowercased()
-        if let byLabel = allSessions.first(where: { $0.label.lowercased() == lower }) { return byLabel }
-        return allSessions.first { s in
-            guard let p = s.projectPath else { return false }
-            return (p as NSString).lastPathComponent.lowercased() == lower
+        // A friendly alias for the project's coordinating chat, so any session —
+        // even one started before it — can reach it without knowing its id.
+        if lower == "coordinator" || lower == "project-agent" {
+            if let agent = allSessions.first(where: { $0.isProjectAgent }) {
+                return .success(agent)
+            }
+            return .failure(TargetResolutionError(message: "no project agent is running"))
+        }
+        var matches = allSessions.filter { $0.label.lowercased() == lower }
+        if matches.isEmpty {
+            matches = allSessions.filter { s in
+                guard let p = s.projectPath else { return false }
+                return (p as NSString).lastPathComponent.lowercased() == lower
+            }
+        }
+        switch matches.count {
+        case 1:
+            return .success(matches[0])
+        case 0:
+            return .failure(TargetResolutionError(message: "no session matching '\(target)'"))
+        default:
+            let ids = matches.map(\.id).joined(separator: ", ")
+            return .failure(TargetResolutionError(message: "'\(target)' matches \(matches.count) sessions (\(ids)) — use a session id"))
         }
     }
 
@@ -938,8 +1198,4 @@ final class Workspace: ObservableObject {
                 sound: false)
         }
     }
-}
-
-private extension PaneNode {
-    func onCopyFocus(from other: PaneNode) {}
 }

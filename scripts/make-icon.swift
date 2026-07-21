@@ -73,5 +73,9 @@ guard let tiff = img.tiffRepresentation,
       let png = rep.representation(using: .png, properties: [:]) else {
     FileHandle.standardError.write(Data("failed to render icon\n".utf8)); exit(1)
 }
-try! png.write(to: URL(fileURLWithPath: outPath))
+do {
+    try png.write(to: URL(fileURLWithPath: outPath))
+} catch {
+    FileHandle.standardError.write(Data("error: failed to write \(outPath): \(error.localizedDescription)\n".utf8)); exit(1)
+}
 print("wrote \(outPath)")

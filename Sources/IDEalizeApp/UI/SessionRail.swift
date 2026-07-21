@@ -121,7 +121,19 @@ private struct ProjectCard: View {
             header
             if noteExpanded { noteEditor }
             if !collapsed {
-                ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
+                // The project's coordinating agent presides at the top of the
+                // card, directly under the title and set a little apart from the
+                // chats it watches — part of the container, not a peer chat in
+                // the list. One per project.
+                if let agentTab = group.agentTab {
+                    ProjectAgentStrip(tab: agentTab, workspace: workspace)
+                    Rectangle()
+                        .fill(Color(theme.border))
+                        .frame(height: 1)
+                        .padding(.horizontal, 2)
+                        .padding(.vertical, 3)
+                }
+                ForEach(Array(group.chatTabs.enumerated()), id: \.element.id) { index, tab in
                     SessionCard(tab: tab, workspace: workspace,
                                 label: chatLabel(tab, index),
                                 onRename: { onRenameTab(tab) })
@@ -175,7 +187,7 @@ private struct ProjectCard: View {
 
             Spacer(minLength: 4)
 
-            Text("\(group.tabs.count)")
+            Text("\(group.chatTabs.count)")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(Color(theme.secondaryForeground).opacity(0.7))
 
@@ -230,11 +242,11 @@ private struct ProjectCard: View {
             // Agent Notes: what each chat is doing — auto-derived from Claude's
             // activity, or a chat's own `idealize note --mine`. Sits in the same
             // boxed "field" as Shared Notes so the two sections read consistently.
-            if !group.tabs.isEmpty {
+            if !group.chatTabs.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     sectionTitle("Agent Notes")
                     VStack(alignment: .leading, spacing: 7) {
-                        ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
+                        ForEach(Array(group.chatTabs.enumerated()), id: \.element.id) { index, tab in
                             if let session = tab.sessions.first {
                                 ChatStatusRow(label: chatLabel(tab, index), session: session)
                             }
@@ -259,6 +271,72 @@ private struct ProjectCard: View {
     private func toggleNote() {
         if !noteExpanded { noteText = workspace.projectNote(group.path) }
         withAnimation(.easeOut(duration: 0.12)) { noteExpanded.toggle() }
+    }
+}
+
+// MARK: - Project agent (attached to the project container)
+
+/// The project's coordinating agent, shown fixed to the foot of its project
+/// card — one per project, overseeing the chats above it — rather than sitting
+/// among them as a peer chat. Tinted with the interface accent so it reads as
+/// part of the container's chrome. Tapping it focuses the agent; the close
+/// button stops it.
+private struct ProjectAgentStrip: View {
+    @ObservedObject var tab: WorkspaceTab
+    @ObservedObject var workspace: Workspace
+    @ObservedObject private var settings = AppSettings.shared
+    @State private var hovering = false
+
+    private var theme: Theme { settings.theme }
+    private var style: PanelStyle { settings.panelStyle(.sessions, base: 13, background: theme.chrome) }
+    private var isSelected: Bool { workspace.selectedTabID == tab.id }
+    private var session: TerminalSession? { tab.sessions.first }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12))
+                .foregroundStyle(settings.actionStyle.color)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Project agent")
+                    .font(style.font(11.5, .semibold))
+                    .foregroundStyle(style.textColor)
+                    .panelText(style)
+                    .lineLimit(1)
+                Text("Keeping this project's chats in sync")
+                    .font(style.font(9.5))
+                    .foregroundStyle(style.secondaryTextColor)
+                    .panelText(style)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if let session { AgentStatusBadge(session: session) }
+            if hovering || isSelected {
+                Button(action: { workspace.closeTab(tab) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color(theme.secondaryForeground))
+                }
+                .buttonStyle(.iconHover(padding: 2, radius: 4))
+                .help("Stop the project agent")
+            }
+        }
+        .padding(.horizontal, 9).padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(settings.actionStyle.softFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(isSelected ? settings.actionStyle.color : .clear,
+                                      lineWidth: 1.5)
+                )
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture {
+            workspace.selectedTabID = tab.id
+            if let s = tab.sessions.first { workspace.focusSession(s.id) }
+        }
     }
 }
 
@@ -379,11 +457,11 @@ private struct SessionCard: View {
         }
     }
 
-    /// A small leading marker: Claude's glyph when a Claude session is running
-    /// here, otherwise a plain running/activity dot.
+    /// A small leading marker: the agent's glyph when an agent session is
+    /// running here, otherwise a plain running/activity dot.
     @ViewBuilder private var leadingIcon: some View {
         if let primary {
-            if primary.isClaudeRunning {
+            if primary.isAgentRunning {
                 Image(systemName: "sparkles")
                     .font(.system(size: 12))
                     .foregroundStyle(settings.actionStyle.color)

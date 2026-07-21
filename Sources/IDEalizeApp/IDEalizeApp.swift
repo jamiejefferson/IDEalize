@@ -34,6 +34,12 @@ struct IDEalizeApp: App {
                             workspace.showTour = true
                         }
                     }
+                    // If the previous session ended in mini-mode, re-apply it now
+                    // that the NSWindow exists. A short delay lets SwiftUI finish
+                    // its initial window placement.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        MiniModeManager.shared.restoreIfNeeded()
+                    }
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -48,6 +54,7 @@ struct IDEalizeApp: App {
 /// Menu / keyboard commands for tabs and splits.
 struct IDEalizeCommands: Commands {
     let workspace: Workspace
+    @ObservedObject private var miniMode = MiniModeManager.shared
 
     var body: some Commands {
         // The tour is otherwise unreachable once it has been seen — this is how you
@@ -93,6 +100,11 @@ struct IDEalizeCommands: Commands {
                 .keyboardShortcut("r", modifiers: [.control])
         }
         CommandMenu("View") {
+            Button(miniMode.isEnabled ? "Exit Mini Mode" : "Enter Mini Mode") {
+                miniMode.toggle()
+            }
+            .keyboardShortcut("m", modifiers: [.control, .option])
+            Divider()
             Button("Command Palette") { workspace.showCommandPalette.toggle() }
                 .keyboardShortcut("p", modifiers: .command)
             Button(workspace.showSidebar ? "Hide Blocks Sidebar" : "Show Blocks Sidebar") {
@@ -155,6 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SpeechDictation.shared.requestAuthorization()
         // Push the Flow companion skill/commands into ~/.claude so every project
         // the user opens can review and run Flows (idempotent, version-checked).
+        // Claude-only for now; other agents get flow support via their own adapters.
         FlowSkillInstaller.install()
         Workspace.shared.startIPCIfNeeded()
         NSApp.activate(ignoringOtherApps: true)

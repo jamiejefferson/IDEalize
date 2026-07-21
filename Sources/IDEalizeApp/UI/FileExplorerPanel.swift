@@ -7,13 +7,20 @@ import UniformTypeIdentifiers
 final class FileNode: ObservableObject, Identifiable {
     let id = UUID()
     let url: URL
+    /// `url.standardizedFileURL`, computed once — a FileRow's body runs per
+    /// render, and path normalization has no place in it.
+    let standardizedURL: URL
     let isDirectory: Bool
     let name: String
     @Published var expanded = false
     @Published var children: [FileNode]?
+    /// Monotonic token so a stale background enumeration (an older load or
+    /// refresh that finishes late) never overwrites newer state.
+    private var loadGeneration = 0
 
     init(url: URL, isDirectory: Bool) {
         self.url = url
+        self.standardizedURL = url.standardizedFileURL
         self.isDirectory = isDirectory
         self.name = url.lastPathComponent
     }
@@ -25,50 +32,56 @@ final class FileNode: ObservableObject, Identifiable {
     }
 
     /// Expand without collapsing an already-open folder (used to reveal a drop).
-    func expand() {
-        guard isDirectory else { return }
+    /// `completion` fires on main once this node's children are in memory —
+    /// immediately if already loaded, otherwise when the enumeration lands.
+    func expand(completion: (() -> Void)? = nil) {
+        guard isDirectory else { completion?(); return }
         if !expanded { expanded = true }
-        if children == nil { load() }
+        if children == nil { load(completion: completion) } else { completion?() }
     }
 
-    /// Open every folder between this node and `target`, returning the node that
-    /// stands for `target`. Nil if `target` isn't under this node, or isn't listed
-    /// in the tree at all (a hidden file, or one deleted since it was asked for).
+    /// Open every folder between this node and `target`, then yield the node that
+    /// stands for `target` (on main). Yields nil if `target` isn't under this
+    /// node, or isn't listed in the tree at all (a hidden file, or one deleted
+    /// since it was asked for).
     ///
     /// Directories along the way are loaded on demand, so this reaches a file the
-    /// user has never expanded down to.
-    func revealDescendant(_ target: URL) -> FileNode? {
-        let rootPath = url.standardizedFileURL.path
+    /// user has never expanded down to. Enumeration happens off the main thread,
+    /// so the walk continues asynchronously as each listing lands.
+    func revealDescendant(_ target: URL, completion: @escaping (FileNode?) -> Void) {
+        let rootPath = standardizedURL.path
         let targetPath = target.standardizedFileURL.path
-        if targetPath == rootPath { return self }
-        guard targetPath.hasPrefix(rootPath + "/") else { return nil }
-
-        var node = self
-        for component in targetPath.dropFirst(rootPath.count + 1).split(separator: "/") {
-            guard node.isDirectory else { return nil }
-            node.expand()
-            guard let next = node.children?.first(where: { $0.name == component }) else { return nil }
-            node = next
-        }
-        // Revealing a folder means "show me what's in it".
-        if node.isDirectory { node.expand() }
-        return node
+        if targetPath == rootPath { completion(self); return }
+        guard targetPath.hasPrefix(rootPath + "/") else { completion(nil); return }
+        reveal(targetPath.dropFirst(rootPath.count + 1).split(separator: "/").map(String.init),
+               completion: completion)
     }
 
-    func load() {
-        let keys: [URLResourceKey] = [.isDirectoryKey]
-        let contents = (try? FileManager.default.contentsOfDirectory(
-            at: url, includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles])) ?? []
-        children = contents
-            .map { u -> FileNode in
-                let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                return FileNode(url: u, isDirectory: isDir)
+    private func reveal(_ components: [String], completion: @escaping (FileNode?) -> Void) {
+        guard let first = components.first else {
+            // Revealing a folder means "show me what's in it".
+            if isDirectory { expand() }
+            completion(self)
+            return
+        }
+        guard isDirectory else { completion(nil); return }
+        expand { [weak self] in
+            guard let self, let next = self.children?.first(where: { $0.name == first }) else {
+                completion(nil); return
             }
-            .sorted { a, b in
-                if a.isDirectory != b.isDirectory { return a.isDirectory }
-                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            }
+            next.reveal(Array(components.dropFirst()), completion: completion)
+        }
+    }
+
+    func load(completion: (() -> Void)? = nil) {
+        loadGeneration += 1
+        let generation = loadGeneration
+        let url = self.url
+        Self.enumerate(url) { [weak self] entries in
+            guard let self, generation == self.loadGeneration else { return }
+            self.children = entries.map { FileNode(url: $0.url, isDirectory: $0.isDirectory) }
+            completion?()
+        }
     }
 
     /// Re-read this directory in place, reusing existing child nodes (matched by
@@ -77,50 +90,74 @@ final class FileNode: ObservableObject, Identifiable {
     /// the tree pick up files written on disk (e.g. by Claude) without collapsing.
     func refresh() {
         guard isDirectory, children != nil else { return }
-        let keys: [URLResourceKey] = [.isDirectoryKey]
-        let contents = (try? FileManager.default.contentsOfDirectory(
-            at: url, includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles])) ?? []
-        let existing = Dictionary((children ?? []).map { ($0.url, $0) }) { a, _ in a }
-        children = contents
-            .map { u -> FileNode in
-                if let node = existing[u] {
+        loadGeneration += 1
+        let generation = loadGeneration
+        let url = self.url
+        Self.enumerate(url) { [weak self] entries in
+            guard let self, generation == self.loadGeneration else { return }
+            let existing = Dictionary((self.children ?? []).map { ($0.url, $0) }) { a, _ in a }
+            self.children = entries.map { e in
+                if let node = existing[e.url] {
                     if node.isDirectory && node.expanded { node.refresh() }
                     return node
                 }
-                let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                return FileNode(url: u, isDirectory: isDir)
+                return FileNode(url: e.url, isDirectory: e.isDirectory)
             }
-            .sorted { a, b in
+        }
+    }
+
+    /// One directory's visible children, enumerated off the main thread — a big
+    /// tree stalls the UI if read synchronously (expanding a folder, or the
+    /// FSEvents watcher refreshing after a burst of writes). Sorted the way the
+    /// tree shows them; the completion lands on the main queue.
+    private static func enumerate(_ url: URL,
+                                  completion: @escaping ([(url: URL, isDirectory: Bool)]) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let keys: [URLResourceKey] = [.isDirectoryKey]
+            let contents = (try? FileManager.default.contentsOfDirectory(
+                at: url, includingPropertiesForKeys: keys,
+                options: [.skipsHiddenFiles])) ?? []
+            let entries = contents.map { u -> (url: URL, isDirectory: Bool) in
+                (u, (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
+            }.sorted { a, b in
                 if a.isDirectory != b.isDirectory { return a.isDirectory }
-                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+                return a.url.lastPathComponent.localizedCaseInsensitiveCompare(b.url.lastPathComponent) == .orderedAscending
             }
+            DispatchQueue.main.async { completion(entries) }
+        }
     }
 }
 
 /// Watches a directory tree (recursively) for filesystem changes via FSEvents,
-/// firing `onChange` on the main queue — coalesced, so a burst of writes (a Claude
-/// turn dropping several files) lands as one refresh. Held by the explorer for as
-/// long as it shows a given folder.
+/// firing `onChange` on the main queue with the changed file paths — coalesced,
+/// so a burst of writes (a Claude turn dropping several files) lands as one
+/// refresh. Held by the explorer for as long as it shows a given folder, and by
+/// `ProjectMonitor` to notice when two chats touch the same file.
 final class DirectoryWatcher {
     private var stream: FSEventStreamRef?
-    private var onChange: (() -> Void)?
+    private var onChange: (([String]) -> Void)?
 
-    func start(path: String, onChange: @escaping () -> Void) {
+    func start(path: String, onChange: @escaping ([String]) -> Void) {
         stop()
         self.onChange = onChange
         var ctx = FSEventStreamContext(version: 0,
                                        info: Unmanaged.passUnretained(self).toOpaque(),
                                        retain: nil, release: nil, copyDescription: nil)
-        let cb: FSEventStreamCallback = { _, info, _, _, _, _ in
+        let cb: FSEventStreamCallback = { _, info, _, paths, _, _ in
             guard let info else { return }
-            Unmanaged<DirectoryWatcher>.fromOpaque(info).takeUnretainedValue().onChange?()
+            // `paths` is a CFArray of per-file path strings only because the
+            // stream is created with kFSEventStreamCreateFlagUseCFTypes;
+            // without that flag it is a raw char** and this cast crashes.
+            let changed = (unsafeBitCast(paths, to: CFArray.self) as? [String]) ?? []
+            Unmanaged<DirectoryWatcher>.fromOpaque(info).takeUnretainedValue().onChange?(changed)
         }
         guard let s = FSEventStreamCreate(
             kCFAllocatorDefault, cb, &ctx, [path] as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             0.4,   // latency: coalesce bursts of writes into one fire
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer)
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes
+                                     | kFSEventStreamCreateFlagFileEvents
+                                     | kFSEventStreamCreateFlagNoDefer)
         ) else { return }
         stream = s
         FSEventStreamSetDispatchQueue(s, .main)
@@ -313,16 +350,15 @@ private struct FileExplorerInner: View {
         guard let request = reveal.request, let root = rebuild() else { return }
         let rootPath = root.url.path
         guard request.url.path == rootPath || request.url.path.hasPrefix(rootPath + "/") else { return }
-        guard reveal.claim(request) else { NSLog("VERIFY: not claimed"); return }
-        guard let node = root.revealDescendant(request.url), node !== root else {
-            NSLog("VERIFY: no node for \(request.url.path)"); return
-        }
-        NSLog("VERIFY: claimed=\(request.token) node=\(node.name) expandedAncestors=\(ancestorsExpanded(from: root, to: request.url)) scrollingTo=\(node.id)")
-        // Expanding folders re-renders the tree; let the new rows lay out before
-        // asking the scroll view to find one of them.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(node.id, anchor: .center)
+        guard reveal.claim(request) else { return }
+        root.revealDescendant(request.url) { node in
+            guard let node, node !== root else { return }
+            // Expanding folders re-renders the tree; let the new rows lay out before
+            // asking the scroll view to find one of them.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(node.id, anchor: .center)
+                }
             }
         }
     }
@@ -387,7 +423,10 @@ private struct FileExplorerInner: View {
     private func createFolder() {
         creatingFolder = false
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, !rootPath.isEmpty else { return }
+        // The name becomes a single path component — reject anything that could
+        // climb out of the project directory.
+        guard !name.isEmpty, name != "..", !name.contains("/"), !name.contains("\\"),
+              !rootPath.isEmpty else { return }
         let url = URL(fileURLWithPath: rootPath).appendingPathComponent(name)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         rebuild(force: true)
@@ -403,7 +442,12 @@ private struct FileExplorerInner: View {
     /// tree right away doesn't have to re-read the `@State` it just wrote.
     @discardableResult
     private func rebuild(force: Bool = false) -> FileNode? {
-        let path = session.explorerRoot
+        // A session with no project directory has no explorer tree at all (there
+        // is deliberately no whole-home fallback).
+        guard let path = session.explorerRoot else {
+            if root != nil { root = nil; rootPath = ""; watcher.stop() }
+            return nil
+        }
         // Already showing this folder: a forced call (manual refresh button or a
         // filesystem change) is a refresh-in-place that keeps open folders open;
         // an unforced one is a no-op.
@@ -418,21 +462,8 @@ private struct FileExplorerInner: View {
         node.expanded = true
         node.load()
         root = node
-        watcher.start(path: path) { [weak node] in node?.refresh() }
+        watcher.start(path: path) { [weak node] _ in node?.refresh() }
         return node
-    }
-
-    /// VERIFY-ONLY: report whether every folder between root and target is open.
-    private func ancestorsExpanded(from root: FileNode, to target: URL) -> String {
-        var node = root
-        var parts: [String] = []
-        let comps = target.path.dropFirst(root.url.path.count + 1).split(separator: "/")
-        for c in comps.dropLast() {
-            guard let next = node.children?.first(where: { $0.name == c }) else { return parts.joined(separator: ",") + ",MISSING(\(c))" }
-            parts.append("\(c):\(next.expanded ? "open" : "CLOSED")")
-            node = next
-        }
-        return parts.joined(separator: ",")
     }
 
     /// Open a clicked file in the document panel.
@@ -576,7 +607,7 @@ private struct FileBrowserPane: View {
         node.expanded = true
         node.load()
         root = node
-        watcher.start(path: path) { [weak node] in node?.refresh() }
+        watcher.start(path: path) { [weak node] _ in node?.refresh() }
     }
 }
 
@@ -597,7 +628,7 @@ private struct FileRow: View {
     private var acceptsDrop: Bool { node.isDirectory && actions.onDropInto != nil }
 
     /// The row an agent pointed at, or the file the user last opened.
-    private var isSelected: Bool { reveal.selected == node.url.standardizedFileURL }
+    private var isSelected: Bool { reveal.selected == node.standardizedURL }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

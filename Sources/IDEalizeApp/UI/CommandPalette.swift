@@ -19,9 +19,11 @@ struct CommandPalette: View {
 
     @State private var query = ""
     @State private var selection = 0
+    /// The action catalog. Built once when the palette appears — building it
+    /// assigns fresh UUIDs, so rebuilding per keystroke churned every row's
+    /// identity in addition to re-scanning workflows/history/sessions.
+    @State private var actions: [PaletteAction] = []
     @FocusState private var fieldFocused: Bool
-
-    private var actions: [PaletteAction] { buildActions() }
 
     private var filtered: [PaletteAction] {
         if query.isEmpty { return actions }
@@ -68,7 +70,10 @@ struct CommandPalette: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.08)))
         .shadow(radius: 30, y: 10)
-        .onAppear { fieldFocused = true }
+        .onAppear {
+            fieldFocused = true
+            actions = buildActions()
+        }
         .onKeyPress(.downArrow) { move(1); return .handled }
         .onKeyPress(.upArrow) { move(-1); return .handled }
         .onKeyPress(.escape) { workspace.showCommandPalette = false; return .handled }
