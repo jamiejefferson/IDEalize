@@ -159,6 +159,89 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         pendingAgentSetup = nil
     }
 
+    /// The nonce IDEalize included when it asked this pane's agent to introduce
+    /// itself, so an arriving `agent-hello` can be proven to come from *this*
+    /// session's agent. nil when no introduction is pending — a voluntary
+    /// `idealize agent-hello` is then accepted on path checks alone.
+    var handshakeNonce: String?
+
+    /// An unknown agent introduced itself (`idealize agent-hello`, relayed by
+    /// the IPC hub): the in-chat handshake's automatic alternative to the
+    /// manual setup sheet. Parse and verify the payload, then save it as a
+    /// custom `AgentProfile` so this — and every future — launch of the same
+    /// command gets the chat surface. Returns a problem description, or nil.
+    func receiveAgentHello(json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return "hello payload is not valid JSON"
+        }
+        guard let name = (payload["name"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+            return "hello payload is missing the agent name"
+        }
+        // The profile key is the binary the pane is actually running (or about
+        // to run) — derived here, never taken from the payload, so an agent
+        // can't claim another binary's identity.
+        guard let command = runningCommand ?? pendingLaunchCommand ?? launchOverride,
+              let first = command.trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: " ").first else {
+            return "no running command to attach this agent to"
+        }
+        let binary = (String(first) as NSString).lastPathComponent.lowercased()
+        guard !binary.isEmpty else { return "no running command to attach this agent to" }
+        // An introduction we initiated must echo our nonce — otherwise any
+        // process in the shell could rebind the chat's transcript source.
+        if let expected = handshakeNonce, (payload["nonce"] as? String) != expected {
+            return "nonce mismatch — expected the one from IDEalize's introduction"
+        }
+
+        let format: AgentProfile.TranscriptFormat
+        switch ((payload["format"] as? String) ?? "none").lowercased() {
+        case "claude-jsonl", "claudejsonl": format = .claudeJSONL
+        case "kimi-wire", "kimiwirejsonl": format = .kimiWireJSONL
+        default: format = .none   // unknown formats degrade to screen-only, not break
+        }
+        let template = (payload["transcript"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        // Verify the transcript claim before trusting it: the template must
+        // resolve to an existing file inside $HOME for this very session (and
+        // carry our nonce when one was issued — proof it's not a guessed path).
+        if format != .none {
+            guard !template.isEmpty else { return "format \(format.rawValue) needs a transcript template" }
+            var path = template
+                .replacingOccurrences(of: "{workdir}", with: ClaudeTranscript.encodedDir(for: projectPath ?? ""))
+                .replacingOccurrences(of: "{session}", with: boundSessionId ?? "")
+            path = ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            guard path.hasPrefix(home + "/") else {
+                return "transcript path must live inside your home folder"
+            }
+            guard FileManager.default.fileExists(atPath: path) else {
+                return "transcript file does not exist at \(path)"
+            }
+            if let nonce = handshakeNonce {
+                let tail = (try? String(contentsOfFile: path, encoding: .utf8))?.suffix(65_536) ?? ""
+                guard tail.contains(nonce) else {
+                    return "transcript at \(path) does not contain this session's nonce"
+                }
+            }
+        }
+
+        var profile = AgentProfile.defaultProfile(binary: binary)
+        profile.name = name
+        profile.transcriptPathTemplate = template
+        profile.transcriptFormat = format
+        if let patterns = payload["workingPatterns"] as? [String], !patterns.isEmpty {
+            profile.workingLinePatterns = patterns
+        }
+        AgentProfileStore.shared.save(profile)
+        handshakeNonce = nil
+        completeAgentSetup()   // the agent introduced itself — no sheet needed
+        currentAgent = nil     // re-resolve on the next poll via the new profile
+        return nil
+    }
+
     /// Switch the running agent's model via its model-switch command, if it has one.
     func setModel(_ id: String, _ label: String) {
         modelLabel = label

@@ -129,6 +129,9 @@ func printUsage() {
       image <path> [--width W] [--height H] render an image inline
       status <text>                         set this tab's status label
       note [--set <text>] [--mine <text>]   read the shared note; --set the brief, --mine this chat's status
+      agent-hello --name <n> --format <f>   introduce a coding agent to IDEalize (handshake);
+                format: claude-jsonl|kimi-wire|none  [--transcript <path template>]
+                [--nonce <n>] [--working-patterns "esc to interrupt,…"]
       whoami                                print my session id
       ping                                  check the app is reachable
 
@@ -343,6 +346,41 @@ case "note":
     } else {
         fail("usage: idealize note [--set <text>] [--mine <text>]")
     }
+
+case "agent-hello":
+    // The handshake: a coding agent (running inside an IDEalize terminal)
+    // introduces itself — its name, where its transcript lives, and how to
+    // read it — so the app saves an agent profile and renders its conversation
+    // as chat bubbles. Typically run BY the agent, prompted by IDEalize's
+    // first-run introduction. The app derives the binary name from what the
+    // pane is running and verifies the transcript path before trusting it.
+    let flags = Flags(rest)
+    guard let name = flags.values["name"], !name.isEmpty else {
+        fail("agent-hello needs --name <agent name>")
+    }
+    // Transcript format: claude-jsonl (Claude-Code-style records), kimi-wire
+    // (Kimi wire.jsonl), or none (no readable transcript — screen-only chat).
+    let format = (flags.values["format"] ?? "none").lowercased()
+    guard ["claude-jsonl", "kimi-wire", "none"].contains(format) else {
+        fail("--format must be claude-jsonl, kimi-wire, or none")
+    }
+    var payload: [String: Any] = ["name": name, "format": format]
+    if let t = flags.values["transcript"] { payload["transcript"] = t }
+    if let n = flags.values["nonce"] { payload["nonce"] = n }
+    if let p = flags.values["working-patterns"] {
+        // Comma-separated screen substrings that mean "working" (e.g. a
+        // spinner label or "esc to interrupt").
+        payload["workingPatterns"] = p.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+    guard let bodyData = try? JSONSerialization.data(withJSONObject: payload),
+          let body = String(data: bodyData, encoding: .utf8) else {
+        fail("could not encode the hello payload")
+    }
+    let resp = sendRequest(IPCRequest(command: .agentHello, from: mySession, body: body))
+    if !resp.ok { fail(resp.error ?? "agent-hello failed") }
+    out(resp.info ?? "hello received — IDEalize can read this agent now")
 
 case "image":
     // Inline images are emitted directly to our own stdout; no socket needed.

@@ -1147,6 +1147,22 @@ final class Workspace: ObservableObject {
                 return IPCExchange(index: e.index, question: e.question, answer: answer)
             }
             return IPCResponse(ok: true, exchanges: exchanges)
+
+        case .agentHello:
+            // An unknown agent answering the first-run introduction — hand the
+            // descriptor to its session, which verifies it (nonce, $HOME-bound
+            // transcript path) and saves it as a custom agent profile. The
+            // automatic counterpart of the manual AgentSetupSheet.
+            guard let from = request.from, let s = session(withID: from) else {
+                return .failure("unknown sender session")
+            }
+            guard let body = request.body, !body.isEmpty else {
+                return .failure("missing hello payload")
+            }
+            if let problem = s.receiveAgentHello(json: body) {
+                return .failure(problem)
+            }
+            return IPCResponse(ok: true, info: "hello received — IDEalize can read this agent now")
         }
     }
 
