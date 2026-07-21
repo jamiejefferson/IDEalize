@@ -15,6 +15,12 @@ enum ProjectAgent {
     static func launchCommand() -> String {
         var cmd = AppSettings.shared.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         if cmd.isEmpty { cmd = "claude --dangerously-skip-permissions" }
+        // Deliver the coordinating guide as an invisible system prompt (never
+        // printed in the chat) rather than a visible skill invocation. The
+        // `/project-agent` command then only carries the short opening turn.
+        if TerminalSession.isClaudeCommand(cmd) {
+            cmd += " --append-system-prompt \"$(cat \"$HOME/.claude/skills/project-agent/SKILL.md\")\""
+        }
         cmd += " \(quote("/project-agent"))"
         return cmd
     }

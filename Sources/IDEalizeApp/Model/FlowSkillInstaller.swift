@@ -24,7 +24,8 @@ enum FlowSkillInstaller {
     /// v4: added `idealize-service-hatch` (self-service dev session guide).
     /// v5: added `/flows` (model-agnostic workflow coach for the Flows interview).
     /// v6: added `project-agent` (the coordinating chat for a project's chats).
-    static let version = 6
+    /// v7: project-agent guide delivered via system prompt; command slimmed (no visible skill dump).
+    static let version = 7
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
     private static let files: [(src: String, dest: String)] = [
