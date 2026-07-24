@@ -165,9 +165,23 @@ final class DirectoryWatcher {
     }
 
     func stop() {
-        guard let s = stream else { return }
-        FSEventStreamStop(s); FSEventStreamInvalidate(s); FSEventStreamRelease(s)
-        stream = nil
+        // FSEvents delivers callbacks on `.main` (see `start`). This object is held
+        // by SwiftUI `@State` and `ProjectMonitor`, so ARC can call `deinit` — and
+        // thus `stop()` — on any thread. Tearing the stream down off-main races a
+        // callback that may be mid-flight on main: `FSEventStreamInvalidate` frees
+        // the event's `paths` array underneath the running `as? [String]` bridge,
+        // which then messages a dangling element and crashes (SIGSEGV in
+        // objc_msgSend). Serialise all teardown on main so it can never overlap a
+        // callback, and clear `onChange` there too so any already-queued callback
+        // is a no-op. Synchronous, so a live stream never outlives this object.
+        let teardown = { [self] in
+            guard let s = stream else { return }
+            FSEventStreamStop(s); FSEventStreamInvalidate(s); FSEventStreamRelease(s)
+            stream = nil
+            onChange = nil
+        }
+        if Thread.isMainThread { teardown() }
+        else { DispatchQueue.main.sync(execute: teardown) }
     }
 
     deinit { stop() }
