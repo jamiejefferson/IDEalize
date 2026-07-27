@@ -78,6 +78,16 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// keep showing the previous, now-stale answer. When set, the chat shows a
     /// "answer in the terminal" affordance instead of that stale message.
     @Published var liveInteractivePrompt: Bool = false
+    /// Where the agent is in its sign-in flow, lifted from the visible screen.
+    /// Drives the chat's "signing in…" / "you're signed in" banners so the OAuth
+    /// dance — which otherwise left the viewer blankly reporting "ready" — is
+    /// legible, and its success (which the terminal only flashes before its
+    /// welcome screen) is confirmed. See `updateLoginState`.
+    @Published var loginState: AgentLoginState = .none
+    /// When `.succeeded` was last seen on screen, so the confirmation lingers a
+    /// few seconds after the terminal's own success screen is dismissed (Enter),
+    /// then clears back to `.none`.
+    private var loginSucceededAt: Date?
     /// High-level agent status shown as a tab tag (see `AgentStatus`). Driven by
     /// `detectPrompt`; cleared back to `.idle` from `.complete` once the tab is
     /// focused (acknowledged).
@@ -746,6 +756,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         if let n = agentNote?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
             return n
         }
+        // Mid-login sessions used to fall through to the idle "ready" line.
+        if loginState == .inProgress { return "signing in…" }
         func firstLine(_ s: String, _ limit: Int = 72) -> String {
             let line = s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s
             let t = line.trimmingCharacters(in: .whitespaces)
@@ -856,10 +868,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             if botWorking { botWorking = false }
             if awaitingReply { awaitingReply = false }
             if agentStatus != .idle { agentStatus = .idle }
+            if loginState != .none { loginState = .none; loginSucceededAt = nil }
             return
         }
         let lines = readVisibleScreen()
         let agent = currentAgent ?? GenericAgentAdapter()
+        updateLoginState(lines, agent: agent)
         let prompt = agent.parsePrompt(lines: lines)
         if prompt != pendingPrompt {
             pendingPrompt = prompt
@@ -905,6 +919,32 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
         if interactive != liveInteractivePrompt { liveInteractivePrompt = interactive }
         updateAgentStatus()
+    }
+
+    /// Track the agent's sign-in flow from the visible screen and latch its
+    /// success so the chat can confirm it. The terminal shows "Login successful"
+    /// only until the user presses Enter, after which its welcome screen replaces
+    /// it — so once seen we hold `.succeeded` for a few seconds (or until the
+    /// first message clears it) rather than blinking it away. An in-progress flow
+    /// that vanishes without a success line (e.g. the user cancelled) simply
+    /// clears — we never fabricate a success.
+    private func updateLoginState(_ lines: [String], agent: AgentAdapter) {
+        switch agent.detectLoginState(lines: lines) {
+        case .succeeded:
+            if loginState != .succeeded { loginState = .succeeded }
+            loginSucceededAt = Date()               // refresh while it's on screen
+        case .inProgress:
+            loginSucceededAt = nil
+            if loginState != .inProgress { loginState = .inProgress }
+        case .none:
+            if loginState == .succeeded {
+                if let t = loginSucceededAt, Date().timeIntervalSince(t) > 8 {
+                    loginState = .none; loginSucceededAt = nil
+                }
+            } else if loginState != .none {
+                loginState = .none
+            }
+        }
     }
 
     /// Map the live `pendingPrompt`/`botWorking` flags onto the higher-level
@@ -1130,6 +1170,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     func submitInput(_ text: String) {
         historyIndex = nil   // a new message snaps the chat back to live
+        // Sending a message means we're past sign-in — drop any lingering
+        // login confirmation so it doesn't sit above the new turn.
+        if loginState != .none { loginState = .none; loginSucceededAt = nil }
         if tuiActive {
             // Talking to a running agent (or other TUI): show the new question but
             // keep the previous answer pinned (in `priorAnswer`) so the chat doesn't

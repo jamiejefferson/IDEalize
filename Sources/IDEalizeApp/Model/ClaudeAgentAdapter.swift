@@ -56,6 +56,28 @@ struct ClaudeAgentAdapter: AgentAdapter {
         return AgentWorkingState(isWorking: markerVisible, status: status, tip: tip)
     }
 
+    func detectLoginState(lines: [String]) -> AgentLoginState {
+        func any(_ needles: [String]) -> Bool {
+            lines.contains { line in
+                let s = line.lowercased()
+                return needles.contains { s.contains($0) }
+            }
+        }
+        // "Login successful" / "Logged in as …" are the terminal's own success
+        // confirmations. Both are unambiguously positive — unlike "not logged in"
+        // or "… · Run /login", which are prompts to sign in, not confirmations.
+        // Claude pauses on the success screen for Enter, so the 1 Hz poll catches
+        // it reliably.
+        if any(["login successful", "logged in as"]) { return .succeeded }
+        // The sign-in flow itself: the method picker, the browser hand-off, the
+        // paste-the-code prompt, and the retry/failure footer.
+        if any(["select login method", "opening browser to sign in",
+                "opening browser to authorize", "paste code here",
+                "press enter to retry", "browser didn't open",
+                "browser did not open", "claude.ai/oauth"]) { return .inProgress }
+        return .none
+    }
+
     var supportsRuntimeModelSwitch: Bool { true }
     var supportsReasoningEffort: Bool { true }
     var supportedSlashCommands: [String] { ["/flow-review", "/flow-run", "/flow-improve", "/flows"] }
