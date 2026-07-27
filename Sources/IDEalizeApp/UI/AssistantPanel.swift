@@ -219,8 +219,12 @@ struct QAChatBox: View {
     /// above this, and while a turn is in flight the working animation shows here —
     /// so a fresh message always reads "your message → working → reply".
     @ViewBuilder private var liveTrailing: some View {
-        if !session.isBrowsingHistory, let prompt = session.pendingPrompt {
+        if session.loginState == .succeeded {
+            loginBanner
+        } else if !session.isBrowsingHistory, let prompt = session.pendingPrompt {
             promptView(prompt)
+        } else if session.loginState == .inProgress {
+            loginBanner
         } else if !session.isBrowsingHistory && session.liveInteractivePrompt && !working {
             terminalAttentionView
         } else if isActiveTurn {
@@ -233,10 +237,18 @@ struct QAChatBox: View {
     private var emptyStatePane: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if session.isServiceHatch {
+                if session.loginState != .none {
+                    loginBanner
+                } else if session.isServiceHatch {
                     hatchBanner
                 } else if showReady {
                     readyView
+                }
+                // Before any turn exists the agent can still put up a choice box —
+                // the login-method picker most notably. Surface it here so it's
+                // answerable from the chat, not only in the terminal.
+                if let prompt = session.pendingPrompt, !session.isBrowsingHistory {
+                    promptView(prompt)
                 }
             }
             .padding(.horizontal, settings.chatMargin)
@@ -470,6 +482,7 @@ struct QAChatBox: View {
             && session.pendingPrompt == nil
             && !session.liveInteractivePrompt
             && !session.isBrowsingHistory
+            && session.loginState == .none    // the login banner owns this moment
     }
 
     /// A light, friendly "the agent is up — your move" message for an empty chat.
@@ -485,6 +498,84 @@ struct QAChatBox: View {
                     .font(chatStyle.font(size, .semibold))
                     .foregroundStyle(chatTextColor)
                 Text("Tell it what you'd like to do, in plain English — type below to get started.")
+                    .font(chatStyle.font(size - 1))
+                    .foregroundStyle(chatStyle.secondaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .transition(.opacity)
+    }
+
+    /// The sign-in banner: "signing in…" while the OAuth flow runs, then a clear
+    /// "you're signed in" confirmation once the terminal reports success — so the
+    /// login, which otherwise plays out invisibly in the terminal, reads plainly
+    /// in the chat and its success isn't missed.
+    @ViewBuilder private var loginBanner: some View {
+        if session.loginState == .succeeded {
+            loginSucceededCard
+        } else {
+            loginInProgressCard
+        }
+    }
+
+    /// Sign-in underway. When the agent is showing its method picker the options
+    /// render just below (in the empty state), so this is a header; at the
+    /// browser/paste-the-code stage there's no in-chat prompt, so it points the
+    /// user to finish in the browser and offers a jump to the terminal to paste
+    /// the code.
+    private var loginInProgressCard: some View {
+        let atPicker = session.pendingPrompt != nil
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 15))
+                .foregroundStyle(Color(theme.accent))
+                .frame(width: 20)
+                .padding(.top, size * 0.16)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Signing in to \(session.currentAgent?.name ?? "your agent")")
+                    .font(chatStyle.font(size, .semibold))
+                    .foregroundStyle(chatTextColor)
+                Text(atPicker
+                     ? "Choose how you'd like to sign in below."
+                     : "A browser window has opened — finish signing in there. If it shows a code, paste it into the terminal.")
+                    .font(chatStyle.font(size - 1))
+                    .foregroundStyle(chatStyle.secondaryTextColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !atPicker {
+                    Button(action: { withAnimation(LeafPaneView.modeAnim) { session.revealTerminal = true } }) {
+                        HStack(spacing: 7) {
+                            Image(systemName: "terminal")
+                            Text("Open the terminal").font(settings.ui(size - 1, .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Capsule().fill(settings.actionStyle.fill))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .transition(.opacity)
+    }
+
+    /// Signed in — a warm confirmation the raw terminal only flashes for a moment.
+    private var loginSucceededCard: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(settings.actionStyle.color)
+                .frame(width: 20)
+                .padding(.top, size * 0.16)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("You're signed in to \(session.currentAgent?.name ?? "your agent")")
+                    .font(chatStyle.font(size, .semibold))
+                    .foregroundStyle(chatTextColor)
+                Text("All set — tell it what you'd like to do below to get started.")
                     .font(chatStyle.font(size - 1))
                     .foregroundStyle(chatStyle.secondaryTextColor)
                     .fixedSize(horizontal: false, vertical: true)
