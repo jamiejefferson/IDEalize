@@ -72,6 +72,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published var taskCritter: Int = 0
     /// A confirmation/choice prompt the agent is showing — answered from the chat UI.
     @Published var pendingPrompt: AgentPrompt?
+    /// The prompt most recently answered/dismissed from the chat card, held briefly
+    /// so the ~1s screen poll can't resurrect it. When you answer a prompt we
+    /// optimistically clear `pendingPrompt`, but the agent's TUI takes a moment to
+    /// process the keystroke and repaint — until it does, its still-visible option
+    /// block would re-parse to the same prompt and `detectPrompt()` would re-open
+    /// the card you just dismissed. This mirrors the `awaitingReply` guard that
+    /// covers the identical race for `botWorking`.
+    private var answeredPrompt: AgentPrompt?
+    private var answeredPromptAt: Date?
     /// An interactive prompt is live on the terminal that we could NOT parse into
     /// answer buttons (an arrow-key menu, a trust dialog, a free-form confirm).
     /// These never reach the transcript, so without this flag the chat would
@@ -124,8 +133,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// The pane's mode toggle. false = chat overlay (terminal blurred behind);
     /// true = the full, interactive terminal.
     @Published var revealTerminal: Bool = false
-    /// The model label shown in the input toolbar (display only).
-    @Published var modelLabel: String = "Auto"
+    /// How much autonomy the agent runs with. Applied as a launch flag when the
+    /// agent (re)starts — defaults to `.yolo` to preserve IDEalize's long-standing
+    /// permissions-skipped launch. Chosen from the chat toolbar's permission pill.
+    @Published var permissionMode: PermissionMode = .yolo
     /// Thinking-effort label shown in the toolbar.
     @Published var effortLabel: String = "Standard"
     /// The thinking keyword prepended to messages ("", "think", "think hard",
@@ -252,13 +263,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         return nil
     }
 
-    /// Switch the running agent's model via its model-switch command, if it has one.
-    func setModel(_ id: String, _ label: String) {
-        modelLabel = label
-        guard let cmd = currentAgent?.modelSwitchCommand, tuiActive else { return }
-        sendLineToTUI("\(cmd) \(id)")
-    }
-
     /// Send a line of input to the live TUI (agent CLI) as the pasted text
     /// followed by a SEPARATE Return a short beat later. Agent TUIs wrap
     /// pasted input in bracketed-paste markers (ESC[200~ … ESC[201~), so a
@@ -309,14 +313,39 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// agents that don't bind sessions at launch.
     private func augmentAgentLaunch(_ command: String) -> String {
         guard let agent = AgentRegistry.adapter(forCommand: command.lowercased()) else { return command }
-        // Only Claude currently supports launch-time session binding.
+        // Only Claude currently supports launch-time session binding + permission modes.
         guard agent.binaryName == "claude" else { return command }
+        var result = command
+        // Bind a fresh session id unless the command already selects a session, so
+        // its transcript is identifiable.
         let selectors = ["--session-id", "--resume", "--continue", " -r ", " -c "]
-        if selectors.contains(where: { command.contains($0) })
-            || command.hasSuffix(" -r") || command.hasSuffix(" -c") { return command }
-        let uuid = UUID().uuidString.lowercased()
-        boundSessionId = uuid
-        return command + " --session-id \(uuid)"
+        let alreadySelectsSession = selectors.contains(where: { command.contains($0) })
+            || command.hasSuffix(" -r") || command.hasSuffix(" -c")
+        if !alreadySelectsSession {
+            let uuid = UUID().uuidString.lowercased()
+            boundSessionId = uuid
+            result += " --session-id \(uuid)"
+        }
+        // Apply this chat's permission mode, so the toolbar pill — not whatever
+        // flag happens to be in the launch command — is the single source of truth.
+        if agent.supportsPermissionModes {
+            result = TerminalSession.applyingPermissionMode(permissionMode, to: result)
+        }
+        return result
+    }
+
+    /// Replace any permission flag in a `claude` launch with the one for `mode`.
+    /// Strips `--dangerously-skip-permissions` and `--permission-mode <value>`
+    /// (both space- and `=`-separated) so switching modes never leaves a stale or
+    /// conflicting flag behind, then appends `mode`'s flag.
+    static func applyingPermissionMode(_ mode: PermissionMode, to command: String) -> String {
+        var c = command
+        c = c.replacingOccurrences(of: "--dangerously-skip-permissions", with: " ")
+        c = c.replacingOccurrences(
+            of: "--permission-mode[= ]+[A-Za-z]+", with: " ", options: .regularExpression)
+        c = c.replacingOccurrences(of: " +", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        return c + " " + mode.launchFlag
     }
 
     // Blocks (Warp-style command tracking via shell integration).
@@ -874,7 +903,22 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         let lines = readVisibleScreen()
         let agent = currentAgent ?? GenericAgentAdapter()
         updateLoginState(lines, agent: agent)
-        let prompt = agent.parsePrompt(lines: lines)
+        var prompt = agent.parsePrompt(lines: lines)
+        // Don't let the ~1s poll resurrect a prompt we just answered from the chat
+        // card: the agent's TUI may not have repainted yet, so its still-visible
+        // option block would otherwise re-open the dismissed card. Hold the
+        // answered prompt back until the screen moves on (a different prompt, or
+        // none) or a short grace elapses. `AgentPrompt` is `Equatable`, so a
+        // genuinely new question with different options clears the lockout at once.
+        if let answered = answeredPrompt {
+            if let p = prompt, p == answered,
+               let at = answeredPromptAt, Date().timeIntervalSince(at) < 2.0 {
+                prompt = nil
+            } else {
+                answeredPrompt = nil
+                answeredPromptAt = nil
+            }
+        }
         if prompt != pendingPrompt {
             pendingPrompt = prompt
             // Surface the question even if the modal was minimised.
@@ -1013,9 +1057,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         return stripped.contains("?")
     }
 
+    /// Latch the prompt we're dismissing so the next screen poll can't resurrect
+    /// it before the agent's TUI has repainted. See `answeredPrompt`.
+    private func markPromptAnswered() {
+        if let p = pendingPrompt {
+            answeredPrompt = p
+            answeredPromptAt = Date()
+        }
+    }
+
     /// Answer a detected prompt by pressing the option's number in the agent.
     func answerPrompt(_ option: AgentPrompt.Option) {
         terminalView.send(txt: "\(option.number)")
+        markPromptAnswered()
         pendingPrompt = nil
         botWorking = true
         agentStatus = .working
@@ -1030,6 +1084,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Confirm a multi-select prompt (Enter), proceeding with the current ticks.
     func confirmPrompt() {
         terminalView.send(txt: "\r")
+        markPromptAnswered()
         pendingPrompt = nil
         botWorking = true
         agentStatus = .working
@@ -1040,6 +1095,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     func interrupt() {
         guard tuiActive else { return }
         terminalView.send(txt: "\u{1b}")   // ESC
+        markPromptAnswered()
         pendingPrompt = nil
         // Reflect the stop immediately; the on-screen marker poll keeps it honest.
         botWorking = false

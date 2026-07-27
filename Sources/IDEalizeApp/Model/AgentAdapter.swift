@@ -79,17 +79,15 @@ protocol AgentAdapter {
     /// Detect the agent's sign-in / authentication state from visible lines.
     func detectLoginState(lines: [String]) -> AgentLoginState
 
-    /// Whether the agent supports switching model at runtime (e.g. `/model`).
-    var supportsRuntimeModelSwitch: Bool { get }
-
     /// Whether the agent supports reasoning-effort keywords.
     var supportsReasoningEffort: Bool { get }
 
+    /// Whether the agent supports permission modes (plan / accept-edits / yolo),
+    /// selected as a launch flag. Defaults to false; only Claude opts in.
+    var supportsPermissionModes: Bool { get }
+
     /// Slash commands the adapter knows how to run (e.g. `/flow-review`).
     var supportedSlashCommands: [String] { get }
-
-    /// Command used to switch model at runtime, if supported.
-    var modelSwitchCommand: String? { get }
 
     /// Reasoning-effort keywords this agent understands.
     var effortKeywords: [String: String] { get }
@@ -99,6 +97,9 @@ extension AgentAdapter {
     /// Agents whose login flow IDEalize doesn't track never report one, so the
     /// chat treats them as always-signed-in (the common case once set up).
     func detectLoginState(lines: [String]) -> AgentLoginState { .none }
+
+    /// Most agents don't expose permission modes; Claude overrides this.
+    var supportsPermissionModes: Bool { false }
 }
 
 // MARK: - Agent registry
@@ -140,9 +141,7 @@ struct GenericAgentAdapter: AgentAdapter {
         AgentWorkingState(isWorking: false, status: nil, tip: nil)
     }
 
-    var supportsRuntimeModelSwitch: Bool { false }
     var supportsReasoningEffort: Bool { false }
     var supportedSlashCommands: [String] { [] }
-    var modelSwitchCommand: String? { nil }
     var effortKeywords: [String: String] { [:] }
 }

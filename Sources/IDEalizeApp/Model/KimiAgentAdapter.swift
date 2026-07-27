@@ -43,10 +43,8 @@ struct KimiAgentAdapter: AgentAdapter {
         return AgentWorkingState(isWorking: working, status: status, tip: tip)
     }
 
-    var supportsRuntimeModelSwitch: Bool { false }   // model is chosen at launch with -m
     var supportsReasoningEffort: Bool { false }
     var supportedSlashCommands: [String] { ["/flows"] }
-    var modelSwitchCommand: String? { nil }
     var effortKeywords: [String: String] { [:] }
 }
 
