@@ -13,8 +13,6 @@ struct AgentProfile: Codable, Equatable, Identifiable {
     var promptStyle: PromptStyle
     /// Regex or keywords that indicate the agent is working.
     var workingLinePatterns: [String]
-    /// Optional command to switch model at runtime (e.g. "/model").
-    var modelSwitchCommand: String?
     /// Reasoning-effort keywords this agent understands.
     var effortKeywords: [String: String]
     /// Slash commands the agent supports.
@@ -44,7 +42,6 @@ extension AgentProfile {
             transcriptFormat: .none,
             promptStyle: .numberedList,
             workingLinePatterns: ["esc to interrupt", "esc to cancel"],
-            modelSwitchCommand: nil,
             effortKeywords: [:],
             slashCommands: []
         )

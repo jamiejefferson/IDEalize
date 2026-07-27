@@ -10,25 +10,27 @@ struct ClaudeAgentAdapter: AgentAdapter {
     }
 
     func transcriptURL(forCwd cwd: String, sessionId: String?) -> URL? {
-        if let id = sessionId,
-           let bound = ClaudeTranscript.transcript(forCwd: cwd, sessionId: id) {
-            // Prefer the transcript for the session we launched. If it's stillborn
-            // (no real exchange) and a newer transcript exists, the user is really
-            // talking to that one — follow it.
-            if let newest = ClaudeTranscript.newestTranscript(forCwd: cwd),
-               newest != bound,
-               ClaudeTranscript.modDate(newest) > ClaudeTranscript.modDate(bound),
-               transcriptIsStillborn(bound) {
-                return newest
-            }
-            return bound
+        // A session we launched carries its own `--session-id`, so it owns exactly
+        // one transcript file. Bind to that file and nothing else: every chat and
+        // the project agent in one project share a single transcript directory
+        // (it's keyed only on cwd), so falling back to "newest in the directory"
+        // here would hand a bound chat a *sibling's* transcript — most often the
+        // project agent's, whose file is perpetually the newest because the
+        // coordinator polls on a timer. That cross-session read is what made fresh
+        // chats mirror the coordinator and blended content between chats.
+        //
+        // If our own transcript doesn't exist yet, show nothing until it appears
+        // rather than mirroring whatever ran last. (The old "stillborn → follow
+        // newest" swap guarded against a double-launch that produced two
+        // transcripts for one chat; `agentLaunchInFlight` now prevents that
+        // double-launch upstream, and both launches would reuse the same
+        // session-id/file anyway, so the swap is obsolete and only leaks.)
+        if let id = sessionId {
+            return ClaudeTranscript.transcript(forCwd: cwd, sessionId: id)
         }
+        // Only genuinely unbound (hand-started, no session-id) chats fall back to
+        // the newest transcript in the directory.
         return ClaudeTranscript.newestTranscript(forCwd: cwd)
-    }
-
-    private func transcriptIsStillborn(_ url: URL) -> Bool {
-        let e = ClaudeTranscript.lastExchange(in: url)
-        return e?.question == nil && e?.answer == nil
     }
 
     func allExchanges(in url: URL) -> [AgentExchange] {
@@ -78,10 +80,9 @@ struct ClaudeAgentAdapter: AgentAdapter {
         return .none
     }
 
-    var supportsRuntimeModelSwitch: Bool { true }
     var supportsReasoningEffort: Bool { true }
+    var supportsPermissionModes: Bool { true }
     var supportedSlashCommands: [String] { ["/flow-review", "/flow-run", "/flow-improve", "/flows"] }
-    var modelSwitchCommand: String? { "/model" }
     var effortKeywords: [String: String] {
         ["Extended": "think", "Deep": "think hard", "Maximum": "ultrathink"]
     }

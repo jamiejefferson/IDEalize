@@ -142,14 +142,19 @@ enum SkillCatalog {
 private struct Pill: View {
     let icon: String
     let text: String
+    /// Overrides the icon/hover accent — used to flag a caution state (e.g. Yolo).
+    let tint: Color?
     @ObservedObject private var settings = AppSettings.shared
     @State private var hovering = false
-    init(_ icon: String, _ text: String) { self.icon = icon; self.text = text }
+    init(_ icon: String, _ text: String, tint: Color? = nil) {
+        self.icon = icon; self.text = text; self.tint = tint
+    }
     private var theme: Theme { settings.theme }
+    private var accent: Color { tint ?? settings.actionStyle.color }
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: icon).font(.system(size: 11))
-                .foregroundStyle(settings.actionStyle.color)
+                .foregroundStyle(accent)
             Text(text).font(settings.ui(11, .medium)).foregroundStyle(Color(theme.foreground))
             Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
                 .foregroundStyle(Color(theme.secondaryForeground))
@@ -157,7 +162,7 @@ private struct Pill: View {
         .padding(.horizontal, 10).padding(.vertical, 5)
         .background(Capsule().fill(Color(hovering ? theme.surfaceHover : theme.surface)))
         .overlay(Capsule().strokeBorder(
-            hovering ? settings.actionStyle.color.opacity(0.5) : Color(theme.border), lineWidth: 1))
+            hovering ? accent.opacity(0.5) : Color(theme.border), lineWidth: 1))
         .contentShape(Capsule())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
@@ -190,8 +195,8 @@ struct ChatToolbar: View {
                 // pane is narrow — the toggle stays pinned on the left.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 7) {
-                        if session.currentAgent?.supportsRuntimeModelSwitch == true {
-                            ModelPill(session: session)
+                        if session.currentAgent?.supportsPermissionModes == true {
+                            PermissionModePill(session: session)
                         }
                         if session.currentAgent?.supportsReasoningEffort == true {
                             EffortPill(session: session)
@@ -302,27 +307,26 @@ private struct VersionHistoryButton: View {
     }
 }
 
-private struct ModelPill: View {
+private struct PermissionModePill: View {
     @ObservedObject var session: TerminalSession
     @State private var open = false
-    static let models: [(label: String, id: String, blurb: String)] = [
-        ("Auto", "default", "Let the agent choose"),
-        ("Opus", "opus", "Most capable"),
-        ("Sonnet", "sonnet", "Balanced & fast"),
-        ("Haiku", "haiku", "Fastest"),
-    ]
     var body: some View {
-        Button(action: { open.toggle() }) { Pill("brain.head.profile", session.modelLabel) }
-            .buttonStyle(.plain)
-            .help("\(session.currentAgent?.name ?? "Agent") model")
-            .popover(isPresented: $open, arrowEdge: .top) {
-                OptionList(title: "Model",
-                           options: Self.models.map { ($0.label, $0.blurb) },
-                           current: session.modelLabel) { label in
-                    if let m = Self.models.first(where: { $0.label == label }) { session.setModel(m.id, m.label) }
-                    open = false
+        let mode = session.permissionMode
+        Button(action: { open.toggle() }) {
+            Pill(mode.icon, mode.label, tint: mode.isDangerous ? .orange : nil)
+        }
+        .buttonStyle(.plain)
+        .help("How much the agent can do on its own — applies when the agent next launches")
+        .popover(isPresented: $open, arrowEdge: .top) {
+            OptionList(title: "Permissions",
+                       options: PermissionMode.allCases.map { ($0.label, $0.blurb) },
+                       current: mode.label) { label in
+                if let m = PermissionMode.allCases.first(where: { $0.label == label }) {
+                    session.permissionMode = m
                 }
+                open = false
             }
+        }
     }
 }
 
