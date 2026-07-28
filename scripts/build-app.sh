@@ -13,18 +13,32 @@ ROOT="$(pwd)"
 
 CONFIG="release"
 OPEN_AFTER=0
+DEV=0
 for arg in "$@"; do
   case "$arg" in
     --debug) CONFIG="debug" ;;
     --open)  OPEN_AFTER=1 ;;
+    --dev)   DEV=1 ;;
   esac
 done
+
+# A --dev build is a separate side-by-side app: its own bundle id (so it gets a
+# fresh UserDefaults domain and doesn't touch the installed app's prefs/sessions)
+# and its own name / dist path. Used to test design changes locally.
+APP_NAME="IDEalize"
+BUNDLE_ID="com.idealize.terminal"
+APP_FILE="IDEalize.app"
+if [ "$DEV" = "1" ]; then
+  APP_NAME="IDEalize Dev"
+  BUNDLE_ID="com.idealize.terminal.dev"
+  APP_FILE="IDEalize-Dev.app"
+fi
 
 echo "==> Building ($CONFIG)…"
 swift build -c "$CONFIG"
 
 BIN_DIR="$ROOT/.build/$CONFIG"
-FINAL_APP="$ROOT/dist/IDEalize.app"
+FINAL_APP="$ROOT/dist/$APP_FILE"
 # Assemble + sign in a NON-synced staging dir. dist/ lives in an iCloud-synced
 # Obsidian vault whose File Provider re-stamps com.apple.FinderInfo on the bundle
 # dirs mid-sign, which makes codesign fall back to ad-hoc (losing the stable
@@ -79,20 +93,24 @@ cp "$ROOT/Resources/AppIcon.icns" "$RES/AppIcon.icns"
 [ -d "$ROOT/Resources/FlowSkills" ] && cp -R "$ROOT/Resources/FlowSkills" "$RES/FlowSkills"
 # Bundle the "working" critter icons shown while Claude is busy.
 [ -d "$ROOT/Resources/Critters" ] && cp -R "$ROOT/Resources/Critters" "$RES/Critters"
+# Bundle the default terminal typeface (DM Mono), registered at launch.
+[ -d "$ROOT/Resources/Fonts" ] && cp -R "$ROOT/Resources/Fonts" "$RES/Fonts"
+# Bundle the IDEalize owl mascot frames for the welcome slate.
+[ -d "$ROOT/Resources/Owl" ] && cp -R "$ROOT/Resources/Owl" "$RES/Owl"
 # Bundle the "task complete" chime played on notify --sound.
 [ -f "$ROOT/Resources/TaskComplete.mp3" ] && cp "$ROOT/Resources/TaskComplete.mp3" "$RES/TaskComplete.mp3"
 
 # Info.plist
-cat > "$CONTENTS/Info.plist" <<'PLIST'
+cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>            <string>IDEalize</string>
-  <key>CFBundleDisplayName</key>     <string>IDEalize</string>
+  <key>CFBundleName</key>            <string>${APP_NAME}</string>
+  <key>CFBundleDisplayName</key>     <string>${APP_NAME}</string>
   <key>CFBundleExecutable</key>      <string>IDEalize</string>
   <key>CFBundleIconFile</key>        <string>AppIcon</string>
-  <key>CFBundleIdentifier</key>      <string>com.idealize.terminal</string>
+  <key>CFBundleIdentifier</key>      <string>${BUNDLE_ID}</string>
   <key>CFBundleVersion</key>         <string>10</string>
   <key>CFBundleShortVersionString</key> <string>0.5.2</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>

@@ -12,7 +12,11 @@ public enum IPC {
         if let override = ProcessInfo.processInfo.environment["IDEALIZE_SOCK"], !override.isEmpty {
             return override
         }
-        let base = NSHomeDirectory() + "/Library/Application Support/IDEalize"
+        // The dev build (.dev bundle id) uses its own runtime dir so it can run
+        // alongside the installed app without fighting over the socket/token. The
+        // CLI (a separate process) matches via the injected IDEALIZE_SOCK above.
+        let dirName = (Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true) ? "IDEalize Dev" : "IDEalize"
+        let base = NSHomeDirectory() + "/Library/Application Support/\(dirName)"
         return base + "/ipc.sock"
     }
 
