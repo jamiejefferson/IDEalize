@@ -132,8 +132,18 @@ struct AppearancePanel: View {
 
     private var terminalCard: some View {
         card("Terminal") {
-            slider("Blur", $settings.terminalBlur, 0...20, step: 1) { String(format: "%.0f", $0) }
+            subLabel("Theme")
+            VStack(spacing: 6) {
+                ForEach(Theme.terminalThemes) { t in
+                    terminalThemeRow(t)
+                }
+            }
+            Rectangle().fill(Color(theme.border).opacity(0.4)).frame(height: 1).padding(.vertical, 2)
+            subLabel("Typography")
+            slider("Font size", $settings.fontSize, 9...28, step: 0.5) { String(format: "%.1f", $0) }
+            slider("Line spacing", $settings.terminalLineSpacing, 1...3, step: 0.1) { String(format: "%.1f", $0) }
             slider("Margins", $settings.terminalMargin, 0...80, step: 2) { String(format: "%.0f", $0) }
+            slider("Blur", $settings.terminalBlur, 0...20, step: 1) { String(format: "%.0f", $0) }
         }
     }
 
@@ -182,7 +192,10 @@ struct AppearancePanel: View {
     private var panelPicker: some View {
         VStack(alignment: .leading, spacing: 7) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
-                ForEach(PanelKind.allCases) { p in
+                // The terminal is configured entirely by its own card (theme,
+                // font size, line spacing, margins) — no per-panel override, so
+                // there's exactly one place to style it.
+                ForEach(PanelKind.allCases.filter { $0 != .terminal }) { p in
                     Button(action: { workspace.appearanceTarget = p }) {
                         VStack(spacing: 4) {
                             Image(systemName: p.icon).font(.system(size: 13))
@@ -314,6 +327,34 @@ struct AppearancePanel: View {
     }
 
     // MARK: Theme
+
+    /// Same row, bound to the terminal's own theme rather than the app's.
+    private func terminalThemeRow(_ t: Theme) -> some View {
+        let selected = settings.terminalThemeName == t.name
+        return Button(action: { settings.terminalThemeName = t.name }) {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 5).fill(Color(t.background))
+                    .frame(width: 42, height: 24)
+                    .overlay(HStack(spacing: 2) {
+                        ForEach(1..<5) { i in Circle().fill(Color(t.ansi[i])).frame(width: 5, height: 5) }
+                    })
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color(theme.border), lineWidth: 1))
+                Text(t.name).font(settings.ui(12, .medium)).foregroundStyle(Color(theme.foreground))
+                Spacer()
+                if selected {
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 13))
+                        .foregroundStyle(settings.actionStyle.color)
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 8)
+                .fill(selected ? settings.actionStyle.softFill : AnyShapeStyle(Color(theme.surface))))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(selected ? settings.actionStyle.color : Color(theme.border),
+                              lineWidth: selected ? 1.5 : 1))
+        }
+        .buttonStyle(.plain)
+    }
 
     private func themeRow(_ t: Theme) -> some View {
         let selected = settings.themeName == t.name

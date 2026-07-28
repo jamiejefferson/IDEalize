@@ -381,7 +381,7 @@ private struct FileExplorerInner: View {
         HStack(spacing: 6) {
             Image(systemName: "folder.fill")
                 .font(.system(size: 11))
-                .foregroundStyle(Color(theme.accent))
+                .foregroundStyle(Color(Theme.folderIcon))
             Text(rootName)
                 .font(settings.ui(12, .semibold))
                 .foregroundStyle(Color(theme.foreground))
@@ -676,7 +676,7 @@ private struct FileRow: View {
             }
             Image(systemName: node.isDirectory ? "folder.fill" : icon(for: node.name))
                 .font(.system(size: 11))
-                .foregroundStyle(Color(node.isDirectory ? theme.accent : theme.secondaryForeground))
+                .foregroundStyle(node.isDirectory ? Color(Theme.folderIcon) : Color(theme.secondaryForeground))
                 .frame(width: 15)
             Text(node.name)
                 .font(style.font(12))

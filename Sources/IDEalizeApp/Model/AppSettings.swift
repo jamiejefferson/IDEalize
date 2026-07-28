@@ -66,6 +66,16 @@ final class AppSettings: ObservableObject {
     @Published var terminalMargin: Double {
         didSet { defaults.set(terminalMargin, forKey: "terminalMargin") }
     }
+    /// Terminal line spacing as a multiple of the font's natural line height
+    /// (1 = tight/default).
+    @Published var terminalLineSpacing: Double {
+        didSet { defaults.set(terminalLineSpacing, forKey: "terminalLineSpacing") }
+    }
+    /// The colour scheme for the terminal grid alone — independent of the app
+    /// theme, so a warm paper terminal can sit inside a differently-themed app.
+    @Published var terminalThemeName: String {
+        didSet { defaults.set(terminalThemeName, forKey: "terminalThemeName") }
+    }
     /// Inner padding (margins) of the chat modal.
     @Published var chatMargin: Double {
         didSet { defaults.set(chatMargin, forKey: "chatMargin") }
@@ -94,6 +104,8 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(themeName, forKey: "themeName") }
     }
     var theme: Theme { Theme.named(themeName) }
+    /// The terminal grid's own colour scheme.
+    var terminalTheme: Theme { Theme.named(terminalThemeName) }
 
     // MARK: Per-panel appearance (the USP)
     /// Typography + background overrides keyed by `PanelKind.rawValue`.
@@ -289,9 +301,10 @@ final class AppSettings: ObservableObject {
     }
 
     private init() {
-        // Empty = the proportional system font (proper typography by default).
-        self.fontName = defaults.string(forKey: "fontName") ?? ""
-        self.fontSize = defaults.object(forKey: "fontSize") as? Double ?? 13.0
+        Self.seedDevDefaultsFromInstalledAppIfNeeded()
+        // Default terminal typeface is the bundled DM Mono (registered at launch).
+        self.fontName = defaults.string(forKey: "fontName") ?? "DM Mono"
+        self.fontSize = defaults.object(forKey: "fontSize") as? Double ?? 18.0
         self.uiFontName = defaults.string(forKey: "uiFontName") ?? ""
         self.uiFontSize = defaults.object(forKey: "uiFontSize") as? Double ?? 13.0
         self.chatFontSize = defaults.object(forKey: "chatFontSize") as? Double ?? 16.0
@@ -302,12 +315,23 @@ final class AppSettings: ObservableObject {
         self.chatShadowOpacity = defaults.object(forKey: "chatShadowOpacity") as? Double ?? 0.4
         self.chatHeightFraction = defaults.object(forKey: "chatHeightFraction") as? Double ?? 0.0
         self.terminalBlur = defaults.object(forKey: "terminalBlur") as? Double ?? 3.0
-        self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? 0.0
+        self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? 16.0
+        self.terminalLineSpacing = defaults.object(forKey: "terminalLineSpacing") as? Double ?? 1.5
+        self.terminalThemeName = defaults.string(forKey: "terminalThemeName") ?? Theme.linen.name
         self.chatMargin = defaults.object(forKey: "chatMargin") as? Double ?? 18.0
         self.chatTextColorHex = defaults.string(forKey: "chatTextColorHex") ?? ""
         self.returnToSend = defaults.object(forKey: "returnToSend") as? Bool ?? true
         self.voiceReleaseToSend = defaults.object(forKey: "voiceReleaseToSend") as? Bool ?? false
-        self.themeName = defaults.string(forKey: "themeName") ?? Theme.idealizeDark.name
+        // Ink/Linen are terminal-only schemes. If one was previously picked as the
+        // *app* theme it's no longer in the picker, so migrate it to the app theme
+        // of matching brightness rather than leaving the window on a theme the
+        // user can't see selected (or change back to).
+        let storedTheme = defaults.string(forKey: "themeName") ?? Theme.idealizeDark.name
+        if Theme.all.contains(where: { $0.name == storedTheme }) {
+            self.themeName = storedTheme
+        } else {
+            self.themeName = Theme.named(storedTheme).isDark ? Theme.idealizeDark.name : Theme.idealizeLight.name
+        }
         self.defaultLaunchCommand = defaults.string(forKey: "defaultLaunchCommand")
             ?? "claude --dangerously-skip-permissions"
         // Opt-in: auto-launching an agent (with permissions skipped) on every new
@@ -336,6 +360,37 @@ final class AppSettings: ObservableObject {
             .flatMap { try? JSONDecoder().decode([String: PanelAppearance].self, from: $0) }) ?? [:]
         self.actionAppearance = (defaults.data(forKey: "actionAppearance")
             .flatMap { try? JSONDecoder().decode(ActionAppearance.self, from: $0) }) ?? .empty
+    }
+
+    /// The dev build has its own preferences domain, so it starts with none of
+    /// the user's real settings — a fresh theme, no auto-launch, no projects. On
+    /// its first run, copy the installed app's domain across so the test build
+    /// feels like their app. The design-test keys below are deliberately left
+    /// out, so the redesign's own defaults (DM Mono, margins, line spacing) win.
+    private static func seedDevDefaultsFromInstalledAppIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true,
+              !defaults.bool(forKey: "devSeededFromMainApp"),
+              let installed = defaults.persistentDomain(forName: "com.idealize.terminal")
+        else { return }
+        let designKeys: Set<String> = ["fontName", "fontSize", "terminalMargin",
+                                       "terminalLineSpacing", "terminalThemeName"]
+        for (key, value) in installed where !designKeys.contains(key) {
+            defaults.set(value, forKey: key)
+        }
+        // Drop any per-panel *terminal* override that came across: the terminal is
+        // configured by its own theme now, and a copied solid-black background
+        // would silently win over it.
+        if let data = defaults.data(forKey: "panelAppearances"),
+           var panels = try? JSONDecoder().decode([String: PanelAppearance].self, from: data),
+           panels.removeValue(forKey: PanelKind.terminal.rawValue) != nil,
+           let trimmed = try? JSONEncoder().encode(panels) {
+            defaults.set(trimmed, forKey: "panelAppearances")
+        }
+        // Drop any design keys this build wrote on an earlier dev run, so the new
+        // defaults apply rather than a stale value.
+        designKeys.forEach { defaults.removeObject(forKey: $0) }
+        defaults.set(true, forKey: "devSeededFromMainApp")
     }
 
     /// Resolve the configured terminal font. An empty name means the macOS

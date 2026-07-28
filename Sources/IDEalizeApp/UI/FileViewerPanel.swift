@@ -15,8 +15,8 @@ struct FileViewerPanel: View {
     @State private var loadedURL: URL?
     @State private var creating = false
     @State private var newName = ""
-    /// Markdown files default to a styled preview; this flips to the raw editor.
-    @State private var editingMarkdown = false
+    /// Documents open ready to edit; this flips back to the styled preview.
+    @State private var editingMarkdown = true
     /// Brief "attached" confirmation on the Use-as-context button.
     @State private var contextConfirm = false
 
@@ -48,7 +48,7 @@ struct FileViewerPanel: View {
             // Styled, read-only render of the markdown (headings, bold, lists,
             // code). Tap the pencil in the header to drop to the raw editor.
             ScrollView {
-                MarkdownText(text: content, baseSize: CGFloat(settings.fontSize))
+                MarkdownText(text: content, baseSize: CGFloat(settings.fontSize), panel: .doc)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16).padding(.vertical, 12)
