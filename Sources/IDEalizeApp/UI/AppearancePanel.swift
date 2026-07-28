@@ -169,10 +169,8 @@ struct AppearancePanel: View {
             Text("Appearance").font(settings.ui(14, .semibold))
                 .foregroundStyle(Color(theme.foreground))
             Spacer()
-            Button(action: { workspace.showAppearance = false }) {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(theme.secondaryForeground))
-            }.buttonStyle(.plain).help("Close")
+            // No in-panel close button: the Appearance panel is dismissed with its
+            // toolbar toggle (⌘⌥A), the same way the rail/files/viewer panels are.
         }
         .padding(.horizontal, 14).frame(height: 34)
     }

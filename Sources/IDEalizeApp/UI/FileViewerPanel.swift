@@ -114,12 +114,14 @@ struct FileViewerPanel: View {
                     .help("Save (⌘S)").keyboardShortcut("s", modifiers: .command).disabled(!dirty)
                 Button(action: startCreate) { Image(systemName: "plus").font(.system(size: 11)) }
                     .buttonStyle(.iconHover(padding: 3)).foregroundStyle(Color(theme.secondaryForeground)).help("New document")
+                // Closes the open document (back to the empty state), not the panel
+                // itself — the panel is dismissed with its toolbar toggle.
+                Button(action: { save(); workspace.viewedFile = nil }) {
+                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color(theme.secondaryForeground))
+                }
+                .buttonStyle(.iconHover(padding: 3)).help("Close document")
             }
-            Button(action: { save(); workspace.showViewer = false }) {
-                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color(theme.secondaryForeground))
-            }
-            .buttonStyle(.iconHover(padding: 3)).help("Close")
         }
         .padding(.horizontal, 12).frame(height: 34)
     }
