@@ -25,6 +25,23 @@ enum ProjectAgent {
         return cmd
     }
 
+    /// The command a *child* worker chat runs when the project agent spawns it:
+    /// the user's configured default agent, optionally handed `initialPrompt` as
+    /// its opening turn. The prompt is delivered as a trailing positional
+    /// argument — the same way `launchCommand()` hands over `/project-agent`, and
+    /// exactly how Claude Code (and similar CLIs) accept an initial prompt. A
+    /// child is a *normal* member chat, not another coordinator: the user can
+    /// open and review it like any other. Session-id binding and permission mode
+    /// are appended later by `TerminalSession.augmentAgentLaunch`.
+    static func childLaunchCommand(initialPrompt: String?) -> String {
+        var cmd = AppSettings.shared.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cmd.isEmpty { cmd = "claude --dangerously-skip-permissions" }
+        if let p = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty {
+            cmd += " " + quote(p)
+        }
+        return cmd
+    }
+
     /// A path is worth coordinating when it's a real project folder — watching
     /// the home directory (or root) would both be meaningless and sweep up the
     /// whole tree. Mirrors the explorer's "no home fallback" rule.
