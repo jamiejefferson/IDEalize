@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · Warm Front Door — IDEalize terminal prototype</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* Direction B: friendliness lives in the empty state and the first 10s.
+     A welcome mat + starter chips + a plain-language hint band. The
+     message input is the hero; there is no separate messaging panel. */
+  .stage { position: relative; flex: 1; overflow: hidden;
+    background:
+      radial-gradient(80% 60% at 50% -10%, color-mix(in srgb, var(--warm) 12%, transparent), transparent 60%),
+      radial-gradient(70% 60% at 90% 110%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%);
+  }
+
+  /* ---------- Empty: the warm front door ---------- */
+  .mat { position:absolute; inset:0; display:grid; place-content:center; text-align:center; gap:6px; padding:24px; }
+  .mascot { font-size:64px; animation: hop 1.5s ease-in-out infinite; }
+  .hi { font-size:26px; font-weight:700; letter-spacing:-.01em; }
+  .sub { font-size:14.5px; color: var(--secondary); max-width:420px; margin:0 auto; line-height:1.5; }
+  .starters { display:flex; gap:10px; justify-content:center; margin-top:16px; flex-wrap:wrap; }
+  .starter {
+    display:inline-flex; align-items:center; gap:8px;
+    font:600 13px/1 var(--ui); color: var(--fg); cursor:pointer;
+    padding:11px 16px; border-radius:12px;
+    background: var(--surface); border:1px solid var(--border);
+    transition: transform .12s ease, border-color .12s ease, background .12s ease;
+  }
+  .starter:hover { transform: translateY(-2px); border-color: var(--accent); background: var(--surface-hover); }
+  .starter .k { color: var(--secondary); font-weight:500; font-size:11px; }
+
+  /* ---------- Live transcript (working / done) ---------- */
+  .scroll { position:absolute; inset:0 0 132px 0; overflow:auto; padding:26px 8vw; }
+  .msg { max-width:760px; margin:0 auto; }
+  .bubble-you {
+    display:inline-block; background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+    border:1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    color: var(--fg); padding:10px 14px; border-radius:14px 14px 4px 14px;
+    font:14px/1.4 var(--ui); float:right; margin-bottom:18px;
+  }
+  .clear { clear:both; }
+  .claude { font-family:var(--term-font); font-size:var(--term-size); line-height:var(--term-lh);
+    letter-spacing:var(--term-track); font-weight:var(--term-weight); color: var(--fg); }
+  .claude .u { color: var(--secondary); }
+  .claude .path { color: var(--cyan); }
+  .claude .add { color: var(--green); }
+  .claude .del { color: var(--red); }
+  .claude .kw { color: var(--magenta); }
+  .card {
+    background: var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:12px 14px; margin:10px 0; box-shadow: 0 8px 24px -20px #000;
+  }
+  .done-flourish { display:inline-flex; align-items:center; gap:8px; color: var(--green); font:600 13px/1 var(--ui);
+    background: color-mix(in srgb, var(--green) 14%, transparent); padding:9px 13px; border-radius:999px; }
+
+  /* ---------- Dock: hint band + composer ---------- */
+  .dock { position:absolute; left:0; right:0; bottom:0; padding:0 8vw 18px; }
+  .dock .inner { max-width:760px; margin:0 auto; }
+  .hintband {
+    display:flex; align-items:center; gap:9px; justify-content:center;
+    font-size:12.5px; color: var(--secondary); margin-bottom:9px;
+  }
+  .hintband .critter { font-size:15px; }
+  /* Hero composer (empty state) is larger + centered; docked one is normal. */
+  .composer { box-shadow: 0 16px 40px -24px #000; }
+  body[data-state="empty"] .dock { bottom: 12vh; }
+  body[data-state="empty"] .composer { padding:16px 18px; border-radius:16px; }
+  body[data-state="empty"] .composer input { font-size:15px; }
+  body[data-state="empty"] .hintband { display:none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="title">IDEalize — los-angeles</div>
+    <div class="states" id="states">
+      <button data-s="empty" class="on">Empty</button>
+      <button data-s="working">Working</button>
+      <button data-s="done">Done</button>
+    </div>
+    <button class="iconbtn" id="theme" title="Toggle light/dark" style="margin-left:8px">◐</button>
+  </div>
+
+  <div class="stage">
+    <!-- Empty: warm front door -->
+    <div class="mat v-empty">
+      <div class="mascot" id="mascot"></div>
+      <div class="hi">Hi — I’m ready when you are.</div>
+      <div class="sub">Tell me what you’d like to build in plain English. No commands to memorise — just talk to me like a teammate.</div>
+      <div class="starters">
+        <div class="starter">💬 Ask Claude to build something</div>
+        <div class="starter">📂 Open a project <span class="k">⌘O</span></div>
+        <div class="starter">⌨︎ Run a command</div>
+      </div>
+    </div>
+
+    <!-- Live transcript -->
+    <div class="scroll v-live">
+      <div class="msg">
+        <span class="bubble-you">add a dark-mode toggle to the Settings screen</span>
+        <div class="clear"></div>
+        <div class="claude">
+          <div class="u">Sure — I’ll add a proper switch and wire it to your saved settings.</div>
+          <div class="card">
+            <div class="u">Reading <span class="path">SettingsView.swift</span>, <span class="path">AppSettings.swift</span></div>
+            <div><span class="kw">edit</span> <span class="path">SettingsView.swift</span></div>
+            <div class="add">+   Toggle("Dark mode", isOn: $settings.darkMode)</div>
+            <div class="del">-   // appearance follows the system</div>
+          </div>
+          <div class="v-working u">Building it into Settings <span class="cur" style="display:inline-block;width:8px;height:15px;background:var(--accent);vertical-align:-2px;border-radius:2px"></span></div>
+          <div class="v-done hidden"><span class="done-flourish">🎉 All set — dark-mode toggle added and the build passed.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dock">
+      <div class="inner">
+        <div class="hintband v-working">
+          <span class="crit"></span>
+          <span class="shimmer">Claude is working</span>
+          <span>— you can keep typing, I’ll queue it.</span>
+        </div>
+        <div class="hintband v-done" style="color:var(--green)">✓ Done. What’s next?</div>
+        <div class="composer" id="composer">
+          <span class="chip">📁 IDEalize</span>
+          <span class="prompt">›</span>
+          <input id="input" placeholder="Message Claude…">
+          <button class="send" id="send">↩</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="critter.js"></script>
+<script src="proto.js"></script>
+<script>
+  IDCritter.mountAll('.crit', 22);
+  IDCritter.mount(document.getElementById('mascot'), 96);
+</script>
+</body>
+</html>
