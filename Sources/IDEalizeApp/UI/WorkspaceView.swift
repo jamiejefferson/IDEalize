@@ -104,8 +104,10 @@ struct WorkspaceView: View {
             )
         }
         .onChange(of: settings.themeName) { workspace.reapplyAppearance() }
+        .onChange(of: settings.terminalThemeName) { workspace.reapplyAppearance() }
         .onChange(of: settings.fontName) { workspace.reapplyAppearance() }
         .onChange(of: settings.fontSize) { workspace.reapplyAppearance() }
+        .onChange(of: settings.terminalLineSpacing) { workspace.reapplyAppearance() }
         .onChange(of: settings.panelAppearances) { throttledReapplyAppearance() }
     }
 
@@ -467,6 +469,36 @@ private struct WindowConfigurator: NSViewRepresentable {
     }
 }
 
+/// The welcome owl on the empty "What shall we make?" slate — cycles its
+/// run-cycle frames (transparent PNGs) with a gentle bob.
+struct OwlView: View {
+    var size: CGFloat = 150
+    private let frameStep: TimeInterval = 0.083   // ~12fps
+    @State private var bob = false
+    private var frames: [NSImage] { Owl.frames() }
+
+    var body: some View {
+        Group {
+            let fr = frames
+            if fr.count > 1 {
+                TimelineView(.periodic(from: .now, by: frameStep)) { context in
+                    let step = context.date.timeIntervalSinceReferenceDate / frameStep
+                    let idx = Int(step.truncatingRemainder(dividingBy: Double(fr.count)))
+                    Image(nsImage: fr[max(0, min(fr.count - 1, idx))])
+                        .resizable().interpolation(.high).scaledToFit()
+                }
+            } else if let one = fr.first {
+                Image(nsImage: one).resizable().interpolation(.high).scaledToFit()
+            } else {
+                Image(systemName: "bird.fill").font(.system(size: size * 0.55)).foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .offset(y: bob ? -3 : 0)
+        .onAppear { withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { bob = true } }
+    }
+}
+
 struct EmptyState: View {
     @ObservedObject var workspace: Workspace
 
@@ -476,15 +508,15 @@ struct EmptyState: View {
     private var recents: [String] { Array(settings.recentFolders.prefix(3)) }
 
     var body: some View {
-        VStack(spacing: 20) {
-            if let logo = Branding.logo {
-                Image(nsImage: logo).resizable().scaledToFit().frame(width: 150)
-                    .opacity(0.92)
-            } else {
-                Image(systemName: "terminal").font(.system(size: 48)).foregroundStyle(.secondary)
-            }
+        VStack(spacing: 18) {
+            OwlView(size: 150)
+                .padding(.bottom, 6)
+            Text("What shall we make?")
+                .font(settings.ui(24, .bold))
+                .foregroundStyle(Color(theme.foreground))
             if recents.isEmpty {
-                Text("No recent sessions").font(settings.ui(14)).foregroundStyle(Color(theme.secondaryForeground))
+                Text("Message Claude below, or open a project to begin.")
+                    .font(settings.ui(13)).foregroundStyle(Color(theme.secondaryForeground))
             } else {
                 VStack(spacing: 6) {
                     Text("RECENT SESSIONS").font(settings.ui(10, .semibold)).tracking(1)
@@ -494,7 +526,7 @@ struct EmptyState: View {
                         Button(action: { workspace.newTab(projectPath: path) }) {
                             HStack(spacing: 9) {
                                 Image(systemName: "folder.fill").font(.system(size: 12))
-                                    .foregroundStyle(Color(theme.accent))
+                                    .foregroundStyle(Color(Theme.folderIcon))
                                 Text((path as NSString).lastPathComponent)
                                     .font(settings.ui(14, .medium)).foregroundStyle(Color(theme.foreground))
                                 Spacer()

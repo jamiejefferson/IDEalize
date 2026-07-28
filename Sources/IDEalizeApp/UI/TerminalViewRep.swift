@@ -92,6 +92,7 @@ struct TerminalViewRep: NSViewRepresentable {
         // Paint the margin gap with the terminal's own background so it reads as
         // padding rather than a void.
         container.layer?.backgroundColor = term.nativeBackgroundColor.cgColor
+        hideScroller(term)
         return container
     }
 
@@ -100,6 +101,16 @@ struct TerminalViewRep: NSViewRepresentable {
         context.coordinator.leading?.constant = inset
         context.coordinator.trailing?.constant = inset
         nsView.layer?.backgroundColor = session.terminalView.nativeBackgroundColor.cgColor
+        hideScroller(session.terminalView)
+    }
+
+    /// SwiftTerm installs an `NSScroller` down the right edge, which reads as a
+    /// permanent grey bar. Hiding it also zeroes the width it reserves
+    /// (`reservedScrollerWidth`), so the grid reclaims that space.
+    private func hideScroller(_ term: NSView) {
+        for case let scroller as NSScroller in term.subviews where !scroller.isHidden {
+            scroller.isHidden = true
+        }
     }
 }
 

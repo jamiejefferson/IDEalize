@@ -465,9 +465,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             self.inAltScreen = alt
             // Re-assert the configured terminal font/theme so the TUI renders in
             // the user's chosen typography (not a stale fallback).
-            self.applyTheme(self.settings.theme, font: self.settings.resolvedFont())
+            self.applyTheme(self.settings.terminalTheme, font: self.settings.resolvedFont())
         }
-        applyTheme(settings.theme, font: settings.resolvedFont())
+        applyTheme(settings.terminalTheme, font: settings.resolvedFont())
     }
 
     // MARK: - Shell events → blocks
@@ -710,31 +710,23 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     // MARK: - Theming
 
+    /// Apply the terminal's own colour scheme + typography. Callers pass
+    /// `settings.terminalTheme` — the grid is themed independently of the app so
+    /// it can be warm paper inside a differently-themed window. There is
+    /// deliberately no per-panel override layered on top: everything the terminal
+    /// needs lives in one place (Appearance ▸ Terminal), and a stale override
+    /// used to win over the theme silently.
     func applyTheme(_ theme: Theme, font: NSFont) {
-        // Layer the per-panel Terminal appearance over the theme. Background and
-        // foreground colours + font size/family are honoured; the grid keeps a
-        // single (ideally monospaced) font so alignment stays intact.
-        let a = settings.appearance(.terminal)
-        let bg = (a.bgMode != FillMode.inherit.rawValue ? NSColor(hex: a.bgColorHex) : nil) ?? theme.background
-        let fg = NSColor(hex: a.textColorHex) ?? theme.foreground
-        terminalView.nativeBackgroundColor = bg
-        terminalView.nativeForegroundColor = fg
+        terminalView.nativeBackgroundColor = theme.background
+        terminalView.nativeForegroundColor = theme.foreground
         terminalView.caretColor = theme.cursor
         terminalView.selectedTextBackgroundColor = theme.selection
-        terminalView.font = terminalFont(base: font, appearance: a)
+        terminalView.font = font
+        // Line spacing as a multiple of the font's natural line height.
+        terminalView.lineSpacing = CGFloat(settings.terminalLineSpacing)
         let palette = theme.ansi.map { $0.toSwiftTermColor() }
         terminalView.getTerminal().installPalette(colors: palette)
         terminalView.needsDisplay = true
-    }
-
-    /// Resolve the terminal font, honouring a per-panel font/size override.
-    private func terminalFont(base: NSFont, appearance a: PanelAppearance) -> NSFont {
-        guard !a.fontName.isEmpty || a.fontSize > 0 else { return base }
-        let famSize = a.fontSize > 0 ? CGFloat(a.fontSize) : base.pointSize
-        let famName = a.fontName.isEmpty ? (base.familyName ?? base.fontName) : a.fontName
-        return NSFont(name: famName, size: famSize)
-            ?? NSFontManager.shared.font(withFamily: famName, traits: [], weight: 5, size: famSize)
-            ?? base.withSize(famSize)
     }
 
     // MARK: - Mailbox

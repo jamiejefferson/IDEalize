@@ -173,7 +173,7 @@ private struct ProjectCard: View {
 
             Image(systemName: "folder.fill")
                 .font(.system(size: 11))
-                .foregroundStyle(Color(theme.secondaryForeground))
+                .foregroundStyle(Color(Theme.folderIcon))
 
             Text(group.displayName)
                 .font(style.font(12, hasUnread ? .bold : .semibold))
@@ -591,7 +591,7 @@ private struct ArchivedChatsSheet: View {
             HStack(spacing: 6) {
                 Image(systemName: "folder.fill")
                     .font(.system(size: 10))
-                    .foregroundStyle(Color(theme.secondaryForeground))
+                    .foregroundStyle(Color(Theme.folderIcon))
                 Text(group.name)
                     .font(settings.ui(11, .semibold))
                     .foregroundStyle(Color(theme.secondaryForeground))

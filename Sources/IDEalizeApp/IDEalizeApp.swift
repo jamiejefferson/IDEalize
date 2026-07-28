@@ -166,7 +166,16 @@ struct IDEalizeCommands: Commands {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Dev build: its own runtime dir (see IPC.socketPath) so it runs alongside
+        // the installed app without fighting over the socket/token. Ensure the dir
+        // exists before the IPC hub binds its socket.
+        if Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true {
+            try? FileManager.default.createDirectory(
+                atPath: NSHomeDirectory() + "/Library/Application Support/IDEalize Dev",
+                withIntermediateDirectories: true)
+        }
         NSApp.setActivationPolicy(.regular)
+        Fonts.registerBundled()   // make the bundled DM Mono resolvable app-wide
         applyDockIcon()
         NotificationManager.shared.requestAuthorization()
         SpeechDictation.shared.requestAuthorization()
@@ -193,6 +202,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    /// Clicking the Dock icon brings the app back. A minimised window isn't
+    /// "visible", and SwiftUI's `Window` scene doesn't deminiaturize itself — so
+    /// without this the window stays in the Dock and the app looks like it has
+    /// vanished.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        guard !hasVisibleWindows else { return true }
+        for window in sender.windows where window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        sender.windows.first { $0.identifier?.rawValue == "main" }?.makeKeyAndOrderFront(nil)
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {

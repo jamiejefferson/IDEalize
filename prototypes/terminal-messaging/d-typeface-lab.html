@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Typeface &amp; spacing lab — IDEalize terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sono:wght@200..800&family=Google+Sans+Code:ital,wght@0,300..800;1,300..800&family=Atkinson+Hyperlegible+Mono:ital,wght@0,200..800;1,200..800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { height:auto; background: var(--bg); color: var(--fg); }
+  .lab { --fs: 13.5px; --lh: 1.65; --ls: 0px; --fw: 400; }
+
+  /* ---- Control bar ---- */
+  .bar {
+    position: sticky; top: 0; z-index: 5;
+    display:flex; align-items:center; gap: 22px; flex-wrap: wrap;
+    padding: 14px 26px; background: var(--chrome); border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+  }
+  .bar h1 { font-size: 15px; font-weight: 700; margin-right: auto; letter-spacing:-.01em; }
+  .bar h1 small { color: var(--secondary); font-weight: 500; font-size: 12px; margin-left:8px; }
+  .ctl { display:flex; align-items:center; gap: 9px; font: 500 12px/1 var(--ui); color: var(--secondary); }
+  .ctl input[type=range] { width: 118px; accent-color: var(--accent); }
+  .ctl .val { color: var(--fg); font: 600 12px/1 var(--mono); min-width: 42px; }
+  .seg { display:flex; gap:4px; background: var(--surface); border:1px solid var(--border); border-radius:999px; padding:3px; }
+  .seg button { font:600 11px/1 var(--ui); color:var(--secondary); background:transparent; border:0; cursor:pointer; padding:6px 12px; border-radius:999px; }
+  .seg button.on { background: var(--accent); color:#061019; }
+  body.light .seg button.on { color:#fff; }
+
+  /* ---- Specimen grid ---- */
+  .grid { display:grid; grid-template-columns: repeat(2, 1fr); gap: 20px; padding: 24px 26px 64px; }
+  @media (max-width: 1000px){ .grid { grid-template-columns: 1fr; } }
+  .spec { border:1px solid var(--border); border-radius: 14px; overflow:hidden; background: var(--bg);
+    box-shadow: 0 20px 50px -34px #000; }
+  .cap { display:flex; align-items:baseline; gap:10px; padding: 12px 16px; border-bottom:1px solid var(--border);
+    background: var(--surface); }
+  .cap .n { font: 700 14px/1 var(--ui); }
+  .cap .d { color: var(--secondary); font: 400 12px/1.3 var(--ui); }
+  .cap .tag { margin-left:auto; font: 600 10px/1 var(--ui); letter-spacing:.06em; text-transform:uppercase;
+    color: var(--accent); border:1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+    padding:4px 7px; border-radius:6px; }
+
+  .term { padding: 16px 18px 20px; font-size: var(--fs); line-height: var(--lh);
+    letter-spacing: var(--ls); font-weight: var(--fw); }
+  .f-sono  { font-family: 'Sono', var(--mono); }
+  .f-gsc   { font-family: 'Google Sans Code', var(--mono); }
+  .f-atk   { font-family: 'Atkinson Hyperlegible Mono', var(--mono); }
+  .f-dm    { font-family: 'DM Mono', var(--mono); }
+
+  /* glyph-distinction ruler */
+  .ruler { color: var(--secondary); padding-bottom: 10px; margin-bottom: 12px; border-bottom:1px dashed var(--border);
+    white-space: pre-wrap; }
+  .ruler b { color: var(--fg); font-weight:inherit; }
+
+  .row { white-space: pre-wrap; }
+  .you { color: var(--fg); font-weight: 600; }
+  .u { color: var(--secondary); }
+  .path { color: var(--cyan); }
+  .url { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
+  .kw { color: var(--magenta); }
+  .add { color: var(--green); }
+  .del { color: var(--red); }
+  .ok { color: var(--green); font-weight:600; }
+  .err { color: var(--red); }
+  .num { color: var(--yellow); }
+  .critter { display:inline-block; animation: hop .8s ease-in-out infinite; }
+  .cur { display:inline-block; width:.5em; height:1em; background:var(--accent); vertical-align:-.15em; border-radius:2px;
+    animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+</style>
+</head>
+<body class="lab">
+  <div class="bar">
+    <h1>Terminal typeface &amp; spacing <small>same transcript, four fonts</small></h1>
+
+    <div class="ctl">Size
+      <input id="fs" type="range" min="11" max="17" step="0.5" value="13.5">
+      <span class="val" id="fs-v">13.5px</span></div>
+    <div class="ctl">Line height
+      <input id="lh" type="range" min="1.2" max="2.1" step="0.05" value="1.65">
+      <span class="val" id="lh-v">1.65</span></div>
+    <div class="ctl">Tracking
+      <input id="ls" type="range" min="-0.5" max="1.5" step="0.1" value="0">
+      <span class="val" id="ls-v">0.0px</span></div>
+    <div class="ctl">Weight
+      <input id="fw" type="range" min="300" max="700" step="50" value="400">
+      <span class="val" id="fw-v">400</span></div>
+
+    <div class="seg" id="theme">
+      <button data-t="dark" class="on">Dark</button>
+      <button data-t="light">Light</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="spec">
+      <div class="cap"><span class="n">Sono</span><span class="d">soft, rounded — friendly &amp; characterful</span><span class="tag">variable</span></div>
+      <div class="term f-sono"></div>
+    </div>
+    <div class="spec">
+      <div class="cap"><span class="n">Google Sans Code</span><span class="d">2025 coding face — neutral, tall x-height</span><span class="tag">variable</span></div>
+      <div class="term f-gsc"></div>
+    </div>
+    <div class="spec">
+      <div class="cap"><span class="n">Atkinson Hyperlegible Mono</span><span class="d">engineered for max glyph distinction</span><span class="tag">variable</span></div>
+      <div class="term f-atk"></div>
+    </div>
+    <div class="spec">
+      <div class="cap"><span class="n">DM Mono</span><span class="d">geometric, editorial — 300/400/500 only</span><span class="tag">3 weights</span></div>
+      <div class="term f-dm"></div>
+    </div>
+  </div>
+
+  <!-- One transcript, cloned into every specimen so the only variable is the font. -->
+  <template id="transcript">
+    <div class="ruler"><b>0O</b>o <b>1</b>lI i · {}[]()&lt;&gt; · =&gt; -&gt; != === &gt;= · "q" 'x' `t` · /path\ ~#@$%&amp;* · <b>3</b>×g9q<span class="num">2468</span></div>
+    <div class="row"><span class="you">You</span>  add a dark-mode toggle to the Settings screen</div>
+    <div class="row">&nbsp;</div>
+    <div class="row u">Read <span class="path">Sources/IDEalizeApp/UI/SettingsView.swift</span></div>
+    <div class="row u">Docs <span class="url">developer.apple.com/documentation/swiftui/toggle</span></div>
+    <div class="row">&nbsp;</div>
+    <div class="row"><span class="kw">edit</span> <span class="path">SettingsView.swift</span>  <span class="u">+2 −1</span></div>
+    <div class="row add">+   Toggle("Dark mode", isOn: $settings.darkMode)</div>
+    <div class="row add">+       .toggleStyle(.switch)</div>
+    <div class="row del">-   // appearance follows the system (0 == off, 1 == on)</div>
+    <div class="row">&nbsp;</div>
+    <div class="row err">error: value of type 'AppSettings' has no member 'darkMode'  <span class="u">— fixing…</span></div>
+    <div class="row"><span class="critter">🦊</span> <span class="u">rebuilding</span> <span class="cur"></span></div>
+    <div class="row">&nbsp;</div>
+    <div class="row ok">✓ Build succeeded</div>
+    <div class="row u"><span class="num">2</span> files changed · <span class="num">6</span> insertions · <span class="num">1</span> deletion · <span class="num">0.9</span>s</div>
+  </template>
+
+<script>
+  const tpl = document.getElementById('transcript').content;
+  document.querySelectorAll('.term').forEach(t => t.appendChild(tpl.cloneNode(true)));
+
+  const lab = document.body;
+  const bind = (id, cssVar, fmt) => {
+    const el = document.getElementById(id), out = document.getElementById(id + '-v');
+    const apply = () => { lab.style.setProperty(cssVar, fmt(el.value).css); out.textContent = fmt(el.value).label; };
+    el.addEventListener('input', apply); apply();
+  };
+  bind('fs', '--fs', v => ({ css: v + 'px', label: v + 'px' }));
+  bind('lh', '--lh', v => ({ css: v, label: (+v).toFixed(2) }));
+  bind('ls', '--ls', v => ({ css: v + 'px', label: (+v).toFixed(1) + 'px' }));
+  bind('fw', '--fw', v => ({ css: v, label: v }));
+
+  document.getElementById('theme').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    document.body.classList.toggle('light', b.dataset.t === 'light');
+    document.querySelectorAll('#theme button').forEach(x => x.classList.toggle('on', x === b));
+  });
+</script>
+</body>
+</html>

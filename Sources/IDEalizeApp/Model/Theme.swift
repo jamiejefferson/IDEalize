@@ -95,11 +95,53 @@ struct Theme: Identifiable, Hashable {
         ]
     )
 
+    /// Ink — editorial warm-neutral dark. A single warm gold accent with
+    /// restrained, desaturated syntax so the type carries the surface. Pairs
+    /// with the IDEalize owl and DM Mono.
+    static let ink = Theme(
+        name: "Ink",
+        background: rgb(23, 24, 26),
+        foreground: rgb(230, 231, 233),
+        cursor: rgb(232, 184, 75),
+        selection: rgb(46, 47, 51),
+        ansi: [
+            rgb(60, 62, 66),    rgb(218, 138, 134), rgb(136, 192, 140), rgb(217, 192, 137),
+            rgb(169, 183, 216), rgb(201, 169, 196), rgb(156, 184, 200), rgb(201, 203, 207),
+            rgb(120, 122, 126), rgb(230, 150, 146), rgb(150, 205, 154), rgb(228, 205, 150),
+            rgb(184, 198, 228), rgb(214, 184, 209), rgb(172, 198, 214), rgb(240, 241, 243),
+        ]
+    )
+
+    /// Linen — the light side of Ink. Warm paper, ochre accent, muted syntax.
+    static let linen = Theme(
+        name: "Linen",
+        background: rgb(247, 245, 240),
+        foreground: rgb(42, 42, 39),
+        cursor: rgb(182, 122, 18),
+        selection: rgb(231, 224, 209),
+        ansi: [
+            rgb(42, 42, 39),   rgb(178, 74, 68),  rgb(62, 122, 68),  rgb(138, 106, 42),
+            rgb(74, 90, 134),  rgb(122, 85, 112), rgb(62, 108, 126), rgb(124, 122, 113),
+            rgb(106, 105, 98), rgb(160, 60, 54),  rgb(50, 110, 58),  rgb(120, 92, 36),
+            rgb(64, 80, 120),  rgb(108, 74, 98),  rgb(52, 96, 112),  rgb(42, 42, 39),
+        ]
+    )
+
+    /// Themes offered for the app as a whole. Ink/Linen are deliberately absent:
+    /// they're terminal typography schemes, offered in `terminalThemes` instead.
     static let all: [Theme] = [.idealizeDark, .idealizeLight, .solarizedDark]
 
+    /// Themes offered for the terminal grid on its own (Appearance ▸ Terminal).
+    static let terminalThemes: [Theme] = [.linen, .ink] + all
+
     static func named(_ name: String) -> Theme {
-        all.first { $0.name == name } ?? .idealizeDark
+        terminalThemes.first { $0.name == name } ?? .idealizeDark
     }
+
+    /// Folder icons use the standard macOS folder blue rather than the theme
+    /// accent — the accent turned them yellow/ochre under warm themes. Single
+    /// source of truth so this can become a user setting later.
+    static var folderIcon: NSColor { .systemBlue }
 }
 
 extension NSColor {

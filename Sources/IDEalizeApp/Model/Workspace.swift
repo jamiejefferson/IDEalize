@@ -634,7 +634,7 @@ final class Workspace: ObservableObject {
 
     /// Re-apply theme/font to every live terminal (called when settings change).
     func reapplyAppearance() {
-        let theme = settings.theme
+        let theme = settings.terminalTheme
         let font = settings.resolvedFont()
         for s in allSessions {
             s.applyTheme(theme, font: font)

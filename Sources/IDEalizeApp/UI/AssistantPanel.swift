@@ -844,9 +844,14 @@ struct QAChatBox: View {
             // Contextual toolbar pinned at the top of the container: the chat/flow
             // toggle, then either the chat actions (model · effort · skills ·
             // commands) or, in flow mode, the flow library — swapped in place.
-            ChatToolbar(session: session, draft: $text, flowMode: $flowMode,
-                        flowStore: flowStore, focus: { focused = true })
-                .tourTarget(.skills)
+            HStack(spacing: 8) {
+                // The chat/terminal on-off toggle now sits in the message panel.
+                ModeToggle(session: session)
+                    .tourTarget(.modeToggle)
+                ChatToolbar(session: session, draft: $text, flowMode: $flowMode,
+                            flowStore: flowStore, focus: { focused = true })
+                    .tourTarget(.skills)
+            }
 
             // Flow mode: the conversation-first designer lives inside this same
             // container, which has grown upward to hold it. The interview fills the
@@ -1267,6 +1272,10 @@ struct WorkingCritter: View {
 struct MarkdownText: View {
     let text: String
     var baseSize: CGFloat = 13
+    /// Which panel's typography to render in. Defaults to the chat (this view's
+    /// original home); the document viewer passes `.doc` so its preview and its
+    /// raw editor share one font and size.
+    var panel: PanelKind = .chat
     @ObservedObject private var settings = AppSettings.shared
     /// The parsed blocks, with inline markdown already resolved per line. The
     /// parse depends only on `text` — never on appearance settings — so it runs
@@ -1275,17 +1284,18 @@ struct MarkdownText: View {
     /// whole document, building an AttributedString per line each time).
     @State private var parsed: [Block]
     private var theme: Theme { settings.theme }
-    /// The per-panel Chat appearance (typography + colour).
-    private var style: PanelStyle { settings.panelStyle(.chat, base: baseSize, background: theme.background) }
+    /// The per-panel appearance (typography + colour) this render uses.
+    private var style: PanelStyle { settings.panelStyle(panel, base: baseSize, background: theme.background) }
     private var resolvedTextColor: Color {
         if let c = NSColor(hex: style.appearance.textColorHex) { return Color(c) }
-        return Color(settings.chatTextColor)
+        return panel == .chat ? Color(settings.chatTextColor) : Color(theme.foreground)
     }
     private var ls: CGFloat { CGFloat(settings.chatLineSpacing) + style.lineSpacing }
 
-    init(text: String, baseSize: CGFloat = 13) {
+    init(text: String, baseSize: CGFloat = 13, panel: PanelKind = .chat) {
         self.text = text
         self.baseSize = baseSize
+        self.panel = panel
         self._parsed = State(initialValue: Self.parse(text))
     }
 

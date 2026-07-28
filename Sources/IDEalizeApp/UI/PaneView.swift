@@ -164,6 +164,28 @@ struct LeafPaneView: View {
     /// (terminal blurred behind it) and the raw, interactive terminal. Only one
     /// input is ever on screen at a time.
     private var chatLayout: some View {
+        chatStack
+            // In terminal mode the chat card is gone, so float the message input
+            // over the terminal: it carries the chat/terminal toggle, which would
+            // otherwise be unreachable once the card is hidden.
+            .overlay(alignment: .bottom) {
+                if session.revealTerminal {
+                    QAChatBox(session: session, workspace: workspace, collapsed: true)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color(theme.chrome).opacity(0.92))
+                                .overlay(RoundedRectangle(cornerRadius: 16)
+                                    .strokeBorder(Color(theme.border), lineWidth: 1))
+                                .shadow(color: .black.opacity(settings.chatShadowOpacity), radius: 22, y: 8)
+                        )
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+    }
+
+    private var chatStack: some View {
         ZStack(alignment: .topTrailing) {
             TerminalViewRep(session: session)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -195,11 +217,8 @@ struct LeafPaneView: View {
                 }
             }
 
-            // The mode toggle lives in the top corner, inset to align with the
-            // chat card's rounded corner, present in both modes.
-            ModeToggle(session: session)
-                .tourTarget(.modeToggle)
-                .padding(.top, 22).padding(.trailing, 22)
+            // The chat/terminal mode toggle now lives inside the message panel
+            // (the input lozenge's toolbar), not floating in the pane corner.
         }
     }
 
@@ -260,7 +279,7 @@ struct LeafPaneView: View {
 /// A polished sliding toggle (CSS-checkbox style) switching the pane between the
 /// Chat overlay and the raw Terminal. The knob springs under the active icon,
 /// the icons bounce, and the whole control dips on press.
-private struct ModeToggle: View {
+struct ModeToggle: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject private var settings = AppSettings.shared
     @State private var pressed = false
