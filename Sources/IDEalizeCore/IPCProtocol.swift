@@ -62,6 +62,12 @@ public struct IPCRequest: Codable, Sendable {
         case transcript    // read a session's recent chat exchanges
         case note          // read (or, with a body, set) the project's shared note
         case agentHello    // an unknown agent introduces itself (handshake); body = descriptor JSON
+        case spawn         // start a new chat (optionally in target project) with body as its opening task
+        case gitDiff       // read-only: a chat's changes vs a base (its safe copy's base, or origin/main)
+        case survey        // read-only: each chat's change summary + which copies touch the same files
+        case verify        // run the project's build/check in a chat's folder; pass/fail + output tail
+        case combinePlan   // read-only: proposed order to combine copies, with a trial conflict check
+        case combineApply  // bring one copy's work into the main version (gated; aborts on conflict)
     }
 
     public var command: Command
@@ -81,6 +87,8 @@ public struct IPCRequest: Codable, Sendable {
     public var open: Bool?
     /// Used by `transcript`: max number of recent exchanges to return.
     public var limit: Int?
+    /// Used by `spawn`: start the new chat in its own isolated safe copy.
+    public var isolated: Bool?
 
     public init(command: Command,
                 from: String? = nil,
@@ -90,7 +98,8 @@ public struct IPCRequest: Codable, Sendable {
                 title: String? = nil,
                 sound: Bool? = nil,
                 open: Bool? = nil,
-                limit: Int? = nil) {
+                limit: Int? = nil,
+                isolated: Bool? = nil) {
         self.command = command
         self.from = from
         self.token = token
@@ -100,6 +109,7 @@ public struct IPCRequest: Codable, Sendable {
         self.sound = sound
         self.open = open
         self.limit = limit
+        self.isolated = isolated
     }
 }
 
@@ -168,6 +178,124 @@ public struct IPCSessionInfo: Codable, Sendable {
     }
 }
 
+/// One changed file in a chat's `diff`. `added`/`deleted` are nil for new
+/// (untracked) or binary files. `change` is a plain word: "changed", "new",
+/// "binary" — never raw git status codes.
+public struct IPCDiffFile: Codable, Sendable {
+    public var path: String
+    public var added: Int?
+    public var deleted: Int?
+    public var change: String
+    public init(path: String, added: Int?, deleted: Int?, change: String) {
+        self.path = path; self.added = added; self.deleted = deleted; self.change = change
+    }
+}
+
+/// What a chat has changed versus a base point, returned by `gitDiff`. `branch`
+/// and `base` are engineering detail for the agent's own reasoning; `summary` is
+/// the plain-language line safe to relay to the user.
+public struct IPCDiff: Codable, Sendable {
+    public var branch: String
+    public var base: String
+    public var ahead: Int
+    public var behind: Int
+    public var files: [IPCDiffFile]
+    public var summary: String
+    public init(branch: String, base: String, ahead: Int, behind: Int, files: [IPCDiffFile], summary: String) {
+        self.branch = branch; self.base = base; self.ahead = ahead; self.behind = behind
+        self.files = files; self.summary = summary
+    }
+}
+
+/// One chat's line in a `survey`.
+public struct IPCCopyStatus: Codable, Sendable {
+    public var id: String
+    public var label: String
+    public var isolated: Bool
+    public var branch: String?
+    public var changedFiles: Int
+    public var ahead: Int
+    public init(id: String, label: String, isolated: Bool, branch: String?, changedFiles: Int, ahead: Int) {
+        self.id = id; self.label = label; self.isolated = isolated
+        self.branch = branch; self.changedFiles = changedFiles; self.ahead = ahead
+    }
+}
+
+/// A file that more than one safe copy is changing — a potential clash to look
+/// at before combining.
+public struct IPCOverlap: Codable, Sendable {
+    public var path: String
+    public var ids: [String]
+    public init(path: String, ids: [String]) { self.path = path; self.ids = ids }
+}
+
+/// The project-wide picture returned by `survey`: each chat's change count and
+/// any files being changed in more than one copy.
+public struct IPCSurvey: Codable, Sendable {
+    public var copies: [IPCCopyStatus]
+    public var overlaps: [IPCOverlap]
+    public var summary: String
+    public init(copies: [IPCCopyStatus], overlaps: [IPCOverlap], summary: String) {
+        self.copies = copies; self.overlaps = overlaps; self.summary = summary
+    }
+}
+
+/// Result of `verify`. `ran` is false when the folder has no known check (then
+/// `passed` is nil and `summary` says so honestly, never faking a pass).
+public struct IPCVerify: Codable, Sendable {
+    public var ran: Bool
+    public var passed: Bool?
+    public var check: String
+    public var tail: String
+    public var summary: String
+    public init(ran: Bool, passed: Bool?, check: String, tail: String, summary: String) {
+        self.ran = ran; self.passed = passed; self.check = check; self.tail = tail; self.summary = summary
+    }
+}
+
+/// One copy's line in a combine plan. `trialResult` is a plain token
+/// ("clean", "conflicts:N", "needs-save", "unknown") from a *trial* merge that
+/// changes nothing.
+public struct IPCCombinePlanItem: Codable, Sendable {
+    public var id: String
+    public var label: String
+    public var branch: String?
+    public var changedFiles: Int
+    public var hasUnsavedWork: Bool
+    public var trialResult: String
+    public init(id: String, label: String, branch: String?, changedFiles: Int, hasUnsavedWork: Bool, trialResult: String) {
+        self.id = id; self.label = label; self.branch = branch
+        self.changedFiles = changedFiles; self.hasUnsavedWork = hasUnsavedWork; self.trialResult = trialResult
+    }
+}
+
+/// The read-only proposal returned by `combinePlan`: a suggested order (safest
+/// first), overlaps, and a plain summary. Nothing is changed by computing it.
+public struct IPCCombinePlan: Codable, Sendable {
+    public var order: [IPCCombinePlanItem]
+    public var overlaps: [IPCOverlap]
+    public var summary: String
+    public init(order: [IPCCombinePlanItem], overlaps: [IPCOverlap], summary: String) {
+        self.order = order; self.overlaps = overlaps; self.summary = summary
+    }
+}
+
+/// Outcome of a single `combineApply`. `status` is one of "merged", "conflict",
+/// "blocked", "nothing". On "conflict" nothing was changed (the attempt was
+/// rolled back); `recoveryPoint` records the point the main version can be taken
+/// back to, so a combine is never a one-way door.
+public struct IPCCombineResult: Codable, Sendable {
+    public var status: String
+    public var files: [String]
+    public var conflicts: [String]
+    public var recoveryPoint: String?
+    public var summary: String
+    public init(status: String, files: [String], conflicts: [String], recoveryPoint: String?, summary: String) {
+        self.status = status; self.files = files; self.conflicts = conflicts
+        self.recoveryPoint = recoveryPoint; self.summary = summary
+    }
+}
+
 /// The response sent from the app back to the CLI.
 public struct IPCResponse: Codable, Sendable {
     public var ok: Bool
@@ -177,6 +305,14 @@ public struct IPCResponse: Codable, Sendable {
     public var blocks: [IPCBlock]?
     public var exchanges: [IPCExchange]?
     public var info: String?
+    /// `spawn`: whether the new chat actually got its own safe copy (false when
+    /// isolation was requested but the folder couldn't support it).
+    public var isolated: Bool?
+    public var diff: IPCDiff?
+    public var survey: IPCSurvey?
+    public var verify: IPCVerify?
+    public var combinePlan: IPCCombinePlan?
+    public var combineResult: IPCCombineResult?
 
     public init(ok: Bool,
                 error: String? = nil,
@@ -184,7 +320,13 @@ public struct IPCResponse: Codable, Sendable {
                 messages: [IPCMessage]? = nil,
                 blocks: [IPCBlock]? = nil,
                 exchanges: [IPCExchange]? = nil,
-                info: String? = nil) {
+                info: String? = nil,
+                isolated: Bool? = nil,
+                diff: IPCDiff? = nil,
+                survey: IPCSurvey? = nil,
+                verify: IPCVerify? = nil,
+                combinePlan: IPCCombinePlan? = nil,
+                combineResult: IPCCombineResult? = nil) {
         self.ok = ok
         self.error = error
         self.sessions = sessions
@@ -192,6 +334,12 @@ public struct IPCResponse: Codable, Sendable {
         self.blocks = blocks
         self.exchanges = exchanges
         self.info = info
+        self.isolated = isolated
+        self.diff = diff
+        self.survey = survey
+        self.verify = verify
+        self.combinePlan = combinePlan
+        self.combineResult = combineResult
     }
 
     public static func failure(_ message: String) -> IPCResponse {

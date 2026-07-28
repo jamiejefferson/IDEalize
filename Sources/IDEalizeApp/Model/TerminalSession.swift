@@ -28,6 +28,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// `idealize reveal` read this, so they can't disagree about what counts as
     /// "inside" the session.
     var explorerRoot: String? {
+        // A chat working in a safe copy should show ITS folder (the copy), so the
+        // user reviewing that chat — and `idealize reveal` — see the files it
+        // actually changed, not the shared project.
+        if let w = safeCopy?.worktreePath, !w.isEmpty, w != "/" { return w }
         guard let p = projectPath, !p.isEmpty, p != "/" else { return nil }
         return p
     }
@@ -231,7 +235,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         if format != .none {
             guard !template.isEmpty else { return "format \(format.rawValue) needs a transcript template" }
             var path = template
-                .replacingOccurrences(of: "{workdir}", with: ClaudeTranscript.encodedDir(for: projectPath ?? ""))
+                .replacingOccurrences(of: "{workdir}", with: ClaudeTranscript.encodedDir(for: workingDirectory ?? ""))
                 .replacingOccurrences(of: "{session}", with: boundSessionId ?? "")
             path = ((path as NSString).expandingTildeInPath as NSString).standardizingPath
             let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -400,6 +404,37 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// the "coordinator" alias or `$IDEALIZE_PROJECT_AGENT`.
     @Published var isProjectAgent: Bool = false
 
+    /// This chat's isolated "safe copy": its own git worktree + branch off a base
+    /// commit, so parallel chats never touch each other's files. `nil` for an
+    /// ordinary chat, which shares the project folder exactly as before. All three
+    /// fields are engineering detail and must never appear in a user-facing string
+    /// (V2 rule: translate, never expose). `projectPath` stays the *logical*
+    /// project either way — the copy only changes where the shell actually runs
+    /// (`workingDirectory`), not which project the chat belongs to.
+    @Published var safeCopy: SafeCopy?
+
+    /// Descriptor for a chat's safe copy. See `safeCopy`.
+    struct SafeCopy: Equatable {
+        /// The isolated working directory — this chat's real cwd.
+        var worktreePath: String
+        /// The branch checked out there.
+        var branch: String
+        /// The commit the copy was taken from.
+        var baseCommit: String
+    }
+
+    /// Where the shell and agent actually run. For an ordinary chat this is the
+    /// project folder; for one working in a safe copy it's the copy's folder.
+    /// Everything that needs the *real* cwd (the shell's start directory, Claude's
+    /// transcript location) uses this; everything that needs the *logical* project
+    /// (grouping, the tab label, reaching the coordinator) keeps using
+    /// `projectPath`.
+    var workingDirectory: String? {
+        if let w = safeCopy?.worktreePath, !w.isEmpty { return w }
+        if let p = projectPath, !p.isEmpty { return p }
+        return nil
+    }
+
     private let settings: AppSettings
     private var statusTimer: Timer?
     private weak var workspace: Workspace?
@@ -544,13 +579,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             args = ["--login", "--rcfile", ShellIntegration.rootDir + "/idealize.bash", "-i"]
         }
 
-        // When no project folder is set, start the shell in the user's home
-        // directory. A Finder/Dock-launched .app inherits `/` as its working
-        // directory, so passing nil here would spawn the shell in `/` and the
-        // shell-integration prompt would then report `cwd=/`.
-        let startDir = (projectPath?.isEmpty == false)
-            ? projectPath!
-            : FileManager.default.homeDirectoryForCurrentUser.path
+        // Start the shell in the chat's working directory — the project folder,
+        // or its safe copy when it has one. When neither is set, fall back to the
+        // user's home directory. A Finder/Dock-launched .app inherits `/` as its
+        // working directory, so passing nil here would spawn the shell in `/` and
+        // the shell-integration prompt would then report `cwd=/`.
+        let startDir = workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
         terminalView.startProcess(
             executable: settings.shellPath,
             args: args,
@@ -1108,7 +1142,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// thread. Polls are serialized via `transcriptInFlight` and stale results
     /// are dropped via `transcriptGeneration`.
     private func refreshAssistantMessage() {
-        guard let cwd = projectPath, !cwd.isEmpty else { return }
+        // The agent's transcript lives under its *real* working directory, which
+        // is the safe copy for an isolated chat — not the logical project.
+        guard let cwd = workingDirectory, !cwd.isEmpty else { return }
         guard isAgentRunning || inAltScreen else { return }
         guard let agent = currentAgent else { return }
         guard !transcriptInFlight else { return }
@@ -1346,6 +1382,10 @@ extension TerminalSession: LocalProcessTerminalViewDelegate {
     /// and "/" is never accepted. Anything failing that is ignored, so a forged
     /// OSC sequence can't rewrite `projectPath`.
     private func adoptReportedCwd(_ raw: String) {
+        // A chat working in a safe copy keeps its logical `projectPath` fixed (so
+        // it stays grouped under, and reachable from, its project). Its real cwd
+        // is the copy and never changes, so ignore what the shell reports.
+        guard safeCopy == nil else { return }
         var path = raw
         if path.hasPrefix("file://") {
             // URL parsing percent-decodes (%20 etc.) — the old string-replace

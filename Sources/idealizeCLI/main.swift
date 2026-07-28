@@ -35,6 +35,13 @@ func pngData(forFileAt path: String) -> Data? {
 //   idealize broadcast "deploying in 5"          # message all terminals
 //   idealize inbox [--wait] [--timeout S]      # read messages sent to me
 //   idealize list                                # list active sessions
+//   idealize spawn "build the hero section"      # start a new chat with an opening task
+//   idealize spawn "redo the nav" --isolated     # …in its own separate copy of the folder
+//   idealize diff <session>                      # what a chat has changed
+//   idealize survey                              # all chats' changes + copies touching the same files
+//   idealize verify <session>                    # run the folder's build/check; honest pass/fail
+//   idealize combine plan                        # a safe order to combine copies (read-only)
+//   idealize combine apply <session>             # bring one copy's work into the main version
 //   idealize transcript <session> [--last N]     # read a chat's recent Q&A
 //   idealize image path/to/file.png [--width 60] # render an image inline
 //   idealize reveal src/App.swift --open         # point the human at a file
@@ -121,6 +128,12 @@ func printUsage() {
       inbox [--wait] [--json] [--timeout S]  read & clear my messages
       peek [--json]                         read my messages without clearing
       list [--json]                         list active terminals
+      spawn <task> [--path DIR] [--isolated]  start a new chat (in DIR, else my project) with an opening task; prints its id. --isolated gives it its own separate copy of the folder
+      diff [session] [--base REF] [--json]  what a chat has changed (vs its copy's start, or REF)
+      survey [--json]                       every chat's changes + which copies touch the same files
+      verify [session] [--json]             run the folder's build/check for a chat; honest pass/fail
+      combine plan [--into DIR] [--json]    read-only: a safe order to combine copies (changes nothing)
+      combine apply <session> [--into DIR]  bring ONE copy's work into the main version (gated, reversible)
       blocks [session] [--json]             list recorded command blocks
       transcript <session> [--last N] [--json]  read a chat's recent Q&A
       reveal <path> [--open]                show a file in the app's file explorer
@@ -312,6 +325,131 @@ case "list":
             let unread = s.unread > 0 ? " (\(s.unread) unread)" : ""
             out("\(me)\(s.id)  \(s.title)\(proj)\(proc)\(unread)")
         }
+    }
+
+case "spawn":
+    // Start a new chat and hand it an opening task. The project agent uses this
+    // to delegate work to a fresh worker chat while the user keeps talking to
+    // just the agent. Defaults to the caller's own project; --path targets
+    // another folder. On success, prints the new chat's session id so the caller
+    // can then watch it (`idealize transcript <id>`, `idealize list`).
+    // --isolated gives the new chat its own separate copy of the folder so it
+    // can't collide with other chats (a git worktree, under the hood).
+    let flags = Flags(rest, boolFlags: ["isolated"])   // --path DIR; positionals join into the task
+    let task = flags.positionals.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !task.isEmpty || flags.values["path"] != nil else {
+        fail("usage: idealize spawn <task> [--path DIR] [--isolated]")
+    }
+    let resp = sendRequest(IPCRequest(command: .spawn, from: mySession,
+                                      target: flags.values["path"],
+                                      body: task.isEmpty ? nil : task,
+                                      isolated: flags.bools.contains("isolated") ? true : nil))
+    if !resp.ok { fail(resp.error ?? "spawn failed") }
+    out(resp.info ?? "spawned")   // info carries the new chat's session id
+
+case "diff":
+    // Read-only: what a chat has changed. An isolated chat is compared against
+    // its safe copy's starting point; a shared-tree chat against `--base REF`
+    // (default origin/main). Session defaults to me.
+    let flags = Flags(rest, boolFlags: ["json"])
+    let target = flags.positionals.first ?? mySession
+    let resp = sendRequest(IPCRequest(command: .gitDiff, from: mySession,
+                                      target: target, body: flags.values["base"]))
+    if !resp.ok { fail(resp.error ?? "diff failed") }
+    guard let d = resp.diff else { fail("diff returned nothing") }
+    if flags.bools.contains("json") {
+        let data = try IPC.makeEncoder().encode(d)
+        out(String(decoding: data, as: UTF8.self))
+    } else {
+        out(d.summary)
+        for f in d.files {
+            let counts = (f.added != nil && f.deleted != nil) ? "  (+\(f.added!) -\(f.deleted!))" : ""
+            out("  \(f.change.padding(toLength: 8, withPad: " ", startingAt: 0)) \(f.path)\(counts)")
+        }
+    }
+
+case "survey":
+    // Read-only: every chat's change summary, plus which separate copies are
+    // changing the same files — the overlap check to run before combining.
+    let flags = Flags(rest, boolFlags: ["json"])
+    let resp = sendRequest(IPCRequest(command: .survey, from: mySession))
+    if !resp.ok { fail(resp.error ?? "survey failed") }
+    guard let s = resp.survey else { fail("survey returned nothing") }
+    if flags.bools.contains("json") {
+        let data = try IPC.makeEncoder().encode(s)
+        out(String(decoding: data, as: UTF8.self))
+    } else {
+        out(s.summary)
+        for c in s.copies {
+            out("  \(c.label) (\(c.id))  — \(c.changedFiles) changed [\(c.isolated ? "own copy" : "shared")]")
+        }
+        if !s.overlaps.isEmpty {
+            out("  ⚠ same file in more than one copy:")
+            for o in s.overlaps { out("    \(o.path) — \(o.ids.joined(separator: ", "))") }
+        }
+    }
+
+case "verify":
+    // Run the folder's build/check for a chat and report honestly (says so when
+    // there's no known check rather than faking a pass). Session defaults to me.
+    let flags = Flags(rest, boolFlags: ["json"])
+    let target = flags.positionals.first ?? mySession
+    let resp = sendRequest(IPCRequest(command: .verify, from: mySession, target: target))
+    if !resp.ok { fail(resp.error ?? "verify failed") }
+    guard let v = resp.verify else { fail("verify returned nothing") }
+    if flags.bools.contains("json") {
+        let data = try IPC.makeEncoder().encode(v)
+        out(String(decoding: data, as: UTF8.self))
+    } else {
+        out(v.summary)
+        if v.ran, v.passed == false, !v.tail.isEmpty { out(""); out(v.tail) }
+    }
+
+case "combine":
+    // Two shapes, deliberately separated so applying is never accidental:
+    //   idealize combine plan [--into DIR]            # read-only proposal, changes nothing
+    //   idealize combine apply <session> [--into DIR] # bring ONE copy in (gated, reversible)
+    let flags = Flags(rest, boolFlags: ["json"])
+    switch flags.positionals.first {
+    case "plan":
+        let resp = sendRequest(IPCRequest(command: .combinePlan, from: mySession,
+                                          body: flags.values["into"]))
+        if !resp.ok { fail(resp.error ?? "combine plan failed") }
+        guard let p = resp.combinePlan else { fail("plan returned nothing") }
+        if flags.bools.contains("json") {
+            let data = try IPC.makeEncoder().encode(p)
+            out(String(decoding: data, as: UTF8.self))
+        } else {
+            out(p.summary)
+            for (i, item) in p.order.enumerated() {
+                let warn = item.hasUnsavedWork ? " (needs saving)" : ""
+                out("  \(i + 1). \(item.label) (\(item.id))  \(item.changedFiles) files — \(item.trialResult)\(warn)")
+            }
+            if !p.overlaps.isEmpty {
+                out("  ⚠ review first (same file, more than one copy):")
+                for o in p.overlaps { out("    \(o.path)") }
+            }
+        }
+    case "apply":
+        guard flags.positionals.count >= 2 else {
+            fail("usage: idealize combine apply <session> [--into DIR]")
+        }
+        let resp = sendRequest(IPCRequest(command: .combineApply, from: mySession,
+                                          target: flags.positionals[1], body: flags.values["into"]))
+        if !resp.ok { fail(resp.error ?? "combine failed") }
+        guard let r = resp.combineResult else { fail("combine returned nothing") }
+        if flags.bools.contains("json") {
+            let data = try IPC.makeEncoder().encode(r)
+            out(String(decoding: data, as: UTF8.self))
+        } else {
+            out(r.summary)
+            if !r.conflicts.isEmpty {
+                out("  clashing files:")
+                for c in r.conflicts { out("    \(c)") }
+            }
+        }
+    default:
+        fail("usage: idealize combine plan [--into DIR]  |  idealize combine apply <session> [--into DIR]")
     }
 
 case "status":
