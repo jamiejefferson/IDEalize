@@ -39,6 +39,7 @@ struct FeedbackButton: View {
                 .font(settings.ui(11)).foregroundStyle(.secondary)
             TextEditor(text: $text)
                 .font(settings.ui(13))
+                .foregroundStyle(Color(theme.foreground))
                 .frame(width: 440, height: 170)
                 .scrollContentBackground(.hidden)
                 .padding(6)
