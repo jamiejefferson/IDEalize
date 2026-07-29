@@ -165,9 +165,9 @@ struct LeafPaneView: View {
     /// input is ever on screen at a time.
     private var chatLayout: some View {
         chatStack
-            // In terminal mode the chat card is gone, so float the message input
-            // over the terminal: it carries the chat/terminal toggle, which would
-            // otherwise be unreachable once the card is hidden.
+            // In terminal mode the chat card is gone, so float the standby message
+            // input over the terminal — tap it and it expands up to cover the
+            // terminal's own input line; tap away and it settles back.
             .overlay(alignment: .bottom) {
                 if session.revealTerminal {
                     QAChatBox(session: session, workspace: workspace, collapsed: true)
@@ -217,8 +217,13 @@ struct LeafPaneView: View {
                 }
             }
 
-            // The chat/terminal mode toggle now lives inside the message panel
-            // (the input lozenge's toolbar), not floating in the pane corner.
+            // The chat/terminal mode toggle sits in the terminal's top-right
+            // corner, reachable in either mode: in chat mode it caps the card's
+            // corner (the card scales out of it when you switch to terminal); in
+            // terminal mode it's the way back to chat. Mirrors ExchangeNav opposite.
+            ModeToggle(session: session)
+                .tourTarget(.modeToggle)
+                .padding(.top, 22).padding(.trailing, 22)
         }
     }
 
