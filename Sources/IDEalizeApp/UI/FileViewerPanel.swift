@@ -15,15 +15,11 @@ struct FileViewerPanel: View {
     @State private var loadedURL: URL?
     @State private var creating = false
     @State private var newName = ""
-    /// Documents open ready to edit; this flips back to the styled preview.
-    @State private var editingMarkdown = true
     /// Brief "attached" confirmation on the Use-as-context button.
     @State private var contextConfirm = false
 
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.doc, base: CGFloat(settings.fontSize), background: theme.background) }
-    /// A markdown file we can render as a styled preview (vs. raw text editing).
-    private var isMarkdown: Bool { (loadedURL ?? workspace.viewedFile)?.pathExtension.lowercased() == "md" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,16 +40,6 @@ struct FileViewerPanel: View {
     private func documentBody(_ file: URL?) -> some View {
         if let message {
             centeredMessage(message, icon: "doc")
-        } else if file != nil, isMarkdown, !editingMarkdown {
-            // Styled, read-only render of the markdown (headings, bold, lists,
-            // code). Tap the pencil in the header to drop to the raw editor.
-            ScrollView {
-                MarkdownText(text: content, baseSize: CGFloat(settings.fontSize), panel: .doc)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-            }
-            .background(style.background)
         } else if file != nil {
             TextEditor(text: $content)
                 .font(style.font(CGFloat(settings.fontSize)))
@@ -100,13 +86,6 @@ struct FileViewerPanel: View {
                 .buttonStyle(.iconHover(padding: 3))
                 .foregroundStyle(Color(contextConfirm ? theme.accent : theme.secondaryForeground))
                 .help("Use as context in the active chat")
-            }
-            if workspace.viewedFile != nil, isMarkdown, message == nil {
-                Button(action: { editingMarkdown.toggle() }) {
-                    Image(systemName: editingMarkdown ? "eye" : "pencil").font(.system(size: 11))
-                }
-                .buttonStyle(.iconHover(padding: 3)).foregroundStyle(Color(theme.secondaryForeground))
-                .help(editingMarkdown ? "Preview" : "Edit raw markdown")
             }
             if workspace.viewedFile != nil {
                 Button(action: save) { Image(systemName: "square.and.arrow.down").font(.system(size: 11)) }
@@ -243,7 +222,6 @@ struct FileViewerPanel: View {
         // Save any pending edits to the previously-open file first.
         if dirty, let prev = loadedURL { try? content.write(to: prev, atomically: true, encoding: .utf8) }
         dirty = false
-        editingMarkdown = true    // a freshly opened doc starts editable
         guard let url = workspace.viewedFile else { content = ""; message = nil; loadedURL = nil; return }
         do {
             let data = try Data(contentsOf: url)
