@@ -176,6 +176,13 @@ final class AppSettings: ObservableObject {
     @Published var shellPath: String {
         didSet { defaults.set(shellPath, forKey: "shellPath") }
     }
+    /// Path to IDEalize's own source checkout, used by the Service hatch to root
+    /// its dev session. Empty until the user points at it: an installed `.app`
+    /// (in `/Applications`) has no path relationship to the source, so it can't be
+    /// inferred. See `ServiceHatch.repoRoot()`.
+    @Published var serviceHatchRepoPath: String {
+        didSet { defaults.set(serviceHatchRepoPath, forKey: "serviceHatchRepoPath") }
+    }
 
     // MARK: Behavior
     @Published var notificationsEnabled: Bool {
@@ -342,6 +349,7 @@ final class AppSettings: ObservableObject {
         self.launchOnNewTerminal = defaults.object(forKey: "launchOnNewTerminal") as? Bool ?? false
         self.shellPath = defaults.string(forKey: "shellPath")
             ?? (ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
+        self.serviceHatchRepoPath = defaults.string(forKey: "serviceHatchRepoPath") ?? ""
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         self.completionSoundEnabled = defaults.object(forKey: "completionSoundEnabled") as? Bool ?? true
         self.completionSoundVolume = defaults.object(forKey: "completionSoundVolume") as? Double ?? 0.4

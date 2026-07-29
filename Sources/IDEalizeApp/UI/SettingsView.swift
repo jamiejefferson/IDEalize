@@ -1,4 +1,16 @@
 import SwiftUI
+import AppKit
+
+/// Opens the standard SwiftUI `Settings` scene programmatically (there's no public
+/// API for it, so we send the AppKit action). Used by the Service hatch when it
+/// can't find IDEalize's source and needs the user to point at it.
+enum SettingsWindow {
+    static func open() {
+        NSApp.activate(ignoringOtherApps: true)
+        // macOS 14+ renamed the selector from `showPreferencesWindow:`.
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
+}
 
 /// Preferences window: default launch behavior, notifications, sound. (All
 /// appearance controls live in the in-view Appearance panel — ⌘⌥A.)
@@ -32,8 +44,49 @@ struct SettingsView: View {
                 TextField("Login shell", text: $settings.shellPath)
                     .font(.system(.body, design: .monospaced))
             }
+            Section("Service hatch") {
+                HStack {
+                    Text(sourceFolderLabel)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(settings.serviceHatchRepoPath.isEmpty ? .secondary : .primary)
+                        .lineLimit(1).truncationMode(.head)
+                    Spacer()
+                    if !settings.serviceHatchRepoPath.isEmpty {
+                        Button("Clear") { settings.serviceHatchRepoPath = "" }
+                    }
+                    Button("Choose…") { chooseSourceFolder() }
+                }
+                if !settings.serviceHatchRepoPath.isEmpty,
+                   !ServiceHatch.isRepo(settings.serviceHatchRepoPath) {
+                    Label("This folder doesn't look like an IDEalize checkout.", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                Text("The wrench-icon service hatch opens an agent session on IDEalize's own code. Point this at your IDEalize source folder so it knows where that code lives.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private var sourceFolderLabel: String {
+        settings.serviceHatchRepoPath.isEmpty
+            ? "No source folder chosen"
+            : (settings.serviceHatchRepoPath as NSString).abbreviatingWithTildeInPath
+    }
+
+    /// Folder picker for the IDEalize source checkout — friendlier than typing a
+    /// path. Warns (but still saves) if the pick isn't a valid checkout, so the
+    /// mistake is visible rather than a silent no-op later at the wrench button.
+    private func chooseSourceFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Use as source"
+        panel.message = "Choose your IDEalize source folder (the one containing Package.swift)."
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.serviceHatchRepoPath = url.path
+        }
     }
 
     private var behaviorTab: some View {

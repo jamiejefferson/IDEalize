@@ -395,7 +395,13 @@ final class Workspace: ObservableObject {
     /// preloaded with the `/idealize-service-hatch` safe-editing guide. Beeps if the
     /// source checkout can't be located.
     func openServiceHatch() {
-        guard let repo = ServiceHatch.repoRoot() else { NSSound.beep(); return }
+        guard let repo = ServiceHatch.repoRoot() else {
+            // No source checkout configured or found. An installed app can't guess
+            // where IDEalize's code lives, so open Settings for the user to point
+            // at it (Launch tab → "IDEalize source folder") rather than beep.
+            SettingsWindow.open()
+            return
+        }
         let session = newTab(projectPath: repo, launchOverride: ServiceHatch.launchCommand())
         session.isServiceHatch = true   // shows the themed opening banner in the chat
     }
