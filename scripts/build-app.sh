@@ -70,12 +70,15 @@ if [ -d "$BIN_DIR/SwiftTerm_SwiftTerm.bundle" ]; then
 fi
 
 # App icon. Regenerate the .icns from the source if it's missing OR the logo
-# source is newer (otherwise logo changes silently ship a stale icon). Work in
-# a private mktemp dir — predictable shared /tmp paths are symlink-attackable.
+# source is newer (otherwise logo changes silently ship a stale icon). The master
+# IS the wordmark logo — `IDEalizeLogo.png`, a 1024×1024 PNG. (Do NOT use
+# make-icon.swift: it draws a generic terminal glyph that ignores the logo, which
+# would silently replace the real icon whenever this branch runs.) Work in a
+# private mktemp dir — predictable shared /tmp paths are symlink-attackable.
 if [ ! -f "$ROOT/Resources/AppIcon.icns" ] || [ "$ROOT/Resources/IDEalizeLogo.png" -nt "$ROOT/Resources/AppIcon.icns" ]; then
-  echo "==> Generating app icon…"
+  echo "==> Generating app icon from IDEalizeLogo.png…"
   ICON_TMP="$(mktemp -d "${TMPDIR:-/tmp}/idealize-icon.XXXXXX")"
-  swift "$ROOT/scripts/make-icon.swift" "$ICON_TMP/icon-master.png"
+  cp "$ROOT/Resources/IDEalizeLogo.png" "$ICON_TMP/icon-master.png"
   ICONSET="$ICON_TMP/AppIcon.iconset"; mkdir -p "$ICONSET"
   for s in 16 32 128 256 512; do
     sips -z $s $s "$ICON_TMP/icon-master.png" --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
