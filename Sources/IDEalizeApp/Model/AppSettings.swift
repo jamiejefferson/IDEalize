@@ -11,9 +11,9 @@ enum AppearanceDefaults {
     static let uiFontSize = 13.0
     // Terminal
     static let fontName = "DM Mono"
-    static let fontSize = 18.0
-    static let terminalMargin = 16.0
-    static let terminalLineSpacing = 1.5
+    static let fontSize = 14.0
+    static let terminalMargin = 36.0
+    static let terminalLineSpacing = 1.0
     static var terminalThemeName: String { Theme.linen.name }
     // Chat
     static let chatInputOpacity = 1.0

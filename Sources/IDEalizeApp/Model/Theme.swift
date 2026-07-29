@@ -173,7 +173,11 @@ struct Theme: Identifiable, Hashable {
         selection: rgb(231, 224, 209),
         ansi: [
             rgb(42, 42, 39),   rgb(178, 74, 68),  rgb(62, 122, 68),  rgb(138, 106, 42),
-            rgb(74, 90, 134),  rgb(122, 85, 112), rgb(62, 108, 126), rgb(124, 122, 113),
+            // Colour 7 is the "white" slot Claude Code prints most of its body
+            // text in; on paper it must stay a warm grey but still be read. At
+            // #7C7A71 it was 3.95:1 (2.75:1 once dimmed) — a light ghost. #64625A
+            // holds it at ~5.6:1, muted but legible, and clears the dim floor.
+            rgb(74, 90, 134),  rgb(122, 85, 112), rgb(62, 108, 126), rgb(100, 98, 90),
             rgb(106, 105, 98), rgb(160, 60, 54),  rgb(50, 110, 58),  rgb(120, 92, 36),
             rgb(64, 80, 120),  rgb(108, 74, 98),  rgb(52, 96, 112),  rgb(42, 42, 39),
         ],
