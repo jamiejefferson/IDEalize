@@ -13,6 +13,27 @@ extension EnvironmentValues {
     }
 }
 
+/// A flashing accent caret shown where the input rests — the deliberate stand-in
+/// for the old prompt chevron. It fades in and out on a slow blink; the native
+/// text caret takes over the moment the field is focused, so the two never
+/// compete (the caller hides this one then).
+private struct InputCursor: View {
+    let color: Color
+    let height: CGFloat
+    @State private var on = true
+    var body: some View {
+        Capsule()
+            .fill(color)
+            .frame(width: 2, height: height)
+            .opacity(on ? 1 : 0)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                    on = false
+                }
+            }
+    }
+}
+
 /// The unified agent chat box: your latest question (condensed) on top, a
 /// gentle divider, then the agent's answer, then the input — all in one card that
 /// floats over a blurred view of the terminal "thinking" behind it.
@@ -838,21 +859,18 @@ struct QAChatBox: View {
         .padding(.horizontal, 24).padding(.vertical, 16)
     }
 
-    /// A delicate lozenge around the input (grows as you type) plus a mini-menu.
+    /// A delicate lozenge around the input, reorganised to the sketch: a flashing
+    /// accent cursor and the growing field up top with the send + thanks actions
+    /// stacked beside it, and a control strip — action pills on the left, input
+    /// controls on the right — pinned along the bottom.
     private var inputLozenge: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            // Contextual toolbar pinned at the top of the container: the chat/flow
-            // toggle, then either the chat actions (model · effort · skills ·
-            // commands) or, in flow mode, the flow library — swapped in place.
-            HStack(spacing: 8) {
-                // The chat/terminal on-off toggle now sits in the message panel.
-                ModeToggle(session: session)
-                    .tourTarget(.modeToggle)
-                ChatToolbar(session: session, draft: $text, flowMode: $flowMode,
-                            flowStore: flowStore, focus: { focused = true })
-                    .tourTarget(.skills)
-            }
-
+        // Tapping the field expands the composing area (standby → active): more
+        // room to write, and — floating over the terminal — it grows up to cover
+        // the terminal's own input line. Tapping away drops focus and it settles
+        // back. Only the floating/standby form expands; the docked form already
+        // fills its pane.
+        let expanded = collapsed && focused
+        return VStack(alignment: .leading, spacing: 8) {
             // Flow mode: the conversation-first designer lives inside this same
             // container, which has grown upward to hold it. The interview fills the
             // body; the note field stays pinned at the bottom so you can add an
@@ -872,90 +890,38 @@ struct QAChatBox: View {
             if !session.pendingAttachments.isEmpty {
                 attachmentChips
             }
-            HStack(alignment: .bottom, spacing: 10) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: size - 3, weight: .bold))
-                    .foregroundStyle(settings.actionStyle.color)
-                    .padding(.bottom, 3)
-                // Grows with what you type up to ~14 lines, then scrolls its own
-                // content internally so nothing is clipped out of reach (the
-                // vertical TextField scrolls past its line-limit natively). Its
-                // line-spacing is independent of the chat answer/modal.
-                // Placeholder is drawn ourselves (a dimmed copy of the input text
-                // colour) — SwiftUI's default prompt renders in a system grey that's
-                // unreadable on the chat input's light fill.
-                TextField("", text: $text, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(chatStyle.font(size))
-                    .foregroundStyle(chatTextColor)
-                    .lineSpacing(CGFloat(settings.chatInputLineSpacing))
-                    .lineLimit(1...14)
-                    // Fill the row's width so long lines wrap (and reflow as the pane
-                    // narrows) instead of stretching the field past the card edge,
-                    // where the text was getting clipped.
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .focused($focused)
-                    // Modifier-aware Return: `.onSubmit` can't tell Shift+Return
-                    // from plain Return, so it used to send on both. With
-                    // return-to-send on, plain Return sends and Shift+Return
-                    // inserts a newline (inverted when off); ⌘↩ always sends via
-                    // the button's shortcut. Returning `.ignored` lets the
-                    // vertical field insert the line break natively.
-                    .onKeyPress { press in
-                        guard press.key == .return else { return .ignored }
-                        if press.modifiers.contains(.command) { return .ignored }
-                        let shift = press.modifiers.contains(.shift)
-                        let wantsNewline = settings.returnToSend ? shift : !shift
-                        if wantsNewline {
-                            // Insert the line break ourselves: a vertical TextField
-                            // won't newline just because we return `.ignored` (the
-                            // key falls through to a selection command instead), so
-                            // append it explicitly and consume the event.
-                            text += "\n"
-                            return .handled
-                        }
-                        onReturn()
-                        return .handled
-                    }
-                    .overlay(alignment: .leading) {
-                        if let ph = inputPlaceholder, text.isEmpty {
-                            Text(ph)
-                                .font(chatStyle.font(size))
-                                .foregroundStyle(chatTextColor.opacity(0.5))
-                                .lineLimit(1).truncationMode(.tail)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                // While the agent is working, the send button becomes a Stop button —
-                // cancelling the in-flight prompt (ESC). Otherwise it sends (⌘↩),
-                // or in flow mode hands the whole flow to the agent.
-                if session.botWorking && !flowMode {
-                    Button(action: { session.interrupt() }) {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: size - 7, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 28, height: 28)
-                            .background(Circle().fill(settings.actionStyle.fill))
-                    }
-                    .buttonStyle(.raisedIconHover)
-                    .keyboardShortcut(.cancelAction)   // Esc
-                    .help("Stop (Esc)")
-                } else {
-                    Button(action: { flowMode ? sendFlow() : send() }) {
-                        Image(systemName: flowMode ? (flowIsResumable ? "play.fill" : "paperplane.fill") : "arrow.up")
-                            .font(.system(size: size - 4, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 28, height: 28)
-                            .background(Circle().fill(settings.actionStyle.fill))
-                    }
-                    .buttonStyle(.raisedIconHover)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(flowMode ? !canSendFlow : text.isEmpty)
-                    .help(flowMode ? (flowIsResumable ? "Resume this flow where it left off"
-                                                      : "Send this flow to the agent to carry out") : "Send")
+
+            // Composing row: a flashing accent cursor (in place of the old prompt
+            // chevron) beside the growing field, with the send + thanks actions
+            // stacked at the top-right corner of the lozenge.
+            HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .top, spacing: 7) {
+                    // A flashing accent caret marks the resting input; the native
+                    // caret takes over the instant you focus, so ours fades then.
+                    InputCursor(color: settings.actionStyle.color, height: size + 2)
+                        .opacity(text.isEmpty && !focused ? 1 : 0)
+                        .padding(.top, 2)
+                    messageField
+                }
+                // Standby → active: the composing area gains height on focus so
+                // there's room to write and it covers the terminal input beneath.
+                .frame(minHeight: expanded ? 84 : nil, alignment: .top)
+
+                VStack(spacing: 8) {
+                    sendButton
+                    if session.tuiActive { thanksButton }
                 }
             }
-            miniMenu
+
+            // Control strip: the action pills (permissions · effort · skills ·
+            // commands) and the chat/flow toggle on the left; the input controls
+            // (return-to-send, attach, dictation, release-to-send) on the right.
+            HStack(spacing: 10) {
+                ChatToolbar(session: session, draft: $text, flowMode: $flowMode,
+                            flowStore: flowStore, focus: { focused = true })
+                    .tourTarget(.skills)
+                inputControls
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(maxHeight: flowMode ? .infinity : nil, alignment: .bottom)
@@ -971,12 +937,111 @@ struct QAChatBox: View {
                 // agent draws in the grid above it.
                 .shadow(color: .black.opacity(focused ? 0.32 : 0.22), radius: focused ? 14 : 10, y: 3)
         )
+        .animation(LeafPaneView.modeAnim, value: expanded)
         .tourTarget(.chatInput)
     }
 
-    /// Return-to-send toggle, attachment, and press-and-hold dictation.
-    private var miniMenu: some View {
-        HStack(spacing: 16) {
+    /// The message field itself — grows with what you type up to ~14 lines, then
+    /// scrolls its own content so nothing is clipped out of reach. Placeholder is
+    /// drawn ourselves (a dimmed copy of the input colour) — SwiftUI's default
+    /// prompt renders in an unreadable system grey on the light chat fill.
+    private var messageField: some View {
+        TextField("", text: $text, axis: .vertical)
+            .textFieldStyle(.plain)
+            .font(chatStyle.font(size))
+            .foregroundStyle(chatTextColor)
+            .lineSpacing(CGFloat(settings.chatInputLineSpacing))
+            .lineLimit(1...14)
+            // Fill the row's width so long lines wrap (and reflow as the pane
+            // narrows) instead of stretching the field past the card edge.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .focused($focused)
+            // Modifier-aware Return: `.onSubmit` can't tell Shift+Return from
+            // plain Return, so it used to send on both. With return-to-send on,
+            // plain Return sends and Shift+Return inserts a newline (inverted when
+            // off); ⌘↩ always sends via the button's shortcut. Returning
+            // `.ignored` lets the vertical field insert the line break natively.
+            .onKeyPress { press in
+                guard press.key == .return else { return .ignored }
+                if press.modifiers.contains(.command) { return .ignored }
+                let shift = press.modifiers.contains(.shift)
+                let wantsNewline = settings.returnToSend ? shift : !shift
+                if wantsNewline {
+                    // Insert the line break ourselves: a vertical TextField won't
+                    // newline just because we return `.ignored` (the key falls
+                    // through to a selection command instead), so append it
+                    // explicitly and consume the event.
+                    text += "\n"
+                    return .handled
+                }
+                onReturn()
+                return .handled
+            }
+            .overlay(alignment: .topLeading) {
+                if let ph = inputPlaceholder, text.isEmpty {
+                    Text(ph)
+                        .font(chatStyle.font(size))
+                        .foregroundStyle(chatTextColor.opacity(0.5))
+                        .lineLimit(1).truncationMode(.tail)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+
+    /// The primary action, stacked at the top-right of the lozenge. While the
+    /// agent is working it becomes a Stop button (ESC); otherwise it sends (⌘↩),
+    /// or in flow mode hands the whole flow to the agent.
+    @ViewBuilder private var sendButton: some View {
+        if session.botWorking && !flowMode {
+            Button(action: { session.interrupt() }) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: size - 7, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(settings.actionStyle.fill))
+            }
+            .buttonStyle(.raisedIconHover)
+            .keyboardShortcut(.cancelAction)   // Esc
+            .help("Stop (Esc)")
+        } else {
+            Button(action: { flowMode ? sendFlow() : send() }) {
+                Image(systemName: flowMode ? (flowIsResumable ? "play.fill" : "paperplane.fill") : "arrow.up")
+                    .font(.system(size: size - 4, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(settings.actionStyle.fill))
+            }
+            .buttonStyle(.raisedIconHover)
+            .keyboardShortcut(.return, modifiers: .command)
+            .disabled(flowMode ? !canSendFlow : text.isEmpty)
+            .help(flowMode ? (flowIsResumable ? "Resume this flow where it left off"
+                                              : "Send this flow to the agent to carry out") : "Send")
+        }
+    }
+
+    /// One-tap "thank you" — a filled circle beneath the send button, mirroring
+    /// it. Only while Claude is running (it makes no sense at a plain shell); its
+    /// wording tells Claude no task is attached and a single emoji back is all
+    /// that's wanted, so a warm gesture doesn't cost a long reply (or many tokens).
+    private var thanksButton: some View {
+        Button(action: sendThanks) {
+            Image(systemName: thanksHover ? "heart.fill" : "heart")
+                .font(.system(size: size - 8, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(settings.actionStyle.fill))
+        }
+        .buttonStyle(.raisedIconHover)
+        .onHover { thanksHover = $0 }
+        .help("Say thanks — Claude replies with just an emoji, no long response")
+    }
+
+    /// The input controls sat at the right of the bottom control strip:
+    /// return-to-send toggle, attachment, press-and-hold dictation, and the
+    /// release-to-send toggle. Each is pill-height so it lines up with the action
+    /// pills across the strip. (The "thanks" heart now lives with the send button.)
+    private var inputControls: some View {
+        HStack(spacing: 12) {
             Button(action: { settings.returnToSend.toggle() }) {
                 ZStack {
                     Image(systemName: "return")
@@ -992,7 +1057,7 @@ struct QAChatBox: View {
                 // input's red controls.
                 .foregroundStyle(settings.returnToSend ? settings.actionStyle.color
                                                        : Color(theme.secondaryForeground))
-                .frame(width: 18, height: 16)
+                .frame(width: 20, height: 22)
             }
             .buttonStyle(.iconHover(padding: 3))
             .help(settings.returnToSend ? "Return sends (click to use ⌘↩ instead)" : "Return inserts a newline; ⌘↩ sends")
@@ -1000,6 +1065,7 @@ struct QAChatBox: View {
             Button(action: attach) {
                 Image(systemName: "paperclip").font(.system(size: 12))
                     .foregroundStyle(Color(theme.secondaryForeground))
+                    .frame(width: 20, height: 22)
             }
             .buttonStyle(.iconHover(padding: 3))
             .help("Attach a file")
@@ -1009,6 +1075,7 @@ struct QAChatBox: View {
                 .font(.system(size: 12))
                 .foregroundStyle(Color(speech.isRecording ? .red : theme.secondaryForeground))
                 .scaleEffect(speech.isRecording ? 1.15 : 1)
+                .frame(width: 20, height: 22)
                 .contentShape(Rectangle().inset(by: -8))
                 .onLongPressGesture(minimumDuration: 3600, maximumDistance: 10_000, perform: {},
                                     onPressingChanged: { pressing in
@@ -1030,7 +1097,7 @@ struct QAChatBox: View {
                     }
                 }
                 .foregroundStyle(settings.voiceReleaseToSend ? settings.actionStyle.color : Color(theme.secondaryForeground))
-                .frame(width: 18, height: 16)
+                .frame(width: 20, height: 22)
             }
             .buttonStyle(.iconHover(padding: 3))
             .help(settings.voiceReleaseToSend
@@ -1039,25 +1106,6 @@ struct QAChatBox: View {
 
             if speech.isRecording {
                 Text("Listening…").font(settings.ui(10)).foregroundStyle(.red)
-            }
-            Spacer(minLength: 0)
-
-            // One-tap "thank you" — only while Claude is running, since it makes no
-            // sense at a plain shell. Sends a short note whose wording tells Claude
-            // no task is attached and a single emoji back is all that's wanted, so a
-            // warm gesture doesn't cost a long reply (or many tokens).
-            if session.tuiActive {
-                Button(action: sendThanks) {
-                    Image(systemName: thanksHover ? "heart.fill" : "heart")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(thanksHover ? settings.actionStyle.color : Color(theme.secondaryForeground))
-                        .frame(width: 18, height: 16)
-                        .scaleEffect(thanksHover ? 1.12 : 1)
-                        .animation(.easeOut(duration: 0.12), value: thanksHover)
-                }
-                .buttonStyle(.plain)
-                .onHover { thanksHover = $0 }
-                .help("Say thanks — Claude replies with just an emoji, no long response")
             }
         }
     }

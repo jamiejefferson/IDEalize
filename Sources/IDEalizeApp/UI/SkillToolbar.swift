@@ -221,8 +221,10 @@ private struct FlowModeToggle: View {
     @State private var pressed = false
     private var theme: Theme { settings.theme }
 
-    private let slot: CGFloat = 30
-    private let height: CGFloat = 24
+    // Sized to the action pills (a ~22pt-tall capsule) so the toggle sits level
+    // with them across the control strip and reads as the same family.
+    private let slot: CGFloat = 27
+    private let height: CGFloat = 22
 
     var body: some View {
         ZStack(alignment: on ? .trailing : .leading) {
