@@ -747,8 +747,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         // dimming it dims the transcript with them (on Linen, to invisible). The
         // rules are reachable by the character that draws them, not its colour.
         terminalView.getTerminal().installPalette(colors: theme.ansi.map { $0.toSwiftTermColor() })
-        // Rules sit back from the text they frame — see `BoxDrawingRecolour`.
-        terminalView.boxDrawing.color = theme.ruleColor
+        // Rules sit back from the text they frame, and dim text is faded less far
+        // than SwiftTerm's fixed half — see `TerminalInkFilter`.
+        terminalView.ink.ruleColor = theme.ruleColor
+        terminalView.ink.dimBlend = theme.dimBlend
+        terminalView.ink.background = theme.background
+        terminalView.ink.foreground = theme.foreground
+        terminalView.ink.palette = theme.ansi
         terminalView.needsDisplay = true
         // The cell has just been resized (font/line spacing), so re-trim — and
         // again after layout, since on the first pass the caret has no bounds yet.

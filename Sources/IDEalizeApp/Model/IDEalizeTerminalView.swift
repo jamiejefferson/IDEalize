@@ -27,9 +27,9 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
 
     private static let ESC: UInt8 = 0x1B
 
-    /// Repaints an agent's prompt-box rules so they sit back from the text they
-    /// frame. Set its `color` from the terminal theme.
-    var boxDrawing = BoxDrawingRecolour()
+    /// Adjusts the ink of the incoming stream — the rules an agent frames its
+    /// prompt box with, and how far dim text is faded. Configured from the theme.
+    var ink = TerminalInkFilter()
 
     /// Alternate-screen enter/leave sequences, matched in one pass. Enter and
     /// leave share the `ESC [ ? …` prefix shape, so partial tails are carried
@@ -85,7 +85,7 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
             }
         }
 
-        if let recoloured = boxDrawing.process(slice) {
+        if let recoloured = ink.process(slice) {
             super.dataReceived(slice: recoloured[...])
         } else {
             super.dataReceived(slice: slice)

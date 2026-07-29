@@ -11,7 +11,7 @@ struct Theme: Identifiable, Hashable {
     /// 16 ANSI colors (0-7 normal, 8-15 bright).
     let ansi: [NSColor]
     /// The box-drawing rules an agent frames its prompt box with, repainted as
-    /// they arrive (see `BoxDrawingRecolour`). A frame is solid ink for its whole
+    /// they arrive (see `TerminalInkFilter`). A frame is solid ink for its whole
     /// length, so it reads far heavier than glyphs of the same colour and wants
     /// to be lighter than the faintest text on the grid. Left nil it's derived
     /// from the theme's own ink and ground; set it to place it by eye.
@@ -69,6 +69,12 @@ struct Theme: Identifiable, Hashable {
     /// keeps them even: the same 70% blend lands at 1.19 on warm paper and 1.5 on
     /// near-black ink, so a fixed fraction would give each theme a different rule.
     private static let ruleContrast: CGFloat = 1.19
+
+    /// How far dim text (SGR 2) fades toward the ground. SwiftTerm's own is a
+    /// fixed half, which on warm paper takes the `#999999` an agent writes its
+    /// secondary text in out to `#C8C7C5` — past readable. This lands it near
+    /// `#AEAEAE`, still clearly secondary but legible.
+    var dimBlend: CGFloat { 0.22 }
 
     /// The rule colour: placed by the theme, or the blend from its ink toward its
     /// ground that reads at the same weight as Linen's.
