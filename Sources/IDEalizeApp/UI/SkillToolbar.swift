@@ -211,60 +211,42 @@ struct ChatToolbar: View {
     }
 }
 
-/// A sliding two-icon toggle flipping the chat region between the conversation
-/// and the Flows designer. Deliberately the same slide-toggle language as the pane's
-/// Chat/Terminal `ModeToggle` — a springy knob under the active icon, icons that
-/// bounce, a press dip — so the two reads as members of one family.
+/// A flat capsule button flipping the chat region between the conversation and the
+/// Flows designer. Wears the same pill chrome as the action pills beside it
+/// (`theme.surface` fill, `theme.border` stroke, accent-tinted on hover) so it reads
+/// as a member of that family rather than a separate slide-toggle. The glyph + label
+/// name the mode you'll switch TO (so on the chat view it reads "Flows", and on the
+/// flow designer it reads "Chat"), tinted with the interactive accent.
 private struct FlowModeToggle: View {
     @Binding var on: Bool
     @ObservedObject private var settings = AppSettings.shared
-    @State private var pressed = false
+    @State private var hovering = false
     private var theme: Theme { settings.theme }
-
-    // Sized to the action pills (a ~22pt-tall capsule) so the toggle sits level
-    // with them across the control strip and reads as the same family.
-    private let slot: CGFloat = 27
-    private let height: CGFloat = 22
+    private var accent: Color { settings.actionStyle.color }
 
     var body: some View {
-        ZStack(alignment: on ? .trailing : .leading) {
-            // Track.
-            Capsule()
-                .fill(Color(theme.surface).opacity(0.95))
-                .overlay(Capsule().strokeBorder(Color(theme.border), lineWidth: 1))
-            // Sliding knob.
-            Capsule()
-                .fill(settings.actionStyle.fill)
-                .frame(width: slot - 4, height: height - 4)
-                .padding(2)
-                .shadow(color: .black.opacity(0.28), radius: 3, y: 1)
-            // Icons.
-            HStack(spacing: 0) {
-                icon("bubble.left.fill", active: !on)
-                icon("arrow.triangle.branch", active: on)
+        Button(action: {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.7)) { on.toggle() }
+        }) {
+            HStack(spacing: 5) {
+                // Interactive glyph — names the mode you'll switch TO, accent-tinted.
+                Image(systemName: on ? "bubble.left" : "arrow.triangle.branch")
+                    .font(.system(size: 11))
+                    .foregroundStyle(accent)
+                    .symbolEffect(.bounce, value: on)
+                Text(on ? "Chat" : "Flows")
+                    .font(settings.ui(11, .medium)).foregroundStyle(Color(theme.foreground))
             }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Capsule().fill(Color(hovering ? theme.surfaceHover : theme.surface)))
+            .overlay(Capsule().strokeBorder(
+                hovering ? accent.opacity(0.5) : Color(theme.border), lineWidth: 1))
+            .contentShape(Capsule())
         }
-        .frame(width: slot * 2, height: height)
-        .scaleEffect(pressed ? 0.93 : 1)
-        .animation(.spring(response: 0.34, dampingFraction: 0.6), value: on)
-        .animation(.spring(response: 0.25, dampingFraction: 0.55), value: pressed)
-        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
-        .contentShape(Capsule())
-        .onLongPressGesture(minimumDuration: 0.6, maximumDistance: 40,
-                            perform: {}, onPressingChanged: { pressed = $0 })
-        .simultaneousGesture(TapGesture().onEnded {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.6)) { on.toggle() }
-        })
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
         .help(on ? "Back to chat" : "Design a flow — describe the outcome and let the interview build it")
-    }
-
-    private func icon(_ name: String, active: Bool) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(active ? .white : Color(theme.secondaryForeground))
-            .scaleEffect(active ? 1 : 0.82)
-            .symbolEffect(.bounce, value: on)
-            .frame(width: slot, height: height)
     }
 }
 

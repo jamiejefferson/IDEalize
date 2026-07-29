@@ -52,7 +52,19 @@ struct LeafPaneView: View {
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var resizeMonitor = LiveResizeMonitor.shared
     @State private var dropTargeted = false
+    /// Set once per view lifetime so the pane opens on its resting view (terminal
+    /// visible with the floating solo input) exactly once, then lets the toggle
+    /// stick. (req 1)
+    @State private var appliedDefaultView = false
     private var theme: Theme { settings.theme }
+
+    /// Height reserved at the terminal's foot so its live output is never hidden
+    /// behind the floating solo input — the input floats above this clear strip.
+    /// Sized to the resting input's height plus a comfortable margin so the terminal's
+    /// last line clears the input top rather than being clipped by it. The focused
+    /// input grows well past this, so it still rises up over the terminal's own input
+    /// line when you compose. (req 2b / bottom-margin feedback)
+    private var floatingInputInset: CGFloat { 136 }
 
     /// The chat backdrop's Gaussian blur, but never while the window is being
     /// live-resized — blurring a continuously-redrawing terminal NSView every
@@ -157,35 +169,12 @@ struct LeafPaneView: View {
         .help("Close this terminal (⌘W)")
     }
 
-    /// Agent/TUI mode: a vertical split — the live terminal readout on top, the
-    /// chat docked beneath it. The divider is a native, draggable VSplitView
-    /// handle (reliable resizing, unlike a custom drag).
-    /// Agent/TUI mode toggles between two full-pane views: the chat overlay
-    /// (terminal blurred behind it) and the raw, interactive terminal. Only one
-    /// input is ever on screen at a time.
+    /// Agent/TUI mode. The floating solo input is pinned to the foot of the pane in
+    /// BOTH modes and never moves; the chat/terminal toggle only reveals or hides
+    /// the response viewer (the conversation transcript) above it. The terminal
+    /// lives behind — sharp and interactive in terminal mode, blurred and dimmed
+    /// while the viewer is up. Mini-mode keeps its full-bleed docked chat. (req 6)
     private var chatLayout: some View {
-        chatStack
-            // In terminal mode the chat card is gone, so float the standby message
-            // input over the terminal — tap it and it expands up to cover the
-            // terminal's own input line; tap away and it settles back.
-            .overlay(alignment: .bottom) {
-                if session.revealTerminal {
-                    QAChatBox(session: session, workspace: workspace, collapsed: true)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color(theme.chrome).opacity(0.92))
-                                .overlay(RoundedRectangle(cornerRadius: 16)
-                                    .strokeBorder(Color(theme.border), lineWidth: 1))
-                                .shadow(color: .black.opacity(settings.chatShadowOpacity), radius: 22, y: 8)
-                        )
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-    }
-
-    private var chatStack: some View {
         ZStack(alignment: .topTrailing) {
             TerminalViewRep(session: session)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -198,33 +187,85 @@ struct LeafPaneView: View {
                 .opacity(session.revealTerminal ? 1 : (compact ? 0 : 0.5))
                 .allowsHitTesting(session.revealTerminal)
                 .animation(Self.modeAnim, value: session.revealTerminal)
+                // Keep the terminal's own last lines clear of the floating input so
+                // live output is never hidden beneath it. (req 2b)
+                .padding(.bottom, compact ? 0 : floatingInputInset)
 
-            if !session.revealTerminal {
-                // Chat mode: tap the blurred backdrop (outside the card) to reveal
-                // the terminal; the chat card floats on top.
-                Color.clear.contentShape(Rectangle()).onTapGesture { setReveal(true) }
-                chatCard
-                    // Collapse into / expand out of the toggle in the top corner.
-                    .transition(.scale(scale: 0.04, anchor: .topTrailing).combined(with: .opacity))
-
-                // Jump up/down through the conversation — mirrors the mode toggle
-                // in the opposite (top-left) corner, same inset and pill styling.
-                if session.exchanges.count > 1 {
-                    ExchangeNav(session: session)
-                        .padding(.top, 22).padding(.leading, 22)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .transition(.opacity)
+            if compact {
+                // Mini-mode: the full-bleed docked chat (transcript + input in one
+                // card); the toggle reveals the terminal beneath it.
+                if !session.revealTerminal {
+                    chatCard
+                        .transition(.scale(scale: 0.04, anchor: .topTrailing).combined(with: .opacity))
                 }
+            } else {
+                // Chat mode: tap the exposed terminal margin to reveal the terminal.
+                if !session.revealTerminal {
+                    Color.clear.contentShape(Rectangle()).onTapGesture { setReveal(true) }
+                }
+                // The response viewer and the one fixed input, laid out bottom-up.
+                // The input is a single instance pinned to the bottom in both modes;
+                // only the viewer above it appears/disappears with the toggle, so
+                // the input's instance and position never change. (req 6) Its own
+                // single lifted container is the lozenge's — no outer wrapper. (req 2a)
+                VStack(spacing: 0) {
+                    if !session.revealTerminal {
+                        responseViewer
+                            // Collapse into / expand out of the toggle in the corner.
+                            .transition(.scale(scale: 0.04, anchor: .topTrailing).combined(with: .opacity))
+                    }
+                    QAChatBox(session: session, workspace: workspace, collapsed: true)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
 
-            // The chat/terminal mode toggle sits in the terminal's top-right
-            // corner, reachable in either mode: in chat mode it caps the card's
-            // corner (the card scales out of it when you switch to terminal); in
-            // terminal mode it's the way back to chat. Mirrors ExchangeNav opposite.
+            // Jump up/down through the conversation — mirrors the mode toggle in the
+            // opposite (top-left) corner, same inset and pill styling.
+            if !session.revealTerminal, session.exchanges.count > 1 {
+                ExchangeNav(session: session)
+                    .padding(.top, 22).padding(.leading, 22)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(.opacity)
+            }
+
+            // The chat/terminal mode toggle sits in the terminal's top-right corner,
+            // reachable in either mode: it reveals or hides the response viewer above
+            // the unchanged input. Mirrors ExchangeNav opposite.
             ModeToggle(session: session)
                 .tourTarget(.modeToggle)
                 .padding(.top, 22).padding(.trailing, 22)
         }
+        // The ground behind the floating input (the reserved strip the terminal is
+        // padded off of) is painted in the terminal's own background, so the input
+        // sits on the same paper as the terminal above it rather than on the window
+        // chrome. The terminal is opaque and covers the rest.
+        .background(Color(settings.terminalTheme.background))
+        .onAppear {
+            // req 1: an agent pane opens on its resting view — terminal visible with
+            // the floating solo input — rather than the docked chat card. Applied
+            // once per view lifetime, and never over a login/prompt the chat viewer
+            // needs to surface, so those flows still land in the transcript.
+            guard !appliedDefaultView else { return }
+            appliedDefaultView = true
+            if session.loginState == .none && session.pendingPrompt == nil {
+                session.revealTerminal = true
+            }
+        }
+    }
+
+    /// The response viewer shown above the fixed input in chat mode: the shared
+    /// conversation transcript (carrying the working animation and any prompts),
+    /// dressed as a lifted card. It appears/disappears with the toggle while the
+    /// input beneath it stays put. (req 6)
+    private var responseViewer: some View {
+        QAChatBox(session: session, workspace: workspace, viewerOnly: true)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(theme.border), lineWidth: 1))
+            .shadow(color: .black.opacity(settings.chatShadowOpacity), radius: 26, y: 12)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
     }
 
     private func setReveal(_ on: Bool) {

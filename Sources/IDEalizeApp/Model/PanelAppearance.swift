@@ -239,6 +239,12 @@ struct ActionStyle {
         return Color(theme.accent)
     }
 
+    /// The highlight as an `NSColor`, for AppKit surfaces that can't take a SwiftUI
+    /// `Color` — e.g. the terminal ink filter, which tints the prompt marker with it.
+    var nsColor: NSColor {
+        NSColor(hex: appearance.colorHex) ?? theme.accent
+    }
+
     private var accentColor: NSColor { theme.accent }
 
     private var gradientStyle: AnyShapeStyle {
