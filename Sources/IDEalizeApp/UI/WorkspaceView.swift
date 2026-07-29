@@ -469,33 +469,66 @@ private struct WindowConfigurator: NSViewRepresentable {
     }
 }
 
-/// The welcome owl on the empty "What shall we make?" slate — cycles its
-/// run-cycle frames (transparent PNGs) with a gentle bob.
+/// The welcome owl on the empty "What shall we make?" slate — plays its
+/// run-cycle of transparent PNGs once, then settles. Roll over it for another go,
+/// so the slate is still rather than perpetually fidgeting.
 struct OwlView: View {
     var size: CGFloat = 150
     private let frameStep: TimeInterval = 0.083   // ~12fps
-    @State private var bob = false
+    @State private var frameIndex = 0
+    /// The run in flight, if any — also the "already playing" guard, so a
+    /// jittering pointer doesn't restart the cycle from the top.
+    @State private var run: Task<Void, Never>?
+    /// Whether the pointer is over the owl. Tracked on a static overlay, not on
+    /// the frames themselves: swapping the image rebuilds its tracking area, and
+    /// the exit/enter that fires each frame would loop the owl for as long as the
+    /// pointer rested on it.
+    @State private var hovering = false
     private var frames: [NSImage] { Owl.frames() }
 
     var body: some View {
         Group {
-            let fr = frames
-            if fr.count > 1 {
-                TimelineView(.periodic(from: .now, by: frameStep)) { context in
-                    let step = context.date.timeIntervalSinceReferenceDate / frameStep
-                    let idx = Int(step.truncatingRemainder(dividingBy: Double(fr.count)))
-                    Image(nsImage: fr[max(0, min(fr.count - 1, idx))])
-                        .resizable().interpolation(.high).scaledToFit()
-                }
-            } else if let one = fr.first {
-                Image(nsImage: one).resizable().interpolation(.high).scaledToFit()
+            if let image = currentFrame {
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
             } else {
                 Image(systemName: "bird.fill").font(.system(size: size * 0.55)).foregroundStyle(.secondary)
             }
         }
         .frame(width: size, height: size)
-        .offset(y: bob ? -3 : 0)
-        .onAppear { withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { bob = true } }
+        .onAppear { play() }
+        .onDisappear { run?.cancel(); run = nil }
+        .overlay {
+            Color.clear
+                .contentShape(Rectangle())
+                .onHover { inside in
+                    guard inside != hovering else { return }
+                    hovering = inside
+                    if inside { play() }
+                }
+                .help("Hello")
+        }
+    }
+
+    private var currentFrame: NSImage? {
+        let fr = frames
+        guard !fr.isEmpty else { return nil }
+        return fr[min(max(0, frameIndex), fr.count - 1)]
+    }
+
+    /// One pass through the cycle, resting on its last frame (which sits next to
+    /// the first, so a replay doesn't visibly jump).
+    private func play() {
+        guard run == nil else { return }
+        let count = frames.count
+        guard count > 1 else { return }
+        run = Task { @MainActor in
+            for i in 0..<count {
+                frameIndex = i
+                try? await Task.sleep(nanoseconds: UInt64(frameStep * 1_000_000_000))
+                if Task.isCancelled { return }
+            }
+            run = nil
+        }
     }
 }
 
@@ -503,7 +536,10 @@ struct EmptyState: View {
     @ObservedObject var workspace: Workspace
 
     @ObservedObject private var settings = AppSettings.shared
-    private var theme: Theme { settings.theme }
+    /// The empty slate is the terminal's own surface — warm paper (Linen) by
+    /// default — not the window chrome's, so the owl always sits on the same
+    /// ground the grid will fill when a session opens, whatever the app theme.
+    private var theme: Theme { settings.terminalTheme }
 
     private var recents: [String] { Array(settings.recentFolders.prefix(3)) }
 
@@ -545,7 +581,7 @@ struct EmptyState: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(settings.panelStyle(.terminal, base: 13, background: theme.background).background)
+        .background(Color(theme.background))
     }
 
     private func abbreviate(_ path: String) -> String {

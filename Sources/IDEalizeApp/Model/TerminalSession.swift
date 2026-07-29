@@ -338,6 +338,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         return result
     }
 
+    // Note: we deliberately don't hand Claude Code a theme. Its `light-ansi` /
+    // `dark-ansi` themes draw its chrome from our 16 ANSI colours, which sounds
+    // like the terminal winning — but it paints the prompt-box rules and most of
+    // its body text in the same slot (7), so the rules can't be quietened without
+    // taking the transcript with them. Left to its own truecolor themes it rules
+    // the box in a fixed mid-grey, independent of anything we set.
+
     /// Replace any permission flag in a `claude` launch with the one for `mode`.
     /// Strips `--dangerously-skip-permissions` and `--permission-mode <value>`
     /// (both space- and `=`-separated) so switching modes never leaves a stale or
@@ -719,14 +726,69 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     func applyTheme(_ theme: Theme, font: NSFont) {
         terminalView.nativeBackgroundColor = theme.background
         terminalView.nativeForegroundColor = theme.foreground
-        terminalView.caretColor = theme.cursor
+        // Knocked back, and never the focus-ring outline: SwiftTerm draws an
+        // unfocused caret as a 3pt stroke around the whole cell, which is the
+        // loudest mark on screen at exactly the moment you're typing somewhere
+        // else. Always the quiet bar instead.
+        terminalView.caretColor = theme.cursor.withAlphaComponent(Self.caretOpacity)
+        terminalView.caretViewTracksFocus = false
+        // A thin bar, not a filled block: the caret sits inside the agent's own
+        // prompt box, and a solid slab of cursor colour there shouted over the
+        // message input docked below it. Re-asserted on every theme apply since
+        // a TUI can change the style out from under us (DECSCUSR).
+        terminalView.getTerminal().setCursorStyle(.steadyBar)
         terminalView.selectedTextBackgroundColor = theme.selection
         terminalView.font = font
         // Line spacing as a multiple of the font's natural line height.
         terminalView.lineSpacing = CGFloat(settings.terminalLineSpacing)
-        let palette = theme.ansi.map { $0.toSwiftTermColor() }
-        terminalView.getTerminal().installPalette(colors: palette)
+        // The palette goes in unmodified. Knocking colour 7 back to quiet the
+        // agent's prompt-box rules looks like a targeted fix and isn't one —
+        // Claude Code prints its rules AND most of its body text in that slot, so
+        // dimming it dims the transcript with them (on Linen, to invisible). The
+        // rules are reachable by the character that draws them, not its colour.
+        terminalView.getTerminal().installPalette(colors: theme.ansi.map { $0.toSwiftTermColor() })
+        // Rules sit back from the text they frame, and dim text is faded less far
+        // than SwiftTerm's fixed half — see `TerminalInkFilter`.
+        terminalView.ink.ruleColor = theme.ruleColor
+        terminalView.ink.dimBlend = theme.dimBlend
+        terminalView.ink.background = theme.background
+        terminalView.ink.foreground = theme.foreground
+        terminalView.ink.palette = theme.ansi
         terminalView.needsDisplay = true
+        // The cell has just been resized (font/line spacing), so re-trim — and
+        // again after layout, since on the first pass the caret has no bounds yet.
+        trimCaret()
+        DispatchQueue.main.async { [weak self] in self?.trimCaret() }
+    }
+
+    /// How much of the cursor colour the caret keeps.
+    private static let caretOpacity: CGFloat = 0.6
+    /// The share of the cell's height the bar caret fills, trimmed evenly top
+    /// and bottom.
+    private static let caretHeightFraction: CGFloat = 0.6
+
+    /// Trim the bar caret to `caretHeightFraction` of the cell.
+    ///
+    /// SwiftTerm hard-codes the bar at the full height of the cell and rewrites
+    /// the caret view's frame on every cursor move, so there's no API for this.
+    /// A mask on the caret's layer survives those rewrites — it lives in the
+    /// layer's own coordinate space, and only needs resizing when the cell does,
+    /// which is exactly when the theme is re-applied. The caret view is private
+    /// to SwiftTerm, so this is best-effort: if it's ever renamed or reparented
+    /// we simply don't find it and the caret stays full height.
+    private func trimCaret() {
+        guard let caret = terminalView.subviews.first(where: {
+            String(describing: type(of: $0)).contains("CaretView")
+        }), let layer = caret.layer else { return }
+        let height = caret.bounds.height
+        guard height > 1 else { return }
+        let inset = ((1 - Self.caretHeightFraction) / 2) * height
+        let mask = (layer.mask as? CALayer) ?? CALayer()
+        mask.backgroundColor = NSColor.black.cgColor
+        // Generously wide: the caret widens for full-width (CJK) characters, and
+        // only its height is being trimmed here.
+        mask.frame = CGRect(x: 0, y: inset, width: 400, height: height - inset * 2)
+        layer.mask = mask
     }
 
     // MARK: - Mailbox
