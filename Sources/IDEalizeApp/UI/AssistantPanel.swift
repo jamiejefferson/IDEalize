@@ -45,6 +45,11 @@ struct QAChatBox: View {
     /// Docked form: fills the bottom of a VSplitView (terminal on top). The split
     /// divider handles resizing, so there's no in-view resize handle.
     var docked: Bool = false
+    /// Viewer form: just the response viewer (conversation transcript, prompts and
+    /// the working animation), with no input. PaneView stacks this above the one
+    /// fixed floating input so the chat/terminal toggle only reveals or hides the
+    /// transcript — the input itself never moves. (req 6)
+    var viewerOnly: Bool = false
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var speech = SpeechDictation.shared
     @State private var text = ""
@@ -93,8 +98,28 @@ struct QAChatBox: View {
     }
     private var working: Bool { session.botWorking }
 
+    /// Approx height of one line of chat input at the current font + line spacing.
+    private var chatLineHeight: CGFloat { size * 1.2 + CGFloat(settings.chatInputLineSpacing) }
+    /// Active/standby height for the focused composer: comfortably holds five-plus
+    /// lines before it has to scroll (the field itself keeps growing to ~14 lines,
+    /// then scrolls), and — sized generously at ~6.5 lines — it also rises up over the
+    /// terminal's own input line beneath it (the reserved strip plus the terminal
+    /// margin), so composing hides the shell prompt rather than leaving it peeking
+    /// above the panel. Derived from the metrics so it tracks the chat font + spacing.
+    private var expandedInputHeight: CGFloat { chatLineHeight * 6.5 }
+    /// Nudge the resting caret + first text line down onto the 28pt send button's
+    /// centre line, so they read as one row instead of the caret floating above the
+    /// button; extra lines still grow downward from there. Clamped for large fonts. (req 3)
+    private var firstLineInset: CGFloat { max(0, (28 - chatLineHeight) / 2) }
+
     var body: some View {
-        if collapsed {
+        if viewerOnly {
+            // The response viewer on its own — carries the docked chat background so
+            // PaneView only has to add the card's rounding, border and shadow.
+            conversationPane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(dockedBackground)
+        } else if collapsed {
             inputLozenge
                 .padding(.horizontal, 14).padding(.vertical, 8)
         } else {
@@ -122,23 +147,6 @@ struct QAChatBox: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(dockedBackground)
-        .onAppear { installDictationKey() }
-        .onChange(of: session.botWorking) { _, working in
-            guard !working else { return }
-            // The review turn has ended — adopt the agent's `review` from disk.
-            if reviewingFlow { reviewingFlow = false; flowStore.reloadReview() }
-            // The run turn has ended — adopt the agent's `run` checkpoint from disk so
-            // the editor shows progress and can offer Resume if it stopped partway.
-            if runningFlow { runningFlow = false; flowStore.reloadRun() }
-            // The improve turn has ended — adopt the agent's rewritten flow + refreshed
-            // review, then reopen the editor so the improvements are right there.
-            if improvingFlow {
-                improvingFlow = false
-                flowStore.reloadImproved()
-                withAnimation(LeafPaneView.modeAnim) { flowMode = true }
-            }
-        }
-        .onDisappear { removeDictationKey(); flowStore.flushSave() }
     }
 
     /// A single message turn shown in the transcript — the user's question and
@@ -367,7 +375,10 @@ struct QAChatBox: View {
     private var inputFill: Color {
         let a = settings.appearance(.chat)
         if a.bgMode == FillMode.solid.rawValue, let c = NSColor(hex: a.bgColorHex) {
-            return Color(c.blended(withFraction: 0.12, of: theme.foreground) ?? c)
+            // Honour the picked colour exactly — a chosen white must read as white at
+            // full opacity, not a greyed-down blend. (This used to blend 12% toward
+            // the foreground for a faux-elevated look, which muddied a full-white pick.)
+            return Color(c)
         }
         return Color(theme.elevated)
     }
@@ -650,7 +661,9 @@ struct QAChatBox: View {
     private var inputPlaceholder: String? {
         if flowMode { return "Add a note for the agent (optional)…" }
         if let p = session.pendingPrompt, !p.isMultiSelect { return "Pick an option, or type your own answer…" }
-        return nil
+        // The empty-state prompt — drawn dimmed in the user's chat input font by the
+        // messageField overlay, matching the redesign's opening line. (req 9)
+        return "What do you want to Idealize?"
     }
 
     /// A live, in-flight agent turn. `awaitingReply` covers the moment right after
@@ -903,9 +916,13 @@ struct QAChatBox: View {
                         .padding(.top, 2)
                     messageField
                 }
-                // Standby → active: the composing area gains height on focus so
-                // there's room to write and it covers the terminal input beneath.
-                .frame(minHeight: expanded ? 84 : nil, alignment: .top)
+                // Standby → active: on focus the composing area grows to hold a
+                // comfortable five-plus lines and rises up to cover the terminal's own
+                // input line beneath; longer input keeps growing and then scrolls.
+                .frame(minHeight: expanded ? expandedInputHeight : nil, alignment: .top)
+                // Drop the resting caret + first text line onto the send button's
+                // centre so they read as one row; extra lines grow downward. (req 3)
+                .padding(.top, firstLineInset)
 
                 VStack(spacing: 8) {
                     sendButton
@@ -925,7 +942,10 @@ struct QAChatBox: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(maxHeight: flowMode ? .infinity : nil, alignment: .bottom)
-        .padding(.horizontal, 14).padding(.vertical, 9)
+        // Top inset matches the horizontal inset so the send button nestles into the
+        // rounded corner with equal margin from the top and right edges; the bottom
+        // pills keep their tighter 9pt footing. (req 3)
+        .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 9)
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(inputFill.opacity(settings.chatInputOpacity))
@@ -934,11 +954,34 @@ struct QAChatBox: View {
                 // The signature lifted input field. It reads as the primary way
                 // in, so it keeps its full weight in the slim form too — docked
                 // under the terminal it has to hold its own against whatever the
-                // agent draws in the grid above it.
-                .shadow(color: .black.opacity(focused ? 0.32 : 0.22), radius: focused ? 14 : 10, y: 3)
+                // agent draws in the grid above it. The lift is cast in a tint of the
+                // app's one highlight (the action colour) rather than flat black, so
+                // the field glows in its own accent. (req: coloured shadow)
+                .shadow(color: settings.actionStyle.color.opacity(focused ? 0.38 : 0.26), radius: focused ? 14 : 10, y: 3)
         )
         .animation(LeafPaneView.modeAnim, value: expanded)
         .tourTarget(.chatInput)
+        // The input owns dictation + flow-reload lifecycle in every form it takes
+        // (docked and the floating solo form), so the handlers live here rather
+        // than on the docked container — the floating input is now the resting
+        // form and must drive these too.
+        .onAppear { installDictationKey() }
+        .onChange(of: session.botWorking) { _, working in
+            guard !working else { return }
+            // The review turn has ended — adopt the agent's `review` from disk.
+            if reviewingFlow { reviewingFlow = false; flowStore.reloadReview() }
+            // The run turn has ended — adopt the agent's `run` checkpoint from disk so
+            // the editor shows progress and can offer Resume if it stopped partway.
+            if runningFlow { runningFlow = false; flowStore.reloadRun() }
+            // The improve turn has ended — adopt the agent's rewritten flow + refreshed
+            // review, then reopen the editor so the improvements are right there.
+            if improvingFlow {
+                improvingFlow = false
+                flowStore.reloadImproved()
+                withAnimation(LeafPaneView.modeAnim) { flowMode = true }
+            }
+        }
+        .onDisappear { removeDictationKey(); flowStore.flushSave() }
     }
 
     /// The message field itself — grows with what you type up to ~14 lines, then
@@ -1033,7 +1076,9 @@ struct QAChatBox: View {
         }
         .buttonStyle(.raisedIconHover)
         .onHover { thanksHover = $0 }
-        .help("Say thanks — Claude replies with just an emoji, no long response")
+        .help(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              ? "Say thanks — Claude replies with just an emoji, no long response"
+              : "Send your message with a ❤️ on the end")
     }
 
     /// The input controls sat at the right of the bottom control strip:
@@ -1116,7 +1161,17 @@ struct QAChatBox: View {
 
     private func sendThanks() {
         guard session.tuiActive else { return }
-        session.submitInput(Self.thanksMessage)
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Typing then tapping the heart used to fire the canned blurb and drop what
+        // you'd written; now a non-empty field sends your message with a heart on
+        // the end via the normal send path, and only an empty field sends the canned
+        // appreciation. (req 8)
+        if typed.isEmpty {
+            session.submitInput(Self.thanksMessage)
+        } else {
+            text = typed + " ❤️"
+            send()
+        }
     }
 
     /// Tags for files dropped onto the pane (filename only, not the full path).

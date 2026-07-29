@@ -304,7 +304,7 @@ final class AppSettings: ObservableObject {
         Self.seedDevDefaultsFromInstalledAppIfNeeded()
         // Default terminal typeface is the bundled DM Mono (registered at launch).
         self.fontName = defaults.string(forKey: "fontName") ?? "DM Mono"
-        self.fontSize = defaults.object(forKey: "fontSize") as? Double ?? 18.0
+        self.fontSize = defaults.object(forKey: "fontSize") as? Double ?? 14.0
         self.uiFontName = defaults.string(forKey: "uiFontName") ?? ""
         self.uiFontSize = defaults.object(forKey: "uiFontSize") as? Double ?? 13.0
         self.chatFontSize = defaults.object(forKey: "chatFontSize") as? Double ?? 16.0
@@ -315,8 +315,8 @@ final class AppSettings: ObservableObject {
         self.chatShadowOpacity = defaults.object(forKey: "chatShadowOpacity") as? Double ?? 0.4
         self.chatHeightFraction = defaults.object(forKey: "chatHeightFraction") as? Double ?? 0.0
         self.terminalBlur = defaults.object(forKey: "terminalBlur") as? Double ?? 3.0
-        self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? 16.0
-        self.terminalLineSpacing = defaults.object(forKey: "terminalLineSpacing") as? Double ?? 1.5
+        self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? 36.0
+        self.terminalLineSpacing = defaults.object(forKey: "terminalLineSpacing") as? Double ?? 1.0
         self.terminalThemeName = defaults.string(forKey: "terminalThemeName") ?? Theme.linen.name
         self.chatMargin = defaults.object(forKey: "chatMargin") as? Double ?? 18.0
         self.chatTextColorHex = defaults.string(forKey: "chatTextColorHex") ?? ""

@@ -730,7 +730,20 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         // unfocused caret as a 3pt stroke around the whole cell, which is the
         // loudest mark on screen at exactly the moment you're typing somewhere
         // else. Always the quiet bar instead.
-        terminalView.caretColor = theme.cursor.withAlphaComponent(Self.caretOpacity)
+        //
+        // `caretOpacity` keeps the dark-theme caret quiet, but the accent is
+        // faint on paper — Linen's ochre bar at 0.6 barely clears 2:1 — so on a
+        // low-contrast ground raise the opacity just until the composited bar
+        // clears a legibility floor. Dark themes already clear it at rest and are
+        // left quiet; only the light/paper caret is lifted, where it vanished.
+        let caretFloor: CGFloat = 3.0
+        var caretAlpha = Self.caretOpacity
+        while caretAlpha < 1,
+              Theme.contrast(theme.background.blended(withFraction: caretAlpha, of: theme.cursor) ?? theme.cursor,
+                             theme.background) < caretFloor {
+            caretAlpha = min(1, caretAlpha + 0.05)
+        }
+        terminalView.caretColor = theme.cursor.withAlphaComponent(caretAlpha)
         terminalView.caretViewTracksFocus = false
         // A thin bar, not a filled block: the caret sits inside the agent's own
         // prompt box, and a solid slab of cursor colour there shouted over the
@@ -750,6 +763,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         // Rules sit back from the text they frame, and dim text is faded less far
         // than SwiftTerm's fixed half — see `TerminalInkFilter`.
         terminalView.ink.ruleColor = theme.ruleColor
+        // Tint the user's prompt-marker chevron with the app highlight so your own
+        // inputs stand out scrolling back through a chat.
+        terminalView.ink.markerColor = settings.actionStyle.nsColor
         terminalView.ink.dimBlend = theme.dimBlend
         terminalView.ink.background = theme.background
         terminalView.ink.foreground = theme.foreground
