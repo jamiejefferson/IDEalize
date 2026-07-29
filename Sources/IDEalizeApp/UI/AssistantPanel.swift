@@ -86,11 +86,9 @@ struct QAChatBox: View {
     private var theme: Theme { settings.theme }
     private var size: CGFloat { settings.chatFontSize * chatFontScale }
     private var chatStyle: PanelStyle { settings.panelStyle(.chat, base: settings.chatFontSize * chatFontScale, background: theme.background) }
-    /// Chat text colour: the per-panel override if set, else the chat setting.
-    private var chatTextColor: Color {
-        if let c = NSColor(hex: settings.appearance(.chat).textColorHex) { return Color(c) }
-        return Color(settings.chatTextColor)
-    }
+    /// Chat text colour: the Chat panel's override if set, else the theme's.
+    /// (Single source — there is no separate global chat-colour setting.)
+    private var chatTextColor: Color { chatStyle.textColor }
     private var working: Bool { session.botWorking }
 
     var body: some View {
@@ -1341,10 +1339,7 @@ struct MarkdownText: View {
     private var theme: Theme { settings.theme }
     /// The per-panel appearance (typography + colour) this render uses.
     private var style: PanelStyle { settings.panelStyle(panel, base: baseSize, background: theme.background) }
-    private var resolvedTextColor: Color {
-        if let c = NSColor(hex: style.appearance.textColorHex) { return Color(c) }
-        return panel == .chat ? Color(settings.chatTextColor) : Color(theme.foreground)
-    }
+    private var resolvedTextColor: Color { style.textColor }
     private var ls: CGFloat { CGFloat(settings.chatLineSpacing) + style.lineSpacing }
 
     init(text: String, baseSize: CGFloat = 13, panel: PanelKind = .chat) {

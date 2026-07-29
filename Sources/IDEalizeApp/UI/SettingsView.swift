@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Preferences window: default launch behavior, notifications. (All appearance
-/// controls now live in the in-view Appearance panel — ⌘⌥A.)
+/// Preferences window: default launch behavior, notifications, sound. (All
+/// appearance controls live in the in-view Appearance panel — ⌘⌥A.)
 struct SettingsView: View {
     @ObservedObject var settings = AppSettings.shared
 
@@ -41,6 +41,17 @@ struct SettingsView: View {
             Section("Notifications") {
                 Toggle("Enable notifications (idealize notify)", isOn: $settings.notificationsEnabled)
                 Text("Your agent can raise notifications with `idealize notify \"text\"`.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Sound") {
+                Toggle("Task-complete chime", isOn: $settings.completionSoundEnabled)
+                HStack {
+                    Text("Volume")
+                    Slider(value: $settings.completionSoundVolume, in: 0...1, step: 0.05)
+                    Button("Preview") { DoneSound.preview() }
+                }
+                .disabled(!settings.completionSoundEnabled)
+                Text("Plays a gentle shine when Claude finishes a task.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Mini Mode") {
