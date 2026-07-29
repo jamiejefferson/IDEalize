@@ -164,25 +164,21 @@ struct LeafPaneView: View {
     /// (terminal blurred behind it) and the raw, interactive terminal. Only one
     /// input is ever on screen at a time.
     private var chatLayout: some View {
-        chatStack
-            // In terminal mode the chat card is gone, so float the message input
-            // over the terminal: it carries the chat/terminal toggle, which would
-            // otherwise be unreachable once the card is hidden.
-            .overlay(alignment: .bottom) {
-                if session.revealTerminal {
-                    QAChatBox(session: session, workspace: workspace, collapsed: true)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color(theme.chrome).opacity(0.92))
-                                .overlay(RoundedRectangle(cornerRadius: 16)
-                                    .strokeBorder(Color(theme.border), lineWidth: 1))
-                                .shadow(color: .black.opacity(settings.chatShadowOpacity), radius: 22, y: 8)
-                        )
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+        VStack(spacing: 0) {
+            chatStack
+            // In terminal mode the chat card is gone, so the message input docks
+            // beneath the grid: it carries the chat/terminal toggle, which would
+            // otherwise be unreachable once the card is hidden. Docked rather
+            // than floating, so it never sits on top of the terminal's last
+            // lines — the grid simply ends above it. The strip carries the
+            // terminal's own colour so the paper reads as continuous, and the
+            // input lozenge is the only surface drawn on it.
+            if session.revealTerminal {
+                QAChatBox(session: session, workspace: workspace, collapsed: true)
+                    .background(Color(settings.terminalTheme.background))
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+        }
     }
 
     private var chatStack: some View {

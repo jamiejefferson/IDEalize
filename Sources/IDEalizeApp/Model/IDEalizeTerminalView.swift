@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftTerm
 
@@ -25,6 +26,10 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
     private let maxCapture = 800_000
 
     private static let ESC: UInt8 = 0x1B
+
+    /// Repaints an agent's prompt-box rules so they sit back from the text they
+    /// frame. Set its `color` from the terminal theme.
+    var boxDrawing = BoxDrawingRecolour()
 
     /// Alternate-screen enter/leave sequences, matched in one pass. Enter and
     /// leave share the `ESC [ ? …` prefix shape, so partial tails are carried
@@ -80,7 +85,11 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
             }
         }
 
-        super.dataReceived(slice: slice)
+        if let recoloured = boxDrawing.process(slice) {
+            super.dataReceived(slice: recoloured[...])
+        } else {
+            super.dataReceived(slice: slice)
+        }
     }
 
     /// Clear the visible scrollback and redraw the prompt (Ctrl-L) so completed

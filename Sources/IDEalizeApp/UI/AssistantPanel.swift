@@ -965,7 +965,10 @@ struct QAChatBox: View {
                 .fill(inputFill.opacity(settings.chatInputOpacity))
                 .overlay(RoundedRectangle(cornerRadius: 14)
                     .strokeBorder(focused ? settings.actionStyle.color.opacity(0.7) : Color(theme.border).opacity(0.7), lineWidth: 1))
-                // The signature lifted input field.
+                // The signature lifted input field. It reads as the primary way
+                // in, so it keeps its full weight in the slim form too — docked
+                // under the terminal it has to hold its own against whatever the
+                // agent draws in the grid above it.
                 .shadow(color: .black.opacity(focused ? 0.32 : 0.22), radius: focused ? 14 : 10, y: 3)
         )
         .tourTarget(.chatInput)
@@ -984,7 +987,11 @@ struct QAChatBox: View {
                             .rotationEffect(.degrees(45))
                     }
                 }
-                .foregroundStyle(Color(settings.returnToSend ? theme.accent : theme.secondaryForeground))
+                // On = the action colour (the app's one highlight), off = text
+                // colour; the theme accent used to leave a stray blue among the
+                // input's red controls.
+                .foregroundStyle(settings.returnToSend ? settings.actionStyle.color
+                                                       : Color(theme.secondaryForeground))
                 .frame(width: 18, height: 16)
             }
             .buttonStyle(.iconHover(padding: 3))
