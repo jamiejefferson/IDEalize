@@ -243,7 +243,7 @@ struct FileViewerPanel: View {
         // Save any pending edits to the previously-open file first.
         if dirty, let prev = loadedURL { try? content.write(to: prev, atomically: true, encoding: .utf8) }
         dirty = false
-        editingMarkdown = false   // a freshly opened doc starts in preview
+        editingMarkdown = true    // a freshly opened doc starts editable
         guard let url = workspace.viewedFile else { content = ""; message = nil; loadedURL = nil; return }
         do {
             let data = try Data(contentsOf: url)

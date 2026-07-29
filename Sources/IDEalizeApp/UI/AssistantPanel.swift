@@ -1395,7 +1395,10 @@ struct MarkdownText: View {
     /// The per-panel appearance (typography + colour) this render uses.
     private var style: PanelStyle { settings.panelStyle(panel, base: baseSize, background: theme.background) }
     private var resolvedTextColor: Color { style.textColor }
-    private var ls: CGFloat { CGFloat(settings.chatLineSpacing) + style.lineSpacing }
+    // The doc panel's raw editor uses `style.lineSpacing` alone, so its preview
+    // must too — otherwise line spacing jumps when toggling edit/preview. Chat
+    // keeps its own extra per-line spacing.
+    private var ls: CGFloat { panel == .doc ? style.lineSpacing : CGFloat(settings.chatLineSpacing) + style.lineSpacing }
 
     init(text: String, baseSize: CGFloat = 13, panel: PanelKind = .chat) {
         self.text = text
