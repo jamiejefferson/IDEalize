@@ -10,7 +10,10 @@ enum PanelKind: String, CaseIterable, Identifiable, Codable {
 
     var label: String {
         switch self {
-        case .sessions: return "Sessions"
+        // The rail lists projects (each holding its sessions), so "Projects" is
+        // what the surface actually reads as. Display only — the raw value,
+        // which is the persistence key, is unchanged.
+        case .sessions: return "Projects"
         case .files:    return "Files"
         case .terminal: return "Terminal"
         case .chat:     return "Chat"
@@ -25,6 +28,53 @@ enum PanelKind: String, CaseIterable, Identifiable, Codable {
         case .terminal: return "terminal"
         case .chat:     return "bubble.left.and.bubble.right"
         case .doc:      return "doc.text"
+        }
+    }
+}
+
+/// One tab of the Appearance panel. Every appearance setting belongs to exactly
+/// one section, so nothing is reachable from two places.
+///
+/// `.theme` holds the base theme and the genuinely global settings; the four
+/// surface sections edit that surface's `PanelAppearance` override; `.terminal`
+/// has no per-panel override at all (the grid is styled by its own theme + font
+/// settings, so there is one place to style it).
+enum AppearanceSection: String, CaseIterable, Identifiable {
+    case theme, sessions, files, chat, doc, terminal
+
+    var id: String { rawValue }
+
+    /// The surface this section overrides, or nil for sections that don't use
+    /// the per-panel layer (`.theme` is global, `.terminal` is theme-driven).
+    var panel: PanelKind? {
+        switch self {
+        case .theme, .terminal: return nil
+        case .sessions:         return .sessions
+        case .files:            return .files
+        case .chat:             return .chat
+        case .doc:              return .doc
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .theme:    return "Theme"
+        case .terminal: return PanelKind.terminal.label
+        case .sessions: return PanelKind.sessions.label
+        case .files:    return PanelKind.files.label
+        case .chat:     return PanelKind.chat.label
+        case .doc:      return PanelKind.doc.label
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .theme:    return "paintpalette"
+        case .terminal: return PanelKind.terminal.icon
+        case .sessions: return PanelKind.sessions.icon
+        case .files:    return PanelKind.files.icon
+        case .chat:     return PanelKind.chat.icon
+        case .doc:      return PanelKind.doc.icon
         }
     }
 }
@@ -121,6 +171,8 @@ struct ActionAppearance: Codable, Equatable {
     var gradientStops: [GradientStop] = []
 
     static let empty = ActionAppearance()
+
+    var isCustomised: Bool { self != .empty }
 
     func resolvedStops(default d1: NSColor, _ d2: NSColor) -> [GradientStop] {
         gradientStops.count >= 1 ? gradientStops : defaultStops(colorHex, color2Hex, d1, d2)

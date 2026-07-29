@@ -84,8 +84,9 @@ final class Workspace: ObservableObject {
     /// Whether the first-run showcase is on screen. Transient — whether it has
     /// *been* seen is `AppSettings.hasSeenTour`.
     @Published var showTour: Bool = false
-    /// Which panel the Appearance editor is currently targeting.
-    @Published var appearanceTarget: PanelKind = .chat
+    /// Which section (tab) of the Appearance panel is showing. Starts on the
+    /// theme, which is the base everything else layers over.
+    @Published var appearanceSection: AppearanceSection = .theme
     /// Bumped when files change on disk so the file explorer reloads.
     @Published var fileTreeVersion: Int = 0
 

@@ -1,6 +1,29 @@
 import SwiftUI
 import AppKit
 
+/// Factory values for the scalar appearance settings, so the Appearance panel's
+/// per-section "Reset" can put a section back exactly as it shipped. Kept here
+/// (rather than as literals in `init`) so the default and the reset can never
+/// drift apart.
+enum AppearanceDefaults {
+    // Interface
+    static let uiFontName = ""          // "" == San Francisco
+    static let uiFontSize = 13.0
+    // Terminal
+    static let fontName = "DM Mono"
+    static let fontSize = 14.0
+    static let terminalMargin = 36.0
+    static let terminalLineSpacing = 1.0
+    static var terminalThemeName: String { Theme.linen.name }
+    // Chat
+    static let chatInputOpacity = 1.0
+    static let chatInputLineSpacing = 2.0
+    static let chatShadowOpacity = 0.4
+    static let chatMargin = 18.0
+    static let terminalBlur = 3.0       // the terminal backdrop behind chat
+    static let returnToSend = true
+}
+
 /// User-facing, persisted preferences. Backed by UserDefaults.
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -35,10 +58,6 @@ final class AppSettings: ObservableObject {
     @Published var chatLineSpacing: Double {
         didSet { defaults.set(chatLineSpacing, forKey: "chatLineSpacing") }
     }
-    /// Opacity of the chat modal card (lower = more blurred terminal shows through).
-    @Published var chatTranslucency: Double {
-        didSet { defaults.set(chatTranslucency, forKey: "chatTranslucency") }
-    }
     /// Opacity of the chat input lozenge (separate from the modal card).
     @Published var chatInputOpacity: Double {
         didSet { defaults.set(chatInputOpacity, forKey: "chatInputOpacity") }
@@ -52,11 +71,8 @@ final class AppSettings: ObservableObject {
     @Published var chatShadowOpacity: Double {
         didSet { defaults.set(chatShadowOpacity, forKey: "chatShadowOpacity") }
     }
-    /// Manual chat-modal height as a fraction of the pane (0 = auto / content-sized).
-    @Published var chatHeightFraction: Double {
-        didSet { defaults.set(chatHeightFraction, forKey: "chatHeightFraction") }
-    }
     /// Gaussian blur radius applied to the terminal backdrop in chat mode.
+    /// (Edited in Appearance ▸ Chat, since that is the only mode it is visible in.)
     @Published var terminalBlur: Double {
         didSet { defaults.set(terminalBlur, forKey: "terminalBlur") }
     }
@@ -80,10 +96,6 @@ final class AppSettings: ObservableObject {
     @Published var chatMargin: Double {
         didSet { defaults.set(chatMargin, forKey: "chatMargin") }
     }
-    /// Optional chat text colour as a hex string ("" = use the theme foreground).
-    @Published var chatTextColorHex: String {
-        didSet { defaults.set(chatTextColorHex, forKey: "chatTextColorHex") }
-    }
     /// Whether Return sends the chat message (off → Return inserts a newline; ⌘↩ sends).
     @Published var returnToSend: Bool {
         didSet { defaults.set(returnToSend, forKey: "returnToSend") }
@@ -91,12 +103,6 @@ final class AppSettings: ObservableObject {
     /// Whether releasing the dictation key/button auto-sends the captured speech.
     @Published var voiceReleaseToSend: Bool {
         didSet { defaults.set(voiceReleaseToSend, forKey: "voiceReleaseToSend") }
-    }
-
-    /// The chat text colour — the override if set, otherwise the theme foreground.
-    var chatTextColor: NSColor {
-        if let c = NSColor(hex: chatTextColorHex) { return c }
-        return theme.foreground
     }
 
     // MARK: Theme
@@ -303,24 +309,21 @@ final class AppSettings: ObservableObject {
     private init() {
         Self.seedDevDefaultsFromInstalledAppIfNeeded()
         // Default terminal typeface is the bundled DM Mono (registered at launch).
-        self.fontName = defaults.string(forKey: "fontName") ?? "DM Mono"
-        self.fontSize = defaults.object(forKey: "fontSize") as? Double ?? 14.0
-        self.uiFontName = defaults.string(forKey: "uiFontName") ?? ""
-        self.uiFontSize = defaults.object(forKey: "uiFontSize") as? Double ?? 13.0
+        self.fontName = defaults.string(forKey: "fontName") ?? AppearanceDefaults.fontName
+        self.fontSize = defaults.object(forKey: "fontSize") as? Double ?? AppearanceDefaults.fontSize
+        self.uiFontName = defaults.string(forKey: "uiFontName") ?? AppearanceDefaults.uiFontName
+        self.uiFontSize = defaults.object(forKey: "uiFontSize") as? Double ?? AppearanceDefaults.uiFontSize
         self.chatFontSize = defaults.object(forKey: "chatFontSize") as? Double ?? 16.0
         self.chatLineSpacing = defaults.object(forKey: "chatLineSpacing") as? Double ?? 5.0
-        self.chatTranslucency = defaults.object(forKey: "chatTranslucency") as? Double ?? 0.80
-        self.chatInputOpacity = defaults.object(forKey: "chatInputOpacity") as? Double ?? 1.0
-        self.chatInputLineSpacing = defaults.object(forKey: "chatInputLineSpacing") as? Double ?? 2.0
-        self.chatShadowOpacity = defaults.object(forKey: "chatShadowOpacity") as? Double ?? 0.4
-        self.chatHeightFraction = defaults.object(forKey: "chatHeightFraction") as? Double ?? 0.0
-        self.terminalBlur = defaults.object(forKey: "terminalBlur") as? Double ?? 3.0
-        self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? 36.0
-        self.terminalLineSpacing = defaults.object(forKey: "terminalLineSpacing") as? Double ?? 1.0
-        self.terminalThemeName = defaults.string(forKey: "terminalThemeName") ?? Theme.linen.name
-        self.chatMargin = defaults.object(forKey: "chatMargin") as? Double ?? 18.0
-        self.chatTextColorHex = defaults.string(forKey: "chatTextColorHex") ?? ""
-        self.returnToSend = defaults.object(forKey: "returnToSend") as? Bool ?? true
+        self.chatInputOpacity = defaults.object(forKey: "chatInputOpacity") as? Double ?? AppearanceDefaults.chatInputOpacity
+        self.chatInputLineSpacing = defaults.object(forKey: "chatInputLineSpacing") as? Double ?? AppearanceDefaults.chatInputLineSpacing
+        self.chatShadowOpacity = defaults.object(forKey: "chatShadowOpacity") as? Double ?? AppearanceDefaults.chatShadowOpacity
+        self.terminalBlur = defaults.object(forKey: "terminalBlur") as? Double ?? AppearanceDefaults.terminalBlur
+        self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? AppearanceDefaults.terminalMargin
+        self.terminalLineSpacing = defaults.object(forKey: "terminalLineSpacing") as? Double ?? AppearanceDefaults.terminalLineSpacing
+        self.terminalThemeName = defaults.string(forKey: "terminalThemeName") ?? AppearanceDefaults.terminalThemeName
+        self.chatMargin = defaults.object(forKey: "chatMargin") as? Double ?? AppearanceDefaults.chatMargin
+        self.returnToSend = defaults.object(forKey: "returnToSend") as? Bool ?? AppearanceDefaults.returnToSend
         self.voiceReleaseToSend = defaults.object(forKey: "voiceReleaseToSend") as? Bool ?? false
         // Ink/Linen are terminal-only schemes. If one was previously picked as the
         // *app* theme it's no longer in the picker, so migrate it to the app theme
