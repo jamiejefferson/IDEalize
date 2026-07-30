@@ -21,6 +21,20 @@ struct FileViewerPanel: View {
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.doc, base: CGFloat(settings.fontSize), background: theme.background) }
 
+    /// Files IDEalize itself provisions — the companion skills, the slash commands,
+    /// and the project agent's operating guide. They are shown but never edited in
+    /// place: `FlowSkillInstaller.install()` rewrites every one of them on a version
+    /// bump, so an edit here would appear to work and then vanish on the next app
+    /// update. Editing the guide goes through "Edit my own copy" in Preferences
+    /// instead, which forks it somewhere the installer can't reach.
+    ///
+    /// The installer is asked rather than the path being matched here, so the two
+    /// can't drift — the guide moves depending on whether this is a dev build.
+    private var isReadOnly: Bool {
+        guard let url = workspace.viewedFile else { return false }
+        return FlowSkillInstaller.isProvisioned(url)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -48,6 +62,11 @@ struct FileViewerPanel: View {
                 .scrollContentBackground(.hidden)
                 .background(style.background)
                 .padding(6)
+                // Disabled rather than merely unsaved, so a provisioned file can't
+                // be typed into and silently lost. `load()` also leaves `loadedURL`
+                // nil for these, which keeps `dirty` false and makes both `save()`
+                // and the switch-away flush no-ops.
+                .disabled(isReadOnly)
                 .onChange(of: content) { if loadedURL != nil { dirty = true } }
         } else {
             // No document open — offer to create one.
@@ -76,8 +95,18 @@ struct FileViewerPanel: View {
                 .foregroundStyle(Color(theme.foreground))
                 .lineLimit(1).truncationMode(.middle)
             if dirty { Circle().fill(Color(theme.accent)).frame(width: 5, height: 5) }
+            if isReadOnly {
+                Text("read-only")
+                    .font(settings.ui(10, .medium))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Capsule().fill(Color(theme.surface)))
+                    .help("IDEalize installed this file and replaces it on updates. To change how the project agent works, use Preferences ▸ Project agent ▸ Edit my own copy.")
+            }
             Spacer()
-            if workspace.viewedFile != nil, message == nil {
+            // Recording writes its notes into the open document, so it's offered
+            // only where writing is allowed.
+            if workspace.viewedFile != nil, message == nil, !isReadOnly {
                 recordControl
                 Button(action: useAsContext) {
                     Image(systemName: contextConfirm ? "checkmark" : "text.bubble")
@@ -227,7 +256,9 @@ struct FileViewerPanel: View {
             let data = try Data(contentsOf: url)
             if data.count > 2_000_000 { message = "File too large to edit (\(data.count / 1024) KB)."; loadedURL = nil; return }
             if let s = String(data: data, encoding: .utf8) {
-                content = s; message = nil; loadedURL = url
+                // A provisioned file is shown but never adopted as the edit target:
+                // leaving `loadedURL` nil is what makes every write path inert.
+                content = s; message = nil; loadedURL = isReadOnly ? nil : url
             } else { message = "Can't edit this file (binary or non-text)."; loadedURL = nil }
         } catch { message = "Couldn't read this file."; loadedURL = nil }
     }

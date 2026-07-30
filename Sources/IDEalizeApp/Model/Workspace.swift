@@ -309,11 +309,13 @@ final class Workspace: ObservableObject {
     @discardableResult
     func newTab(projectPath: String? = nil,
                 launchOverride: String? = nil,
+                openingTurn: String? = nil,
                 suppressAutoLaunch: Bool = false,
                 safeCopy: TerminalSession.SafeCopy? = nil) -> TerminalSession {
         if let projectPath { settings.addRecentFolder(projectPath) }
         let session = makeSession(projectPath: projectPath,
                                   launchOverride: launchOverride,
+                                  openingTurn: openingTurn,
                                   suppressAutoLaunch: suppressAutoLaunch,
                                   safeCopy: safeCopy)
         let tab = WorkspaceTab(root: PaneNode(session: session), name: session.label)
@@ -331,7 +333,7 @@ final class Workspace: ObservableObject {
         focusedSessionID = session.id
         bindName(tab, to: session)
         scheduleSnapshotSave()
-        maybeSuggestProjectAgent(for: session, launchOverride: launchOverride)
+        considerProjectAgent(for: session, launchOverride: launchOverride)
         return session
     }
 
@@ -376,10 +378,12 @@ final class Workspace: ObservableObject {
 
     private func makeSession(projectPath: String?,
                              launchOverride: String? = nil,
+                             openingTurn: String? = nil,
                              suppressAutoLaunch: Bool = false,
                              safeCopy: TerminalSession.SafeCopy? = nil) -> TerminalSession {
         let session = TerminalSession(settings: settings, workspace: self, projectPath: projectPath)
         session.launchOverride = launchOverride
+        session.launchPositional = openingTurn
         session.suppressAutoLaunch = suppressAutoLaunch
         // Set the safe copy *before* start(): the shell's working directory is
         // derived from it, so it has to be in place when the process launches.
@@ -402,7 +406,10 @@ final class Workspace: ObservableObject {
             SettingsWindow.open()
             return
         }
-        let session = newTab(projectPath: repo, launchOverride: ServiceHatch.launchCommand())
+        let hatch = ServiceHatch.launch()
+        let session = newTab(projectPath: repo,
+                             launchOverride: hatch.command,
+                             openingTurn: hatch.openingTurn)
         session.isServiceHatch = true   // shows the themed opening banner in the chat
     }
 
@@ -463,13 +470,18 @@ final class Workspace: ObservableObject {
         ProjectAgent.isCoordinatable(focusedSession?.projectPath)
     }
 
-    /// Offer a project agent for the *focused* session's project when it's just
-    /// grown to two or more chats, none coordinating yet, and the user hasn't
-    /// dismissed the suggestion for it. Surfaced as a one-time modal (see
+    /// Decide about a project agent for the *focused* session's project when it's
+    /// just grown to two or more chats, none coordinating yet, and the user hasn't
+    /// dismissed the suggestion for it: start one outright when the user has said
+    /// they always want that, otherwise offer it as a one-time modal (see
     /// `pendingProjectAgentPrompt`) rather than a standing banner. Called as a
     /// real chat is added; no-op during restore or for the hatch/agent's own
     /// launches (those pass a `launchOverride`).
-    private func maybeSuggestProjectAgent(for session: TerminalSession, launchOverride: String?) {
+    ///
+    /// This guard is the single home of the "two or more chats" rule — it was once
+    /// spelled out in three places and the copies drifted apart. Anything else that
+    /// wants to know whether a project is ready for an agent must come through here.
+    private func considerProjectAgent(for session: TerminalSession, launchOverride: String?) {
         guard !isRestoring, launchOverride == nil,
               let project = session.projectPath,
               ProjectAgent.isCoordinatable(project),
@@ -477,7 +489,18 @@ final class Workspace: ObservableObject {
               projectAgentSession(forProject: project) == nil,
               allSessions.filter({ $0.projectPath == project && !$0.isProjectAgent }).count >= 2
         else { return }
-        pendingProjectAgentPrompt = ProjectAgentPrompt(path: project)
+        guard settings.projectAgentAutoStart else {
+            pendingProjectAgentPrompt = ProjectAgentPrompt(path: project)
+            return
+        }
+        // Starting the agent adds a tab of its own, and every new tab takes
+        // selection with it — so without putting focus back, asking for a chat
+        // would drop the user (and their next keystrokes) into the agent instead
+        // of the chat they just asked for. The agent still appears in the rail.
+        let origin = selectedTabID
+        openProjectAgent(forProject: project)
+        selectedTabID = origin
+        focusedSessionID = session.id
     }
 
     /// Open a project agent for the focused session's project. Beeps when
@@ -498,7 +521,10 @@ final class Workspace: ObservableObject {
             focusSession(existing.id)   // already running — just show it
             return
         }
-        let session = newTab(projectPath: project, launchOverride: ProjectAgent.launchCommand())
+        let agent = ProjectAgent.launch()
+        let session = newTab(projectPath: project,
+                             launchOverride: agent.command,
+                             openingTurn: agent.openingTurn)
         session.isProjectAgent = true
         if let tab = tabs.first(where: { t in t.sessions.contains { $0.id == session.id } }) {
             tab.customName = "Project agent"
@@ -917,7 +943,8 @@ final class Workspace: ObservableObject {
 
     /// Rebuild the rail from the persisted snapshot. Reopens each project's
     /// folders and re-launches its chats (Claude for chats that were Claude,
-    /// otherwise a bare shell). Call only when `tabs` is empty.
+    /// otherwise a bare shell), and brings a project's coordinating chat back as
+    /// a coordinator. Call only when `tabs` is empty.
     func restoreProjects() {
         guard tabs.isEmpty else { return }
         let snapshot = settings.projectSnapshot
@@ -938,17 +965,43 @@ final class Workspace: ObservableObject {
             // $HOME, which would otherwise let a shared note leak into ~/.idealize.
             let restorePath: String? = (project.path == home) ? nil : project.path
             for chat in project.chats {
-                // A legacy snapshot (from before agents were excluded above) may
-                // still carry a persisted "Project agent" chat. Don't restore it
-                // as an ordinary chat — the agent is launched on demand, and a
-                // lingering copy would read as a duplicate. It's dropped from the
-                // snapshot on the next save.
-                if chat.customName == "Project agent" { continue }
-                newTab(projectPath: restorePath,
-                       launchOverride: chat.wasClaude ? claudeLaunch : nil,
-                       suppressAutoLaunch: !chat.wasClaude)
+                // A coordinating chat comes back *as* one: relaunched with the
+                // coordinating guide, so the project is watched again instead of
+                // returning as an ordinary chat that leaves the work uncoordinated
+                // (and lets the rail offer to start a second coordinator).
+                //
+                // Chats saved before the flag existed decode as false, so a
+                // coordinator from an older run comes back as a plain chat — once,
+                // after which it persists as what it now is. We deliberately never
+                // infer coordinator-ness from the chat's *name*: a chat the user
+                // happened to call "Project agent" would silently start watching
+                // their files.
+                let restored: AgentLaunch? = chat.isProjectAgent
+                    ? ProjectAgent.launch()
+                    : (chat.wasClaude ? AgentLaunch(command: claudeLaunch) : nil)
+                let session = newTab(
+                    projectPath: restorePath,
+                    launchOverride: restored?.command,
+                    openingTurn: restored?.openingTurn,
+                    suppressAutoLaunch: !chat.wasClaude && !chat.isProjectAgent)
                 if let name = chat.customName, !name.isEmpty {
                     tabs.last?.customName = name   // newTab just inserted this tab
+                } else if chat.isProjectAgent {
+                    // A coordinator is named as it's opened, so it normally arrives
+                    // here already named — and if the user renamed it, that name is
+                    // what we just restored above. This only covers a coordinator
+                    // that somehow saved without a name, so it stays recognisable.
+                    tabs.last?.customName = "Project agent"
+                }
+                if chat.isProjectAgent {
+                    session.isProjectAgent = true
+                    // Watch the project again exactly as opening a coordinator
+                    // does — but only for a real project folder: Home (restored as
+                    // a nil path) has nothing coherent to coordinate.
+                    if let project = restorePath, ProjectAgent.isCoordinatable(project) {
+                        projectMonitors[project] = ProjectMonitor(
+                            projectPath: project, coordinator: session, workspace: self)
+                    }
                 }
             }
         }
@@ -977,15 +1030,17 @@ final class Workspace: ObservableObject {
     private func saveProjectSnapshot() {
         let snapshot: [PersistedProject] = projectGroups.map { group in
             let chats: [PersistedChat] = group.tabs
-                // Don't persist the Service Hatch or the project agent — each is
-                // launched on demand by its own command, and restoring the agent
-                // as a plain chat would strip its coordinating role (and could
-                // duplicate a freshly-started one).
-                .filter { !($0.sessions.first?.isServiceHatch ?? false)
-                          && !($0.sessions.first?.isProjectAgent ?? false) }
+                // Don't persist the Service Hatch — it's opened on demand from the
+                // toolbar and belongs to whichever source folder is configured at
+                // the time. The project agent *is* persisted, flagged as one, so
+                // restore can bring it back still coordinating; leaving it out is
+                // what used to make a project come back unwatched and then offer to
+                // start a second agent.
+                .filter { !($0.sessions.first?.isServiceHatch ?? false) }
                 .map { tab in
                     PersistedChat(customName: tab.customName,
-                                  wasClaude: tab.sessions.contains { $0.wasClaudeLaunched })
+                                  wasClaude: tab.sessions.contains { $0.wasClaudeLaunched },
+                                  isProjectAgent: tab.sessions.first?.isProjectAgent ?? false)
                 }
             return PersistedProject(path: group.path, chats: chats)
         }
@@ -1121,9 +1176,14 @@ final class Workspace: ObservableObject {
             }
             let body = request.body ?? ""
             guard !body.isEmpty else { return .failure("missing text") }
-            // Ctrl-U first clears any partial text in the target's line editor,
-            // so the injected body can't inherit a stray prefix (as `rerun` does).
-            s.insert("\u{15}" + body)
+            // The session decides how to land it: an agent chat needs the message
+            // *submitted* (a discrete Return after a beat), not merely typed. It
+            // refuses while the target is mid-confirmation, so a steering message
+            // can't accidentally answer a yes/no prompt.
+            guard s.deliverExternalInput(body) else {
+                return .failure("\(s.label) is waiting on a yes/no answer of its own — "
+                                + "leave it a moment and send this again")
+            }
             return IPCResponse(ok: true, info: "sent to \(s.label)")
 
         case .reveal:
@@ -1210,8 +1270,20 @@ final class Workspace: ObservableObject {
                                                     branch: copy.branch,
                                                     baseCommit: copy.base)
             }
-            let launch = ProjectAgent.childLaunchCommand(initialPrompt: request.body)
-            let child = newTab(projectPath: project, launchOverride: launch, safeCopy: safeCopy)
+            let launch = ProjectAgent.childLaunch(initialPrompt: request.body)
+            let child = newTab(projectPath: project, launchOverride: launch.command,
+                               openingTurn: launch.openingTurn, safeCopy: safeCopy)
+            // Name the tab after the piece of work, so the sidebar reads as the
+            // project's actual jobs rather than "Chat 3", "Chat 4". The caller's own
+            // label wins — it knows what the piece *is*, which the opening words of
+            // a full brief often don't say — and we read one off the task when it
+            // didn't supply one. Both go through `chatName` so a caller can't put an
+            // essay in the sidebar.
+            if let label = request.name.flatMap(ProjectAgent.chatName(fromTask:))
+                ?? request.body.flatMap(ProjectAgent.chatName(fromTask:)),
+               let tab = tabs.first(where: { t in t.sessions.contains { $0.id == child.id } }) {
+                tab.customName = label
+            }
             // Don't steal the user's place: spawning opens the child in the
             // background and returns focus to the caller (the coordinator chat),
             // so the user keeps talking to the one agent. `newTab` moved focus to

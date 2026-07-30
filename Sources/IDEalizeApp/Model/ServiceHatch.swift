@@ -52,14 +52,13 @@ enum ServiceHatch {
     /// agent, the vault docs added as an in-scope directory, and the
     /// `/idealize-service-hatch` guide loaded as the opening turn. (The session's
     /// own session id is appended later by `TerminalSession` when supported.)
-    static func launchCommand() -> String {
+    static func launch() -> AgentLaunch {
         var cmd = AppSettings.shared.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         if cmd.isEmpty { cmd = "claude --dangerously-skip-permissions" }
         if let docs = vaultDocsDir() {
             cmd += " --add-dir \(quote(docs))"
         }
-        cmd += " \(quote("/idealize-service-hatch"))"
-        return cmd
+        return AgentLaunch(command: cmd, openingTurn: "/idealize-service-hatch")
     }
 
     /// Single-quote a shell argument (paths here can contain spaces, e.g. the

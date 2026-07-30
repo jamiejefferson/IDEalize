@@ -280,7 +280,7 @@ private struct BottomToolbar: View {
             toggle("wrench.and.screwdriver", on: workspace.isServiceHatchOpen, help: "Service hatch — open an agent dev session on IDEalize's own code (click again to close)") {
                 workspace.toggleServiceHatch()
             }
-            toggle("bubble.left.and.bubble.right", on: workspace.isProjectAgentOpen, help: "Project agent — a chat that keeps this project's chats working well together (click again to close)") {
+            toggle("sparkles", on: workspace.isProjectAgentOpen, help: "Project agent — a chat that keeps this project's chats working well together (click again to close)") {
                 workspace.toggleProjectAgent()
             }
             .disabled(!workspace.canOpenProjectAgent)

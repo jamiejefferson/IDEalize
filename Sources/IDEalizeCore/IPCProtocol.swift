@@ -93,6 +93,11 @@ public struct IPCRequest: Codable, Sendable {
     public var limit: Int?
     /// Used by `spawn`: start the new chat in its own isolated safe copy.
     public var isolated: Bool?
+    /// Used by `spawn`: a short label for the new chat's tab, so a delegated piece
+    /// of work is identifiable in the sidebar instead of being "Chat 4". The caller
+    /// knows what the piece *is*, which a brief's opening words often don't say —
+    /// when it's absent the app falls back to deriving one from the task.
+    public var name: String?
 
     public init(command: Command,
                 from: String? = nil,
@@ -103,7 +108,8 @@ public struct IPCRequest: Codable, Sendable {
                 sound: Bool? = nil,
                 open: Bool? = nil,
                 limit: Int? = nil,
-                isolated: Bool? = nil) {
+                isolated: Bool? = nil,
+                name: String? = nil) {
         self.command = command
         self.from = from
         self.token = token
@@ -114,6 +120,7 @@ public struct IPCRequest: Codable, Sendable {
         self.open = open
         self.limit = limit
         self.isolated = isolated
+        self.name = name
     }
 }
 

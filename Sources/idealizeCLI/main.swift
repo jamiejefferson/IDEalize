@@ -37,6 +37,7 @@ func pngData(forFileAt path: String) -> Data? {
 //   idealize list                                # list active sessions
 //   idealize spawn "build the hero section"      # start a new chat with an opening task
 //   idealize spawn "redo the nav" --isolated     # …in its own separate copy of the folder
+//   idealize spawn "<brief>" --name "Nav bar"     # …with a short tab label for the sidebar
 //   idealize diff <session>                      # what a chat has changed
 //   idealize survey                              # all chats' changes + copies touching the same files
 //   idealize verify <session>                    # run the folder's build/check; honest pass/fail
@@ -128,7 +129,7 @@ func printUsage() {
       inbox [--wait] [--json] [--timeout S]  read & clear my messages
       peek [--json]                         read my messages without clearing
       list [--json]                         list active terminals
-      spawn <task> [--path DIR] [--isolated]  start a new chat (in DIR, else my project) with an opening task; prints its id. --isolated gives it its own separate copy of the folder
+      spawn <task> [--name LABEL] [--path DIR] [--isolated]  start a new chat (in DIR, else my project) with an opening task; prints its id. --name labels its tab (else one is read off the task). --isolated gives it its own separate copy of the folder
       diff [session] [--base REF] [--json]  what a chat has changed (vs its copy's start, or REF)
       survey [--json]                       every chat's changes + which copies touch the same files
       verify [session] [--json]             run the folder's build/check for a chat; honest pass/fail
@@ -335,15 +336,19 @@ case "spawn":
     // can then watch it (`idealize transcript <id>`, `idealize list`).
     // --isolated gives the new chat its own separate copy of the folder so it
     // can't collide with other chats (a git worktree, under the hood).
-    let flags = Flags(rest, boolFlags: ["isolated"])   // --path DIR; positionals join into the task
+    // --name labels the new chat's tab. Worth passing: a task is usually a full
+    // brief, so a name read off its opening words is a poorer label than the one
+    // the caller could give it. Without it the app derives one from the task.
+    let flags = Flags(rest, boolFlags: ["isolated"])   // --path DIR, --name LABEL; positionals join into the task
     let task = flags.positionals.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     guard !task.isEmpty || flags.values["path"] != nil else {
-        fail("usage: idealize spawn <task> [--path DIR] [--isolated]")
+        fail("usage: idealize spawn <task> [--name LABEL] [--path DIR] [--isolated]")
     }
     let resp = sendRequest(IPCRequest(command: .spawn, from: mySession,
                                       target: flags.values["path"],
                                       body: task.isEmpty ? nil : task,
-                                      isolated: flags.bools.contains("isolated") ? true : nil))
+                                      isolated: flags.bools.contains("isolated") ? true : nil,
+                                      name: flags.values["name"]))
     if !resp.ok { fail(resp.error ?? "spawn failed") }
     out(resp.info ?? "spawned")   // info carries the new chat's session id
 

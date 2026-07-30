@@ -315,25 +315,37 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Augment an agent launch with a fresh session id when the adapter supports
     /// it, so its transcript is identifiable. Returns the command unchanged for
     /// agents that don't bind sessions at launch.
+    /// Rewrite the launch's *flags* — never its opening turn, which is appended
+    /// afterwards. See `AgentLaunch` for why that separation matters: every
+    /// pattern match below used to be able to read the user's prose.
     private func augmentAgentLaunch(_ command: String) -> String {
-        guard let agent = AgentRegistry.adapter(forCommand: command.lowercased()) else { return command }
-        // Only Claude currently supports launch-time session binding + permission modes.
-        guard agent.binaryName == "claude" else { return command }
         var result = command
-        // Bind a fresh session id unless the command already selects a session, so
-        // its transcript is identifiable.
-        let selectors = ["--session-id", "--resume", "--continue", " -r ", " -c "]
-        let alreadySelectsSession = selectors.contains(where: { command.contains($0) })
-            || command.hasSuffix(" -r") || command.hasSuffix(" -c")
-        if !alreadySelectsSession {
-            let uuid = UUID().uuidString.lowercased()
-            boundSessionId = uuid
-            result += " --session-id \(uuid)"
+        // Detection runs on the flags alone, so a brief that merely mentions
+        // "claude" can't make a `kimi` launch look like Claude's.
+        if let agent = AgentRegistry.adapter(forCommand: command.lowercased()),
+           agent.binaryName == "claude" {   // only Claude binds sessions / takes modes
+            // Bind a fresh session id unless the command already selects one, so this
+            // chat's transcript is identifiable.
+            let selectors = ["--session-id", "--resume", "--continue", " -r ", " -c "]
+            let alreadySelectsSession = selectors.contains(where: { command.contains($0) })
+                || command.hasSuffix(" -r") || command.hasSuffix(" -c")
+            if !alreadySelectsSession {
+                let uuid = UUID().uuidString.lowercased()
+                boundSessionId = uuid
+                result += " --session-id \(uuid)"
+            }
+            // Apply this chat's permission mode, so the toolbar pill — not whatever
+            // flag happens to be in the launch command — is the single source of truth.
+            if agent.supportsPermissionModes {
+                result = TerminalSession.applyingPermissionMode(permissionMode, to: result)
+            }
         }
-        // Apply this chat's permission mode, so the toolbar pill — not whatever
-        // flag happens to be in the launch command — is the single source of truth.
-        if agent.supportsPermissionModes {
-            result = TerminalSession.applyingPermissionMode(permissionMode, to: result)
+        // The opening turn goes on last, quoted once, after every rewrite. Trailing
+        // rather than mid-command is also the more conventional shape — flags then
+        // positional — where it used to sit before the flags we append.
+        if let turn = launchPositional?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !turn.isEmpty {
+            result += " " + AgentLaunch.quote(turn)
         }
         return result
     }
@@ -350,13 +362,17 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// (both space- and `=`-separated) so switching modes never leaves a stale or
     /// conflicting flag behind, then appends `mode`'s flag.
     static func applyingPermissionMode(_ mode: PermissionMode, to command: String) -> String {
+        // Each flag is removed *with its leading space*, so no double space is left
+        // behind and there's nothing to tidy up afterwards. A global
+        // `" +" -> " "` collapse used to follow, and it rewrote whitespace
+        // everywhere — including inside a quoted path, so a folder name containing
+        // two consecutive spaces was silently corrupted.
         var c = command
-        c = c.replacingOccurrences(of: "--dangerously-skip-permissions", with: " ")
         c = c.replacingOccurrences(
-            of: "--permission-mode[= ]+[A-Za-z]+", with: " ", options: .regularExpression)
-        c = c.replacingOccurrences(of: " +", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
-        return c + " " + mode.launchFlag
+            of: " *--dangerously-skip-permissions", with: "", options: .regularExpression)
+        c = c.replacingOccurrences(
+            of: " *--permission-mode[= ]+[A-Za-z]+", with: "", options: .regularExpression)
+        return c.trimmingCharacters(in: .whitespaces) + " " + mode.launchFlag
     }
 
     // Blocks (Warp-style command tracking via shell integration).
@@ -379,7 +395,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// `wasClaude` and the rail's restore affordances. (Agent detection proper
     /// lives in `AgentRegistry`; this is the launch-restore check.)
     static func isClaudeCommand(_ command: String) -> Bool {
-        command.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
+        // Case-insensitive: the adapter lookup lowercases before matching, so a
+        // capitalised "Claude" used to be an agent by one test and not the other —
+        // yielding a chat that got Claude-only flags but no guide and no model.
+        command.range(of: "(^|[ /&;])claude($| )",
+                      options: [.regularExpression, .caseInsensitive]) != nil
     }
     /// A command (or bot) is currently running in this terminal.
     var isRunningCommand: Bool { blocks.last?.isRunning == true }
@@ -396,6 +416,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// (`settings.defaultLaunchCommand`). Set before `start()`. Used by the Service
     /// Hatch to drop this tab straight into an agent dev session on IDEalize itself.
     var launchOverride: String?
+
+    /// The opening turn for this session's launch — an agent's first prompt, or a
+    /// slash command like `/project-agent`. Deliberately *not* part of
+    /// `launchOverride`: it is appended, quoted, only once every flag rewrite in
+    /// `augmentAgentLaunch` has run. See `AgentLaunch` for the four bugs that
+    /// carrying it inside the command string caused.
+    var launchPositional: String?
 
     /// Force a plain shell: skip the auto-launch (e.g. `claude …`) even when the
     /// global default would run one. Set before `start()`. Used when restoring a
@@ -546,6 +573,41 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Type text into the shell without executing (composer / palette insert).
     func insert(_ text: String) {
         terminalView.send(txt: text)
+    }
+
+    /// Whether text from *another* chat can be delivered right now. False while a
+    /// live interactive prompt (a yes/no confirmation) is on screen: the Return
+    /// that submits a message would answer that prompt instead, which is how an
+    /// agent ends up approving something nobody agreed to. `ProjectMonitor` holds
+    /// its own nudges back for exactly this reason.
+    var canAcceptExternalInput: Bool { !liveInteractivePrompt }
+
+    /// Deliver text sent by another chat — `idealize type` / `idealize exec`, which
+    /// is how the project agent steers the chats it started.
+    ///
+    /// An agent chat gets it through `submitInput`, the same path a human message
+    /// takes: text first, then a *discrete* Return a beat later, escaping out of a
+    /// selection menu beforehand, and the chat marked as working. This used to be a
+    /// raw write for every target, so a message the project agent typed into
+    /// another chat just sat in the composer, unsent — `insert` is deliberately
+    /// "type without executing", and even a trailing newline written in the same
+    /// chunk as the text gets swallowed by an agent's line editor.
+    ///
+    /// A plain shell still gets the raw write, with Ctrl-U clearing any half-typed
+    /// line so the injected text can't inherit a stray prefix. Returns false when
+    /// the target can't safely take it, so the caller can say so and retry rather
+    /// than have the message silently answer a prompt.
+    @discardableResult
+    func deliverExternalInput(_ text: String) -> Bool {
+        guard canAcceptExternalInput else { return false }
+        if tuiActive || agentLaunchInFlight {
+            // `sendLineToTUI` supplies the Return, so a trailing newline from
+            // `exec` would otherwise submit an extra blank line.
+            submitInput(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            insert("\u{15}" + text)
+        }
+        return true
     }
 
     // MARK: - Lifecycle
