@@ -56,6 +56,21 @@ struct TerminalViewRep: NSViewRepresentable {
             freezeW = nil; freezeH = nil
             container?.layoutSubtreeIfNeeded()
         }
+
+        /// Drop any active freeze without re-activating the fill constraints,
+        /// for when this representable is dismantled. The terminal NSView
+        /// outlives the representable (the session owns it), and the freeze
+        /// constraints are constants installed on the terminal itself — left
+        /// active across a desktop ↔ compact layout swap they pin the grid at
+        /// its old size and fight the next container's fill constraints, so
+        /// the terminal never reflows to the mini-mode column.
+        func releaseOnDismantle() {
+            resizeObserver = nil
+            if let w = freezeW, let h = freezeH {
+                NSLayoutConstraint.deactivate([w, h])
+            }
+            freezeW = nil; freezeH = nil
+        }
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -104,6 +119,10 @@ struct TerminalViewRep: NSViewRepresentable {
         hideScroller(session.terminalView)
     }
 
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.releaseOnDismantle()
+    }
+
     /// SwiftTerm installs an `NSScroller` down the right edge, which reads as a
     /// permanent grey bar. Hiding it also zeroes the width it reserves
     /// (`reservedScrollerWidth`), so the grid reclaims that space.
@@ -117,13 +136,33 @@ struct TerminalViewRep: NSViewRepresentable {
 /// Container that reports the window's live-resize boundaries so the terminal's
 /// grid can be frozen for the duration of a drag (see `Coordinator.freeze`).
 final class TerminalContainerView: NSView {
+    /// Whether this container has an unbalanced `beginWindowResize` in flight.
+    /// A container can be torn out of the hierarchy mid-drag — the desktop ↔
+    /// compact layout swap happens the instant the width crosses the mini-mode
+    /// breakpoint — and AppKit never sends `viewDidEndLiveResize` to a removed
+    /// view. Without balancing on removal the monitor's refcount leaks,
+    /// `isResizing` latches true, and every terminal created from then on is
+    /// frozen at its birth size (stuck at the wrong width) for good.
+    private var inWindowResize = false
+
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
+        inWindowResize = true
         LiveResizeMonitor.shared.beginWindowResize()
     }
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
+        guard inWindowResize else { return }
+        inWindowResize = false
         LiveResizeMonitor.shared.endWindowResize()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil, inWindowResize {
+            inWindowResize = false
+            LiveResizeMonitor.shared.endWindowResize()
+        }
     }
 }

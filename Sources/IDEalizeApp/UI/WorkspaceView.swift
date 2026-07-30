@@ -75,6 +75,10 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.pendingWorkflow) { wf in
             WorkflowSheet(workflow: wf, workspace: workspace)
         }
+        // Help ▸ Keyboard Shortcuts (⌘/) — the whole map at a glance.
+        .sheet(isPresented: $workspace.showShortcutsHelp) {
+            ShortcutsHelpView()
+        }
         .sheet(item: $workspace.pendingProjectAgentPrompt) { prompt in
             ProjectAgentPromptSheet(
                 projectName: prompt.displayName,
@@ -124,28 +128,33 @@ struct WorkspaceView: View {
                         .tourTarget(.sessions)
                     ResizeHandle(width: $layout.railWidth, range: 150...320)
                 }
-                if workspace.showFileExplorer {
-                    FileExplorerPanel(workspace: workspace).frame(width: layout.filesWidth)
-                        .tourTarget(.files)
-                    ResizeHandle(width: $layout.filesWidth, range: 150...380)
-                }
-                if workspace.showViewer {
-                    FileViewerPanel(workspace: workspace).frame(width: layout.viewerWidth)
-                    ResizeHandle(width: $layout.viewerWidth, range: 260...800)
-                }
-                VStack(spacing: 0) {
-                    Group {
-                        if let tab = workspace.selectedTab {
-                            PaneView(node: tab.root, workspace: workspace)
-                                .id(tab.id)
-                        } else {
-                            EmptyState(workspace: workspace)
-                        }
+                if settings.workspaceLayout == .standard {
+                    // Standard: files | documents | terminal.
+                    if workspace.showFileExplorer {
+                        FileExplorerPanel(workspace: workspace).frame(width: layout.filesWidth)
+                            .tourTarget(.files)
+                        ResizeHandle(width: $layout.filesWidth, range: 150...380)
                     }
-                    BottomToolbar(workspace: workspace)
-                        .tourTarget(.toolbar)
+                    if workspace.showViewer {
+                        FileViewerPanel(workspace: workspace).frame(width: layout.viewerWidth)
+                        ResizeHandle(width: $layout.viewerWidth, range: 260...800)
+                    }
+                    terminalColumn
+                } else {
+                    // Chat-focused: terminal | documents | files. The panels sit
+                    // right of the flexible terminal, so each handle comes *before*
+                    // its panel and resizes in the opposite direction.
+                    terminalColumn
+                    if workspace.showViewer {
+                        ResizeHandle(width: $layout.viewerWidth, range: 260...800, inverted: true)
+                        FileViewerPanel(workspace: workspace).frame(width: layout.viewerWidth)
+                    }
+                    if workspace.showFileExplorer {
+                        ResizeHandle(width: $layout.filesWidth, range: 150...380, inverted: true)
+                        FileExplorerPanel(workspace: workspace).frame(width: layout.filesWidth)
+                            .tourTarget(.files)
+                    }
                 }
-                .frame(minWidth: 420, maxWidth: .infinity)
                 // The Appearance inspector docks as a real trailing column (not a
                 // float over the pane). Overlaying it on top of the live terminal
                 // NSView let SwiftTerm swallow the scroll wheel in the panel's
@@ -157,6 +166,24 @@ struct WorkspaceView: View {
                 }
             }
         }
+    }
+
+    /// The flexible terminal column (panes + bottom toolbar) — the one column
+    /// present in both screen layouts, so it lives outside the ordering branch.
+    private var terminalColumn: some View {
+        VStack(spacing: 0) {
+            Group {
+                if let tab = workspace.selectedTab {
+                    PaneView(node: tab.root, workspace: workspace)
+                        .id(tab.id)
+                } else {
+                    EmptyState(workspace: workspace)
+                }
+            }
+            BottomToolbar(workspace: workspace)
+                .tourTarget(.toolbar)
+        }
+        .frame(minWidth: 420, maxWidth: .infinity)
     }
 
     @State private var lastAppearanceApply = Date.distantPast
@@ -261,13 +288,13 @@ private struct BottomToolbar: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            toggle("sidebar.left", on: workspace.showSessionRail, help: "Toggle sessions") {
+            toggle("sidebar.left", on: workspace.showSessionRail, help: "Toggle sessions (⇧⌘R)") {
                 workspace.showSessionRail.toggle()
             }
-            toggle("folder", on: workspace.showFileExplorer, help: "Toggle file explorer") {
+            toggle("folder", on: workspace.showFileExplorer, help: "Toggle file explorer (⇧⌘E)") {
                 workspace.showFileExplorer.toggle()
             }
-            toggle("doc.text", on: workspace.showViewer, help: "Toggle document panel") {
+            toggle("doc.text", on: workspace.showViewer, help: "Toggle document panel (⇧⌘V)") {
                 workspace.showViewer.toggle()
             }
             .tourTarget(.documentPanel)
@@ -285,10 +312,11 @@ private struct BottomToolbar: View {
             }
             .disabled(!workspace.canOpenProjectAgent)
             .opacity(workspace.canOpenProjectAgent ? 1 : 0.4)
-            toggle("paintpalette", on: workspace.showAppearance, help: "Appearance (⌘⌥A)") {
+            // The shortcut itself lives on the View-menu command (menu shortcuts
+            // take precedence; a duplicate here would shadow it).
+            toggle("paintpalette", on: workspace.showAppearance, help: "Appearance (⌥⌘A)") {
                 workspace.showAppearance.toggle()
             }
-            .keyboardShortcut("a", modifiers: [.command, .option])
             Spacer()
             HStack(spacing: 5) {
                 Image(systemName: "folder.fill").font(.system(size: 9))
@@ -330,10 +358,15 @@ private struct BottomToolbar: View {
 }
 
 /// A subtle hairline divider that doubles as a drag handle to resize the panel
-/// on its left. Keeps the clean look while restoring resizing.
+/// on its left — or, when `inverted`, the panel on its right (used by the
+/// chat-focused layout, where the resizable panels trail the flexible terminal).
+/// Keeps the clean look while restoring resizing.
 private struct ResizeHandle: View {
     @Binding var width: Double
     let range: ClosedRange<Double>
+    /// When true the handle sits on the panel's leading edge, so dragging left
+    /// grows the panel instead of shrinking it.
+    var inverted = false
     @ObservedObject private var settings = AppSettings.shared
     @State private var startWidth: Double?
     @State private var hovering = false
@@ -366,7 +399,8 @@ private struct ResizeHandle: View {
                                 let s = startWidth ?? width
                                 // Snap to whole points: the mouse reports sub-pixel
                                 // deltas, and every distinct value relayouts the tree.
-                                let next = (s + v.translation.width).rounded()
+                                let delta = inverted ? -v.translation.width : v.translation.width
+                                let next = (s + delta).rounded()
                                 let clamped = min(range.upperBound, max(range.lowerBound, next))
                                 if clamped != width { width = clamped }
                             }

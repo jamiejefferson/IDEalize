@@ -293,6 +293,15 @@ struct SettingsView: View {
                 Text("Plays a gentle shine when Claude finishes a task.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Screen layout") {
+                Picker("Column order", selection: $settings.workspaceLayout) {
+                    ForEach(WorkspaceLayout.allCases) { layoutOption in
+                        Text(layoutOption.displayName).tag(layoutOption)
+                    }
+                }
+                Text("Standard keeps files and documents on the left of the terminal. Chat-focused puts the terminal next to your sessions, with documents opening to its right and files on the far right. Applies immediately.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Mini Mode") {
                 Picker("Dock side", selection: $settings.miniModeDockSide) {
                     ForEach(DockSide.allCases) { side in

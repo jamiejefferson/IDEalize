@@ -84,6 +84,12 @@ final class Workspace: ObservableObject {
     /// Whether the first-run showcase is on screen. Transient — whether it has
     /// *been* seen is `AppSettings.hasSeenTour`.
     @Published var showTour: Bool = false
+    /// Whether the Keyboard Shortcuts reference sheet is on screen
+    /// (Help ▸ Keyboard Shortcuts, ⌘/).
+    @Published var showShortcutsHelp: Bool = false
+    /// Bumped by the Focus Message Input command (⌘I); the focused pane's chat
+    /// input observes it and takes the caret.
+    @Published var focusInputRequest: Int = 0
     /// Which section (tab) of the Appearance panel is showing. Starts on the
     /// theme, which is the base everything else layers over.
     @Published var appearanceSection: AppearanceSection = .theme
