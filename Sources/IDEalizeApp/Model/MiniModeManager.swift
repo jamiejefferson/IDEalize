@@ -141,9 +141,22 @@ final class MiniModeManager: ObservableObject {
             // The window was full-screen before mini-mode — return to full-screen
             // rather than restoring a windowed frame.
             if !window.styleMask.contains(.fullScreen) {
+                // Refit only once the (animated) full-screen transition has
+                // finished, mirroring `enable`'s wait for the exit animation. A
+                // fixed-delay pulse lands mid-transition — before the compact →
+                // desktop layout swap — so it refits the old layout's containers
+                // and the desktop terminal keeps the narrow mini-mode grid.
+                var token: NSObjectProtocol?
+                token = NotificationCenter.default.addObserver(
+                    forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
+                ) { [weak self] _ in
+                    if let token { NotificationCenter.default.removeObserver(token) }
+                    self?.refitTerminals()
+                }
                 window.toggleFullScreen(nil)
+            } else {
+                refitTerminals()
             }
-            refitTerminals()
             return
         }
 
