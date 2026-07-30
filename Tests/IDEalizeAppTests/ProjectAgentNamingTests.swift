@@ -69,6 +69,32 @@ final class ProjectAgentNamingTests: XCTestCase {
         XCTAssertNil(ProjectAgent.chatName(fromTask: "- - -"))
     }
 
+    // MARK: - Which files the installer owns
+
+    /// Asserted as invariants rather than against literal paths, because the guide's
+    /// location depends on whether this is a dev build and the test host isn't one.
+    func testTheShippedGuideIsAlwaysTreatedAsProvisioned() {
+        XCTAssertTrue(FlowSkillInstaller.isProvisioned(ProjectAgent.builtInPromptURL))
+        XCTAssertTrue(FlowSkillInstaller.isProvisioned(FlowSkillInstaller.projectAgentGuideURL))
+    }
+
+    func testTheUsersOwnCopyIsNeverTreatedAsProvisioned() {
+        // The trap this guards: in a dev build the shipped guide and the user's
+        // edited copy live in the *same folder*, so a prefix test on that folder
+        // would make the user's copy read-only and the Edit flow useless.
+        XCTAssertFalse(FlowSkillInstaller.isProvisioned(ProjectAgent.customPromptURL))
+        XCTAssertNotEqual(ProjectAgent.customPromptURL.path,
+                          FlowSkillInstaller.projectAgentGuideURL.path)
+    }
+
+    func testOrdinaryProjectFilesStayEditable() {
+        XCTAssertFalse(FlowSkillInstaller.isProvisioned(
+            URL(fileURLWithPath: "/tmp/some-project/README.md")))
+        // A path that merely *mentions* .claude isn't inside it.
+        XCTAssertFalse(FlowSkillInstaller.isProvisioned(
+            URL(fileURLWithPath: NSHomeDirectory() + "/.claude-notes/thoughts.md")))
+    }
+
     func testACallerSuppliedNameIsAlsoCappedSoItCannotFillTheSidebar() {
         // The spawn handler runs `--name` through the same function, so a caller
         // that passes a whole sentence still gets a label.

@@ -126,12 +126,12 @@ enum ProjectAgent {
 
     // MARK: - The operating prompt
 
-    /// The guide IDEalize ships, installed into `~/.claude` by
-    /// `FlowSkillInstaller`. Overwritten on every version bump, so it is strictly
-    /// read-only as far as the app's own UI is concerned.
+    /// The guide IDEalize ships, written out by `FlowSkillInstaller` — which owns
+    /// where it lands, since that differs between the installed app and a dev
+    /// build. Overwritten on every version bump, so it is strictly read-only as far
+    /// as the app's own UI is concerned.
     static var builtInPromptURL: URL {
-        URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".claude/skills/project-agent/SKILL.md")
+        FlowSkillInstaller.projectAgentGuideURL
     }
 
     /// The user's own edited guide. Deliberately kept *outside* `~/.claude` so

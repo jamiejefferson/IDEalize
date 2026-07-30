@@ -40,7 +40,6 @@ enum FlowSkillInstaller {
     private static let files: [(src: String, dest: String)] = [
         ("FlowSkills/skills/flow-run/SKILL.md",          "skills/flow-run/SKILL.md"),
         ("FlowSkills/skills/flows/SKILL.md",             "skills/flows/SKILL.md"),
-        ("FlowSkills/skills/project-agent/SKILL.md",     "skills/project-agent/SKILL.md"),
         ("FlowSkills/commands/flow-run.md",              "commands/flow-run.md"),
         ("FlowSkills/commands/flow-review.md",           "commands/flow-review.md"),
         ("FlowSkills/commands/flow-improve.md",          "commands/flow-improve.md"),
@@ -53,10 +52,44 @@ enum FlowSkillInstaller {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude")
     }
 
+    /// The project agent's operating guide — the one provisioned file the *app*
+    /// reads (via `--append-system-prompt`) rather than Claude Code.
+    ///
+    /// A dev build keeps its own copy outside `~/.claude` so it never rewrites the
+    /// guide the installed app — and every Claude Code session on this machine — is
+    /// reading. Without that, two builds compiled at different `version`s each saw
+    /// the other's stamp as stale and reinstalled on every launch, so the file
+    /// flipped between guides depending on which app started last and no review of
+    /// a change to it could be trusted.
+    static var projectAgentGuideURL: URL {
+        AppPaths.isDevBuild
+            ? AppPaths.supportDir.appendingPathComponent("project-agent-guide.md")
+            : claudeDir.appendingPathComponent("skills/project-agent/SKILL.md")
+    }
+
+    /// Whether `url` is a file this installer owns and will overwrite on the next
+    /// version bump. The document panel uses this to refuse in-place edits: an edit
+    /// here looks like it worked and is then silently reverted by an app update.
+    ///
+    /// Note the dev build's guide sits in the same directory as the user's *own*
+    /// edited prompt (`ProjectAgent.customPromptURL`), which must stay editable —
+    /// hence the exact-match on the guide rather than a prefix test on that folder.
+    static func isProvisioned(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        if path == projectAgentGuideURL.standardizedFileURL.resolvingSymlinksInPath().path {
+            return true
+        }
+        return path.hasPrefix(claudeDir.standardizedFileURL.path + "/")
+    }
+
     /// Records the version last installed, so the common case (already current) is
-    /// a single file read and no writes.
+    /// a single file read and no writes. Namespaced per build: a dev build and the
+    /// installed app compile different `version`s, so a shared marker left them
+    /// permanently disagreeing and reinstalling over each other.
     private static var versionMarker: URL {
-        claudeDir.appendingPathComponent(".idealize-flow-skills-version")
+        claudeDir.appendingPathComponent(
+            AppPaths.isDevBuild ? ".idealize-flow-skills-version-dev"
+                                : ".idealize-flow-skills-version")
     }
 
     /// Install (or refresh) the companion files when missing or out of date. Cheap
@@ -69,17 +102,21 @@ enum FlowSkillInstaller {
         }
         let fm = FileManager.default
         var ok = true
-        for f in files {
+        // The guide's destination depends on the build, so it's paired up here
+        // rather than living in the fixed `files` table.
+        let work: [(src: String, dest: URL)] =
+            files.map { ($0.src, claudeDir.appendingPathComponent($0.dest)) }
+            + [("FlowSkills/skills/project-agent/SKILL.md", projectAgentGuideURL)]
+        for f in work {
             guard let src = sourceURL(for: f.src) else {
                 NSLog("IDEalize: flow skill resource missing: \(f.src)"); ok = false; continue
             }
-            let dest = claudeDir.appendingPathComponent(f.dest)
             do {
-                try fm.createDirectory(at: dest.deletingLastPathComponent(),
+                try fm.createDirectory(at: f.dest.deletingLastPathComponent(),
                                        withIntermediateDirectories: true)
-                try Data(contentsOf: src).write(to: dest)
+                try Data(contentsOf: src).write(to: f.dest)
             } catch {
-                NSLog("IDEalize: failed to install \(f.dest): \(error)"); ok = false
+                NSLog("IDEalize: failed to install \(f.dest.lastPathComponent): \(error)"); ok = false
             }
         }
         // Only stamp the version once every file landed, so a partial failure

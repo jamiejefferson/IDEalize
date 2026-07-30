@@ -21,17 +21,18 @@ struct FileViewerPanel: View {
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.doc, base: CGFloat(settings.fontSize), background: theme.background) }
 
-    /// Files IDEalize itself provisions into `~/.claude` — the companion skills and
-    /// slash commands installed by `FlowSkillInstaller`. They are shown but never
-    /// edited in place: `install()` rewrites every one of them on a version bump,
-    /// so an edit here would appear to work and then vanish on the next app update.
-    /// Editing the project agent's guide goes through "Edit my own copy" in
-    /// Preferences instead, which forks it somewhere the installer can't reach.
+    /// Files IDEalize itself provisions — the companion skills, the slash commands,
+    /// and the project agent's operating guide. They are shown but never edited in
+    /// place: `FlowSkillInstaller.install()` rewrites every one of them on a version
+    /// bump, so an edit here would appear to work and then vanish on the next app
+    /// update. Editing the guide goes through "Edit my own copy" in Preferences
+    /// instead, which forks it somewhere the installer can't reach.
+    ///
+    /// The installer is asked rather than the path being matched here, so the two
+    /// can't drift — the guide moves depending on whether this is a dev build.
     private var isReadOnly: Bool {
         guard let url = workspace.viewedFile else { return false }
-        let claudeDir = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".claude").standardizedFileURL.path
-        return url.standardizedFileURL.path.hasPrefix(claudeDir + "/")
+        return FlowSkillInstaller.isProvisioned(url)
     }
 
     var body: some View {
