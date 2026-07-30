@@ -235,6 +235,28 @@ final class AppSettings: ObservableObject {
     @Published var projectAgentPromptBaseVersion: Int {
         didSet { defaults.set(projectAgentPromptBaseVersion, forKey: "projectAgentPromptBaseVersion") }
     }
+    /// Start the lead agent automatically once two projects have coordinating
+    /// agents, instead of offering it first. Opt-in, like `projectAgentAutoStart`.
+    @Published var leadAgentAutoStart: Bool {
+        didSet { defaults.set(leadAgentAutoStart, forKey: "leadAgentAutoStart") }
+    }
+    /// Model the lead agent runs on, appended as `--model <value>`. Empty
+    /// inherits whatever the launch command already selects. The lead reads the
+    /// least of any tier — boards and one-line status notes, never transcripts
+    /// or diffs — so it's the natural place to run a cheaper model.
+    @Published var leadAgentModel: String {
+        didSet { defaults.set(leadAgentModel, forKey: "leadAgentModel") }
+    }
+    /// A different agent command for the lead alone. Empty inherits
+    /// `defaultLaunchCommand` — same contract as `projectAgentLaunchCommand`.
+    @Published var leadAgentLaunchCommand: String {
+        didSet { defaults.set(leadAgentLaunchCommand, forKey: "leadAgentLaunchCommand") }
+    }
+    /// The `FlowSkillInstaller.version` the user's edited lead-agent prompt was
+    /// seeded from. 0 = they have never edited it.
+    @Published var leadAgentPromptBaseVersion: Int {
+        didSet { defaults.set(leadAgentPromptBaseVersion, forKey: "leadAgentPromptBaseVersion") }
+    }
 
     // MARK: Behavior
     @Published var notificationsEnabled: Bool {
@@ -417,6 +439,11 @@ final class AppSettings: ObservableObject {
         self.projectAgentLaunchCommand = defaults.string(forKey: "projectAgentLaunchCommand") ?? ""
         self.projectAgentPromptBaseVersion =
             defaults.object(forKey: "projectAgentPromptBaseVersion") as? Int ?? 0
+        self.leadAgentAutoStart = defaults.object(forKey: "leadAgentAutoStart") as? Bool ?? false
+        self.leadAgentModel = defaults.string(forKey: "leadAgentModel") ?? ""
+        self.leadAgentLaunchCommand = defaults.string(forKey: "leadAgentLaunchCommand") ?? ""
+        self.leadAgentPromptBaseVersion =
+            defaults.object(forKey: "leadAgentPromptBaseVersion") as? Int ?? 0
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         self.completionSoundEnabled = defaults.object(forKey: "completionSoundEnabled") as? Bool ?? true
         self.completionSoundVolume = defaults.object(forKey: "completionSoundVolume") as? Double ?? 0.4

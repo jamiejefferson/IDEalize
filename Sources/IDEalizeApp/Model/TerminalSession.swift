@@ -452,6 +452,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// the "coordinator" alias or `$IDEALIZE_PROJECT_AGENT`.
     @Published var isProjectAgent: Bool = false
 
+    /// This tab is the workspace's lead agent — the one chat above every
+    /// project's coordinator (opened via the toolbar's lead-agent toggle, at
+    /// most one per workspace). Reachable by the "lead" alias or
+    /// `$IDEALIZE_LEAD_AGENT`.
+    @Published var isLeadAgent: Bool = false
+
     /// This chat's isolated "safe copy": its own git worktree + branch off a base
     /// commit, so parallel chats never touch each other's files. `nil` for an
     /// ordinary chat, which shares the project folder exactly as before. All three
@@ -642,6 +648,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
            let agent = workspace?.projectAgentSession(forProject: path),
            agent.id != id {
             env.append("IDEALIZE_PROJECT_AGENT=\(agent.id)")
+        }
+        // Likewise the lead agent's id, so a project agent can report upward
+        // (`idealize send $IDEALIZE_LEAD_AGENT …`). Chats started before the
+        // lead can still reach it via the "lead" alias.
+        if let lead = workspace?.leadAgentSession, lead.id != id {
+            env.append("IDEALIZE_LEAD_AGENT=\(lead.id)")
         }
         // Ensure the bundled `idealize` CLI is on PATH.
         if let cliDir = CLIInstaller.installShim() {
@@ -1022,7 +1034,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             projectPath: projectPath,
             processName: processName,
             status: customStatus ?? (isShellForeground ? "idle" : processName),
-            unread: mailbox.count
+            unread: mailbox.count,
+            role: isLeadAgent ? "lead" : (isProjectAgent ? "project-agent" : "chat")
         )
     }
 

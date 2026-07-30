@@ -178,14 +178,20 @@ public struct IPCSessionInfo: Codable, Sendable {
     public var processName: String?
     public var status: String?
     public var unread: Int
+    /// What the session is in the coordination hierarchy: "lead",
+    /// "project-agent", or "chat". Optional so old CLIs (and old app builds)
+    /// decode each other's messages unchanged.
+    public var role: String?
 
-    public init(id: String, title: String, projectPath: String?, processName: String?, status: String?, unread: Int) {
+    public init(id: String, title: String, projectPath: String?, processName: String?,
+                status: String?, unread: Int, role: String? = nil) {
         self.id = id
         self.title = title
         self.projectPath = projectPath
         self.processName = processName
         self.status = status
         self.unread = unread
+        self.role = role
     }
 }
 

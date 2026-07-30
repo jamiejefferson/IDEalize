@@ -29,12 +29,18 @@ struct PersistedChat: Codable {
     /// `Codable`); coordinators from those runs come back as plain chats, once.
     var isProjectAgent: Bool = false
 
+    /// Whether this chat was the workspace's lead agent, so restore brings it
+    /// back *as* one — relaunched with the `/lead-agent` guide in the Fleet
+    /// folder. Same legacy-decode contract as `isProjectAgent`.
+    var isLeadAgent: Bool = false
+
     init(customName: String?, wasClaude: Bool, agentBinary: String?,
-         isProjectAgent: Bool = false) {
+         isProjectAgent: Bool = false, isLeadAgent: Bool = false) {
         self.customName = customName
         self.wasClaude = wasClaude
         self.agentBinary = agentBinary
         self.isProjectAgent = isProjectAgent
+        self.isLeadAgent = isLeadAgent
     }
 
     init(from decoder: Decoder) throws {
@@ -43,6 +49,7 @@ struct PersistedChat: Codable {
         wasClaude = try c.decodeIfPresent(Bool.self, forKey: .wasClaude) ?? false
         agentBinary = try c.decodeIfPresent(String.self, forKey: .agentBinary)
         isProjectAgent = try c.decodeIfPresent(Bool.self, forKey: .isProjectAgent) ?? false
+        isLeadAgent = try c.decodeIfPresent(Bool.self, forKey: .isLeadAgent) ?? false
     }
 }
 

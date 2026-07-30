@@ -562,6 +562,54 @@ final class Workspace: ObservableObject {
         projectMonitors[p] = nil
     }
 
+    // MARK: - Lead agent
+
+    /// The workspace's lead agent chat, if one is running. At most one exists.
+    var leadAgentSession: TerminalSession? {
+        allSessions.first { $0.isLeadAgent }
+    }
+
+    var isLeadAgentOpen: Bool { leadAgentSession != nil }
+
+    /// Open the lead agent: a regular agent chat preloaded with the
+    /// `/lead-agent` guide, living in its own "Fleet" folder so the rail shows
+    /// it as its own group above no particular project. One per workspace — if
+    /// it's already running it's focused, never duplicated.
+    ///
+    /// Pass `focus: false` to launch it in the background (same contract as
+    /// `openProjectAgent(forProject:focus:)`).
+    func openLeadAgent(focus: Bool = true) {
+        if let existing = leadAgentSession {
+            if focus { focusSession(existing.id) }   // already running — just show it
+            return
+        }
+        LeadAgent.ensureFleetHome()
+        let originTab = selectedTabID
+        let originFocus = focusedSessionID
+        let launch = LeadAgent.launch()
+        let session = newTab(projectPath: LeadAgent.fleetHomeURL.path,
+                             launchOverride: launch.command,
+                             openingTurn: launch.openingTurn)
+        session.isLeadAgent = true
+        if !focus {
+            selectedTabID = originTab
+            focusedSessionID = originFocus
+        }
+        if let tab = tabs.first(where: { t in t.sessions.contains { $0.id == session.id } }) {
+            tab.customName = "Lead agent"
+        }
+    }
+
+    /// Toggle the lead agent, like the project-agent toggle: open it if none
+    /// is running, otherwise close it.
+    func toggleLeadAgent() {
+        if let lead = leadAgentSession {
+            closeSession(lead)
+        } else {
+            openLeadAgent()
+        }
+    }
+
     /// Keep the tab name following the focused terminal's label.
     private func bindName(_ tab: WorkspaceTab, to session: TerminalSession) {
         tab.name = session.label
@@ -992,9 +1040,17 @@ final class Workspace: ObservableObject {
                 // infer coordinator-ness from the chat's *name*: a chat the user
                 // happened to call "Project agent" would silently start watching
                 // their files.
-                let restored: AgentLaunch? = chat.isProjectAgent
-                    ? ProjectAgent.launch()
-                    : agentLaunch(chat.effectiveAgentBinary).map { AgentLaunch(command: $0) }
+                let restored: AgentLaunch?
+                if chat.isLeadAgent {
+                    // The lead comes back *as* the lead: relaunched with its
+                    // guide, in the Fleet folder the snapshot recorded.
+                    LeadAgent.ensureFleetHome()
+                    restored = LeadAgent.launch()
+                } else if chat.isProjectAgent {
+                    restored = ProjectAgent.launch()
+                } else {
+                    restored = agentLaunch(chat.effectiveAgentBinary).map { AgentLaunch(command: $0) }
+                }
                 let session = newTab(
                     projectPath: restorePath,
                     launchOverride: restored?.command,
@@ -1002,12 +1058,17 @@ final class Workspace: ObservableObject {
                     suppressAutoLaunch: restored == nil)
                 if let name = chat.customName, !name.isEmpty {
                     tabs.last?.customName = name   // newTab just inserted this tab
+                } else if chat.isLeadAgent {
+                    tabs.last?.customName = "Lead agent"
                 } else if chat.isProjectAgent {
                     // A coordinator is named as it's opened, so it normally arrives
                     // here already named — and if the user renamed it, that name is
                     // what we just restored above. This only covers a coordinator
                     // that somehow saved without a name, so it stays recognisable.
                     tabs.last?.customName = "Project agent"
+                }
+                if chat.isLeadAgent {
+                    session.isLeadAgent = true
                 }
                 if chat.isProjectAgent {
                     session.isProjectAgent = true
@@ -1058,7 +1119,8 @@ final class Workspace: ObservableObject {
                     return PersistedChat(customName: tab.customName,
                                          wasClaude: binary == "claude",
                                          agentBinary: binary,
-                                         isProjectAgent: tab.sessions.first?.isProjectAgent ?? false)
+                                         isProjectAgent: tab.sessions.first?.isProjectAgent ?? false,
+                                         isLeadAgent: tab.sessions.first?.isLeadAgent ?? false)
                 }
             return PersistedProject(path: group.path, chats: chats)
         }
