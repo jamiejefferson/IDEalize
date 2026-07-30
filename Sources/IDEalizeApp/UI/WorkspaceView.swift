@@ -97,6 +97,17 @@ struct WorkspaceView: View {
                 }
             )
         }
+        .sheet(isPresented: $workspace.pendingLeadAgentPrompt) {
+            LeadAgentPromptSheet(
+                onStart: {
+                    // Background, like the project-agent offer: the user was
+                    // mid-something when the fleet grew — don't steal focus.
+                    workspace.openLeadAgent(focus: false)
+                    workspace.pendingLeadAgentPrompt = false
+                },
+                onDismiss: { workspace.dismissLeadAgentSuggestion() }
+            )
+        }
         .sheet(item: sessionAwaitingSetupBinding) { session in
             AgentSetupSheet(
                 binary: session.pendingAgentSetup ?? "agent",
@@ -263,6 +274,42 @@ private struct ProjectAgentPromptSheet: View {
                 Button("Not now", action: onDismiss)
                     .keyboardShortcut(.cancelAction)
                 Button("Start project agent", action: onStart)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 380)
+        .background(Color(theme.chrome))
+    }
+}
+
+/// The one-time "add a lead agent?" offer, raised when a second project gains
+/// its own agent — mirror of `ProjectAgentPromptSheet`, one tier up.
+private struct LeadAgentPromptSheet: View {
+    let onStart: () -> Void
+    let onDismiss: () -> Void
+    @ObservedObject private var settings = AppSettings.shared
+    private var theme: Theme { settings.theme }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "crown")
+                    .font(.system(size: 18))
+                    .foregroundStyle(settings.actionStyle.color)
+                Text("Add a lead agent?")
+                    .font(settings.ui(16, .semibold))
+                    .foregroundStyle(Color(theme.foreground))
+            }
+            Text("More than one of your projects now has its own agent. A lead agent sits above them all: it keeps one board of what's moving everywhere, makes the routine calls so nothing waits on you, learns how you like to work, and only brings you the decisions that are truly yours. It never builds anything itself.")
+                .font(settings.ui(12.5))
+                .foregroundStyle(Color(theme.secondaryForeground))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Not now", action: onDismiss)
+                    .keyboardShortcut(.cancelAction)
+                Button("Start lead agent", action: onStart)
                     .keyboardShortcut(.defaultAction)
             }
         }

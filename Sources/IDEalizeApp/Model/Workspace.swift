@@ -543,6 +543,7 @@ final class Workspace: ObservableObject {
         }
         projectMonitors[project] = ProjectMonitor(
             projectPath: project, coordinator: session, workspace: self)
+        considerLeadAgent()
     }
 
     /// Toggle the project agent for the focused session's project, like the
@@ -555,8 +556,13 @@ final class Workspace: ObservableObject {
         }
     }
 
-    /// Stop watching a project whose agent chat just closed.
+    /// Stop watching a project whose agent chat just closed — and the fleet,
+    /// when the closing chat is the lead.
     private func stopProjectMonitor(for session: TerminalSession) {
+        if session.isLeadAgent {
+            fleetMonitor?.stop()
+            fleetMonitor = nil
+        }
         guard session.isProjectAgent, let p = session.projectPath else { return }
         projectMonitors[p]?.stop()
         projectMonitors[p] = nil
@@ -567,6 +573,43 @@ final class Workspace: ObservableObject {
     /// The workspace's lead agent chat, if one is running. At most one exists.
     var leadAgentSession: TerminalSession? {
         allSessions.first { $0.isLeadAgent }
+    }
+
+    /// Deterministic fleet-level signals for the lead (and stale-inbox nudges
+    /// for the coordination tier), alive exactly while the lead's chat is.
+    private var fleetMonitor: FleetMonitor?
+
+    /// Whether the "start a lead agent?" offer is up. `true` is set by
+    /// `considerLeadAgent()`; the sheet in `WorkspaceView` answers it.
+    @Published var pendingLeadAgentPrompt = false
+
+    /// "Not now" settles the offer for the run of the app — same lifetime as
+    /// `dismissedProjectAgentSuggestions`.
+    private var dismissedLeadAgentSuggestion = false
+
+    /// Offer (or auto-start) the lead agent once the fleet is big enough to
+    /// need one: two or more distinct projects each running a project agent,
+    /// no lead yet, and the user hasn't said "not now" this run. Called as a
+    /// project agent opens; the single home of this rule, like
+    /// `considerProjectAgent` is for the two-chat rule.
+    private func considerLeadAgent() {
+        guard !isRestoring,
+              leadAgentSession == nil,
+              !dismissedLeadAgentSuggestion,
+              !pendingLeadAgentPrompt else { return }
+        let coordinated = Set(allSessions.filter(\.isProjectAgent).compactMap(\.projectPath))
+        guard coordinated.count >= 2 else { return }
+        if settings.leadAgentAutoStart {
+            openLeadAgent(focus: false)
+        } else {
+            pendingLeadAgentPrompt = true
+        }
+    }
+
+    /// "Not now" on the lead-agent offer.
+    func dismissLeadAgentSuggestion() {
+        dismissedLeadAgentSuggestion = true
+        pendingLeadAgentPrompt = false
     }
 
     var isLeadAgentOpen: Bool { leadAgentSession != nil }
@@ -598,6 +641,7 @@ final class Workspace: ObservableObject {
         if let tab = tabs.first(where: { t in t.sessions.contains { $0.id == session.id } }) {
             tab.customName = "Lead agent"
         }
+        fleetMonitor = FleetMonitor(lead: session, workspace: self)
     }
 
     /// Toggle the lead agent, like the project-agent toggle: open it if none
@@ -1083,6 +1127,13 @@ final class Workspace: ObservableObject {
             }
         }
         isRestoring = false
+        // A restored lead watches the fleet again exactly as opening one does.
+        if let lead = leadAgentSession {
+            fleetMonitor = FleetMonitor(lead: lead, workspace: self)
+        }
+        // The restored fleet may already merit a lead (two coordinated projects
+        // came back and the user auto-starts) — decide now that restore is done.
+        considerLeadAgent()
         saveProjectSnapshot()
     }
 
@@ -1564,6 +1615,9 @@ final class Workspace: ObservableObject {
                 result = IPCCombineResult(status: "blocked", files: [], conflicts: [],
                                           recoveryPoint: nil, summary: why)
             }
+            // Combine trouble is fleet news: the lead should hear promptly that
+            // a piece is parked, without anyone having to poll for it.
+            fleetMonitor?.noteCombine(project: into, status: result.status)
             return IPCResponse(ok: true, combineResult: result)
 
         case .verify:
