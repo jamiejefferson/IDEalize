@@ -27,7 +27,8 @@ enum FlowSkillInstaller {
     /// v7: project-agent guide delivered via system prompt; command slimmed (no visible skill dump).
     /// v8: project-agent gains `spawn` (delegate work to new chats) + "safe version" & "learning from the work" roles.
     /// v9: project-agent rewritten (v2 prompt): "one version of the truth" prime directive, two language registers, the project board, enforced chat rules, the path-to-live ladder.
-    static let version = 9
+    /// v10: project-agent names the chats it spawns (`idealize spawn --name`).
+    static let version = 10
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
     /// Add-only, and only for files the app owns: every entry here is *overwritten*

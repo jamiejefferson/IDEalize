@@ -85,6 +85,11 @@ Everything you need comes through the `idealize` CLI (already on your PATH):
 - `idealize spawn "<task>"` — start a new chat with that task; note the
   returned id. Add `--isolated` to give it its own safe copy of the folder
   when its work could touch what another chat is changing.
+  **Always pass `--name "…"`** with a two-to-four-word label for the piece
+  ("Footer layout", "Newsletter form", "Live site check"). The user reads the
+  sidebar to see what's underway, and your task text is a full brief — its
+  opening words make a poor label, so name it yourself. Use the same wording
+  you used on the board, so the two line up at a glance.
 
 ## The project board
 

@@ -1255,6 +1255,17 @@ final class Workspace: ObservableObject {
             }
             let launch = ProjectAgent.childLaunchCommand(initialPrompt: request.body)
             let child = newTab(projectPath: project, launchOverride: launch, safeCopy: safeCopy)
+            // Name the tab after the piece of work, so the sidebar reads as the
+            // project's actual jobs rather than "Chat 3", "Chat 4". The caller's own
+            // label wins — it knows what the piece *is*, which the opening words of
+            // a full brief often don't say — and we read one off the task when it
+            // didn't supply one. Both go through `chatName` so a caller can't put an
+            // essay in the sidebar.
+            if let label = request.name.flatMap(ProjectAgent.chatName(fromTask:))
+                ?? request.body.flatMap(ProjectAgent.chatName(fromTask:)),
+               let tab = tabs.first(where: { t in t.sessions.contains { $0.id == child.id } }) {
+                tab.customName = label
+            }
             // Don't steal the user's place: spawning opens the child in the
             // background and returns focus to the caller (the coordinator chat),
             // so the user keeps talking to the one agent. `newTab` moved focus to

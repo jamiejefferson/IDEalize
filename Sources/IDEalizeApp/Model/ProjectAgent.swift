@@ -72,6 +72,58 @@ enum ProjectAgent {
         return command + " --model \(quote(m))"
     }
 
+    // MARK: - Naming a spawned chat
+
+    /// The longest a derived tab name gets. The session rail lists chats in a
+    /// narrow column, so a name that doesn't fit is worse than a shorter one.
+    private static let nameLimit = 32
+
+    /// A short tab label for a chat spawned with `task`, used when the coordinator
+    /// didn't pass one of its own.
+    ///
+    /// Reads only the first line, and within it only the first sentence: the
+    /// coordinating guide tells the agent to brief a chat with the route to live,
+    /// the definition of done and any traps it should know, so a task is usually a
+    /// paragraph or more. Naively taking the opening words of that gives labels
+    /// like "You are working on the" — the head of a *sentence* is a much better
+    /// guess at the head of the *job*. Returns nil when nothing usable survives,
+    /// which leaves the tab on its normal folder-derived name rather than
+    /// replacing it with something worse.
+    static func chatName(fromTask task: String) -> String? {
+        guard var s = task.split(whereSeparator: \.isNewline)
+                .map({ $0.trimmingCharacters(in: .whitespaces) })
+                .first(where: { !$0.isEmpty })
+        else { return nil }
+        // Briefs often open as a heading or list item; that decoration isn't part
+        // of the name.
+        s = s.trimmingCharacters(in: CharacterSet(charactersIn: "#*_-–—•>·. \t"))
+        // Cut at the first sentence end, but only if what's left still says
+        // something — "Fix it." shouldn't become "Fix it" via a 6-character stub.
+        if let stop = s.rangeOfCharacter(from: CharacterSet(charactersIn: ".!?;:")) {
+            let head = String(s[s.startIndex..<stop.lowerBound])
+                .trimmingCharacters(in: .whitespaces)
+            if head.count >= 12 { s = head }
+        }
+        guard !s.isEmpty else { return nil }
+        if s.count > nameLimit {
+            var cut = String(s.prefix(nameLimit))
+            // Prefer a word boundary, unless that leaves barely anything.
+            if let space = cut.lastIndex(of: " "),
+               cut.distance(from: cut.startIndex, to: space) >= 14 {
+                cut = String(cut[cut.startIndex..<space])
+            }
+            s = cut.trimmingCharacters(in: .whitespaces) + "…"
+        }
+        // Sentence-case a lowercase opener — unless the next character is a
+        // capital, which means the word is deliberately styled that way and
+        // "iOS share sheet" would otherwise become "IOS share sheet".
+        if let first = s.first, first.isLowercase,
+           s.dropFirst().first?.isUppercase != true {
+            s = first.uppercased() + s.dropFirst()
+        }
+        return s
+    }
+
     // MARK: - The operating prompt
 
     /// The guide IDEalize ships, installed into `~/.claude` by
