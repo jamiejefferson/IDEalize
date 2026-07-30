@@ -309,11 +309,13 @@ final class Workspace: ObservableObject {
     @discardableResult
     func newTab(projectPath: String? = nil,
                 launchOverride: String? = nil,
+                openingTurn: String? = nil,
                 suppressAutoLaunch: Bool = false,
                 safeCopy: TerminalSession.SafeCopy? = nil) -> TerminalSession {
         if let projectPath { settings.addRecentFolder(projectPath) }
         let session = makeSession(projectPath: projectPath,
                                   launchOverride: launchOverride,
+                                  openingTurn: openingTurn,
                                   suppressAutoLaunch: suppressAutoLaunch,
                                   safeCopy: safeCopy)
         let tab = WorkspaceTab(root: PaneNode(session: session), name: session.label)
@@ -376,10 +378,12 @@ final class Workspace: ObservableObject {
 
     private func makeSession(projectPath: String?,
                              launchOverride: String? = nil,
+                             openingTurn: String? = nil,
                              suppressAutoLaunch: Bool = false,
                              safeCopy: TerminalSession.SafeCopy? = nil) -> TerminalSession {
         let session = TerminalSession(settings: settings, workspace: self, projectPath: projectPath)
         session.launchOverride = launchOverride
+        session.launchPositional = openingTurn
         session.suppressAutoLaunch = suppressAutoLaunch
         // Set the safe copy *before* start(): the shell's working directory is
         // derived from it, so it has to be in place when the process launches.
@@ -402,7 +406,10 @@ final class Workspace: ObservableObject {
             SettingsWindow.open()
             return
         }
-        let session = newTab(projectPath: repo, launchOverride: ServiceHatch.launchCommand())
+        let hatch = ServiceHatch.launch()
+        let session = newTab(projectPath: repo,
+                             launchOverride: hatch.command,
+                             openingTurn: hatch.openingTurn)
         session.isServiceHatch = true   // shows the themed opening banner in the chat
     }
 
@@ -514,7 +521,10 @@ final class Workspace: ObservableObject {
             focusSession(existing.id)   // already running — just show it
             return
         }
-        let session = newTab(projectPath: project, launchOverride: ProjectAgent.launchCommand())
+        let agent = ProjectAgent.launch()
+        let session = newTab(projectPath: project,
+                             launchOverride: agent.command,
+                             openingTurn: agent.openingTurn)
         session.isProjectAgent = true
         if let tab = tabs.first(where: { t in t.sessions.contains { $0.id == session.id } }) {
             tab.customName = "Project agent"
@@ -966,11 +976,13 @@ final class Workspace: ObservableObject {
                 // infer coordinator-ness from the chat's *name*: a chat the user
                 // happened to call "Project agent" would silently start watching
                 // their files.
+                let restored: AgentLaunch? = chat.isProjectAgent
+                    ? ProjectAgent.launch()
+                    : (chat.wasClaude ? AgentLaunch(command: claudeLaunch) : nil)
                 let session = newTab(
                     projectPath: restorePath,
-                    launchOverride: chat.isProjectAgent
-                        ? ProjectAgent.launchCommand()
-                        : (chat.wasClaude ? claudeLaunch : nil),
+                    launchOverride: restored?.command,
+                    openingTurn: restored?.openingTurn,
                     suppressAutoLaunch: !chat.wasClaude && !chat.isProjectAgent)
                 if let name = chat.customName, !name.isEmpty {
                     tabs.last?.customName = name   // newTab just inserted this tab
@@ -1253,8 +1265,9 @@ final class Workspace: ObservableObject {
                                                     branch: copy.branch,
                                                     baseCommit: copy.base)
             }
-            let launch = ProjectAgent.childLaunchCommand(initialPrompt: request.body)
-            let child = newTab(projectPath: project, launchOverride: launch, safeCopy: safeCopy)
+            let launch = ProjectAgent.childLaunch(initialPrompt: request.body)
+            let child = newTab(projectPath: project, launchOverride: launch.command,
+                               openingTurn: launch.openingTurn, safeCopy: safeCopy)
             // Name the tab after the piece of work, so the sidebar reads as the
             // project's actual jobs rather than "Chat 3", "Chat 4". The caller's own
             // label wins — it knows what the piece *is*, which the opening words of

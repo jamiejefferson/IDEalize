@@ -15,7 +15,7 @@ enum ProjectAgent {
     /// configured agent, the coordinating guide as an invisible system prompt, and
     /// `/project-agent` as the short opening turn. (The session's own session id
     /// and permission mode are appended later by `TerminalSession`.)
-    static func launchCommand() -> String {
+    static func launch() -> AgentLaunch {
         var cmd = baseCommand(AppSettings.shared.projectAgentLaunchCommand)
         // Deliver the coordinating guide as an invisible system prompt (never
         // printed in the chat) rather than a visible skill invocation. The
@@ -24,8 +24,7 @@ enum ProjectAgent {
             cmd += " --append-system-prompt \"$(cat \(doubleQuoted(promptURL().path)))\""
         }
         cmd = applyingModel(AppSettings.shared.projectAgentModel, to: cmd)
-        cmd += " \(quote("/project-agent"))"
-        return cmd
+        return AgentLaunch(command: cmd, openingTurn: "/project-agent")
     }
 
     /// The command a *child* worker chat runs when the project agent spawns it:
@@ -36,16 +35,17 @@ enum ProjectAgent {
     /// child is a *normal* member chat, not another coordinator: the user can
     /// open and review it like any other. Session-id binding and permission mode
     /// are appended later by `TerminalSession.augmentAgentLaunch`.
-    static func childLaunchCommand(initialPrompt: String?) -> String {
+    static func childLaunch(initialPrompt: String?) -> AgentLaunch {
         // Children start from the *global* default agent, never the coordinator's
         // own override: only the model is role-specific, so picking a cheap
         // coordinator never quietly downgrades the chats doing the building.
-        var cmd = applyingModel(AppSettings.shared.projectAgentChildModel,
-                                to: baseCommand(""))
-        if let p = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty {
-            cmd += " " + quote(p)
-        }
-        return cmd
+        let cmd = applyingModel(AppSettings.shared.projectAgentChildModel,
+                               to: baseCommand(""))
+        // The brief stays out of the command string — it's the user's prose, and
+        // rewriting a command containing it corrupted briefs (see `AgentLaunch`).
+        let turn = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return AgentLaunch(command: cmd,
+                           openingTurn: (turn?.isEmpty == false) ? turn : nil)
     }
 
     /// The agent command a coordinator (or its children) starts from: the
