@@ -672,9 +672,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 return o
             }
             if suppressAutoLaunch { return "" }
-            return settings.launchOnNewTerminal
-                ? settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-                : ""
+            guard settings.launchOnNewTerminal else { return "" }
+            // Auto-launch is on: fall back to Claude if the command was blanked, so a
+            // cleared field can't silently leave a bare shell (matches the fallbacks in
+            // the first-message path and the restore path).
+            let cmd = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            return cmd.isEmpty ? "claude --dangerously-skip-permissions" : cmd
         }()
         launchIsClaude = !launch.isEmpty && TerminalSession.isClaudeCommand(launch)
         if !launch.isEmpty {
