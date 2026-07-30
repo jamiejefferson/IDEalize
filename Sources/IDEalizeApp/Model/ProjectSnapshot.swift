@@ -13,6 +13,12 @@ struct PersistedChat: Codable {
     /// Whether this chat was a Claude session (so it relaunches Claude on
     /// restore, rather than coming up as a bare shell).
     var wasClaude: Bool
+    /// Whether this chat was the project's coordinating agent, so restore brings
+    /// it back *as* one — relaunched with the `/project-agent` guide and watched
+    /// by a fresh `ProjectMonitor` — rather than as an ordinary Claude chat.
+    /// Defaults to false so snapshots written before this existed still decode;
+    /// coordinators from those runs come back as plain chats, once.
+    var isProjectAgent: Bool = false
 }
 
 struct PersistedProject: Codable {

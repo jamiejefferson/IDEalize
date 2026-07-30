@@ -184,6 +184,42 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(serviceHatchRepoPath, forKey: "serviceHatchRepoPath") }
     }
 
+    // MARK: Project agent
+    /// Open a project's coordinating agent automatically once that project has a
+    /// second chat, instead of offering it in a sheet. The sidebar's own button
+    /// stays available from the very first chat either way, so this is "stop
+    /// asking me", not "start earlier".
+    @Published var projectAgentAutoStart: Bool {
+        didSet { defaults.set(projectAgentAutoStart, forKey: "projectAgentAutoStart") }
+    }
+    /// Model the coordinating agent runs on, appended as `--model <value>`. Empty
+    /// inherits whatever the launch command already selects. The coordinator does
+    /// a simpler job than the chats it manages so it can run cheaper — but it also
+    /// *reads* the most (every chat's transcript, plus `idealize survey`), so a
+    /// small context window bites sooner here than it would in a worker.
+    @Published var projectAgentModel: String {
+        didSet { defaults.set(projectAgentModel, forKey: "projectAgentModel") }
+    }
+    /// Model the chats the coordinator spawns run on. Kept separate from
+    /// `projectAgentModel` so choosing a cheap coordinator doesn't quietly
+    /// downgrade the chats doing the actual building.
+    @Published var projectAgentChildModel: String {
+        didSet { defaults.set(projectAgentChildModel, forKey: "projectAgentChildModel") }
+    }
+    /// A different agent command for the coordinator alone. Empty inherits
+    /// `defaultLaunchCommand`. A non-Claude command takes neither `--model` nor
+    /// `--append-system-prompt`, so with one set the guide arrives only as the
+    /// `/project-agent` opening turn.
+    @Published var projectAgentLaunchCommand: String {
+        didSet { defaults.set(projectAgentLaunchCommand, forKey: "projectAgentLaunchCommand") }
+    }
+    /// The `FlowSkillInstaller.version` the user's edited operating prompt was
+    /// seeded from, so we can tell them when the built-in guide has moved on
+    /// *without* touching their copy. 0 = they have never edited it.
+    @Published var projectAgentPromptBaseVersion: Int {
+        didSet { defaults.set(projectAgentPromptBaseVersion, forKey: "projectAgentPromptBaseVersion") }
+    }
+
     // MARK: Behavior
     @Published var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: "notificationsEnabled") }
@@ -350,6 +386,14 @@ final class AppSettings: ObservableObject {
         self.shellPath = defaults.string(forKey: "shellPath")
             ?? (ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
         self.serviceHatchRepoPath = defaults.string(forKey: "serviceHatchRepoPath") ?? ""
+        // Opt-in, and every model choice inherits by default: a coordinator should
+        // behave exactly as it does today until the user says otherwise.
+        self.projectAgentAutoStart = defaults.object(forKey: "projectAgentAutoStart") as? Bool ?? false
+        self.projectAgentModel = defaults.string(forKey: "projectAgentModel") ?? ""
+        self.projectAgentChildModel = defaults.string(forKey: "projectAgentChildModel") ?? ""
+        self.projectAgentLaunchCommand = defaults.string(forKey: "projectAgentLaunchCommand") ?? ""
+        self.projectAgentPromptBaseVersion =
+            defaults.object(forKey: "projectAgentPromptBaseVersion") as? Int ?? 0
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         self.completionSoundEnabled = defaults.object(forKey: "completionSoundEnabled") as? Bool ?? true
         self.completionSoundVolume = defaults.object(forKey: "completionSoundVolume") as? Double ?? 0.4
