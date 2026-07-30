@@ -14,9 +14,20 @@ import Foundation
 /// `~/.claude/commands/`, so redirecting it would break the very thing it
 /// provisions. That sharing is a known hazard — see `FlowSkillInstaller`.
 enum AppPaths {
-    /// Whether this process is the dev build (`com.idealize.terminal.dev`).
+    /// Whether this process is a development build — the `.dev` bundle *or* a
+    /// `swift run` binary, which has no bundle identifier at all. Anything that
+    /// isn't demonstrably the installed app is treated as dev: erring that way
+    /// means an unrecognised build writes to its own files, where the failure is a
+    /// puzzled developer rather than a rewritten prompt in the app the user
+    /// actually relies on.
+    ///
+    /// Note `IPC.socketPath` and `AppSettings.seedDevDefaultsFromInstalledAppIfNeeded`
+    /// still use the narrower `hasSuffix(".dev") == true` test, so a `swift run`
+    /// build shares the installed app's socket and preferences. Worth unifying on
+    /// this, but that changes where a dev build looks for its socket, so it isn't
+    /// a drive-by fix.
     static var isDevBuild: Bool {
-        Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true
+        Bundle.main.bundleIdentifier?.hasSuffix(".dev") != false
     }
 
     /// `~/Library/Application Support/IDEalize` — or `IDEalize Dev` for the dev

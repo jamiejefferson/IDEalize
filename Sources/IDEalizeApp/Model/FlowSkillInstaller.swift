@@ -26,9 +26,14 @@ enum FlowSkillInstaller {
     /// v6: added `project-agent` (the coordinating chat for a project's chats).
     /// v7: project-agent guide delivered via system prompt; command slimmed (no visible skill dump).
     /// v8: project-agent gains `spawn` (delegate work to new chats) + "safe version" & "learning from the work" roles.
-    static let version = 8
+    /// v9: project-agent rewritten (v2 prompt): "one version of the truth" prime directive, two language registers, the project board, enforced chat rules, the path-to-live ladder.
+    static let version = 9
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
+    /// Add-only, and only for files the app owns: every entry here is *overwritten*
+    /// on each version bump, so anything the user may have edited themselves (their
+    /// custom project-agent prompt, say) must never be listed — it would be silently
+    /// replaced by the bundled copy on the next launch.
     private static let files: [(src: String, dest: String)] = [
         ("FlowSkills/skills/flow-run/SKILL.md",          "skills/flow-run/SKILL.md"),
         ("FlowSkills/skills/flows/SKILL.md",             "skills/flows/SKILL.md"),

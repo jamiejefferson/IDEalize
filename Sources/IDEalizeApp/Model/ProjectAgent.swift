@@ -115,7 +115,11 @@ enum ProjectAgent {
     @discardableResult
     static func seedCustomPrompt() -> URL? {
         let dest = customPromptURL
-        if usesCustomPrompt { return dest }   // already editing — never clobber
+        // Guard on the file *existing*, not on it being readable as UTF-8:
+        // `usesCustomPrompt` is false for a copy that was re-saved as UTF-16 or
+        // has one bad byte, and seeding over that would destroy real edits with
+        // no warning. Anything already there wins; the caller opens it as-is.
+        if FileManager.default.fileExists(atPath: dest.path) { return dest }
         guard let text = try? String(contentsOf: builtInPromptURL, encoding: .utf8) else {
             return nil
         }
@@ -131,10 +135,17 @@ enum ProjectAgent {
         return dest
     }
 
-    /// Drop the user's copy and go back to the built-in guide.
-    static func resetCustomPrompt() {
+    /// Drop the user's copy and go back to the built-in guide. Returns false when
+    /// the copy is still there afterwards, so the caller can say so rather than
+    /// reporting a reset that didn't happen. Only clears the version stamp once the
+    /// file is genuinely gone — zeroing it while the copy survives would leave
+    /// `customPromptIsBehind` permanently claiming the copy is up to date.
+    @discardableResult
+    static func resetCustomPrompt() -> Bool {
         try? FileManager.default.removeItem(at: customPromptURL)
+        guard !FileManager.default.fileExists(atPath: customPromptURL.path) else { return false }
         AppSettings.shared.projectAgentPromptBaseVersion = 0
+        return true
     }
 
     /// The user is editing a copy taken from an older built-in guide: their edits

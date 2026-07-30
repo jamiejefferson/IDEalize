@@ -194,10 +194,9 @@ private struct ProjectCard: View {
             // Launch this project's coordinating agent. The "Add a project agent?"
             // sheet only appears once per run and can be dismissed for good, so
             // without this there's no way back to it. Mirror the running agent's
-            // sparkles + accent tint, and gate it exactly like the auto-suggestion:
-            // no agent yet, more than one chat to coordinate, real project folder.
-            if group.agentTab == nil, group.chatTabs.count > 1,
-               ProjectAgent.isCoordinatable(group.path) {
+            // sparkles + accent tint. The agent can start a project's chats itself,
+            // so it only needs somewhere to work: no agent here yet, real folder.
+            if group.agentTab == nil, ProjectAgent.isCoordinatable(group.path) {
                 Button(action: { workspace.openProjectAgent(forProject: group.path) }) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 11, weight: .medium))
@@ -205,7 +204,7 @@ private struct ProjectCard: View {
                         .frame(width: 18, height: 18)
                 }
                 .buttonStyle(.iconHover(padding: 3))
-                .help("Add a project agent to keep \(group.displayName)'s chats in sync")
+                .help("Add a project agent to start and look after \(group.displayName)'s chats")
             }
 
             Button(action: { toggleNote() }) {
