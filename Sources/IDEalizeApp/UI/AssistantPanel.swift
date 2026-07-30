@@ -944,6 +944,12 @@ struct QAChatBox: View {
         // rounded corner with equal margin from the top and right edges; the bottom
         // pills keep their tighter 9pt footing. (req 3)
         .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 9)
+        // The whole card is the hit area: click anywhere in the open space —
+        // padding included — to focus and expand. contentShape makes the empty
+        // regions tappable; the buttons, toolbar and field keep priority and
+        // handle their own taps, so this only fires on the otherwise-dead space.
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(inputFill.opacity(settings.chatInputOpacity))
