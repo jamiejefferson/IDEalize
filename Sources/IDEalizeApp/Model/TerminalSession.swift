@@ -575,6 +575,41 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         terminalView.send(txt: text)
     }
 
+    /// Whether text from *another* chat can be delivered right now. False while a
+    /// live interactive prompt (a yes/no confirmation) is on screen: the Return
+    /// that submits a message would answer that prompt instead, which is how an
+    /// agent ends up approving something nobody agreed to. `ProjectMonitor` holds
+    /// its own nudges back for exactly this reason.
+    var canAcceptExternalInput: Bool { !liveInteractivePrompt }
+
+    /// Deliver text sent by another chat — `idealize type` / `idealize exec`, which
+    /// is how the project agent steers the chats it started.
+    ///
+    /// An agent chat gets it through `submitInput`, the same path a human message
+    /// takes: text first, then a *discrete* Return a beat later, escaping out of a
+    /// selection menu beforehand, and the chat marked as working. This used to be a
+    /// raw write for every target, so a message the project agent typed into
+    /// another chat just sat in the composer, unsent — `insert` is deliberately
+    /// "type without executing", and even a trailing newline written in the same
+    /// chunk as the text gets swallowed by an agent's line editor.
+    ///
+    /// A plain shell still gets the raw write, with Ctrl-U clearing any half-typed
+    /// line so the injected text can't inherit a stray prefix. Returns false when
+    /// the target can't safely take it, so the caller can say so and retry rather
+    /// than have the message silently answer a prompt.
+    @discardableResult
+    func deliverExternalInput(_ text: String) -> Bool {
+        guard canAcceptExternalInput else { return false }
+        if tuiActive || agentLaunchInFlight {
+            // `sendLineToTUI` supplies the Return, so a trailing newline from
+            // `exec` would otherwise submit an extra blank line.
+            submitInput(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            insert("\u{15}" + text)
+        }
+        return true
+    }
+
     // MARK: - Lifecycle
 
     /// Start the login shell, injecting IPC identity, then optionally run the

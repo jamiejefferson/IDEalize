@@ -1176,9 +1176,14 @@ final class Workspace: ObservableObject {
             }
             let body = request.body ?? ""
             guard !body.isEmpty else { return .failure("missing text") }
-            // Ctrl-U first clears any partial text in the target's line editor,
-            // so the injected body can't inherit a stray prefix (as `rerun` does).
-            s.insert("\u{15}" + body)
+            // The session decides how to land it: an agent chat needs the message
+            // *submitted* (a discrete Return after a beat), not merely typed. It
+            // refuses while the target is mid-confirmation, so a steering message
+            // can't accidentally answer a yes/no prompt.
+            guard s.deliverExternalInput(body) else {
+                return .failure("\(s.label) is waiting on a yes/no answer of its own — "
+                                + "leave it a moment and send this again")
+            }
             return IPCResponse(ok: true, info: "sent to \(s.label)")
 
         case .reveal:
