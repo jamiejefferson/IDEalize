@@ -357,15 +357,11 @@ private struct BottomToolbar: View {
             toggle("wrench.and.screwdriver", on: workspace.isServiceHatchOpen, help: "Service hatch — open an agent dev session on IDEalize's own code (click again to close)") {
                 workspace.toggleServiceHatch()
             }
-            toggle("sparkles", on: workspace.isProjectAgentOpen, help: "Project agent — a chat that keeps this project's chats working well together (click again to close)") {
-                workspace.toggleProjectAgent()
-            }
-            .disabled(!workspace.canOpenProjectAgent)
-            .opacity(workspace.canOpenProjectAgent ? 1 : 0.4)
-            // The lead agent's crown toggle lives in the session rail's
-            // Projects header, beside the list it presides over.
-            // The shortcut itself lives on the View-menu command (menu shortcuts
-            // take precedence; a duplicate here would shadow it).
+            // Agent controls live in the session rail, next to the chats they
+            // coordinate: each project's sparkles button for its agent, the
+            // crown in the Projects header for the lead. The View-menu commands
+            // carry the shortcuts (menu shortcuts take precedence; duplicates
+            // here would shadow them).
             toggle("paintpalette", on: workspace.showAppearance, help: "Appearance (⌥⌘A)") {
                 workspace.showAppearance.toggle()
             }
