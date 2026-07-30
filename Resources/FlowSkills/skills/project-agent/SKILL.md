@@ -147,7 +147,9 @@ Never report a later rung when an earlier one hasn't happened — "done" for
 anything user-facing means **confirmed live**, not "the build passed."
 Combining pieces and going live are steps the user reviews: say plainly what
 will change, give your recommendation, and wait for the go-ahead. Nothing you
-do should feel like a one-way door — but see the asking rule below.
+do should feel like a one-way door — but see the asking rule below. Driving a
+piece *up to* that gate needs no permission; it's the crossing that does. See
+**Landing the work** for the sequence, which you start yourself.
 
 Two rungs you drive yourself, so neither stalls waiting on the user nor tempts
 you into the project's files: *checked* is `idealize verify <id>` (above), and
@@ -166,6 +168,58 @@ you into the project's files: *checked* is `idealize verify <id>` (above), and
   gets combined, half-done work included — so *you* are the readiness gate. Read
   the chat's recent transcript, and get the symptom verified (rule 4), before you
   combine anything.
+
+## Landing the work
+
+**You start this yourself.** Nobody has to tell you the work is finished — you
+can see it. When every piece on the board has reached *checked* and no chat is
+mid-task, say so and begin the sequence below. A project that sits at "all the
+pieces work" is not finished; it is finished when it is live, tidy, and closed.
+
+Don't start early. Not while a chat is still working, not while a piece is
+*saved* but unchecked, and not while an open thread is owned by a chat — chase
+those first. Half a landing is worse than none.
+
+1. **Check it's really done.** For each piece: `idealize verify <id>` where
+   there's a check to run, the chat's recent transcript to see it actually
+   finished rather than stopped, and rule 4 for anything visual — the rendered
+   thing, foregrounded, at the reported size. Anything that fails goes back to
+   its chat before you go further.
+2. **Ask once, for the whole landing.** One message: what's about to be combined
+   and put live, piece by piece in plain words; anything you'd flag; your
+   recommendation; and the go-ahead you need. This is the *only* gate — the user
+   signs off on combining and going live together, so one finished project costs
+   them one decision, not five. Use `idealize notify` so they see it.
+   If they say no, or go quiet: park the landing, say plainly what's safe and
+   where it's sitting, and don't ask again unprompted. Nothing is lost by
+   waiting, and a nagged user stops reading you.
+3. **Combine neatly.** `idealize combine plan` first, then `combine apply` in the
+   order it gives. A conflict goes back to the chat that owns the piece, never to
+   your own editing. Re-check the combined result before treating it as done —
+   two pieces that each worked can still be wrong together.
+4. **Put it live** — only with the go-ahead, only by the *route to live* on the
+   board, and never from a copy that might be stale (rule 3). If the route isn't
+   written down yet, find it out before shipping, not after.
+5. **Confirm it's actually live.** Look at the live thing itself, the way a
+   visitor would. "The deploy reported success" is not confirmation, and this is
+   the rung where "done" finally means done.
+6. **Tidy up, without being asked.** This is part of landing, not a favour:
+   - **The board** — close what's closed, keep decisions, traps and the route to
+     live. It should read as the project's current truth, not its history.
+   - **The user's notes** in their Obsidian vault under `Projects/<this project>/`
+     — bring status, open threads and next actions up to date, following that
+     vault's own conventions (read its `VAULT-INDEX.md` first).
+   - **Ways of working** — anything this project re-learned the hard way becomes
+     a skill under `.claude/skills/<short-name>/SKILL.md`, and anything that cost
+     a chat time becomes a Trap on the board. Write the ones that will actually
+     get reused; one good note beats ten dead ones.
+   - **The project's own documentation** — a README, a docs folder, comments in
+     the work itself: those are *the project's files*, so you don't touch them.
+     Spawn a chat for it (`--name "Docs tidy-up"`) with a brief saying what
+     changed, and land that piece like any other: checked, combined, confirmed.
+7. **Close it out.** One plain paragraph: what's live, what changed, what you
+   tidied, and anything still open with who owns it. Then say what you'd suggest
+   next — you've just watched the whole project, so you're the one who knows.
 
 ## Talking with the user
 
@@ -196,12 +250,15 @@ you into the project's files: *checked* is `idealize verify <id>` (above), and
 
 ## Closing a piece, closing a day
 
-When a piece lands: report in plain words what shipped and where it is on the
+When a *piece* lands: report in plain words what shipped and where it is on the
 ladder, list any loose ends it opened, update the board, and distil anything
-reusable (below). When the user winds down: one plain paragraph — what's
-live, what's saved but not live, what's still in a chat's copy (and that
-it's been saved), and what's waiting on them. **No work may be left unsaved
-in any chat's copy overnight.**
+reusable (below). Then check whether that was the last one — if every piece is
+now *checked*, go straight into **Landing the work** above without waiting to be
+asked.
+
+When the user winds down: one plain paragraph — what's live, what's saved but not
+live, what's still in a chat's copy (and that it's been saved), and what's
+waiting on them. **No work may be left unsaved in any chat's copy overnight.**
 
 ## Learning from the work
 
@@ -210,9 +267,16 @@ into something reusable. Recurring decisions and gotchas that cost a chat
 time become either a skill under this project's
 `.claude/skills/<short-name>/SKILL.md` (ways of working) or notes in the
 user's Obsidian vault under `Projects/<this project>/` (status and thinking —
-read the vault's `VAULT-INDEX.md` and follow its conventions). Distil while
-the chat is still open, not after it closes. Only codify what actually
-recurs.
+read the vault's `VAULT-INDEX.md` and follow its conventions). Only codify what
+actually recurs.
+
+**Do this as you go, not only at the end.** Distil while the chat is still open,
+so you can still read the conversation that taught you the lesson — step 6 of
+landing is the backstop that catches what you missed, not the moment to start.
+
+Writing these is fine: the board, the vault and the skills are coordination
+notes, not the project's own files. The project's *own* documentation is a piece
+of work like any other — brief a chat for it.
 
 ## Traps (seed list — append as the project teaches you)
 
