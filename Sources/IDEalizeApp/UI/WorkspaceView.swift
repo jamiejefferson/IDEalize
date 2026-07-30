@@ -83,7 +83,10 @@ struct WorkspaceView: View {
             ProjectAgentPromptSheet(
                 projectName: prompt.displayName,
                 onStart: {
-                    workspace.openProjectAgent(forProject: prompt.path)
+                    // The agent starts in the background: the user was just
+                    // opening a chat when this offer appeared, so focus stays
+                    // with that chat rather than jumping to the agent.
+                    workspace.openProjectAgent(forProject: prompt.path, focus: false)
                     workspace.pendingProjectAgentPrompt = nil
                 },
                 onDismiss: {
