@@ -130,10 +130,11 @@ func printUsage() {
       peek [--json]                         read my messages without clearing
       list [--json]                         list active terminals
       spawn <task> [--name LABEL] [--path DIR] [--isolated]  start a new chat (in DIR, else my project) with an opening task; prints its id. --name labels its tab (else one is read off the task). --isolated gives it its own separate copy of the folder
+      spawn --coordinator [--path DIR]      start (or surface) DIR's project agent instead of a worker; prints its id
       diff [session] [--base REF] [--json]  what a chat has changed (vs its copy's start, or REF)
-      survey [--json]                       every chat's changes + which copies touch the same files
+      survey [--path DIR] [--json]          every chat's changes + which copies touch the same files (--path: lead agent only)
       verify [session] [--json]             run the folder's build/check for a chat; honest pass/fail
-      combine plan [--into DIR] [--json]    read-only: a safe order to combine copies (changes nothing)
+      combine plan [--path DIR] [--into DIR] [--json]  read-only: a safe order to combine copies (changes nothing; --path: lead agent only)
       combine apply <session> [--into DIR]  bring ONE copy's work into the main version (gated, reversible)
       blocks [session] [--json]             list recorded command blocks
       transcript <session> [--last N] [--json]  read a chat's recent Q&A
@@ -142,7 +143,7 @@ func printUsage() {
       type <session> <text>                 type text into another terminal
       image <path> [--width W] [--height H] render an image inline
       status <text>                         set this tab's status label
-      note [--set <text>] [--mine <text>]   read the shared note; --set the brief, --mine this chat's status
+      note [--set <text>] [--mine <text>] [--path DIR]  read the shared note; --set the brief, --mine this chat's status; --path reads another project's (lead agent only)
       agent-hello --name <n> --format <f>   introduce a coding agent to IDEalize (handshake);
                 format: claude-jsonl|kimi-wire|none  [--transcript <path template>]
                 [--nonce <n>] [--working-patterns "esc to interrupt,…"]
@@ -151,6 +152,11 @@ func printUsage() {
 
     Identity is taken from $\(IPC.sessionEnvKey); authorization from
     $\(IPC.tokenEnvKey) (or the app's ipc.token file).
+
+    ADDRESSING: a <session> is a t-… id, a tab label, or a project folder name.
+    Aliases: `coordinator` / `project-agent` → your own project's coordinating
+    chat ($IDEALIZE_PROJECT_AGENT also carries its id); `lead` / `lead-agent` →
+    the workspace's lead agent ($IDEALIZE_LEAD_AGENT likewise).
     """)
 }
 
@@ -339,16 +345,21 @@ case "spawn":
     // --name labels the new chat's tab. Worth passing: a task is usually a full
     // brief, so a name read off its opening words is a poorer label than the one
     // the caller could give it. Without it the app derives one from the task.
-    let flags = Flags(rest, boolFlags: ["isolated"])   // --path DIR, --name LABEL; positionals join into the task
+    // --coordinator starts the project's *coordinating agent* rather than a
+    // worker — the lead agent uses this to watch a project that has no agent
+    // yet (or whose agent died). Idempotent: one coordinator per project.
+    let flags = Flags(rest, boolFlags: ["isolated", "coordinator"])   // --path DIR, --name LABEL; positionals join into the task
     let task = flags.positionals.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !task.isEmpty || flags.values["path"] != nil else {
-        fail("usage: idealize spawn <task> [--name LABEL] [--path DIR] [--isolated]")
+    let coordinator = flags.bools.contains("coordinator")
+    guard !task.isEmpty || flags.values["path"] != nil || coordinator else {
+        fail("usage: idealize spawn <task> [--name LABEL] [--path DIR] [--isolated] | idealize spawn --coordinator [--path DIR]")
     }
     let resp = sendRequest(IPCRequest(command: .spawn, from: mySession,
                                       target: flags.values["path"],
                                       body: task.isEmpty ? nil : task,
                                       isolated: flags.bools.contains("isolated") ? true : nil,
-                                      name: flags.values["name"]))
+                                      name: flags.values["name"],
+                                      coordinator: coordinator ? true : nil))
     if !resp.ok { fail(resp.error ?? "spawn failed") }
     out(resp.info ?? "spawned")   // info carries the new chat's session id
 
@@ -376,8 +387,11 @@ case "diff":
 case "survey":
     // Read-only: every chat's change summary, plus which separate copies are
     // changing the same files — the overlap check to run before combining.
+    // --path surveys another project — honoured only for the lead agent; every
+    // other chat is scoped to its own project.
     let flags = Flags(rest, boolFlags: ["json"])
-    let resp = sendRequest(IPCRequest(command: .survey, from: mySession))
+    let resp = sendRequest(IPCRequest(command: .survey, from: mySession,
+                                      target: flags.values["path"]))
     if !resp.ok { fail(resp.error ?? "survey failed") }
     guard let s = resp.survey else { fail("survey returned nothing") }
     if flags.bools.contains("json") {
@@ -417,7 +431,9 @@ case "combine":
     let flags = Flags(rest, boolFlags: ["json"])
     switch flags.positionals.first {
     case "plan":
+        // --path plans another project's combine — lead agent only, like survey.
         let resp = sendRequest(IPCRequest(command: .combinePlan, from: mySession,
+                                          target: flags.values["path"],
                                           body: flags.values["into"]))
         if !resp.ok { fail(resp.error ?? "combine plan failed") }
         guard let p = resp.combinePlan else { fail("plan returned nothing") }
@@ -481,13 +497,19 @@ case "note":
                                           target: mine ? "mine" : nil, body: text))
         if !resp.ok { fail(resp.error ?? "note failed") }
         out(resp.info ?? (mine ? "noted" : "note updated"))
+    } else if rest.first == "--path", rest.count >= 2 {
+        // Read another project's shared note — honoured only for the lead agent.
+        let resp = sendRequest(IPCRequest(command: .note, from: mySession, target: rest[1]))
+        if !resp.ok { fail(resp.error ?? "note failed") }
+        let note = resp.info ?? ""
+        out(note.isEmpty ? "(no project note yet)" : note)
     } else if rest.isEmpty {
         let resp = sendRequest(IPCRequest(command: .note, from: mySession))
         if !resp.ok { fail(resp.error ?? "note failed") }
         let note = resp.info ?? ""
         out(note.isEmpty ? "(no project note yet)" : note)
     } else {
-        fail("usage: idealize note [--set <text>] [--mine <text>]")
+        fail("usage: idealize note [--set <text>] [--mine <text>] [--path DIR]")
     }
 
 case "agent-hello":

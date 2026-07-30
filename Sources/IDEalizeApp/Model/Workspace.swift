@@ -1168,7 +1168,7 @@ final class Workspace: ObservableObject {
         case .send:
             guard let target = request.target else { return .failure("missing target") }
             let dest: TerminalSession
-            switch resolveTarget(target) {
+            switch resolveTarget(target, from: request.from) {
             case .success(let s): dest = s
             case .failure(let error): return .failure(error.message)
             }
@@ -1218,6 +1218,16 @@ final class Workspace: ObservableObject {
             guard let from = request.from, let s = session(withID: from) else {
                 return .failure("unknown sender session")
             }
+            // The lead agent may *read* another project's shared note with an
+            // explicit `--path` (never write it — the note belongs to the
+            // project's own chats and user).
+            if let explicit = request.target, explicit != "mine", !explicit.isEmpty,
+               s.isLeadAgent {
+                guard request.body == nil else {
+                    return .failure("the lead agent reads a project's note; it doesn't write it")
+                }
+                return IPCResponse(ok: true, info: composedProjectNote(explicit))
+            }
             guard let path = s.projectPath, !path.isEmpty, path != "/" else {
                 return .failure("this terminal isn't in a project folder")
             }
@@ -1237,7 +1247,7 @@ final class Workspace: ObservableObject {
             guard let target = request.target else {
                 return .failure("no session matching target")
             }
-            switch resolveTarget(target) {
+            switch resolveTarget(target, from: request.from) {
             case .success(let s):
                 focusSession(s.id)
                 return IPCResponse(ok: true)
@@ -1250,7 +1260,7 @@ final class Workspace: ObservableObject {
                 return .failure("no session matching target")
             }
             let s: TerminalSession
-            switch resolveTarget(target) {
+            switch resolveTarget(target, from: request.from) {
             case .success(let found): s = found
             case .failure(let error): return .failure(error.message)
             }
@@ -1274,7 +1284,7 @@ final class Workspace: ObservableObject {
             let target = request.target ?? request.from
             guard let t = target else { return .failure("unknown session") }
             let s: TerminalSession
-            switch resolveTarget(t) {
+            switch resolveTarget(t, from: request.from) {
             case .success(let found): s = found
             case .failure(let error): return .failure(error.message)
             }
@@ -1293,7 +1303,7 @@ final class Workspace: ObservableObject {
             let target = request.target ?? request.from
             guard let t = target else { return .failure("unknown session") }
             let s: TerminalSession
-            switch resolveTarget(t) {
+            switch resolveTarget(t, from: request.from) {
             case .success(let found): s = found
             case .failure(let error): return .failure(error.message)
             }
@@ -1339,6 +1349,20 @@ final class Workspace: ObservableObject {
             guard ProjectAgent.isCoordinatable(project) else {
                 return .failure("'\(project)' isn't a real project folder to spawn a chat in")
             }
+            // With `--coordinator`, start (or surface) the project's *coordinating
+            // agent* instead of a worker — how the lead agent bootstraps a project
+            // agent for an unwatched project, or relaunches one that died. One per
+            // project is enforced by `openProjectAgent`, so this is idempotent.
+            if request.coordinator == true {
+                openProjectAgent(forProject: project, focus: false)
+                guard let agent = projectAgentSession(forProject: project) else {
+                    return .failure("couldn't start a project agent for '\(project)'")
+                }
+                if let from = request.from, session(withID: from) != nil {
+                    focusSession(from)
+                }
+                return IPCResponse(ok: true, info: agent.id)
+            }
             // With `--isolated`, give the child its own safe copy (a separate
             // worktree) so it can't collide with other chats. If the folder can't
             // support one (not a git repo, no commits), fall back to the shared
@@ -1383,7 +1407,7 @@ final class Workspace: ObservableObject {
             let t = request.target ?? request.from
             guard let t else { return .failure("unknown chat") }
             let s: TerminalSession
-            switch resolveTarget(t) {
+            switch resolveTarget(t, from: request.from) {
             case .success(let found): s = found
             case .failure(let error): return .failure(error.message)
             }
@@ -1400,8 +1424,18 @@ final class Workspace: ObservableObject {
         case .survey:
             // Read-only: every member chat's change summary, plus which safe copies
             // are changing the same files (the pre-combine overlap check).
-            guard let from = request.from, let me = session(withID: from),
-                  let project = me.projectPath else {
+            guard let from = request.from, let me = session(withID: from) else {
+                return .failure("unknown sender session")
+            }
+            // The lead agent may look across the project boundary with an explicit
+            // `--path`; for every other chat the boundary holds — its own project
+            // is the only one it can survey.
+            let project: String
+            if let explicit = request.target, !explicit.isEmpty, me.isLeadAgent {
+                project = explicit
+            } else if let p = me.projectPath {
+                project = p
+            } else {
                 return .failure("this chat isn't in a project")
             }
             let members = allSessions.filter { $0.projectPath == project && !$0.isProjectAgent }
@@ -1433,8 +1467,16 @@ final class Workspace: ObservableObject {
         case .combinePlan:
             // Read-only: propose an order to combine the project's safe copies,
             // with a trial (no-op) conflict check. Changes nothing.
-            guard let from = request.from, let me = session(withID: from),
-                  let project = me.projectPath else {
+            guard let from = request.from, let me = session(withID: from) else {
+                return .failure("unknown sender session")
+            }
+            // Same boundary rule as `survey`: only the lead crosses it.
+            let project: String
+            if let explicit = request.target, !explicit.isEmpty, me.isLeadAgent {
+                project = explicit
+            } else if let p = me.projectPath {
+                project = p
+            } else {
                 return .failure("this chat isn't in a project")
             }
             let target = (request.body?.isEmpty == false) ? request.body! : project
@@ -1485,7 +1527,7 @@ final class Workspace: ObservableObject {
                 return .failure("say which chat's work to bring in")
             }
             let src: TerminalSession
-            switch resolveTarget(t) {
+            switch resolveTarget(t, from: request.from) {
             case .success(let found): src = found
             case .failure(let error): return .failure(error.message)
             }
@@ -1543,7 +1585,7 @@ final class Workspace: ObservableObject {
                 authError = "unauthorized: missing or invalid IDEALIZE_TOKEN"; return
             }
             guard let t = request.target ?? request.from else { authError = "unknown chat"; return }
-            switch self.resolveTarget(t) {
+            switch self.resolveTarget(t, from: request.from) {
             case .success(let s): dir = s.workingDirectory
             case .failure(let e): authError = e.message
             }
@@ -1561,19 +1603,40 @@ final class Workspace: ObservableObject {
         return Data(token.utf8) == Data(ipcToken.utf8)
     }
 
-    /// Resolve a target string to a session by id, then by tab/label, then by
-    /// project directory name. A name matching several sessions is an ambiguity
-    /// error listing the candidates — never a silent pick of the first.
-    private func resolveTarget(_ target: String) -> Result<TerminalSession, TargetResolutionError> {
+    /// Resolve a target string to a session by id, then by alias, then by
+    /// tab/label, then by project directory name. A name matching several
+    /// sessions is an ambiguity error listing the candidates — never a silent
+    /// pick of the first. `from` is the calling session's id, when known: the
+    /// `coordinator` alias means *the caller's own project's* coordinator, so
+    /// with several projects coordinated the sender decides which one resolves.
+    private func resolveTarget(_ target: String, from: String? = nil)
+        -> Result<TerminalSession, TargetResolutionError> {
         if let exact = session(withID: target) { return .success(exact) }
         let lower = target.lowercased()
+        // A friendly alias for the workspace's lead agent, so any session can
+        // report upward without knowing its id.
+        if lower == "lead" || lower == "lead-agent" {
+            if let lead = leadAgentSession { return .success(lead) }
+            return .failure(TargetResolutionError(message: "no lead agent is running"))
+        }
         // A friendly alias for the project's coordinating chat, so any session —
         // even one started before it — can reach it without knowing its id.
         if lower == "coordinator" || lower == "project-agent" {
-            if let agent = allSessions.first(where: { $0.isProjectAgent }) {
-                return .success(agent)
+            // The sender's own project's agent wins; first-match-globally would
+            // misroute the moment two projects are coordinated.
+            if let from, let senderProject = session(withID: from)?.projectPath,
+               let own = projectAgentSession(forProject: senderProject) {
+                return .success(own)
             }
-            return .failure(TargetResolutionError(message: "no project agent is running"))
+            let agents = allSessions.filter { $0.isProjectAgent }
+            switch agents.count {
+            case 1: return .success(agents[0])
+            case 0: return .failure(TargetResolutionError(message: "no project agent is running"))
+            default:
+                let ids = agents.map(\.id).joined(separator: ", ")
+                return .failure(TargetResolutionError(
+                    message: "several project agents are running (\(ids)) — use a session id"))
+            }
         }
         var matches = allSessions.filter { $0.label.lowercased() == lower }
         if matches.isEmpty {
