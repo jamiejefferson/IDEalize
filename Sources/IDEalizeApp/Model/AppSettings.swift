@@ -402,9 +402,10 @@ final class AppSettings: ObservableObject {
         }
         self.defaultLaunchCommand = defaults.string(forKey: "defaultLaunchCommand")
             ?? "claude --dangerously-skip-permissions"
-        // Opt-in: auto-launching an agent (with permissions skipped) on every new
-        // terminal is off unless the user flips the switch.
-        self.launchOnNewTerminal = defaults.object(forKey: "launchOnNewTerminal") as? Bool ?? false
+        // On by default: this is a Claude-Code-native app, so a new terminal should
+        // launch the agent. Only a user who explicitly flips the switch off opts out
+        // (an explicit stored `false` is preserved; `?? true` only fills a missing value).
+        self.launchOnNewTerminal = defaults.object(forKey: "launchOnNewTerminal") as? Bool ?? true
         self.shellPath = defaults.string(forKey: "shellPath")
             ?? (ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
         self.serviceHatchRepoPath = defaults.string(forKey: "serviceHatchRepoPath") ?? ""

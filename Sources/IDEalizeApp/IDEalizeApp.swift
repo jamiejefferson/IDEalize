@@ -266,6 +266,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the user opens can review and run Flows (idempotent, version-checked).
         // Claude-only for now; other agents get flow support via their own adapters.
         FlowSkillInstaller.install()
+        // Pre-accept Claude Code's one-time "Bypass Permissions mode" gate so the
+        // default `--dangerously-skip-permissions` launch doesn't hang a fresh machine
+        // on a dialog we type past but never answer. Runs before any chat spawns Claude.
+        ClaudeConfigBootstrap.ensureBypassPermissionsAccepted()
         Workspace.shared.startIPCIfNeeded()
         NSApp.activate(ignoringOtherApps: true)
     }
