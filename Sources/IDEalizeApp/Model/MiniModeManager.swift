@@ -129,7 +129,7 @@ final class MiniModeManager: ObservableObject {
         window.contentMinSize = NSSize(width: Self.minWidth, height: 380)
         window.setFrame(targetFrame, display: true, animate: true)
         window.level = AppSettings.shared.miniModeAlwaysOnTop ? .floating : .normal
-        refitTerminals()
+        refitTerminals(after: window, animatingTo: targetFrame)
     }
 
     private func disable(window: NSWindow) {
@@ -154,8 +154,10 @@ final class MiniModeManager: ObservableObject {
             if shouldZoom, !window.isZoomed {
                 window.zoom(nil)
             }
+            refitTerminals(after: window, animatingTo: frame)
+        } else {
+            refitTerminals()
         }
-        refitTerminals()
     }
 
     /// After a programmatic mini-mode resize, force every terminal to reflow to
@@ -163,8 +165,21 @@ final class MiniModeManager: ObservableObject {
     /// freeze→unfreeze path a real window-drag ends on; without it SwiftTerm
     /// keeps its old column count, so the grid stays narrow after exiting
     /// mini-mode even though the window has grown back.
-    private func refitTerminals() {
-        DispatchQueue.main.async {
+    ///
+    /// The pulse has to land *after* the animated `setFrame` has finished and
+    /// the desktop ↔ compact layout swap has happened. `setFrame(animate:)`
+    /// returns immediately and animates over ~0.2s, so a next-tick pulse would
+    /// refit the *old* layout's containers at the *old* size and leave the new
+    /// layout's terminal at a stale width — the mini-mode column then shows a
+    /// grid still wrapped for the full-size window.
+    private func refitTerminals(after window: NSWindow? = nil, animatingTo frame: NSRect? = nil) {
+        let delay: TimeInterval
+        if let window, let frame {
+            delay = window.animationResizeTime(frame) + 0.1
+        } else {
+            delay = 0.1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             LiveResizeMonitor.shared.beginWindowResize()
             LiveResizeMonitor.shared.endWindowResize()
         }

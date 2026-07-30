@@ -189,7 +189,7 @@ struct LeafPaneView: View {
                 .animation(Self.modeAnim, value: session.revealTerminal)
                 // Keep the terminal's own last lines clear of the floating input so
                 // live output is never hidden beneath it. (req 2b)
-                .padding(.bottom, compact ? 0 : floatingInputInset)
+                .padding(.bottom, compact && !session.revealTerminal ? 0 : floatingInputInset)
 
             if compact {
                 // Mini-mode: the full-bleed docked chat (transcript + input in one
@@ -197,6 +197,12 @@ struct LeafPaneView: View {
                 if !session.revealTerminal {
                     chatCard
                         .transition(.scale(scale: 0.04, anchor: .topTrailing).combined(with: .opacity))
+                } else {
+                    // Terminal revealed: the one floating input stays pinned at
+                    // the foot of the column — the composer is never out of
+                    // reach in mini-mode. Mirrors the desktop layout below.
+                    QAChatBox(session: session, workspace: workspace, collapsed: true)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 }
             } else {
                 // Chat mode: tap the exposed terminal margin to reveal the terminal.
@@ -245,9 +251,12 @@ struct LeafPaneView: View {
             // the floating solo input — rather than the docked chat card. Applied
             // once per view lifetime, and never over a login/prompt the chat viewer
             // needs to surface, so those flows still land in the transcript.
+            // Mini-mode is the exception: the chat (messages + composer) is the
+            // default focus of the narrow column (spec §5.4), so the compact pane
+            // never forces the terminal forward on appear.
             guard !appliedDefaultView else { return }
             appliedDefaultView = true
-            if session.loginState == .none && session.pendingPrompt == nil {
+            if !compact, session.loginState == .none && session.pendingPrompt == nil {
                 session.revealTerminal = true
             }
         }
