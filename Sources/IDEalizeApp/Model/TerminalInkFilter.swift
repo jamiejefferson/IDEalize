@@ -326,7 +326,7 @@ struct TerminalInkFilter {
     /// The least contrast ordinary (non-dim) text keeps against a light ground, so
     /// the echo of typed input — often painted in a pale, assume-dark-terminal grey
     /// — reads clearly rather than ghosting into the paper.
-    private static let bodyContrastFloor: CGFloat = 4.0
+    static let bodyContrastFloor: CGFloat = 4.0
 
     /// A light ground (paper themes) needs the legibility floors; a dark ground
     /// doesn't, and lifting its colours would reveal intentional dark-on-dark marks.
@@ -340,15 +340,20 @@ struct TerminalInkFilter {
     /// only as far as it takes to clear `floor` against the background. A colour
     /// that already clears it is returned untouched, so this can only ever lift a
     /// washed-out colour into legibility — never darken or recolour a clear one.
-    private func legible(_ color: NSColor, floor: CGFloat) -> NSColor {
+    static func legible(_ color: NSColor, on background: NSColor, toward ink: NSColor,
+                        floor: CGFloat) -> NSColor {
         guard Theme.contrast(color, background) < floor else { return color }
         var low: CGFloat = 0, high: CGFloat = 1   // 0 → color, 1 → ink
         for _ in 0..<16 {
             let mid = (low + high) / 2
-            let candidate = color.blended(withFraction: mid, of: foreground) ?? foreground
+            let candidate = color.blended(withFraction: mid, of: ink) ?? ink
             if Theme.contrast(candidate, background) < floor { low = mid } else { high = mid }
         }
-        return color.blended(withFraction: high, of: foreground) ?? foreground
+        return color.blended(withFraction: high, of: ink) ?? ink
+    }
+
+    private func legible(_ color: NSColor, floor: CGFloat) -> NSColor {
+        Self.legible(color, on: background, toward: foreground, floor: floor)
     }
 
     /// The current foreground blended toward the ground by `dimBlend`.

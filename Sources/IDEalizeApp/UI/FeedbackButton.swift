@@ -35,8 +35,9 @@ struct FeedbackButton: View {
     private var sheet: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Give feedback").font(settings.ui(16, .semibold))
+                .foregroundStyle(Color(theme.foreground))
             Text("What's working, what's not, or what you'd like next. Goes to the IDEalize backlog.")
-                .font(settings.ui(11)).foregroundStyle(.secondary)
+                .font(settings.ui(11)).foregroundStyle(Color(theme.secondaryForeground))
             TextEditor(text: $text)
                 .font(settings.ui(13))
                 .foregroundStyle(Color(theme.foreground))
@@ -58,6 +59,11 @@ struct FeedbackButton: View {
             }
         }
         .padding(20)
+        .background(Color(theme.chrome))
+        // The sheet's window follows the *system* appearance, not the app theme,
+        // so pin the scheme to the theme: label colours, button bezels and the
+        // TextEditor's typed text then resolve against the themed background.
+        .environment(\.colorScheme, theme.isDark ? .dark : .light)
     }
 
     private func submit() {

@@ -44,6 +44,8 @@ struct SettingsView: View {
                 .tabItem { Label("Project agent", systemImage: "sparkles") }
             behaviorTab
                 .tabItem { Label("Behavior", systemImage: "gearshape") }
+            keybindsTab
+                .tabItem { Label("Keybinds", systemImage: "keyboard") }
         }
         .frame(width: 540, height: 420)
         .padding()
@@ -316,6 +318,32 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .onChange(of: settings.miniModeDockSide) { MiniModeManager.shared.refreshIfNeeded() }
         .onChange(of: settings.miniModeAlwaysOnTop) { MiniModeManager.shared.refreshIfNeeded() }
+    }
+
+    // MARK: - Keybinds
+
+    /// Every keyboard shortcut in the app, straight from the shared catalogue the
+    /// ⌘/ overlay also reads — one list, two doors. Read-only on purpose: each
+    /// shortcut is a real menu item, so there's nothing here to rebind (yet).
+    private var keybindsTab: some View {
+        Form {
+            ForEach(ShortcutCatalog.groups, id: \.title) { group in
+                Section(group.title) {
+                    ForEach(group.items, id: \.action) { item in
+                        LabeledContent(item.action) {
+                            Text(item.keys)
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            Section {
+                Text("Every shortcut is also a menu item, so you can find them in the menu bar as you learn them. Press ⌘/ anywhere for this list as a floating overlay. Shortcuts can't be changed yet.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 

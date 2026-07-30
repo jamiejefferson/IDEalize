@@ -826,8 +826,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         // than SwiftTerm's fixed half — see `TerminalInkFilter`.
         terminalView.ink.ruleColor = theme.ruleColor
         // Tint the user's prompt-marker chevron with the app highlight so your own
-        // inputs stand out scrolling back through a chat.
-        terminalView.ink.markerColor = settings.actionStyle.nsColor
+        // inputs stand out scrolling back through a chat. The same chevron is the
+        // selection pointer in an agent's list menus, and the highlight comes from
+        // the *app* theme, not the terminal's — floored against this ground so a
+        // dark-theme accent can't vanish on paper and take the selected row's only
+        // clear marker with it.
+        terminalView.ink.markerColor = TerminalInkFilter.legible(
+            settings.actionStyle.nsColor, on: theme.background,
+            toward: theme.foreground, floor: TerminalInkFilter.bodyContrastFloor)
         terminalView.ink.dimBlend = theme.dimBlend
         terminalView.ink.background = theme.background
         terminalView.ink.foreground = theme.foreground
