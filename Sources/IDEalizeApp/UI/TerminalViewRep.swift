@@ -105,8 +105,11 @@ struct TerminalViewRep: NSViewRepresentable {
                 if resizing { coord?.freeze() } else { coord?.unfreeze() }
             }
         // Paint the margin gap with the terminal's own background so it reads as
-        // padding rather than a void.
-        container.layer?.backgroundColor = term.nativeBackgroundColor.cgColor
+        // padding rather than a void. Read the colour from settings, not the
+        // terminal view: on a theme tap this update runs before the onChange
+        // that re-themes the sessions, so the view's own colour is still the
+        // old theme's — which left the margins one tap behind.
+        container.layer?.backgroundColor = settings.terminalTheme.background.cgColor
         hideScroller(term)
         return container
     }
@@ -115,7 +118,7 @@ struct TerminalViewRep: NSViewRepresentable {
         let inset = CGFloat(settings.terminalMargin)
         context.coordinator.leading?.constant = inset
         context.coordinator.trailing?.constant = inset
-        nsView.layer?.backgroundColor = session.terminalView.nativeBackgroundColor.cgColor
+        nsView.layer?.backgroundColor = settings.terminalTheme.background.cgColor
         hideScroller(session.terminalView)
     }
 
