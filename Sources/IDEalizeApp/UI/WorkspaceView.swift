@@ -373,6 +373,11 @@ private struct ResizeHandle: View {
     @ObservedObject private var settings = AppSettings.shared
     @State private var startWidth: Double?
     @State private var hovering = false
+    /// Resets to false on gesture end OR cancel — SwiftUI's only cancellation
+    /// signal. A cancelled drag skips `onEnded`; without this the monitor's
+    /// panel refcount leaks, `isResizing` latches true, and every terminal
+    /// stays frozen at its drag-time size for good.
+    @GestureState private var dragActive = false
 
     var body: some View {
         Rectangle()
@@ -394,6 +399,7 @@ private struct ResizeHandle: View {
                         // widths for the whole drag. Global coords can't be perturbed by
                         // the handle moving.
                         DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .updating($dragActive) { _, state, _ in state = true }
                             .onChanged { v in
                                 if startWidth == nil {
                                     startWidth = width
@@ -410,8 +416,9 @@ private struct ResizeHandle: View {
                             .onEnded { _ in endDrag() }
                     )
             )
-            // A cancelled gesture skips `onEnded`; without this the terminal grid
-            // would stay frozen for good.
+            // A cancelled gesture skips `onEnded` — catch it via the GestureState
+            // reset; without this the terminal grid would stay frozen for good.
+            .onChange(of: dragActive) { _, active in if !active { endDrag() } }
             .onDisappear { endDrag() }
     }
 
