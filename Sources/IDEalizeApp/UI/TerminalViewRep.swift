@@ -57,6 +57,31 @@ struct TerminalViewRep: NSViewRepresentable {
             container?.layoutSubtreeIfNeeded()
         }
 
+        /// Release any stale size pins left on the terminal view when no drag
+        /// is in flight. A freeze can outlive its resize: the terminal NSView
+        /// is shared across layout swaps (shell ↔ chat re-host it in fresh
+        /// containers), and SwiftUI gives no ordering between the new host's
+        /// make and the old host's dismantle — a freeze pin left by the old
+        /// host rides the reparented view, fights this host's fill
+        /// constraints, and keeps the grid at its old size for good: a dead
+        /// band at the terminal's foot that never reflows back. Only freeze
+        /// pins match this shape (constant self-constraints on the terminal
+        /// itself); SwiftTerm's own constraints live on its subviews.
+        func thawStalePins() {
+            guard freezeW == nil, let term else { return }
+            let pins = term.constraints.filter {
+                $0.firstItem === term && $0.secondItem == nil &&
+                    ($0.firstAttribute == .width || $0.firstAttribute == .height)
+            }
+            // The conflict can also have broken this host's fill constraints —
+            // AppKit deactivates one side to recover — so re-assert them.
+            let broken = [trailing, bottom].compactMap { $0 }.filter { !$0.isActive }
+            guard !pins.isEmpty || !broken.isEmpty else { return }
+            NSLayoutConstraint.deactivate(pins)
+            NSLayoutConstraint.activate(broken)
+            container?.layoutSubtreeIfNeeded()
+        }
+
         /// Drop any active freeze without re-activating the fill constraints,
         /// for when this representable is dismantled. The terminal NSView
         /// outlives the representable (the session owns it), and the freeze
@@ -118,6 +143,13 @@ struct TerminalViewRep: NSViewRepresentable {
         let inset = CGFloat(settings.terminalMargin)
         context.coordinator.leading?.constant = inset
         context.coordinator.trailing?.constant = inset
+        // Any update outside a live resize is a safe point to thaw a freeze
+        // whose end event was lost, so a stale pin can never hold the grid at
+        // an old size once the drag (or layout swap) is over.
+        if !LiveResizeMonitor.shared.isResizing {
+            context.coordinator.unfreeze()
+            context.coordinator.thawStalePins()
+        }
         nsView.layer?.backgroundColor = settings.terminalTheme.background.cgColor
         hideScroller(session.terminalView)
     }

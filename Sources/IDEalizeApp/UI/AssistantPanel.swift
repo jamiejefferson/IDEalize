@@ -879,8 +879,11 @@ struct QAChatBox: View {
         // room to write, and — floating over the terminal — it grows up to cover
         // the terminal's own input line. Tapping away drops focus and it settles
         // back. Only the floating/standby form expands; the docked form already
-        // fills its pane.
-        let expanded = collapsed && focused
+        // fills its pane. And only over a TUI, where the input floats as an
+        // overlay: in plain-shell mode the bar sits in the pane's layout, so
+        // expanding there would squeeze the terminal grid and force a reflow —
+        // the terminal must never resize to track the composer's expansion.
+        let expanded = collapsed && focused && session.tuiActive
         return VStack(alignment: .leading, spacing: 8) {
             // Flow mode: the conversation-first designer lives inside this same
             // container, which has grown upward to hold it. The interview fills the

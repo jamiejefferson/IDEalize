@@ -499,14 +499,9 @@ final class Workspace: ObservableObject {
             pendingProjectAgentPrompt = ProjectAgentPrompt(path: project)
             return
         }
-        // Starting the agent adds a tab of its own, and every new tab takes
-        // selection with it — so without putting focus back, asking for a chat
-        // would drop the user (and their next keystrokes) into the agent instead
-        // of the chat they just asked for. The agent still appears in the rail.
-        let origin = selectedTabID
-        openProjectAgent(forProject: project)
-        selectedTabID = origin
-        focusedSessionID = session.id
+        // The agent works in the background: the user asked for a chat, so
+        // that's where their focus (and next keystrokes) should land.
+        openProjectAgent(forProject: project, focus: false)
     }
 
     /// Open a project agent for the focused session's project. Beeps when
@@ -521,17 +516,28 @@ final class Workspace: ObservableObject {
     /// distinguishable from the chats it watches. Enforces one agent per
     /// project — if one is already running it's simply focused, never
     /// duplicated. Beeps when the path isn't a real project folder.
-    func openProjectAgent(forProject project: String) {
+    ///
+    /// Pass `focus: false` to launch the agent in the background: every new tab
+    /// takes selection with it, so without putting focus back the user (and
+    /// their next keystrokes) would land in the agent instead of the chat they
+    /// were in. The agent still appears in the rail.
+    func openProjectAgent(forProject project: String, focus: Bool = true) {
         guard ProjectAgent.isCoordinatable(project) else { NSSound.beep(); return }
         if let existing = projectAgentSession(forProject: project) {
-            focusSession(existing.id)   // already running — just show it
+            if focus { focusSession(existing.id) }   // already running — just show it
             return
         }
+        let originTab = selectedTabID
+        let originFocus = focusedSessionID
         let agent = ProjectAgent.launch()
         let session = newTab(projectPath: project,
                              launchOverride: agent.command,
                              openingTurn: agent.openingTurn)
         session.isProjectAgent = true
+        if !focus {
+            selectedTabID = originTab
+            focusedSessionID = originFocus
+        }
         if let tab = tabs.first(where: { t in t.sessions.contains { $0.id == session.id } }) {
             tab.customName = "Project agent"
         }
