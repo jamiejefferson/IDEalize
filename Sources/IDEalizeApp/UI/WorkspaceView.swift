@@ -597,13 +597,21 @@ struct EmptyState: View {
                             HStack(spacing: 9) {
                                 Image(systemName: "folder.fill").font(.system(size: 12))
                                     .foregroundStyle(Color(Theme.folderIcon))
-                                Text((path as NSString).lastPathComponent)
-                                    .font(settings.ui(14, .medium)).foregroundStyle(Color(theme.foreground))
-                                Spacer()
-                                Text(abbreviate(path)).font(settings.ui(11))
-                                    .foregroundStyle(Color(theme.secondaryForeground)).lineLimit(1).truncationMode(.head)
+                                // Title over path: the project name always gets the
+                                // full line, so a long path can never crush it —
+                                // the path truncates from the head underneath.
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text((path as NSString).lastPathComponent)
+                                        .font(settings.ui(13, .semibold))
+                                        .foregroundStyle(Color(theme.foreground))
+                                        .lineLimit(1)
+                                    Text(abbreviate(path)).font(settings.ui(10.5))
+                                        .foregroundStyle(Color(theme.secondaryForeground).opacity(0.8))
+                                        .lineLimit(1).truncationMode(.head)
+                                }
+                                Spacer(minLength: 0)
                             }
-                            .padding(.horizontal, 14).padding(.vertical, 9)
+                            .padding(.horizontal, 12).padding(.vertical, 8)
                             .background(RoundedRectangle(cornerRadius: 9).fill(Color(theme.surface)))
                             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(theme.border), lineWidth: 1))
                             .contentShape(Rectangle())
@@ -611,7 +619,7 @@ struct EmptyState: View {
                         .help("Pick up where you left off in \((path as NSString).lastPathComponent)")
                     }
                 }
-                .frame(width: 360)
+                .frame(width: 300)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
