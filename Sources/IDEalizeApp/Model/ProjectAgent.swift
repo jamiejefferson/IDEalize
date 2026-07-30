@@ -85,10 +85,11 @@ enum ProjectAgent {
     /// The user's own edited guide. Deliberately kept *outside* `~/.claude` so
     /// `FlowSkillInstaller` cannot reach it: `install()` rewrites every path in its
     /// `files` list on a version bump, which would silently destroy edits weeks
-    /// after they were made. Same home as `flow.json` and the saved flows.
+    /// after they were made. Same home as `flow.json` and the saved flows — and
+    /// via `AppPaths`, the dev build gets its own copy rather than editing the
+    /// installed app's prompt out from under it.
     static var customPromptURL: URL {
-        URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support/IDEalize/project-agent-prompt.md")
+        AppPaths.supportDir.appendingPathComponent("project-agent-prompt.md")
     }
 
     /// Whether the user has a guide of their own in play. An empty file counts as
