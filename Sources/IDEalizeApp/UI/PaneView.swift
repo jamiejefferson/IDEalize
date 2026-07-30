@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
 
 /// Recursively renders a tab's split tree using draggable AppKit split views.
@@ -87,7 +88,18 @@ struct LeafPaneView: View {
             }
         }
         .overlay { if dropTargeted { dropOverlay } }
+        // SwiftUI-level fallback for plain file-URL drags…
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted, perform: handleDrop)
+        // …but the real work happens at the AppKit level: SwiftUI's `.onDrop`
+        // never sees file *promises* (the drag you get from the screenshot
+        // thumbnail, Mail, Photos…) or raw image data, and drops over the
+        // focused composer are swallowed by the field editor (an NSTextView,
+        // registered for file drags) before SwiftUI is consulted. This
+        // transparent catcher sits over the whole pane and resolves all of
+        // those to concrete file URLs.
+        .overlay {
+            FileDropCatcher(targeted: $dropTargeted) { urls in attach(urls) }
+        }
     }
 
     /// The pane's title bar — aligned with the rail/files headers (28pt clear for
@@ -144,16 +156,20 @@ struct LeafPaneView: View {
         for provider in providers {
             provider.loadDataRepresentation(forTypeIdentifier: UTType.fileURL.identifier) { data, _ in
                 guard let data, let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-                DispatchQueue.main.async {
-                    if !session.pendingAttachments.contains(url) {
-                        session.pendingAttachments.append(url)
-                    }
-                    // A dropped file is a chat intent — surface the chat box.
-                    workspace.focusSession(session.id)
-                }
+                DispatchQueue.main.async { attach([url]) }
             }
         }
         return true
+    }
+
+    /// A dropped file lands as an attachment chip on the chat input (its path is
+    /// sent with the next message so the agent can act on it).
+    private func attach(_ urls: [URL]) {
+        for url in urls where !session.pendingAttachments.contains(url) {
+            session.pendingAttachments.append(url)
+        }
+        // A dropped file is a chat intent — surface the chat box.
+        workspace.focusSession(session.id)
     }
 
     /// Close the terminal pane/tab.
@@ -467,6 +483,126 @@ private struct PaneHeader: View {
         .contentShape(Rectangle())
         .onTapGesture { session.onFocusRequested?(session.id) }
     }
+}
+
+// MARK: - AppKit drop catcher
+
+/// Hosts `FileDropCatcherView` over a pane. `targeted` drives the pane's
+/// "Drop it!" overlay; `onFiles` receives every drop resolved to concrete
+/// file URLs (promised files and raw images land as temp files).
+private struct FileDropCatcher: NSViewRepresentable {
+    @Binding var targeted: Bool
+    var onFiles: ([URL]) -> Void
+
+    func makeNSView(context: Context) -> FileDropCatcherView {
+        let view = FileDropCatcherView()
+        update(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: FileDropCatcherView, context: Context) { update(nsView) }
+
+    private func update(_ view: FileDropCatcherView) {
+        view.onTargeted = { on in
+            withAnimation(.easeOut(duration: 0.12)) { targeted = on }
+        }
+        view.onFiles = onFiles
+    }
+}
+
+/// A transparent AppKit drag destination covering the whole pane. It exists
+/// because SwiftUI's `.onDrop` can't reach two drags users actually make:
+/// file promises (the macOS screenshot thumbnail, Photos, Mail…) need
+/// `NSFilePromiseReceiver`, which requires the real `NSDraggingInfo`; and a
+/// drop over the focused composer is claimed by the field editor (an
+/// `NSTextView`, registered for file drags) before SwiftUI is asked. AppKit
+/// delivers a drag to the deepest *registered* view under the cursor, so this
+/// view — registered and topmost — wins, while `hitTest` returning nil keeps
+/// it invisible to every ordinary mouse event.
+final class FileDropCatcherView: NSView {
+    var onTargeted: ((Bool) -> Void)?
+    var onFiles: (([URL]) -> Void)?
+    private let promiseQueue = OperationQueue()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        var types: [NSPasteboard.PasteboardType] = [.fileURL, .png, .tiff]
+        types += NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+        registerForDraggedTypes(types)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// Invisible to clicks/scrolls — only drags land here.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onTargeted?(true)
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) { onTargeted?(false) }
+    override func draggingEnded(_ sender: NSDraggingInfo) { onTargeted?(false) }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { true }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        onTargeted?(false)
+        let pasteboard = sender.draggingPasteboard
+
+        // 1. Concrete file URLs (Finder, the desktop, most apps).
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                             options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           !urls.isEmpty {
+            onFiles?(urls)
+            return true
+        }
+
+        // 2. Promised files (screenshot thumbnail, Photos, Mail…): receive them
+        //    into a temp folder, then attach the delivered files.
+        if let receivers = pasteboard.readObjects(forClasses: [NSFilePromiseReceiver.self])
+            as? [NSFilePromiseReceiver], !receivers.isEmpty {
+            let dest = Self.dropDirectory()
+            for receiver in receivers {
+                receiver.receivePromisedFiles(atDestination: dest, options: [:],
+                                              operationQueue: promiseQueue) { url, error in
+                    guard error == nil else { return }
+                    DispatchQueue.main.async { self.onFiles?([url]) }
+                }
+            }
+            return true
+        }
+
+        // 3. Raw image data (a dragged image region with no backing file):
+        //    save it to a temp file so the agent has a path to read.
+        for (type, ext) in [(NSPasteboard.PasteboardType.png, "png"),
+                            (NSPasteboard.PasteboardType.tiff, "tiff")] {
+            guard let data = pasteboard.data(forType: type) else { continue }
+            let stamp = DateFormatter.dropStamp.string(from: Date())
+            let url = Self.dropDirectory().appendingPathComponent("Dropped image \(stamp).\(ext)")
+            guard (try? data.write(to: url)) != nil else { continue }
+            onFiles?([url])
+            return true
+        }
+        return false
+    }
+
+    /// Where promised files and raw image drops are materialised.
+    private static func dropDirectory() -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("IDEalize Drops", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+}
+
+private extension DateFormatter {
+    /// Filename-safe timestamp for materialised image drops.
+    static let dropStamp: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        return f
+    }()
 }
 
 /// Colored dot indicating session activity: green = running a command,
