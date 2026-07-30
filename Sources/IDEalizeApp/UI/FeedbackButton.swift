@@ -10,10 +10,13 @@ struct FeedbackButton: View {
     @State private var sent = false
     @State private var hovering = false
 
+    @State private var hoverType = false
+    @State private var feedbackType: String = "feedback"
+
     private var theme: Theme { settings.theme }
 
     var body: some View {
-        Button(action: { text = ""; sent = false; presenting = true }) {
+        Button(action: { text = ""; sent = false; feedbackType = "feedback"; presenting = true }) {
             HStack(spacing: 5) {
                 Image(systemName: "exclamationmark.bubble").font(.system(size: 10))
                 Text("Feedback").font(settings.ui(11, .medium))
@@ -37,9 +40,34 @@ struct FeedbackButton: View {
             Text("Give feedback").font(settings.ui(16, .semibold))
             Text("What's working, what's not, or what you'd like next. Goes to the IDEalize backlog.")
                 .font(settings.ui(11)).foregroundStyle(.secondary)
+
+            // Feedback type picker
+            HStack(spacing: 8) {
+                ForEach(["feedback", "bug", "feature"], id: \.self) { t in
+                    let label = t.capitalized
+                    let icon = t == "bug" ? "ant" : (t == "feature" ? "star" : "bubble.left")
+                    Button(action: { feedbackType = t }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: icon).font(.system(size: 10))
+                            Text(label).font(settings.ui(11, .medium))
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(feedbackType == t ? settings.actionStyle.color.opacity(0.15) : Color(theme.surface))
+                        )
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(feedbackType == t ? settings.actionStyle.color.opacity(0.4) : Color(theme.border), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
             TextEditor(text: $text)
                 .font(settings.ui(13))
-                .frame(width: 440, height: 170)
+                .frame(width: 440, height: 150)
                 .scrollContentBackground(.hidden)
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color(theme.surface)))
@@ -60,7 +88,7 @@ struct FeedbackButton: View {
     }
 
     private func submit() {
-        Feedback.save(text)
+        Feedback.save(text, type: feedbackType)
         sent = true
         text = ""
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { presenting = false }
@@ -75,15 +103,15 @@ enum Feedback {
     private static let publishableKey = "sb_publishable_ISmJRrzDN3Z6OEdEEZe2Cw_5YvSDGkt"
 
     /// Send the feedback to Supabase, and keep a local backup copy.
-    static func save(_ raw: String) {
+    static func save(_ raw: String, type: String = "feedback") {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        submit(text)
+        submit(text, type: type)
         appendLocal(text)
     }
 
     /// POST one feedback row to Supabase (anonymous, insert-only).
-    private static func submit(_ text: String) {
+    private static func submit(_ text: String, type: String) {
         guard let url = URL(string: endpoint) else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -94,6 +122,7 @@ enum Feedback {
         req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
         let payload: [String: Any] = [
             "text": text,
+            "feedback_type": type,
             "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev",
             "os_version": ProcessInfo.processInfo.operatingSystemVersionString,
         ]
