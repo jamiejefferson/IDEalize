@@ -24,6 +24,22 @@ enum AppearanceDefaults {
     static let returnToSend = true
 }
 
+/// Order of the main window's columns.
+enum WorkspaceLayout: String, CaseIterable, Identifiable {
+    /// Files and documents on the left, terminal on the right (the classic IDE shape).
+    case standard
+    /// Terminal front and centre next to the sessions rail; documents open to its
+    /// right, with the files panel on the far right.
+    case chatFocused
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .standard: return "Standard"
+        case .chatFocused: return "Chat-focused"
+        }
+    }
+}
+
 /// User-facing, persisted preferences. Backed by UserDefaults.
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -251,6 +267,12 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(recentFolders, forKey: "recentFolders") }
     }
 
+    // MARK: Screen layout
+    /// Order of the main window's columns (standard vs chat-focused).
+    @Published var workspaceLayout: WorkspaceLayout {
+        didSet { defaults.set(workspaceLayout.rawValue, forKey: "workspaceLayout") }
+    }
+
     // MARK: Mini Mode
     /// Whether the app is currently in the narrow docked mini-mode.
     @Published var miniModeEnabled: Bool {
@@ -401,6 +423,7 @@ final class AppSettings: ObservableObject {
         self.hasSeenTour = defaults.object(forKey: "hasSeenTour") as? Bool ?? false
         self.lastSeenAnnouncementID = defaults.string(forKey: "lastSeenAnnouncementID") ?? ""
         self.recentFolders = defaults.stringArray(forKey: "recentFolders") ?? []
+        self.workspaceLayout = WorkspaceLayout(rawValue: defaults.string(forKey: "workspaceLayout") ?? "") ?? .standard
         self.miniModeEnabled = defaults.object(forKey: "miniModeEnabled") as? Bool ?? false
         self.miniModeDockSide = DockSide(rawValue: defaults.string(forKey: "miniModeDockSide") ?? "") ?? .right
         self.miniModeAlwaysOnTop = defaults.object(forKey: "miniModeAlwaysOnTop") as? Bool ?? true
