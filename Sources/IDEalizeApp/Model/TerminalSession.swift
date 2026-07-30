@@ -137,6 +137,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// The pane's mode toggle. false = chat overlay (terminal blurred behind);
     /// true = the full, interactive terminal.
     @Published var revealTerminal: Bool = false
+    /// The model label shown in the input toolbar (display only).
+    @Published var modelLabel: String = "Auto"
     /// How much autonomy the agent runs with. Applied as a launch flag when the
     /// agent (re)starts — defaults to `.yolo` to preserve IDEalize's long-standing
     /// permissions-skipped launch. Chosen from the chat toolbar's permission pill.
@@ -182,6 +184,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Mark the pending setup as handled (saved or skipped).
     func completeAgentSetup() {
         pendingAgentSetup = nil
+    }
+
+    /// Switch the running agent's model via its model-switch command, if it has one.
+    func setModel(_ id: String, _ label: String) {
+        modelLabel = label
+        guard let cmd = currentAgent?.modelSwitchCommand, tuiActive else { return }
+        sendLineToTUI("\(cmd) \(id)")
     }
 
     /// The nonce IDEalize included when it asked this pane's agent to introduce
@@ -303,14 +312,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     private var bgTranscriptURL: URL?
     private var bgTranscriptMTime: Date?
     /// The transcript file this chat is following, mirrored onto the main thread
-    /// (bg state is transcriptQueue-only). Backs `claudeSessionId` for resume.
+    /// (bg state is transcriptQueue-only). Backs `agentSessionId` for resume.
     private var followedTranscriptURL: URL?
     /// Incremental parser for Claude transcripts (re-created if the URL changes).
     private var transcriptFollower: ClaudeTranscript.Follower?
-    /// The session id we bound at launch, so we read exactly this terminal's
-    /// transcript rather than the newest file in the project dir. nil when the
-    /// agent was started by hand or doesn't support session binding.
+    /// The session id we bound at launch (Claude, via --session-id) or lifted
+    /// from the agent's own screen (Kimi's welcome box), so we read exactly this
+    /// terminal's transcript rather than the newest file in the project dir.
+    /// nil when the agent was started by hand or doesn't support binding.
     private var boundSessionId: String?
+    /// Which agent `boundSessionId` belongs to (its `binaryName`) — a Kimi id
+    /// must never feed Claude-only affordances like `claude --resume`.
+    private var boundAgentBinary: String?
 
     /// Augment an agent launch with a fresh session id when the adapter supports
     /// it, so its transcript is identifiable. Returns the command unchanged for
@@ -332,6 +345,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             if !alreadySelectsSession {
                 let uuid = UUID().uuidString.lowercased()
                 boundSessionId = uuid
+                boundAgentBinary = agent.binaryName
                 result += " --session-id \(uuid)"
             }
             // Apply this chat's permission mode, so the toolbar pill — not whatever
@@ -437,6 +451,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// project-agent toggle). Other chats in the same project can reach it by
     /// the "coordinator" alias or `$IDEALIZE_PROJECT_AGENT`.
     @Published var isProjectAgent: Bool = false
+
+    /// This tab is the workspace's lead agent — the one chat above every
+    /// project's coordinator (opened via the toolbar's lead-agent toggle, at
+    /// most one per workspace). Reachable by the "lead" alias or
+    /// `$IDEALIZE_LEAD_AGENT`.
+    @Published var isLeadAgent: Bool = false
 
     /// This chat's isolated "safe copy": its own git worktree + branch off a base
     /// commit, so parallel chats never touch each other's files. `nil` for an
@@ -629,6 +649,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
            agent.id != id {
             env.append("IDEALIZE_PROJECT_AGENT=\(agent.id)")
         }
+        // Likewise the lead agent's id, so a project agent can report upward
+        // (`idealize send $IDEALIZE_LEAD_AGENT …`). Chats started before the
+        // lead can still reach it via the "lead" alias.
+        if let lead = workspace?.leadAgentSession, lead.id != id {
+            env.append("IDEALIZE_LEAD_AGENT=\(lead.id)")
+        }
         // Ensure the bundled `idealize` CLI is on PATH.
         if let cliDir = CLIInstaller.installShim() {
             let existing = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
@@ -679,7 +705,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             let cmd = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             return cmd.isEmpty ? "claude --dangerously-skip-permissions" : cmd
         }()
-        launchIsClaude = !launch.isEmpty && TerminalSession.isClaudeCommand(launch)
+        launchAgentBinary = launch.isEmpty
+            ? nil : AgentRegistry.adapter(forCommand: launch.lowercased())?.binaryName
         if !launch.isEmpty {
             // Send when the shell shows its first prompt (reliable), with a
             // fallback in case the shell-integration event never arrives.
@@ -921,21 +948,34 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         hasActivity || unreadCount > 0 || agentStatus == .complete || agentStatus == .waiting
     }
 
-    /// Whether this session is (or was) a Claude chat — its launch command was a
-    /// `claude` invocation, we bound a session id, or Claude is live now. Recorded
-    /// in the rail's persisted snapshot so a restored chat relaunches Claude.
-    /// `launchIsClaude` is set synchronously in `start()` so a chat saved before
-    /// Claude finishes coming up is still recorded correctly.
-    var wasClaudeLaunched: Bool { launchIsClaude || boundSessionId != nil || isClaudeRunning }
+    /// The agent this chat is (or was) running — its adapter `binaryName`, from
+    /// the launch command, the bound session, or the live foreground command.
+    /// nil for a plain shell. Recorded in the rail's persisted snapshot so a
+    /// restored or reopened chat relaunches the *same* agent.
+    var agentBinary: String? {
+        launchAgentBinary ?? boundAgentBinary ?? runningAgentBinary
+    }
 
-    /// The Claude Code session id whose transcript this chat is following (the
-    /// transcript file's basename), if any. Lets an archived chat be reopened with
-    /// `--resume` so the conversation picks up where it left off.
-    var claudeSessionId: String? {
+    /// The agent running in the foreground right now, if any.
+    private var runningAgentBinary: String? {
+        guard let cmd = runningCommand?.lowercased(),
+              let binary = AgentRegistry.adapter(forCommand: cmd)?.binaryName,
+              !binary.isEmpty else { return nil }
+        return binary
+    }
+
+    /// The agent session id whose transcript this chat is following, if any —
+    /// asks the chat's adapter to read the id out of the transcript's location.
+    /// Lets an archived chat be reopened with the agent's resume command.
+    var agentSessionId: String? {
+        guard let binary = agentBinary,
+              let adapter = AgentRegistry.adapters.first(where: { $0.binaryName == binary })
+        else { return nil }
         // Prefer the transcript actually being followed: after a stillborn
         // `--session-id` launch the adapter follows the newest real transcript,
         // and resuming the dead bound id would lose the conversation.
-        followedTranscriptURL?.deletingPathExtension().lastPathComponent ?? boundSessionId
+        let followed = followedTranscriptURL.flatMap { adapter.sessionId(fromTranscriptURL: $0) }
+        return followed ?? (boundAgentBinary == binary ? boundSessionId : nil)
     }
 
     /// How full this chat's Claude context is (0…1), or `nil` when unknown / not a
@@ -978,12 +1018,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             return "finished"
         case .idle:
             if let q = userQuestion, !q.isEmpty { return firstLine(q) }
-            return isClaudeRunning ? "ready" : "shell"
+            return runningAgentBinary != nil ? "ready" : "shell"
         }
     }
 
-    /// The resolved launch command for this session was a `claude` invocation.
-    private(set) var launchIsClaude = false
+    /// The agent the resolved launch command invokes (its adapter `binaryName`),
+    /// set synchronously in `start()` so a chat saved before the agent finishes
+    /// coming up is still recorded correctly. nil for a plain shell.
+    private(set) var launchAgentBinary: String?
 
     var sessionInfo: IPCSessionInfo {
         IPCSessionInfo(
@@ -992,7 +1034,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             projectPath: projectPath,
             processName: processName,
             status: customStatus ?? (isShellForeground ? "idle" : processName),
-            unread: mailbox.count
+            unread: mailbox.count,
+            role: isLeadAgent ? "lead" : (isProjectAgent ? "project-agent" : "chat")
         )
     }
 
@@ -1077,6 +1120,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
         let lines = readVisibleScreen()
         let agent = currentAgent ?? GenericAgentAdapter()
+        // Agents that print their session id on screen (Kimi) bind here; a new
+        // id on screen (e.g. /new started a fresh session) rebinds. Never
+        // cleared on nil — the id scrolls away but the binding stays good.
+        if let sid = agent.detectSessionId(lines: lines), sid != boundSessionId {
+            boundSessionId = sid
+            boundAgentBinary = agent.binaryName
+        }
         updateLoginState(lines, agent: agent)
         var prompt = agent.parsePrompt(lines: lines)
         // Don't let the ~1s poll resurrect a prompt we just answered from the chat

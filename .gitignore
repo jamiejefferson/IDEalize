@@ -6,3 +6,6 @@ dist/
 Package.resolved
 .gstack/
 node_modules/
+
+.idealize/
+supabase/.temp/

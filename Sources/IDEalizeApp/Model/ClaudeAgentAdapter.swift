@@ -9,6 +9,17 @@ struct ClaudeAgentAdapter: AgentAdapter {
         command.range(of: "(^|[ /&;])claude($| )", options: .regularExpression) != nil
     }
 
+    var launchCommand: String? { "claude --dangerously-skip-permissions" }
+
+    func resumeCommand(sessionId: String) -> String? {
+        "claude --dangerously-skip-permissions --resume \(sessionId)"
+    }
+
+    func sessionId(fromTranscriptURL url: URL) -> String? {
+        // Claude transcripts are ~/.claude/projects/<dir>/<session-uuid>.jsonl.
+        url.deletingPathExtension().lastPathComponent
+    }
+
     func transcriptURL(forCwd cwd: String, sessionId: String?) -> URL? {
         // A session we launched carries its own `--session-id`, so it owns exactly
         // one transcript file. Bind to that file and nothing else: every chat and
@@ -80,6 +91,8 @@ struct ClaudeAgentAdapter: AgentAdapter {
         return .none
     }
 
+    var supportsRuntimeModelSwitch: Bool { true }
+    var modelSwitchCommand: String? { "/model" }
     var supportsReasoningEffort: Bool { true }
     var supportsPermissionModes: Bool { true }
     var supportedSlashCommands: [String] { ["/flow-review", "/flow-run", "/flow-improve", "/flows"] }

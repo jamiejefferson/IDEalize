@@ -98,6 +98,9 @@ public struct IPCRequest: Codable, Sendable {
     /// knows what the piece *is*, which a brief's opening words often don't say —
     /// when it's absent the app falls back to deriving one from the task.
     public var name: String?
+    /// Used by `spawn`: start the project's *coordinating agent* rather than a
+    /// worker chat — how the lead agent bootstraps or relaunches a project agent.
+    public var coordinator: Bool?
 
     public init(command: Command,
                 from: String? = nil,
@@ -109,7 +112,8 @@ public struct IPCRequest: Codable, Sendable {
                 open: Bool? = nil,
                 limit: Int? = nil,
                 isolated: Bool? = nil,
-                name: String? = nil) {
+                name: String? = nil,
+                coordinator: Bool? = nil) {
         self.command = command
         self.from = from
         self.token = token
@@ -121,6 +125,7 @@ public struct IPCRequest: Codable, Sendable {
         self.limit = limit
         self.isolated = isolated
         self.name = name
+        self.coordinator = coordinator
     }
 }
 
@@ -178,14 +183,20 @@ public struct IPCSessionInfo: Codable, Sendable {
     public var processName: String?
     public var status: String?
     public var unread: Int
+    /// What the session is in the coordination hierarchy: "lead",
+    /// "project-agent", or "chat". Optional so old CLIs (and old app builds)
+    /// decode each other's messages unchanged.
+    public var role: String?
 
-    public init(id: String, title: String, projectPath: String?, processName: String?, status: String?, unread: Int) {
+    public init(id: String, title: String, projectPath: String?, processName: String?,
+                status: String?, unread: Int, role: String? = nil) {
         self.id = id
         self.title = title
         self.projectPath = projectPath
         self.processName = processName
         self.status = status
         self.unread = unread
+        self.role = role
     }
 }
 

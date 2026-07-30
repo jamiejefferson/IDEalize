@@ -543,6 +543,7 @@ final class Workspace: ObservableObject {
         }
         projectMonitors[project] = ProjectMonitor(
             projectPath: project, coordinator: session, workspace: self)
+        considerLeadAgent()
     }
 
     /// Toggle the project agent for the focused session's project, like the
@@ -555,11 +556,102 @@ final class Workspace: ObservableObject {
         }
     }
 
-    /// Stop watching a project whose agent chat just closed.
+    /// Stop watching a project whose agent chat just closed — and the fleet,
+    /// when the closing chat is the lead.
     private func stopProjectMonitor(for session: TerminalSession) {
+        if session.isLeadAgent {
+            fleetMonitor?.stop()
+            fleetMonitor = nil
+        }
         guard session.isProjectAgent, let p = session.projectPath else { return }
         projectMonitors[p]?.stop()
         projectMonitors[p] = nil
+    }
+
+    // MARK: - Lead agent
+
+    /// The workspace's lead agent chat, if one is running. At most one exists.
+    var leadAgentSession: TerminalSession? {
+        allSessions.first { $0.isLeadAgent }
+    }
+
+    /// Deterministic fleet-level signals for the lead (and stale-inbox nudges
+    /// for the coordination tier), alive exactly while the lead's chat is.
+    private var fleetMonitor: FleetMonitor?
+
+    /// Whether the "start a lead agent?" offer is up. `true` is set by
+    /// `considerLeadAgent()`; the sheet in `WorkspaceView` answers it.
+    @Published var pendingLeadAgentPrompt = false
+
+    /// "Not now" settles the offer for the run of the app — same lifetime as
+    /// `dismissedProjectAgentSuggestions`.
+    private var dismissedLeadAgentSuggestion = false
+
+    /// Offer (or auto-start) the lead agent once the fleet is big enough to
+    /// need one: two or more distinct projects each running a project agent,
+    /// no lead yet, and the user hasn't said "not now" this run. Called as a
+    /// project agent opens; the single home of this rule, like
+    /// `considerProjectAgent` is for the two-chat rule.
+    private func considerLeadAgent() {
+        guard !isRestoring,
+              leadAgentSession == nil,
+              !dismissedLeadAgentSuggestion,
+              !pendingLeadAgentPrompt else { return }
+        let coordinated = Set(allSessions.filter(\.isProjectAgent).compactMap(\.projectPath))
+        guard coordinated.count >= 2 else { return }
+        if settings.leadAgentAutoStart {
+            openLeadAgent(focus: false)
+        } else {
+            pendingLeadAgentPrompt = true
+        }
+    }
+
+    /// "Not now" on the lead-agent offer.
+    func dismissLeadAgentSuggestion() {
+        dismissedLeadAgentSuggestion = true
+        pendingLeadAgentPrompt = false
+    }
+
+    var isLeadAgentOpen: Bool { leadAgentSession != nil }
+
+    /// Open the lead agent: a regular agent chat preloaded with the
+    /// `/lead-agent` guide, living in its own "Fleet" folder so the rail shows
+    /// it as its own group above no particular project. One per workspace — if
+    /// it's already running it's focused, never duplicated.
+    ///
+    /// Pass `focus: false` to launch it in the background (same contract as
+    /// `openProjectAgent(forProject:focus:)`).
+    func openLeadAgent(focus: Bool = true) {
+        if let existing = leadAgentSession {
+            if focus { focusSession(existing.id) }   // already running — just show it
+            return
+        }
+        LeadAgent.ensureFleetHome()
+        let originTab = selectedTabID
+        let originFocus = focusedSessionID
+        let launch = LeadAgent.launch()
+        let session = newTab(projectPath: LeadAgent.fleetHomeURL.path,
+                             launchOverride: launch.command,
+                             openingTurn: launch.openingTurn)
+        session.isLeadAgent = true
+        if !focus {
+            selectedTabID = originTab
+            focusedSessionID = originFocus
+        }
+        if let tab = tabs.first(where: { t in t.sessions.contains { $0.id == session.id } }) {
+            tab.customName = "Lead agent"
+        }
+        fleetMonitor = FleetMonitor(lead: session, workspace: self)
+    }
+
+    /// Toggle the lead agent, like the project-agent toggle: open it if none
+    /// is running, otherwise close it.
+    func toggleLeadAgent() {
+        if let lead = leadAgentSession {
+            closeSession(lead)
+        } else {
+            openLeadAgent()
+        }
     }
 
     /// Keep the tab name following the focused terminal's label.
@@ -831,11 +923,13 @@ final class Workspace: ObservableObject {
         let index = projectGroups.first { $0.path == key }?
             .tabs.firstIndex { $0.id == tab.id } ?? 0
         let session = tab.sessions.first
+        let binary = tab.sessions.compactMap(\.agentBinary).first
         let record = ArchivedChat(
             projectPath: key,
             name: chatLabel(tab, index: index),
-            wasClaude: tab.sessions.contains { $0.wasClaudeLaunched },
-            sessionId: session?.claudeSessionId,
+            wasClaude: binary == "claude",
+            agentBinary: binary,
+            sessionId: session?.agentSessionId,
             contextTokens: session?.contextTokens,
             contextLimit: session?.contextLimit,
             archivedAt: Date())
@@ -857,25 +951,24 @@ final class Workspace: ObservableObject {
             .sorted { $0.name.lowercased() < $1.name.lowercased() }
     }
 
-    /// Reopen an archived chat in its project — resuming its Claude conversation
-    /// when a session id was captured — and drop it from the archive.
+    /// Reopen an archived chat in its project — resuming its agent's
+    /// conversation when a session id was captured — and drop it from the archive.
     @discardableResult
     func reopenArchived(_ chat: ArchivedChat) -> TerminalSession {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let path: String? = (chat.projectPath == home) ? nil : chat.projectPath
-        let launch: String?
-        if chat.wasClaude {
-            if let id = chat.sessionId, !id.isEmpty {
-                launch = "claude --dangerously-skip-permissions --resume \(id)"
-            } else {
-                launch = "claude --dangerously-skip-permissions"
+        let launch: String? = {
+            guard let adapter = AgentRegistry.adapter(forBinary: chat.effectiveAgentBinary)
+            else { return nil }
+            if let id = chat.sessionId, !id.isEmpty,
+               let resume = adapter.resumeCommand(sessionId: id) {
+                return resume
             }
-        } else {
-            launch = nil
-        }
+            return adapter.launchCommand
+        }()
         let session = newTab(projectPath: path,
                              launchOverride: launch,
-                             suppressAutoLaunch: !chat.wasClaude)
+                             suppressAutoLaunch: launch == nil)
         // Carry the name over, but only if it was a real custom name — never pin a
         // reopened chat to the positional "Chat N" it happened to show.
         if !chat.name.isEmpty && !chat.name.hasPrefix("Chat ") {
@@ -962,14 +1055,17 @@ final class Workspace: ObservableObject {
         let snapshot = settings.projectSnapshot
         guard !snapshot.isEmpty else { return }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        // Force `claude` for chats that were Claude, so restore doesn't depend on
-        // the current global auto-launch toggle / default command (which could
-        // otherwise bring a Claude chat back as a bare shell and then re-persist
-        // it as wasClaude=false — permanently losing its Claude-ness).
-        let claudeLaunch: String = {
-            let d = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-            return TerminalSession.isClaudeCommand(d) ? d : "claude --dangerously-skip-permissions"
-        }()
+        // Force the chat's own agent on restore, so it doesn't depend on the
+        // current global auto-launch toggle / default command (which could
+        // otherwise bring an agent chat back as a bare shell and then re-persist
+        // it as a shell — permanently losing its agent-ness). The user's default
+        // command wins when it invokes the same agent (it may carry their flags).
+        let defaultCommand = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        func agentLaunch(_ binary: String?) -> String? {
+            guard let adapter = AgentRegistry.adapter(forBinary: binary) else { return nil }
+            if adapter.matches(command: defaultCommand.lowercased()) { return defaultCommand }
+            return adapter.launchCommand
+        }
         isRestoring = true
         for project in snapshot {
             // A Home chat has no real project folder; restore it with projectPath
@@ -988,22 +1084,35 @@ final class Workspace: ObservableObject {
                 // infer coordinator-ness from the chat's *name*: a chat the user
                 // happened to call "Project agent" would silently start watching
                 // their files.
-                let restored: AgentLaunch? = chat.isProjectAgent
-                    ? ProjectAgent.launch()
-                    : (chat.wasClaude ? AgentLaunch(command: claudeLaunch) : nil)
+                let restored: AgentLaunch?
+                if chat.isLeadAgent {
+                    // The lead comes back *as* the lead: relaunched with its
+                    // guide, in the Fleet folder the snapshot recorded.
+                    LeadAgent.ensureFleetHome()
+                    restored = LeadAgent.launch()
+                } else if chat.isProjectAgent {
+                    restored = ProjectAgent.launch()
+                } else {
+                    restored = agentLaunch(chat.effectiveAgentBinary).map { AgentLaunch(command: $0) }
+                }
                 let session = newTab(
                     projectPath: restorePath,
                     launchOverride: restored?.command,
                     openingTurn: restored?.openingTurn,
-                    suppressAutoLaunch: !chat.wasClaude && !chat.isProjectAgent)
+                    suppressAutoLaunch: restored == nil)
                 if let name = chat.customName, !name.isEmpty {
                     tabs.last?.customName = name   // newTab just inserted this tab
+                } else if chat.isLeadAgent {
+                    tabs.last?.customName = "Lead agent"
                 } else if chat.isProjectAgent {
                     // A coordinator is named as it's opened, so it normally arrives
                     // here already named — and if the user renamed it, that name is
                     // what we just restored above. This only covers a coordinator
                     // that somehow saved without a name, so it stays recognisable.
                     tabs.last?.customName = "Project agent"
+                }
+                if chat.isLeadAgent {
+                    session.isLeadAgent = true
                 }
                 if chat.isProjectAgent {
                     session.isProjectAgent = true
@@ -1018,6 +1127,13 @@ final class Workspace: ObservableObject {
             }
         }
         isRestoring = false
+        // A restored lead watches the fleet again exactly as opening one does.
+        if let lead = leadAgentSession {
+            fleetMonitor = FleetMonitor(lead: lead, workspace: self)
+        }
+        // The restored fleet may already merit a lead (two coordinated projects
+        // came back and the user auto-starts) — decide now that restore is done.
+        considerLeadAgent()
         saveProjectSnapshot()
     }
 
@@ -1050,9 +1166,12 @@ final class Workspace: ObservableObject {
                 // start a second agent.
                 .filter { !($0.sessions.first?.isServiceHatch ?? false) }
                 .map { tab in
-                    PersistedChat(customName: tab.customName,
-                                  wasClaude: tab.sessions.contains { $0.wasClaudeLaunched },
-                                  isProjectAgent: tab.sessions.first?.isProjectAgent ?? false)
+                    let binary = tab.sessions.compactMap(\.agentBinary).first
+                    return PersistedChat(customName: tab.customName,
+                                         wasClaude: binary == "claude",
+                                         agentBinary: binary,
+                                         isProjectAgent: tab.sessions.first?.isProjectAgent ?? false,
+                                         isLeadAgent: tab.sessions.first?.isLeadAgent ?? false)
                 }
             return PersistedProject(path: group.path, chats: chats)
         }
@@ -1100,7 +1219,7 @@ final class Workspace: ObservableObject {
         case .send:
             guard let target = request.target else { return .failure("missing target") }
             let dest: TerminalSession
-            switch resolveTarget(target) {
+            switch resolveTarget(target, from: request.from) {
             case .success(let s): dest = s
             case .failure(let error): return .failure(error.message)
             }
@@ -1150,6 +1269,16 @@ final class Workspace: ObservableObject {
             guard let from = request.from, let s = session(withID: from) else {
                 return .failure("unknown sender session")
             }
+            // The lead agent may *read* another project's shared note with an
+            // explicit `--path` (never write it — the note belongs to the
+            // project's own chats and user).
+            if let explicit = request.target, explicit != "mine", !explicit.isEmpty,
+               s.isLeadAgent {
+                guard request.body == nil else {
+                    return .failure("the lead agent reads a project's note; it doesn't write it")
+                }
+                return IPCResponse(ok: true, info: composedProjectNote(explicit))
+            }
             guard let path = s.projectPath, !path.isEmpty, path != "/" else {
                 return .failure("this terminal isn't in a project folder")
             }
@@ -1169,7 +1298,7 @@ final class Workspace: ObservableObject {
             guard let target = request.target else {
                 return .failure("no session matching target")
             }
-            switch resolveTarget(target) {
+            switch resolveTarget(target, from: request.from) {
             case .success(let s):
                 focusSession(s.id)
                 return IPCResponse(ok: true)
@@ -1182,7 +1311,7 @@ final class Workspace: ObservableObject {
                 return .failure("no session matching target")
             }
             let s: TerminalSession
-            switch resolveTarget(target) {
+            switch resolveTarget(target, from: request.from) {
             case .success(let found): s = found
             case .failure(let error): return .failure(error.message)
             }
@@ -1206,7 +1335,7 @@ final class Workspace: ObservableObject {
             let target = request.target ?? request.from
             guard let t = target else { return .failure("unknown session") }
             let s: TerminalSession
-            switch resolveTarget(t) {
+            switch resolveTarget(t, from: request.from) {
             case .success(let found): s = found
             case .failure(let error): return .failure(error.message)
             }
@@ -1225,7 +1354,7 @@ final class Workspace: ObservableObject {
             let target = request.target ?? request.from
             guard let t = target else { return .failure("unknown session") }
             let s: TerminalSession
-            switch resolveTarget(t) {
+            switch resolveTarget(t, from: request.from) {
             case .success(let found): s = found
             case .failure(let error): return .failure(error.message)
             }
@@ -1271,6 +1400,20 @@ final class Workspace: ObservableObject {
             guard ProjectAgent.isCoordinatable(project) else {
                 return .failure("'\(project)' isn't a real project folder to spawn a chat in")
             }
+            // With `--coordinator`, start (or surface) the project's *coordinating
+            // agent* instead of a worker — how the lead agent bootstraps a project
+            // agent for an unwatched project, or relaunches one that died. One per
+            // project is enforced by `openProjectAgent`, so this is idempotent.
+            if request.coordinator == true {
+                openProjectAgent(forProject: project, focus: false)
+                guard let agent = projectAgentSession(forProject: project) else {
+                    return .failure("couldn't start a project agent for '\(project)'")
+                }
+                if let from = request.from, session(withID: from) != nil {
+                    focusSession(from)
+                }
+                return IPCResponse(ok: true, info: agent.id)
+            }
             // With `--isolated`, give the child its own safe copy (a separate
             // worktree) so it can't collide with other chats. If the folder can't
             // support one (not a git repo, no commits), fall back to the shared
@@ -1315,7 +1458,7 @@ final class Workspace: ObservableObject {
             let t = request.target ?? request.from
             guard let t else { return .failure("unknown chat") }
             let s: TerminalSession
-            switch resolveTarget(t) {
+            switch resolveTarget(t, from: request.from) {
             case .success(let found): s = found
             case .failure(let error): return .failure(error.message)
             }
@@ -1332,8 +1475,18 @@ final class Workspace: ObservableObject {
         case .survey:
             // Read-only: every member chat's change summary, plus which safe copies
             // are changing the same files (the pre-combine overlap check).
-            guard let from = request.from, let me = session(withID: from),
-                  let project = me.projectPath else {
+            guard let from = request.from, let me = session(withID: from) else {
+                return .failure("unknown sender session")
+            }
+            // The lead agent may look across the project boundary with an explicit
+            // `--path`; for every other chat the boundary holds — its own project
+            // is the only one it can survey.
+            let project: String
+            if let explicit = request.target, !explicit.isEmpty, me.isLeadAgent {
+                project = explicit
+            } else if let p = me.projectPath {
+                project = p
+            } else {
                 return .failure("this chat isn't in a project")
             }
             let members = allSessions.filter { $0.projectPath == project && !$0.isProjectAgent }
@@ -1365,8 +1518,16 @@ final class Workspace: ObservableObject {
         case .combinePlan:
             // Read-only: propose an order to combine the project's safe copies,
             // with a trial (no-op) conflict check. Changes nothing.
-            guard let from = request.from, let me = session(withID: from),
-                  let project = me.projectPath else {
+            guard let from = request.from, let me = session(withID: from) else {
+                return .failure("unknown sender session")
+            }
+            // Same boundary rule as `survey`: only the lead crosses it.
+            let project: String
+            if let explicit = request.target, !explicit.isEmpty, me.isLeadAgent {
+                project = explicit
+            } else if let p = me.projectPath {
+                project = p
+            } else {
                 return .failure("this chat isn't in a project")
             }
             let target = (request.body?.isEmpty == false) ? request.body! : project
@@ -1417,7 +1578,7 @@ final class Workspace: ObservableObject {
                 return .failure("say which chat's work to bring in")
             }
             let src: TerminalSession
-            switch resolveTarget(t) {
+            switch resolveTarget(t, from: request.from) {
             case .success(let found): src = found
             case .failure(let error): return .failure(error.message)
             }
@@ -1454,6 +1615,9 @@ final class Workspace: ObservableObject {
                 result = IPCCombineResult(status: "blocked", files: [], conflicts: [],
                                           recoveryPoint: nil, summary: why)
             }
+            // Combine trouble is fleet news: the lead should hear promptly that
+            // a piece is parked, without anyone having to poll for it.
+            fleetMonitor?.noteCombine(project: into, status: result.status)
             return IPCResponse(ok: true, combineResult: result)
 
         case .verify:
@@ -1475,7 +1639,7 @@ final class Workspace: ObservableObject {
                 authError = "unauthorized: missing or invalid IDEALIZE_TOKEN"; return
             }
             guard let t = request.target ?? request.from else { authError = "unknown chat"; return }
-            switch self.resolveTarget(t) {
+            switch self.resolveTarget(t, from: request.from) {
             case .success(let s): dir = s.workingDirectory
             case .failure(let e): authError = e.message
             }
@@ -1493,19 +1657,40 @@ final class Workspace: ObservableObject {
         return Data(token.utf8) == Data(ipcToken.utf8)
     }
 
-    /// Resolve a target string to a session by id, then by tab/label, then by
-    /// project directory name. A name matching several sessions is an ambiguity
-    /// error listing the candidates — never a silent pick of the first.
-    private func resolveTarget(_ target: String) -> Result<TerminalSession, TargetResolutionError> {
+    /// Resolve a target string to a session by id, then by alias, then by
+    /// tab/label, then by project directory name. A name matching several
+    /// sessions is an ambiguity error listing the candidates — never a silent
+    /// pick of the first. `from` is the calling session's id, when known: the
+    /// `coordinator` alias means *the caller's own project's* coordinator, so
+    /// with several projects coordinated the sender decides which one resolves.
+    private func resolveTarget(_ target: String, from: String? = nil)
+        -> Result<TerminalSession, TargetResolutionError> {
         if let exact = session(withID: target) { return .success(exact) }
         let lower = target.lowercased()
+        // A friendly alias for the workspace's lead agent, so any session can
+        // report upward without knowing its id.
+        if lower == "lead" || lower == "lead-agent" {
+            if let lead = leadAgentSession { return .success(lead) }
+            return .failure(TargetResolutionError(message: "no lead agent is running"))
+        }
         // A friendly alias for the project's coordinating chat, so any session —
         // even one started before it — can reach it without knowing its id.
         if lower == "coordinator" || lower == "project-agent" {
-            if let agent = allSessions.first(where: { $0.isProjectAgent }) {
-                return .success(agent)
+            // The sender's own project's agent wins; first-match-globally would
+            // misroute the moment two projects are coordinated.
+            if let from, let senderProject = session(withID: from)?.projectPath,
+               let own = projectAgentSession(forProject: senderProject) {
+                return .success(own)
             }
-            return .failure(TargetResolutionError(message: "no project agent is running"))
+            let agents = allSessions.filter { $0.isProjectAgent }
+            switch agents.count {
+            case 1: return .success(agents[0])
+            case 0: return .failure(TargetResolutionError(message: "no project agent is running"))
+            default:
+                let ids = agents.map(\.id).joined(separator: ", ")
+                return .failure(TargetResolutionError(
+                    message: "several project agents are running (\(ids)) — use a session id"))
+            }
         }
         var matches = allSessions.filter { $0.label.lowercased() == lower }
         if matches.isEmpty {

@@ -213,9 +213,12 @@ enum ProjectAgent {
 
     /// A path is worth coordinating when it's a real project folder — watching
     /// the home directory (or root) would both be meaningless and sweep up the
-    /// whole tree. Mirrors the explorer's "no home fallback" rule.
+    /// whole tree. Mirrors the explorer's "no home fallback" rule. The lead
+    /// agent's Fleet home is excluded too: it isn't a project, so it must never
+    /// grow its own project agent or have worker chats spawned into it.
     static func isCoordinatable(_ projectPath: String?) -> Bool {
         guard let p = projectPath, !p.isEmpty, p != "/" else { return false }
+        guard p != LeadAgent.fleetHomeURL.path else { return false }
         return p != FileManager.default.homeDirectoryForCurrentUser.path
     }
 

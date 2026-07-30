@@ -114,8 +114,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleExecutable</key>      <string>IDEalize</string>
   <key>CFBundleIconFile</key>        <string>AppIcon</string>
   <key>CFBundleIdentifier</key>      <string>${BUNDLE_ID}</string>
-  <key>CFBundleVersion</key>         <string>17</string>
-  <key>CFBundleShortVersionString</key> <string>0.9.0</string>
+  <key>CFBundleVersion</key>         <string>18</string>
+  <key>CFBundleShortVersionString</key> <string>0.10.0</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>LSMinimumSystemVersion</key>  <string>14.0</string>
   <key>NSHighResolutionCapable</key> <true/>

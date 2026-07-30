@@ -21,6 +21,11 @@ struct SettingsView: View {
     /// the stored string can't express: custom picked but nothing typed yet.
     @State private var coordinatorModelIsCustom = false
     @State private var childModelIsCustom = false
+    @State private var leadModelIsCustom = false
+    @State private var usesOwnLeadGuide = false
+    @State private var ownLeadGuideIsBehind = false
+    @State private var confirmingLeadGuideReset = false
+    @State private var leadGuideResetFailed = false
     /// Snapshot of the coordinator's guide on disk, taken when the pane appears and
     /// after each button rather than on every redraw — a Form re-renders far more
     /// often than the file changes, and both of these hit the filesystem.
@@ -175,9 +180,55 @@ struct SettingsView: View {
                 Text("Leave this empty and the project agent uses the same agent as your other chats. Anything other than Claude can take neither the model chosen above nor the guide it normally reads invisibly, so the project agent would get its instructions only as an opening message — which most other agents follow less closely.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Lead agent") {
+                Toggle("Start one automatically once two projects have project agents",
+                       isOn: $settings.leadAgentAutoStart)
+                Text("The lead agent is one chat above all the project agents: it keeps a board of what's moving in every project, makes the routine calls so the agents keep moving, learns how you like to work, and brings you only the decisions that are truly yours. It never builds anything itself. You can open one any time with the crown button in the toolbar.")
+                    .font(.caption).foregroundStyle(.secondary)
+                modelRows("Lead agent",
+                          value: $settings.leadAgentModel,
+                          isCustom: $leadModelIsCustom)
+                Text("The lead reads the least of any chat — one-line status notes and project boards, never transcripts or code — so it's the natural place to run a cheaper model.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(usesOwnLeadGuide ? "Using your own edited guide" : "Using IDEalize's built-in guide")
+                HStack {
+                    Button("View built-in") { openGuide(LeadAgent.builtInPromptURL) }
+                    Button("Edit my own copy") { editOwnLeadGuide() }
+                    if usesOwnLeadGuide {
+                        Button("Reset to built-in") { confirmingLeadGuideReset = true }
+                    }
+                }
+                if leadGuideResetFailed {
+                    Label("Your copy couldn't be thrown away, so the lead agent is still working from it. Check the file isn't open or locked elsewhere, then try again.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                if ownLeadGuideIsBehind {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("IDEalize's built-in lead-agent guide has been updated since you started your copy. Your edits are untouched, which also means your copy doesn't include the changes.",
+                              systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.orange)
+                        Button("See the built-in guide") { openGuide(LeadAgent.builtInPromptURL) }
+                            .buttonStyle(.link).font(.caption)
+                    }
+                }
+                TextField("Command", text: $settings.leadAgentLaunchCommand,
+                          prompt: Text("Same agent as my other chats"))
+                    .font(.system(.body, design: .monospaced))
+            }
         }
         .formStyle(.grouped)
         .onAppear { refreshGuideState() }
+        .confirmationDialog("Go back to IDEalize's built-in lead-agent guide?",
+                            isPresented: $confirmingLeadGuideReset) {
+            Button("Discard my copy", role: .destructive) {
+                leadGuideResetFailed = !LeadAgent.resetCustomPrompt()
+                refreshGuideState()
+            }
+            Button("Keep my copy", role: .cancel) {}
+        } message: {
+            Text("Your edited copy will be thrown away and the lead agent will go back to working from IDEalize's guide.")
+        }
         .confirmationDialog("Go back to IDEalize's built-in guide?",
                             isPresented: $confirmingGuideReset) {
             Button("Discard my copy", role: .destructive) {
@@ -275,6 +326,17 @@ struct SettingsView: View {
     private func refreshGuideState() {
         usesOwnGuide = ProjectAgent.usesCustomPrompt
         ownGuideIsBehind = ProjectAgent.customPromptIsBehind
+        usesOwnLeadGuide = LeadAgent.usesCustomPrompt
+        ownLeadGuideIsBehind = LeadAgent.customPromptIsBehind
+    }
+
+    private func editOwnLeadGuide() {
+        guard let url = LeadAgent.seedCustomPrompt() else {
+            builtInGuideMissing = true   // nothing to copy from yet
+            return
+        }
+        refreshGuideState()
+        openGuide(url)
     }
 
     private var behaviorTab: some View {

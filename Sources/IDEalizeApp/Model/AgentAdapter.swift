@@ -79,6 +79,9 @@ protocol AgentAdapter {
     /// Detect the agent's sign-in / authentication state from visible lines.
     func detectLoginState(lines: [String]) -> AgentLoginState
 
+    /// Whether the agent supports switching model at runtime (e.g. `/model`).
+    var supportsRuntimeModelSwitch: Bool { get }
+
     /// Whether the agent supports reasoning-effort keywords.
     var supportsReasoningEffort: Bool { get }
 
@@ -89,8 +92,29 @@ protocol AgentAdapter {
     /// Slash commands the adapter knows how to run (e.g. `/flow-review`).
     var supportedSlashCommands: [String] { get }
 
+    /// Command used to switch model at runtime, if supported.
+    var modelSwitchCommand: String? { get }
+
     /// Reasoning-effort keywords this agent understands.
     var effortKeywords: [String: String] { get }
+
+    /// Lift the agent's own session id from the visible screen, for agents that
+    /// print it (Kimi's welcome box shows "Session: session_…") but don't accept
+    /// one at launch. Lets the chat panel follow exactly this terminal's session
+    /// instead of guessing "newest in this directory". nil when not shown.
+    func detectSessionId(lines: [String]) -> String?
+
+    /// Command that launches this agent fresh, with IDEalize's preferred flags.
+    /// nil when IDEalize shouldn't auto-launch it (screen-only adapters).
+    var launchCommand: String? { get }
+
+    /// Command that relaunches this agent resuming the given session, or nil
+    /// when it can't resume by id. Drives "reopen archived chat".
+    func resumeCommand(sessionId: String) -> String?
+
+    /// The resumable session id encoded in a transcript file's location, if any
+    /// (Claude: the file's basename; Kimi: the session directory's name).
+    func sessionId(fromTranscriptURL url: URL) -> String?
 }
 
 extension AgentAdapter {
@@ -100,6 +124,15 @@ extension AgentAdapter {
 
     /// Most agents don't expose permission modes; Claude overrides this.
     var supportsPermissionModes: Bool { false }
+
+    /// Most agents can't switch model mid-session; Claude overrides this.
+    var supportsRuntimeModelSwitch: Bool { false }
+    var modelSwitchCommand: String? { nil }
+
+    func detectSessionId(lines: [String]) -> String? { nil }
+    var launchCommand: String? { nil }
+    func resumeCommand(sessionId: String) -> String? { nil }
+    func sessionId(fromTranscriptURL url: URL) -> String? { nil }
 }
 
 // MARK: - Agent registry
@@ -116,6 +149,12 @@ enum AgentRegistry {
     /// The adapter matching a foreground command, if any.
     static func adapter(forCommand command: String) -> AgentAdapter? {
         adapters.first { $0.matches(command: command) }
+    }
+
+    /// The adapter for a persisted agent `binaryName`, if still registered.
+    static func adapter(forBinary binary: String?) -> AgentAdapter? {
+        guard let binary, !binary.isEmpty else { return nil }
+        return adapters.first { $0.binaryName == binary }
     }
 }
 

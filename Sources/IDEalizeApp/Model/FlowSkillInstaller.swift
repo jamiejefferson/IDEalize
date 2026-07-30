@@ -30,7 +30,10 @@ enum FlowSkillInstaller {
     /// v10: project-agent names the chats it spawns (`idealize spawn --name`).
     /// v11: project-agent lands the work unprompted — one sign-off gate, then
     ///      combine, go live, confirm, and tidy the board/vault/skills.
-    static let version = 11
+    /// v12: added `lead-agent` (the fleet coordinator above the project agents);
+    ///      project-agent gains "Reporting upward", ship/scout task shapes, and
+    ///      self-serve combining (the one ask moves to go-live).
+    static let version = 12
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
     /// Add-only, and only for files the app owns: every entry here is *overwritten*
@@ -46,6 +49,7 @@ enum FlowSkillInstaller {
         ("FlowSkills/commands/flows.md",                 "commands/flows.md"),
         ("FlowSkills/commands/idealize-service-hatch.md", "commands/idealize-service-hatch.md"),
         ("FlowSkills/commands/project-agent.md",         "commands/project-agent.md"),
+        ("FlowSkills/commands/lead-agent.md",            "commands/lead-agent.md"),
     ]
 
     private static var claudeDir: URL {
@@ -67,6 +71,14 @@ enum FlowSkillInstaller {
             : claudeDir.appendingPathComponent("skills/project-agent/SKILL.md")
     }
 
+    /// The lead agent's operating guide — same app-read, dev-split arrangement
+    /// as `projectAgentGuideURL`, for the same reasons.
+    static var leadAgentGuideURL: URL {
+        AppPaths.isDevBuild
+            ? AppPaths.supportDir.appendingPathComponent("lead-agent-guide.md")
+            : claudeDir.appendingPathComponent("skills/lead-agent/SKILL.md")
+    }
+
     /// Whether `url` is a file this installer owns and will overwrite on the next
     /// version bump. The document panel uses this to refuse in-place edits: an edit
     /// here looks like it worked and is then silently reverted by an app update.
@@ -76,7 +88,8 @@ enum FlowSkillInstaller {
     /// hence the exact-match on the guide rather than a prefix test on that folder.
     static func isProvisioned(_ url: URL) -> Bool {
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
-        if path == projectAgentGuideURL.standardizedFileURL.resolvingSymlinksInPath().path {
+        if path == projectAgentGuideURL.standardizedFileURL.resolvingSymlinksInPath().path
+            || path == leadAgentGuideURL.standardizedFileURL.resolvingSymlinksInPath().path {
             return true
         }
         return path.hasPrefix(claudeDir.standardizedFileURL.path + "/")
@@ -106,7 +119,8 @@ enum FlowSkillInstaller {
         // rather than living in the fixed `files` table.
         let work: [(src: String, dest: URL)] =
             files.map { ($0.src, claudeDir.appendingPathComponent($0.dest)) }
-            + [("FlowSkills/skills/project-agent/SKILL.md", projectAgentGuideURL)]
+            + [("FlowSkills/skills/project-agent/SKILL.md", projectAgentGuideURL),
+               ("FlowSkills/skills/lead-agent/SKILL.md",    leadAgentGuideURL)]
         for f in work {
             guard let src = sourceURL(for: f.src) else {
                 NSLog("IDEalize: flow skill resource missing: \(f.src)"); ok = false; continue

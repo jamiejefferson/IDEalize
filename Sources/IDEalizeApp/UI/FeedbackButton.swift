@@ -16,10 +16,13 @@ struct FeedbackButton: View {
     @State private var dropTargeted = false
     @State private var pasteMonitor: Any?
 
+    @State private var hoverType = false
+    @State private var feedbackType: String = "feedback"
+
     private var theme: Theme { settings.theme }
 
     var body: some View {
-        Button(action: { text = ""; sent = false; screenshot = nil; presenting = true }) {
+        Button(action: { text = ""; sent = false; screenshot = nil; feedbackType = "feedback"; presenting = true }) {
             HStack(spacing: 5) {
                 Image(systemName: "exclamationmark.bubble").font(.system(size: 10))
                 Text("Feedback").font(settings.ui(11, .medium))
@@ -44,6 +47,31 @@ struct FeedbackButton: View {
                 .foregroundStyle(Color(theme.foreground))
             Text("What's working, what's not, or what you'd like next. Goes to the IDEalize backlog.")
                 .font(settings.ui(11)).foregroundStyle(Color(theme.secondaryForeground))
+
+            // Feedback type picker
+            HStack(spacing: 8) {
+                ForEach(["feedback", "bug", "feature"], id: \.self) { t in
+                    let label = t.capitalized
+                    let icon = t == "bug" ? "ant" : (t == "feature" ? "star" : "bubble.left")
+                    Button(action: { feedbackType = t }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: icon).font(.system(size: 10))
+                            Text(label).font(settings.ui(11, .medium))
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(feedbackType == t ? settings.actionStyle.color.opacity(0.15) : Color(theme.surface))
+                        )
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(feedbackType == t ? settings.actionStyle.color.opacity(0.4) : Color(theme.border), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
             TextEditor(text: $text)
                 .font(settings.ui(13))
                 .foregroundStyle(Color(theme.foreground))
@@ -222,7 +250,7 @@ struct FeedbackButton: View {
     }
 
     private func submit() {
-        Feedback.save(text, screenshot: screenshot)
+        Feedback.save(text, type: feedbackType, screenshot: screenshot)
         sent = true
         text = ""
         screenshot = nil
@@ -243,12 +271,12 @@ enum Feedback {
 
     /// Send the feedback to Supabase, and keep a local backup copy. The
     /// optional screenshot is downscaled + JPEG-encoded off the main thread.
-    static func save(_ raw: String, screenshot: NSImage? = nil) {
+    static func save(_ raw: String, type: String = "feedback", screenshot: NSImage? = nil) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         DispatchQueue.global(qos: .utility).async {
             let jpeg = screenshot.flatMap { encodeScreenshot($0) }
-            submit(text, screenshotJPEG: jpeg)
+            submit(text, type: type, screenshotJPEG: jpeg)
             appendLocal(text, screenshotJPEG: jpeg)
         }
     }
@@ -284,7 +312,7 @@ enum Feedback {
     }
 
     /// POST one feedback row to Supabase (anonymous, insert-only).
-    private static func submit(_ text: String, screenshotJPEG: Data?) {
+    private static func submit(_ text: String, type: String, screenshotJPEG: Data?) {
         guard let url = URL(string: endpoint) else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -295,6 +323,7 @@ enum Feedback {
         req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
         var payload: [String: Any] = [
             "text": text,
+            "feedback_type": type,
             "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev",
             "os_version": ProcessInfo.processInfo.operatingSystemVersionString,
         ]
