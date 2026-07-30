@@ -986,6 +986,11 @@ struct QAChatBox: View {
             }
         }
         .onDisappear { removeDictationKey(); flowStore.flushSave() }
+        // Menu: Terminal ▸ Focus Message Input (⌘I). Only the focused pane's
+        // input answers, so the caret lands in exactly one place.
+        .onChange(of: workspace.focusInputRequest) {
+            if session.id == workspace.focusedSessionID { focused = true }
+        }
     }
 
     /// The message field itself — grows with what you type up to ~14 lines, then

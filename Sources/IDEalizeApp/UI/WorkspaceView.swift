@@ -75,6 +75,10 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.pendingWorkflow) { wf in
             WorkflowSheet(workflow: wf, workspace: workspace)
         }
+        // Help ▸ Keyboard Shortcuts (⌘/) — the whole map at a glance.
+        .sheet(isPresented: $workspace.showShortcutsHelp) {
+            ShortcutsHelpView()
+        }
         .sheet(item: $workspace.pendingProjectAgentPrompt) { prompt in
             ProjectAgentPromptSheet(
                 projectName: prompt.displayName,
@@ -261,13 +265,13 @@ private struct BottomToolbar: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            toggle("sidebar.left", on: workspace.showSessionRail, help: "Toggle sessions") {
+            toggle("sidebar.left", on: workspace.showSessionRail, help: "Toggle sessions (⇧⌘R)") {
                 workspace.showSessionRail.toggle()
             }
-            toggle("folder", on: workspace.showFileExplorer, help: "Toggle file explorer") {
+            toggle("folder", on: workspace.showFileExplorer, help: "Toggle file explorer (⇧⌘E)") {
                 workspace.showFileExplorer.toggle()
             }
-            toggle("doc.text", on: workspace.showViewer, help: "Toggle document panel") {
+            toggle("doc.text", on: workspace.showViewer, help: "Toggle document panel (⇧⌘V)") {
                 workspace.showViewer.toggle()
             }
             .tourTarget(.documentPanel)
@@ -285,10 +289,11 @@ private struct BottomToolbar: View {
             }
             .disabled(!workspace.canOpenProjectAgent)
             .opacity(workspace.canOpenProjectAgent ? 1 : 0.4)
-            toggle("paintpalette", on: workspace.showAppearance, help: "Appearance (⌘⌥A)") {
+            // The shortcut itself lives on the View-menu command (menu shortcuts
+            // take precedence; a duplicate here would shadow it).
+            toggle("paintpalette", on: workspace.showAppearance, help: "Appearance (⌥⌘A)") {
                 workspace.showAppearance.toggle()
             }
-            .keyboardShortcut("a", modifiers: [.command, .option])
             Spacer()
             HStack(spacing: 5) {
                 Image(systemName: "folder.fill").font(.system(size: 9))
