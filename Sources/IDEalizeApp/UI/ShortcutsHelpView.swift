@@ -1,21 +1,17 @@
 import SwiftUI
 
-/// The at-a-glance keyboard shortcut reference — Help ▸ Keyboard Shortcuts (⌘/).
-/// A plain static list, grouped the way the menus are, so the whole map can be
-/// read in one place without opening every menu. Every shortcut here is also a
-/// real menu item (that's what makes it work); this sheet is just the overview.
-struct ShortcutsHelpView: View {
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var settings = AppSettings.shared
-    private var theme: Theme { settings.theme }
-
-    private struct ShortcutGroup {
+/// The one place the app's keyboard shortcuts are written down as data. Both
+/// surfaces that show them — the floating ⌘/ sheet and Settings ▸ Keybinds —
+/// read this catalogue, so a shortcut added to the menus only needs listing
+/// here once to appear in both.
+enum ShortcutCatalog {
+    struct Group {
         let title: String
         let items: [(action: String, keys: String)]
     }
 
-    private let groups: [ShortcutGroup] = [
-        ShortcutGroup(title: "Sessions & Chats", items: [
+    static let groups: [Group] = [
+        Group(title: "Sessions & Chats", items: [
             ("New session (pick a folder)", "⌘T"),
             ("New session in Home", "⇧⌘T"),
             ("New project", "⇧⌘N"),
@@ -24,7 +20,7 @@ struct ShortcutsHelpView: View {
             ("Archive chat", "⇧⌘⌫"),
             ("Open / close project agent", "⇧⌘A"),
         ]),
-        ShortcutGroup(title: "Panes & Terminal", items: [
+        Group(title: "Panes & Terminal", items: [
             ("Split right / split down", "⌘D · ⇧⌘D"),
             ("Close pane", "⌘W"),
             ("Toggle chat / terminal", "⌘J"),
@@ -32,7 +28,7 @@ struct ShortcutsHelpView: View {
             ("Copy last command", "⇧⌘C"),
             ("Re-run last command", "⌃R"),
         ]),
-        ShortcutGroup(title: "Panels & Views", items: [
+        Group(title: "Panels & Views", items: [
             ("Command palette", "⌘P"),
             ("Sessions rail", "⇧⌘R"),
             ("File explorer", "⇧⌘E"),
@@ -42,14 +38,25 @@ struct ShortcutsHelpView: View {
             ("Appearance panel", "⌥⌘A"),
             ("Mini mode", "⌃⌥M"),
         ]),
-        ShortcutGroup(title: "Text & App", items: [
+        Group(title: "Text & App", items: [
             ("Bigger / smaller terminal font", "⌘= · ⌘−"),
             ("Default terminal font size", "⌘0"),
             ("Save document (document panel)", "⌘S"),
             ("Settings", "⌘,"),
-            ("This list", "⌘/"),
+            ("Keyboard shortcuts overlay", "⌘/"),
         ]),
     ]
+}
+
+/// The at-a-glance keyboard shortcut reference — Help ▸ Keyboard Shortcuts (⌘/).
+/// A plain static list, grouped the way the menus are, so the whole map can be
+/// read in one place without opening every menu. Every shortcut here is also a
+/// real menu item (that's what makes it work); this sheet is just the overview.
+/// The same catalogue backs Settings ▸ Keybinds.
+struct ShortcutsHelpView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var settings = AppSettings.shared
+    private var theme: Theme { settings.theme }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -65,7 +72,7 @@ struct ShortcutsHelpView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    ForEach(groups, id: \.title) { group in
+                    ForEach(ShortcutCatalog.groups, id: \.title) { group in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(group.title.uppercased())
                                 .font(settings.ui(10, .semibold))
