@@ -5,21 +5,32 @@ import Foundation
 /// itself. This enum resolves the paths and builds the launch command; the tab
 /// itself is created by `Workspace.openServiceHatch()`.
 enum ServiceHatch {
-    /// IDEalize's source repo — where the hatch session cd's to. Resolved from the
-    /// running context: a dev `swift run` build's working directory, or a packaged
-    /// `.app` sitting at `<repo>/dist/IDEalize.app`. Each candidate is validated as
-    /// a real IDEalize checkout so a stray path never sends the session somewhere
-    /// meaningless. If nothing resolves, returns nil and the hatch does not open.
+    /// Validate that a path is a real IDEalize source checkout, so a stray path
+    /// never sends the session somewhere meaningless.
+    static func isRepo(_ path: String) -> Bool {
+        let fm = FileManager.default
+        return fm.fileExists(atPath: path + "/Package.swift")
+            && fm.fileExists(atPath: path + "/Sources/IDEalizeApp")
+    }
+
+    /// IDEalize's source repo — where the hatch session cd's to. Resolved, in order,
+    /// from: the folder the user configured in Settings; a dev `swift run` build's
+    /// working directory; or a packaged `.app` sitting at `<repo>/dist/IDEalize.app`.
+    /// The configured path comes first because an installed app (in `/Applications`)
+    /// has no path relationship to the source and can't infer it. Each candidate is
+    /// validated as a real checkout. If nothing resolves, returns nil and the hatch
+    /// does not open — the caller sends the user to Settings to point at the source.
     static func repoRoot() -> String? {
         let fm = FileManager.default
-        func isRepo(_ path: String) -> Bool {
-            fm.fileExists(atPath: path + "/Package.swift")
-                && fm.fileExists(atPath: path + "/Sources/IDEalizeApp")
-        }
         var candidates: [String] = []
+        // The user-configured source folder (set in Settings → Launch). Wins so an
+        // installed app can find a checkout that lives anywhere on disk.
+        let configured = AppSettings.shared.serviceHatchRepoPath
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configured.isEmpty { candidates.append(configured) }
         // Dev: `swift run` starts with the repo as the working directory.
         candidates.append(fm.currentDirectoryPath)
-        // Packaged: Bundle.main is <repo>/dist/IDEalize.app → strip the app and dist.
+        // Packaged in-place: Bundle.main is <repo>/dist/IDEalize.app → strip app + dist.
         let fromBundle = Bundle.main.bundleURL
             .deletingLastPathComponent()   // …/dist
             .deletingLastPathComponent()   // …/<repo>
@@ -41,14 +52,13 @@ enum ServiceHatch {
     /// agent, the vault docs added as an in-scope directory, and the
     /// `/idealize-service-hatch` guide loaded as the opening turn. (The session's
     /// own session id is appended later by `TerminalSession` when supported.)
-    static func launchCommand() -> String {
+    static func launch() -> AgentLaunch {
         var cmd = AppSettings.shared.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         if cmd.isEmpty { cmd = "claude --dangerously-skip-permissions" }
         if let docs = vaultDocsDir() {
             cmd += " --add-dir \(quote(docs))"
         }
-        cmd += " \(quote("/idealize-service-hatch"))"
-        return cmd
+        return AgentLaunch(command: cmd, openingTurn: "/idealize-service-hatch")
     }
 
     /// Single-quote a shell argument (paths here can contain spaces, e.g. the

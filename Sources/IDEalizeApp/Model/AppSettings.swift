@@ -1,6 +1,45 @@
 import SwiftUI
 import AppKit
 
+/// Factory values for the scalar appearance settings, so the Appearance panel's
+/// per-section "Reset" can put a section back exactly as it shipped. Kept here
+/// (rather than as literals in `init`) so the default and the reset can never
+/// drift apart.
+enum AppearanceDefaults {
+    // Interface
+    static let uiFontName = ""          // "" == San Francisco
+    static let uiFontSize = 13.0
+    // Terminal
+    static let fontName = "DM Mono"
+    static let fontSize = 14.0
+    static let terminalMargin = 36.0
+    static let terminalLineSpacing = 1.0
+    static var terminalThemeName: String { Theme.linen.name }
+    // Chat
+    static let chatInputOpacity = 1.0
+    static let chatInputLineSpacing = 2.0
+    static let chatShadowOpacity = 0.4
+    static let chatMargin = 18.0
+    static let terminalBlur = 3.0       // the terminal backdrop behind chat
+    static let returnToSend = true
+}
+
+/// Order of the main window's columns.
+enum WorkspaceLayout: String, CaseIterable, Identifiable {
+    /// Files and documents on the left, terminal on the right (the classic IDE shape).
+    case standard
+    /// Terminal front and centre next to the sessions rail; documents open to its
+    /// right, with the files panel on the far right.
+    case chatFocused
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .standard: return "Standard"
+        case .chatFocused: return "Chat-focused"
+        }
+    }
+}
+
 /// User-facing, persisted preferences. Backed by UserDefaults.
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -35,10 +74,6 @@ final class AppSettings: ObservableObject {
     @Published var chatLineSpacing: Double {
         didSet { defaults.set(chatLineSpacing, forKey: "chatLineSpacing") }
     }
-    /// Opacity of the chat modal card (lower = more blurred terminal shows through).
-    @Published var chatTranslucency: Double {
-        didSet { defaults.set(chatTranslucency, forKey: "chatTranslucency") }
-    }
     /// Opacity of the chat input lozenge (separate from the modal card).
     @Published var chatInputOpacity: Double {
         didSet { defaults.set(chatInputOpacity, forKey: "chatInputOpacity") }
@@ -52,11 +87,8 @@ final class AppSettings: ObservableObject {
     @Published var chatShadowOpacity: Double {
         didSet { defaults.set(chatShadowOpacity, forKey: "chatShadowOpacity") }
     }
-    /// Manual chat-modal height as a fraction of the pane (0 = auto / content-sized).
-    @Published var chatHeightFraction: Double {
-        didSet { defaults.set(chatHeightFraction, forKey: "chatHeightFraction") }
-    }
     /// Gaussian blur radius applied to the terminal backdrop in chat mode.
+    /// (Edited in Appearance ▸ Chat, since that is the only mode it is visible in.)
     @Published var terminalBlur: Double {
         didSet { defaults.set(terminalBlur, forKey: "terminalBlur") }
     }
@@ -66,13 +98,19 @@ final class AppSettings: ObservableObject {
     @Published var terminalMargin: Double {
         didSet { defaults.set(terminalMargin, forKey: "terminalMargin") }
     }
+    /// Terminal line spacing as a multiple of the font's natural line height
+    /// (1 = tight/default).
+    @Published var terminalLineSpacing: Double {
+        didSet { defaults.set(terminalLineSpacing, forKey: "terminalLineSpacing") }
+    }
+    /// The colour scheme for the terminal grid alone — independent of the app
+    /// theme, so a warm paper terminal can sit inside a differently-themed app.
+    @Published var terminalThemeName: String {
+        didSet { defaults.set(terminalThemeName, forKey: "terminalThemeName") }
+    }
     /// Inner padding (margins) of the chat modal.
     @Published var chatMargin: Double {
         didSet { defaults.set(chatMargin, forKey: "chatMargin") }
-    }
-    /// Optional chat text colour as a hex string ("" = use the theme foreground).
-    @Published var chatTextColorHex: String {
-        didSet { defaults.set(chatTextColorHex, forKey: "chatTextColorHex") }
     }
     /// Whether Return sends the chat message (off → Return inserts a newline; ⌘↩ sends).
     @Published var returnToSend: Bool {
@@ -83,17 +121,13 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(voiceReleaseToSend, forKey: "voiceReleaseToSend") }
     }
 
-    /// The chat text colour — the override if set, otherwise the theme foreground.
-    var chatTextColor: NSColor {
-        if let c = NSColor(hex: chatTextColorHex) { return c }
-        return theme.foreground
-    }
-
     // MARK: Theme
     @Published var themeName: String {
         didSet { defaults.set(themeName, forKey: "themeName") }
     }
     var theme: Theme { Theme.named(themeName) }
+    /// The terminal grid's own colour scheme.
+    var terminalTheme: Theme { Theme.named(terminalThemeName) }
 
     // MARK: Per-panel appearance (the USP)
     /// Typography + background overrides keyed by `PanelKind.rawValue`.
@@ -158,6 +192,49 @@ final class AppSettings: ObservableObject {
     @Published var shellPath: String {
         didSet { defaults.set(shellPath, forKey: "shellPath") }
     }
+    /// Path to IDEalize's own source checkout, used by the Service hatch to root
+    /// its dev session. Empty until the user points at it: an installed `.app`
+    /// (in `/Applications`) has no path relationship to the source, so it can't be
+    /// inferred. See `ServiceHatch.repoRoot()`.
+    @Published var serviceHatchRepoPath: String {
+        didSet { defaults.set(serviceHatchRepoPath, forKey: "serviceHatchRepoPath") }
+    }
+
+    // MARK: Project agent
+    /// Open a project's coordinating agent automatically once that project has a
+    /// second chat, instead of offering it in a sheet. The sidebar's own button
+    /// stays available from the very first chat either way, so this is "stop
+    /// asking me", not "start earlier".
+    @Published var projectAgentAutoStart: Bool {
+        didSet { defaults.set(projectAgentAutoStart, forKey: "projectAgentAutoStart") }
+    }
+    /// Model the coordinating agent runs on, appended as `--model <value>`. Empty
+    /// inherits whatever the launch command already selects. The coordinator does
+    /// a simpler job than the chats it manages so it can run cheaper — but it also
+    /// *reads* the most (every chat's transcript, plus `idealize survey`), so a
+    /// small context window bites sooner here than it would in a worker.
+    @Published var projectAgentModel: String {
+        didSet { defaults.set(projectAgentModel, forKey: "projectAgentModel") }
+    }
+    /// Model the chats the coordinator spawns run on. Kept separate from
+    /// `projectAgentModel` so choosing a cheap coordinator doesn't quietly
+    /// downgrade the chats doing the actual building.
+    @Published var projectAgentChildModel: String {
+        didSet { defaults.set(projectAgentChildModel, forKey: "projectAgentChildModel") }
+    }
+    /// A different agent command for the coordinator alone. Empty inherits
+    /// `defaultLaunchCommand`. A non-Claude command takes neither `--model` nor
+    /// `--append-system-prompt`, so with one set the guide arrives only as the
+    /// `/project-agent` opening turn.
+    @Published var projectAgentLaunchCommand: String {
+        didSet { defaults.set(projectAgentLaunchCommand, forKey: "projectAgentLaunchCommand") }
+    }
+    /// The `FlowSkillInstaller.version` the user's edited operating prompt was
+    /// seeded from, so we can tell them when the built-in guide has moved on
+    /// *without* touching their copy. 0 = they have never edited it.
+    @Published var projectAgentPromptBaseVersion: Int {
+        didSet { defaults.set(projectAgentPromptBaseVersion, forKey: "projectAgentPromptBaseVersion") }
+    }
 
     // MARK: Behavior
     @Published var notificationsEnabled: Bool {
@@ -188,6 +265,12 @@ final class AppSettings: ObservableObject {
     /// Recently opened folders (most-recent first) for the File ▸ Open Recent menu.
     @Published var recentFolders: [String] {
         didSet { defaults.set(recentFolders, forKey: "recentFolders") }
+    }
+
+    // MARK: Screen layout
+    /// Order of the main window's columns (standard vs chat-focused).
+    @Published var workspaceLayout: WorkspaceLayout {
+        didSet { defaults.set(workspaceLayout.rawValue, forKey: "workspaceLayout") }
     }
 
     // MARK: Mini Mode
@@ -224,6 +307,12 @@ final class AppSettings: ObservableObject {
     var miniModePreZoomed: Bool {
         get { defaults.object(forKey: "miniModePreZoomed") as? Bool ?? false }
         set { defaults.set(newValue, forKey: "miniModePreZoomed") }
+    }
+    /// Whether the window was in native full-screen before mini-mode, so exiting
+    /// mini-mode returns to full-screen rather than a windowed frame.
+    var miniModePreFullScreen: Bool {
+        get { defaults.object(forKey: "miniModePreFullScreen") as? Bool ?? false }
+        set { defaults.set(newValue, forKey: "miniModePreFullScreen") }
     }
 
     /// Snapshot of the session rail (Projects → Chats) for restore-on-launch.
@@ -283,32 +372,51 @@ final class AppSettings: ObservableObject {
     }
 
     private init() {
-        // Empty = the proportional system font (proper typography by default).
-        self.fontName = defaults.string(forKey: "fontName") ?? ""
-        self.fontSize = defaults.object(forKey: "fontSize") as? Double ?? 13.0
-        self.uiFontName = defaults.string(forKey: "uiFontName") ?? ""
-        self.uiFontSize = defaults.object(forKey: "uiFontSize") as? Double ?? 13.0
+        Self.seedDevDefaultsFromInstalledAppIfNeeded()
+        // Default terminal typeface is the bundled DM Mono (registered at launch).
+        self.fontName = defaults.string(forKey: "fontName") ?? AppearanceDefaults.fontName
+        self.fontSize = defaults.object(forKey: "fontSize") as? Double ?? AppearanceDefaults.fontSize
+        self.uiFontName = defaults.string(forKey: "uiFontName") ?? AppearanceDefaults.uiFontName
+        self.uiFontSize = defaults.object(forKey: "uiFontSize") as? Double ?? AppearanceDefaults.uiFontSize
         self.chatFontSize = defaults.object(forKey: "chatFontSize") as? Double ?? 16.0
         self.chatLineSpacing = defaults.object(forKey: "chatLineSpacing") as? Double ?? 5.0
-        self.chatTranslucency = defaults.object(forKey: "chatTranslucency") as? Double ?? 0.80
-        self.chatInputOpacity = defaults.object(forKey: "chatInputOpacity") as? Double ?? 1.0
-        self.chatInputLineSpacing = defaults.object(forKey: "chatInputLineSpacing") as? Double ?? 2.0
-        self.chatShadowOpacity = defaults.object(forKey: "chatShadowOpacity") as? Double ?? 0.4
-        self.chatHeightFraction = defaults.object(forKey: "chatHeightFraction") as? Double ?? 0.0
-        self.terminalBlur = defaults.object(forKey: "terminalBlur") as? Double ?? 3.0
-        self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? 0.0
-        self.chatMargin = defaults.object(forKey: "chatMargin") as? Double ?? 18.0
-        self.chatTextColorHex = defaults.string(forKey: "chatTextColorHex") ?? ""
-        self.returnToSend = defaults.object(forKey: "returnToSend") as? Bool ?? true
+        self.chatInputOpacity = defaults.object(forKey: "chatInputOpacity") as? Double ?? AppearanceDefaults.chatInputOpacity
+        self.chatInputLineSpacing = defaults.object(forKey: "chatInputLineSpacing") as? Double ?? AppearanceDefaults.chatInputLineSpacing
+        self.chatShadowOpacity = defaults.object(forKey: "chatShadowOpacity") as? Double ?? AppearanceDefaults.chatShadowOpacity
+        self.terminalBlur = defaults.object(forKey: "terminalBlur") as? Double ?? AppearanceDefaults.terminalBlur
+        self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? AppearanceDefaults.terminalMargin
+        self.terminalLineSpacing = defaults.object(forKey: "terminalLineSpacing") as? Double ?? AppearanceDefaults.terminalLineSpacing
+        self.terminalThemeName = defaults.string(forKey: "terminalThemeName") ?? AppearanceDefaults.terminalThemeName
+        self.chatMargin = defaults.object(forKey: "chatMargin") as? Double ?? AppearanceDefaults.chatMargin
+        self.returnToSend = defaults.object(forKey: "returnToSend") as? Bool ?? AppearanceDefaults.returnToSend
         self.voiceReleaseToSend = defaults.object(forKey: "voiceReleaseToSend") as? Bool ?? false
-        self.themeName = defaults.string(forKey: "themeName") ?? Theme.idealizeDark.name
+        // Ink/Linen are terminal-only schemes. If one was previously picked as the
+        // *app* theme it's no longer in the picker, so migrate it to the app theme
+        // of matching brightness rather than leaving the window on a theme the
+        // user can't see selected (or change back to).
+        let storedTheme = defaults.string(forKey: "themeName") ?? Theme.idealizeDark.name
+        if Theme.all.contains(where: { $0.name == storedTheme }) {
+            self.themeName = storedTheme
+        } else {
+            self.themeName = Theme.named(storedTheme).isDark ? Theme.idealizeDark.name : Theme.idealizeLight.name
+        }
         self.defaultLaunchCommand = defaults.string(forKey: "defaultLaunchCommand")
             ?? "claude --dangerously-skip-permissions"
-        // Opt-in: auto-launching an agent (with permissions skipped) on every new
-        // terminal is off unless the user flips the switch.
-        self.launchOnNewTerminal = defaults.object(forKey: "launchOnNewTerminal") as? Bool ?? false
+        // On by default: this is a Claude-Code-native app, so a new terminal should
+        // launch the agent. Only a user who explicitly flips the switch off opts out
+        // (an explicit stored `false` is preserved; `?? true` only fills a missing value).
+        self.launchOnNewTerminal = defaults.object(forKey: "launchOnNewTerminal") as? Bool ?? true
         self.shellPath = defaults.string(forKey: "shellPath")
             ?? (ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
+        self.serviceHatchRepoPath = defaults.string(forKey: "serviceHatchRepoPath") ?? ""
+        // Opt-in, and every model choice inherits by default: a coordinator should
+        // behave exactly as it does today until the user says otherwise.
+        self.projectAgentAutoStart = defaults.object(forKey: "projectAgentAutoStart") as? Bool ?? false
+        self.projectAgentModel = defaults.string(forKey: "projectAgentModel") ?? ""
+        self.projectAgentChildModel = defaults.string(forKey: "projectAgentChildModel") ?? ""
+        self.projectAgentLaunchCommand = defaults.string(forKey: "projectAgentLaunchCommand") ?? ""
+        self.projectAgentPromptBaseVersion =
+            defaults.object(forKey: "projectAgentPromptBaseVersion") as? Int ?? 0
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         self.completionSoundEnabled = defaults.object(forKey: "completionSoundEnabled") as? Bool ?? true
         self.completionSoundVolume = defaults.object(forKey: "completionSoundVolume") as? Double ?? 0.4
@@ -316,6 +424,7 @@ final class AppSettings: ObservableObject {
         self.hasSeenTour = defaults.object(forKey: "hasSeenTour") as? Bool ?? false
         self.lastSeenAnnouncementID = defaults.string(forKey: "lastSeenAnnouncementID") ?? ""
         self.recentFolders = defaults.stringArray(forKey: "recentFolders") ?? []
+        self.workspaceLayout = WorkspaceLayout(rawValue: defaults.string(forKey: "workspaceLayout") ?? "") ?? .standard
         self.miniModeEnabled = defaults.object(forKey: "miniModeEnabled") as? Bool ?? false
         self.miniModeDockSide = DockSide(rawValue: defaults.string(forKey: "miniModeDockSide") ?? "") ?? .right
         self.miniModeAlwaysOnTop = defaults.object(forKey: "miniModeAlwaysOnTop") as? Bool ?? true
@@ -330,6 +439,37 @@ final class AppSettings: ObservableObject {
             .flatMap { try? JSONDecoder().decode([String: PanelAppearance].self, from: $0) }) ?? [:]
         self.actionAppearance = (defaults.data(forKey: "actionAppearance")
             .flatMap { try? JSONDecoder().decode(ActionAppearance.self, from: $0) }) ?? .empty
+    }
+
+    /// The dev build has its own preferences domain, so it starts with none of
+    /// the user's real settings — a fresh theme, no auto-launch, no projects. On
+    /// its first run, copy the installed app's domain across so the test build
+    /// feels like their app. The design-test keys below are deliberately left
+    /// out, so the redesign's own defaults (DM Mono, margins, line spacing) win.
+    private static func seedDevDefaultsFromInstalledAppIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true,
+              !defaults.bool(forKey: "devSeededFromMainApp"),
+              let installed = defaults.persistentDomain(forName: "com.idealize.terminal")
+        else { return }
+        let designKeys: Set<String> = ["fontName", "fontSize", "terminalMargin",
+                                       "terminalLineSpacing", "terminalThemeName"]
+        for (key, value) in installed where !designKeys.contains(key) {
+            defaults.set(value, forKey: key)
+        }
+        // Drop any per-panel *terminal* override that came across: the terminal is
+        // configured by its own theme now, and a copied solid-black background
+        // would silently win over it.
+        if let data = defaults.data(forKey: "panelAppearances"),
+           var panels = try? JSONDecoder().decode([String: PanelAppearance].self, from: data),
+           panels.removeValue(forKey: PanelKind.terminal.rawValue) != nil,
+           let trimmed = try? JSONEncoder().encode(panels) {
+            defaults.set(trimmed, forKey: "panelAppearances")
+        }
+        // Drop any design keys this build wrote on an earlier dev run, so the new
+        // defaults apply rather than a stale value.
+        designKeys.forEach { defaults.removeObject(forKey: $0) }
+        defaults.set(true, forKey: "devSeededFromMainApp")
     }
 
     /// Resolve the configured terminal font. An empty name means the macOS

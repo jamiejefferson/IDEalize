@@ -28,6 +28,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// `idealize reveal` read this, so they can't disagree about what counts as
     /// "inside" the session.
     var explorerRoot: String? {
+        // A chat working in a safe copy should show ITS folder (the copy), so the
+        // user reviewing that chat — and `idealize reveal` — see the files it
+        // actually changed, not the shared project.
+        if let w = safeCopy?.worktreePath, !w.isEmpty, w != "/" { return w }
         guard let p = projectPath, !p.isEmpty, p != "/" else { return nil }
         return p
     }
@@ -72,12 +76,31 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published var taskCritter: Int = 0
     /// A confirmation/choice prompt the agent is showing — answered from the chat UI.
     @Published var pendingPrompt: AgentPrompt?
+    /// The prompt most recently answered/dismissed from the chat card, held briefly
+    /// so the ~1s screen poll can't resurrect it. When you answer a prompt we
+    /// optimistically clear `pendingPrompt`, but the agent's TUI takes a moment to
+    /// process the keystroke and repaint — until it does, its still-visible option
+    /// block would re-parse to the same prompt and `detectPrompt()` would re-open
+    /// the card you just dismissed. This mirrors the `awaitingReply` guard that
+    /// covers the identical race for `botWorking`.
+    private var answeredPrompt: AgentPrompt?
+    private var answeredPromptAt: Date?
     /// An interactive prompt is live on the terminal that we could NOT parse into
     /// answer buttons (an arrow-key menu, a trust dialog, a free-form confirm).
     /// These never reach the transcript, so without this flag the chat would
     /// keep showing the previous, now-stale answer. When set, the chat shows a
     /// "answer in the terminal" affordance instead of that stale message.
     @Published var liveInteractivePrompt: Bool = false
+    /// Where the agent is in its sign-in flow, lifted from the visible screen.
+    /// Drives the chat's "signing in…" / "you're signed in" banners so the OAuth
+    /// dance — which otherwise left the viewer blankly reporting "ready" — is
+    /// legible, and its success (which the terminal only flashes before its
+    /// welcome screen) is confirmed. See `updateLoginState`.
+    @Published var loginState: AgentLoginState = .none
+    /// When `.succeeded` was last seen on screen, so the confirmation lingers a
+    /// few seconds after the terminal's own success screen is dismissed (Enter),
+    /// then clears back to `.none`.
+    private var loginSucceededAt: Date?
     /// High-level agent status shown as a tab tag (see `AgentStatus`). Driven by
     /// `detectPrompt`; cleared back to `.idle` from `.complete` once the tab is
     /// focused (acknowledged).
@@ -116,6 +139,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     @Published var revealTerminal: Bool = false
     /// The model label shown in the input toolbar (display only).
     @Published var modelLabel: String = "Auto"
+    /// How much autonomy the agent runs with. Applied as a launch flag when the
+    /// agent (re)starts — defaults to `.yolo` to preserve IDEalize's long-standing
+    /// permissions-skipped launch. Chosen from the chat toolbar's permission pill.
+    @Published var permissionMode: PermissionMode = .yolo
     /// Thinking-effort label shown in the toolbar.
     @Published var effortLabel: String = "Standard"
     /// The thinking keyword prepended to messages ("", "think", "think hard",
@@ -164,6 +191,89 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         modelLabel = label
         guard let cmd = currentAgent?.modelSwitchCommand, tuiActive else { return }
         sendLineToTUI("\(cmd) \(id)")
+    }
+
+    /// The nonce IDEalize included when it asked this pane's agent to introduce
+    /// itself, so an arriving `agent-hello` can be proven to come from *this*
+    /// session's agent. nil when no introduction is pending — a voluntary
+    /// `idealize agent-hello` is then accepted on path checks alone.
+    var handshakeNonce: String?
+
+    /// An unknown agent introduced itself (`idealize agent-hello`, relayed by
+    /// the IPC hub): the in-chat handshake's automatic alternative to the
+    /// manual setup sheet. Parse and verify the payload, then save it as a
+    /// custom `AgentProfile` so this — and every future — launch of the same
+    /// command gets the chat surface. Returns a problem description, or nil.
+    func receiveAgentHello(json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return "hello payload is not valid JSON"
+        }
+        guard let name = (payload["name"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+            return "hello payload is missing the agent name"
+        }
+        // The profile key is the binary the pane is actually running (or about
+        // to run) — derived here, never taken from the payload, so an agent
+        // can't claim another binary's identity.
+        guard let command = runningCommand ?? pendingLaunchCommand ?? launchOverride,
+              let first = command.trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: " ").first else {
+            return "no running command to attach this agent to"
+        }
+        let binary = (String(first) as NSString).lastPathComponent.lowercased()
+        guard !binary.isEmpty else { return "no running command to attach this agent to" }
+        // An introduction we initiated must echo our nonce — otherwise any
+        // process in the shell could rebind the chat's transcript source.
+        if let expected = handshakeNonce, (payload["nonce"] as? String) != expected {
+            return "nonce mismatch — expected the one from IDEalize's introduction"
+        }
+
+        let format: AgentProfile.TranscriptFormat
+        switch ((payload["format"] as? String) ?? "none").lowercased() {
+        case "claude-jsonl", "claudejsonl": format = .claudeJSONL
+        case "kimi-wire", "kimiwirejsonl": format = .kimiWireJSONL
+        default: format = .none   // unknown formats degrade to screen-only, not break
+        }
+        let template = (payload["transcript"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        // Verify the transcript claim before trusting it: the template must
+        // resolve to an existing file inside $HOME for this very session (and
+        // carry our nonce when one was issued — proof it's not a guessed path).
+        if format != .none {
+            guard !template.isEmpty else { return "format \(format.rawValue) needs a transcript template" }
+            var path = template
+                .replacingOccurrences(of: "{workdir}", with: ClaudeTranscript.encodedDir(for: workingDirectory ?? ""))
+                .replacingOccurrences(of: "{session}", with: boundSessionId ?? "")
+            path = ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            guard path.hasPrefix(home + "/") else {
+                return "transcript path must live inside your home folder"
+            }
+            guard FileManager.default.fileExists(atPath: path) else {
+                return "transcript file does not exist at \(path)"
+            }
+            if let nonce = handshakeNonce {
+                let tail = (try? String(contentsOfFile: path, encoding: .utf8))?.suffix(65_536) ?? ""
+                guard tail.contains(nonce) else {
+                    return "transcript at \(path) does not contain this session's nonce"
+                }
+            }
+        }
+
+        var profile = AgentProfile.defaultProfile(binary: binary)
+        profile.name = name
+        profile.transcriptPathTemplate = template
+        profile.transcriptFormat = format
+        if let patterns = payload["workingPatterns"] as? [String], !patterns.isEmpty {
+            profile.workingLinePatterns = patterns
+        }
+        AgentProfileStore.shared.save(profile)
+        handshakeNonce = nil
+        completeAgentSetup()   // the agent introduced itself — no sheet needed
+        currentAgent = nil     // re-resolve on the next poll via the new profile
+        return nil
     }
 
     /// Send a line of input to the live TUI (agent CLI) as the pasted text
@@ -218,17 +328,65 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Augment an agent launch with a fresh session id when the adapter supports
     /// it, so its transcript is identifiable. Returns the command unchanged for
     /// agents that don't bind sessions at launch.
+    /// Rewrite the launch's *flags* — never its opening turn, which is appended
+    /// afterwards. See `AgentLaunch` for why that separation matters: every
+    /// pattern match below used to be able to read the user's prose.
     private func augmentAgentLaunch(_ command: String) -> String {
-        guard let agent = AgentRegistry.adapter(forCommand: command.lowercased()) else { return command }
-        // Only Claude currently supports launch-time session binding.
-        guard agent.binaryName == "claude" else { return command }
-        let selectors = ["--session-id", "--resume", "--continue", " -r ", " -c "]
-        if selectors.contains(where: { command.contains($0) })
-            || command.hasSuffix(" -r") || command.hasSuffix(" -c") { return command }
-        let uuid = UUID().uuidString.lowercased()
-        boundSessionId = uuid
-        boundAgentBinary = agent.binaryName
-        return command + " --session-id \(uuid)"
+        var result = command
+        // Detection runs on the flags alone, so a brief that merely mentions
+        // "claude" can't make a `kimi` launch look like Claude's.
+        if let agent = AgentRegistry.adapter(forCommand: command.lowercased()),
+           agent.binaryName == "claude" {   // only Claude binds sessions / takes modes
+            // Bind a fresh session id unless the command already selects one, so this
+            // chat's transcript is identifiable.
+            let selectors = ["--session-id", "--resume", "--continue", " -r ", " -c "]
+            let alreadySelectsSession = selectors.contains(where: { command.contains($0) })
+                || command.hasSuffix(" -r") || command.hasSuffix(" -c")
+            if !alreadySelectsSession {
+                let uuid = UUID().uuidString.lowercased()
+                boundSessionId = uuid
+                boundAgentBinary = agent.binaryName
+                result += " --session-id \(uuid)"
+            }
+            // Apply this chat's permission mode, so the toolbar pill — not whatever
+            // flag happens to be in the launch command — is the single source of truth.
+            if agent.supportsPermissionModes {
+                result = TerminalSession.applyingPermissionMode(permissionMode, to: result)
+            }
+        }
+        // The opening turn goes on last, quoted once, after every rewrite. Trailing
+        // rather than mid-command is also the more conventional shape — flags then
+        // positional — where it used to sit before the flags we append.
+        if let turn = launchPositional?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !turn.isEmpty {
+            result += " " + AgentLaunch.quote(turn)
+        }
+        return result
+    }
+
+    // Note: we deliberately don't hand Claude Code a theme. Its `light-ansi` /
+    // `dark-ansi` themes draw its chrome from our 16 ANSI colours, which sounds
+    // like the terminal winning — but it paints the prompt-box rules and most of
+    // its body text in the same slot (7), so the rules can't be quietened without
+    // taking the transcript with them. Left to its own truecolor themes it rules
+    // the box in a fixed mid-grey, independent of anything we set.
+
+    /// Replace any permission flag in a `claude` launch with the one for `mode`.
+    /// Strips `--dangerously-skip-permissions` and `--permission-mode <value>`
+    /// (both space- and `=`-separated) so switching modes never leaves a stale or
+    /// conflicting flag behind, then appends `mode`'s flag.
+    static func applyingPermissionMode(_ mode: PermissionMode, to command: String) -> String {
+        // Each flag is removed *with its leading space*, so no double space is left
+        // behind and there's nothing to tidy up afterwards. A global
+        // `" +" -> " "` collapse used to follow, and it rewrote whitespace
+        // everywhere — including inside a quoted path, so a folder name containing
+        // two consecutive spaces was silently corrupted.
+        var c = command
+        c = c.replacingOccurrences(
+            of: " *--dangerously-skip-permissions", with: "", options: .regularExpression)
+        c = c.replacingOccurrences(
+            of: " *--permission-mode[= ]+[A-Za-z]+", with: "", options: .regularExpression)
+        return c.trimmingCharacters(in: .whitespaces) + " " + mode.launchFlag
     }
 
     // Blocks (Warp-style command tracking via shell integration).
@@ -239,6 +397,24 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// True whenever a TUI (agent CLI or another full-screen program) owns the pane.
     var tuiActive: Bool { inAltScreen || isAgentRunning }
 
+    /// A Claude Code session is the current foreground command. Reliable even
+    /// when Claude doesn't use the alternate screen / reports an odd proc name.
+    var isClaudeRunning: Bool {
+        guard let cmd = runningCommand?.lowercased() else { return false }
+        return TerminalSession.isClaudeCommand(cmd)
+    }
+
+    /// Whether a command string invokes `claude` — bare, with args, after a
+    /// separator (`&&`/`;`), or as a full path. Used by the persisted snapshot's
+    /// `wasClaude` and the rail's restore affordances. (Agent detection proper
+    /// lives in `AgentRegistry`; this is the launch-restore check.)
+    static func isClaudeCommand(_ command: String) -> Bool {
+        // Case-insensitive: the adapter lookup lowercases before matching, so a
+        // capitalised "Claude" used to be an agent by one test and not the other —
+        // yielding a chat that got Claude-only flags but no guide and no model.
+        command.range(of: "(^|[ /&;])claude($| )",
+                      options: [.regularExpression, .caseInsensitive]) != nil
+    }
     /// A command (or bot) is currently running in this terminal.
     var isRunningCommand: Bool { blocks.last?.isRunning == true }
 
@@ -255,6 +431,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Hatch to drop this tab straight into an agent dev session on IDEalize itself.
     var launchOverride: String?
 
+    /// The opening turn for this session's launch — an agent's first prompt, or a
+    /// slash command like `/project-agent`. Deliberately *not* part of
+    /// `launchOverride`: it is appended, quoted, only once every flag rewrite in
+    /// `augmentAgentLaunch` has run. See `AgentLaunch` for the four bugs that
+    /// carrying it inside the command string caused.
+    var launchPositional: String?
+
     /// Force a plain shell: skip the auto-launch (e.g. `claude …`) even when the
     /// global default would run one. Set before `start()`. Used when restoring a
     /// chat that was a bare shell, so it doesn't get an unexpected agent on relaunch.
@@ -268,6 +451,37 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// project-agent toggle). Other chats in the same project can reach it by
     /// the "coordinator" alias or `$IDEALIZE_PROJECT_AGENT`.
     @Published var isProjectAgent: Bool = false
+
+    /// This chat's isolated "safe copy": its own git worktree + branch off a base
+    /// commit, so parallel chats never touch each other's files. `nil` for an
+    /// ordinary chat, which shares the project folder exactly as before. All three
+    /// fields are engineering detail and must never appear in a user-facing string
+    /// (V2 rule: translate, never expose). `projectPath` stays the *logical*
+    /// project either way — the copy only changes where the shell actually runs
+    /// (`workingDirectory`), not which project the chat belongs to.
+    @Published var safeCopy: SafeCopy?
+
+    /// Descriptor for a chat's safe copy. See `safeCopy`.
+    struct SafeCopy: Equatable {
+        /// The isolated working directory — this chat's real cwd.
+        var worktreePath: String
+        /// The branch checked out there.
+        var branch: String
+        /// The commit the copy was taken from.
+        var baseCommit: String
+    }
+
+    /// Where the shell and agent actually run. For an ordinary chat this is the
+    /// project folder; for one working in a safe copy it's the copy's folder.
+    /// Everything that needs the *real* cwd (the shell's start directory, Claude's
+    /// transcript location) uses this; everything that needs the *logical* project
+    /// (grouping, the tab label, reaching the coordinator) keeps using
+    /// `projectPath`.
+    var workingDirectory: String? {
+        if let w = safeCopy?.worktreePath, !w.isEmpty { return w }
+        if let p = projectPath, !p.isEmpty { return p }
+        return nil
+    }
 
     private let settings: AppSettings
     private var statusTimer: Timer?
@@ -299,9 +513,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             self.inAltScreen = alt
             // Re-assert the configured terminal font/theme so the TUI renders in
             // the user's chosen typography (not a stale fallback).
-            self.applyTheme(self.settings.theme, font: self.settings.resolvedFont())
+            self.applyTheme(self.settings.terminalTheme, font: self.settings.resolvedFont())
         }
-        applyTheme(settings.theme, font: settings.resolvedFont())
+        applyTheme(settings.terminalTheme, font: settings.resolvedFont())
     }
 
     // MARK: - Shell events → blocks
@@ -375,6 +589,41 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         terminalView.send(txt: text)
     }
 
+    /// Whether text from *another* chat can be delivered right now. False while a
+    /// live interactive prompt (a yes/no confirmation) is on screen: the Return
+    /// that submits a message would answer that prompt instead, which is how an
+    /// agent ends up approving something nobody agreed to. `ProjectMonitor` holds
+    /// its own nudges back for exactly this reason.
+    var canAcceptExternalInput: Bool { !liveInteractivePrompt }
+
+    /// Deliver text sent by another chat — `idealize type` / `idealize exec`, which
+    /// is how the project agent steers the chats it started.
+    ///
+    /// An agent chat gets it through `submitInput`, the same path a human message
+    /// takes: text first, then a *discrete* Return a beat later, escaping out of a
+    /// selection menu beforehand, and the chat marked as working. This used to be a
+    /// raw write for every target, so a message the project agent typed into
+    /// another chat just sat in the composer, unsent — `insert` is deliberately
+    /// "type without executing", and even a trailing newline written in the same
+    /// chunk as the text gets swallowed by an agent's line editor.
+    ///
+    /// A plain shell still gets the raw write, with Ctrl-U clearing any half-typed
+    /// line so the injected text can't inherit a stray prefix. Returns false when
+    /// the target can't safely take it, so the caller can say so and retry rather
+    /// than have the message silently answer a prompt.
+    @discardableResult
+    func deliverExternalInput(_ text: String) -> Bool {
+        guard canAcceptExternalInput else { return false }
+        if tuiActive || agentLaunchInFlight {
+            // `sendLineToTUI` supplies the Return, so a trailing newline from
+            // `exec` would otherwise submit an extra blank line.
+            submitInput(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            insert("\u{15}" + text)
+        }
+        return true
+    }
+
     // MARK: - Lifecycle
 
     /// Start the login shell, injecting IPC identity, then optionally run the
@@ -413,13 +662,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             args = ["--login", "--rcfile", ShellIntegration.rootDir + "/idealize.bash", "-i"]
         }
 
-        // When no project folder is set, start the shell in the user's home
-        // directory. A Finder/Dock-launched .app inherits `/` as its working
-        // directory, so passing nil here would spawn the shell in `/` and the
-        // shell-integration prompt would then report `cwd=/`.
-        let startDir = (projectPath?.isEmpty == false)
-            ? projectPath!
-            : FileManager.default.homeDirectoryForCurrentUser.path
+        // Start the shell in the chat's working directory — the project folder,
+        // or its safe copy when it has one. When neither is set, fall back to the
+        // user's home directory. A Finder/Dock-launched .app inherits `/` as its
+        // working directory, so passing nil here would spawn the shell in `/` and
+        // the shell-integration prompt would then report `cwd=/`.
+        let startDir = workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
         terminalView.startProcess(
             executable: settings.shellPath,
             args: args,
@@ -438,9 +686,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 return o
             }
             if suppressAutoLaunch { return "" }
-            return settings.launchOnNewTerminal
-                ? settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-                : ""
+            guard settings.launchOnNewTerminal else { return "" }
+            // Auto-launch is on: fall back to Claude if the command was blanked, so a
+            // cleared field can't silently leave a bare shell (matches the fallbacks in
+            // the first-message path and the restore path).
+            let cmd = settings.defaultLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            return cmd.isEmpty ? "claude --dangerously-skip-permissions" : cmd
         }()
         launchAgentBinary = launch.isEmpty
             ? nil : AgentRegistry.adapter(forCommand: launch.lowercased())?.binaryName
@@ -546,31 +797,100 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     // MARK: - Theming
 
+    /// Apply the terminal's own colour scheme + typography. Callers pass
+    /// `settings.terminalTheme` — the grid is themed independently of the app so
+    /// it can be warm paper inside a differently-themed window. There is
+    /// deliberately no per-panel override layered on top: everything the terminal
+    /// needs lives in one place (Appearance ▸ Terminal), and a stale override
+    /// used to win over the theme silently.
     func applyTheme(_ theme: Theme, font: NSFont) {
-        // Layer the per-panel Terminal appearance over the theme. Background and
-        // foreground colours + font size/family are honoured; the grid keeps a
-        // single (ideally monospaced) font so alignment stays intact.
-        let a = settings.appearance(.terminal)
-        let bg = (a.bgMode != FillMode.inherit.rawValue ? NSColor(hex: a.bgColorHex) : nil) ?? theme.background
-        let fg = NSColor(hex: a.textColorHex) ?? theme.foreground
-        terminalView.nativeBackgroundColor = bg
-        terminalView.nativeForegroundColor = fg
-        terminalView.caretColor = theme.cursor
+        terminalView.nativeBackgroundColor = theme.background
+        terminalView.nativeForegroundColor = theme.foreground
+        // Knocked back, and never the focus-ring outline: SwiftTerm draws an
+        // unfocused caret as a 3pt stroke around the whole cell, which is the
+        // loudest mark on screen at exactly the moment you're typing somewhere
+        // else. Always the quiet bar instead.
+        //
+        // `caretOpacity` keeps the dark-theme caret quiet, but the accent is
+        // faint on paper — Linen's ochre bar at 0.6 barely clears 2:1 — so on a
+        // low-contrast ground raise the opacity just until the composited bar
+        // clears a legibility floor. Dark themes already clear it at rest and are
+        // left quiet; only the light/paper caret is lifted, where it vanished.
+        let caretFloor: CGFloat = 3.0
+        var caretAlpha = Self.caretOpacity
+        while caretAlpha < 1,
+              Theme.contrast(theme.background.blended(withFraction: caretAlpha, of: theme.cursor) ?? theme.cursor,
+                             theme.background) < caretFloor {
+            caretAlpha = min(1, caretAlpha + 0.05)
+        }
+        terminalView.caretColor = theme.cursor.withAlphaComponent(caretAlpha)
+        terminalView.caretViewTracksFocus = false
+        // A thin bar, not a filled block: the caret sits inside the agent's own
+        // prompt box, and a solid slab of cursor colour there shouted over the
+        // message input docked below it. Re-asserted on every theme apply since
+        // a TUI can change the style out from under us (DECSCUSR).
+        terminalView.getTerminal().setCursorStyle(.steadyBar)
         terminalView.selectedTextBackgroundColor = theme.selection
-        terminalView.font = terminalFont(base: font, appearance: a)
-        let palette = theme.ansi.map { $0.toSwiftTermColor() }
-        terminalView.getTerminal().installPalette(colors: palette)
+        terminalView.font = font
+        // Line spacing as a multiple of the font's natural line height.
+        terminalView.lineSpacing = CGFloat(settings.terminalLineSpacing)
+        // The palette goes in unmodified. Knocking colour 7 back to quiet the
+        // agent's prompt-box rules looks like a targeted fix and isn't one —
+        // Claude Code prints its rules AND most of its body text in that slot, so
+        // dimming it dims the transcript with them (on Linen, to invisible). The
+        // rules are reachable by the character that draws them, not its colour.
+        terminalView.getTerminal().installPalette(colors: theme.ansi.map { $0.toSwiftTermColor() })
+        // Rules sit back from the text they frame, and dim text is faded less far
+        // than SwiftTerm's fixed half — see `TerminalInkFilter`.
+        terminalView.ink.ruleColor = theme.ruleColor
+        // Tint the user's prompt-marker chevron with the app highlight so your own
+        // inputs stand out scrolling back through a chat. The same chevron is the
+        // selection pointer in an agent's list menus, and the highlight comes from
+        // the *app* theme, not the terminal's — floored against this ground so a
+        // dark-theme accent can't vanish on paper and take the selected row's only
+        // clear marker with it.
+        terminalView.ink.markerColor = TerminalInkFilter.legible(
+            settings.actionStyle.nsColor, on: theme.background,
+            toward: theme.foreground, floor: TerminalInkFilter.bodyContrastFloor)
+        terminalView.ink.dimBlend = theme.dimBlend
+        terminalView.ink.background = theme.background
+        terminalView.ink.foreground = theme.foreground
+        terminalView.ink.palette = theme.ansi
         terminalView.needsDisplay = true
+        // The cell has just been resized (font/line spacing), so re-trim — and
+        // again after layout, since on the first pass the caret has no bounds yet.
+        trimCaret()
+        DispatchQueue.main.async { [weak self] in self?.trimCaret() }
     }
 
-    /// Resolve the terminal font, honouring a per-panel font/size override.
-    private func terminalFont(base: NSFont, appearance a: PanelAppearance) -> NSFont {
-        guard !a.fontName.isEmpty || a.fontSize > 0 else { return base }
-        let famSize = a.fontSize > 0 ? CGFloat(a.fontSize) : base.pointSize
-        let famName = a.fontName.isEmpty ? (base.familyName ?? base.fontName) : a.fontName
-        return NSFont(name: famName, size: famSize)
-            ?? NSFontManager.shared.font(withFamily: famName, traits: [], weight: 5, size: famSize)
-            ?? base.withSize(famSize)
+    /// How much of the cursor colour the caret keeps.
+    private static let caretOpacity: CGFloat = 0.6
+    /// The share of the cell's height the bar caret fills, trimmed evenly top
+    /// and bottom.
+    private static let caretHeightFraction: CGFloat = 0.6
+
+    /// Trim the bar caret to `caretHeightFraction` of the cell.
+    ///
+    /// SwiftTerm hard-codes the bar at the full height of the cell and rewrites
+    /// the caret view's frame on every cursor move, so there's no API for this.
+    /// A mask on the caret's layer survives those rewrites — it lives in the
+    /// layer's own coordinate space, and only needs resizing when the cell does,
+    /// which is exactly when the theme is re-applied. The caret view is private
+    /// to SwiftTerm, so this is best-effort: if it's ever renamed or reparented
+    /// we simply don't find it and the caret stays full height.
+    private func trimCaret() {
+        guard let caret = terminalView.subviews.first(where: {
+            String(describing: type(of: $0)).contains("CaretView")
+        }), let layer = caret.layer else { return }
+        let height = caret.bounds.height
+        guard height > 1 else { return }
+        let inset = ((1 - Self.caretHeightFraction) / 2) * height
+        let mask = (layer.mask as? CALayer) ?? CALayer()
+        mask.backgroundColor = NSColor.black.cgColor
+        // Generously wide: the caret widens for full-width (CJK) characters, and
+        // only its height is being trimmed here.
+        mask.frame = CGRect(x: 0, y: inset, width: 400, height: height - inset * 2)
+        layer.mask = mask
     }
 
     // MARK: - Mailbox
@@ -668,6 +988,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         if let n = agentNote?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
             return n
         }
+        // Mid-login sessions used to fall through to the idle "ready" line.
+        if loginState == .inProgress { return "signing in…" }
         func firstLine(_ s: String, _ limit: Int = 72) -> String {
             let line = s.split(whereSeparator: \.isNewline).first.map(String.init) ?? s
             let t = line.trimmingCharacters(in: .whitespaces)
@@ -780,6 +1102,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             if botWorking { botWorking = false }
             if awaitingReply { awaitingReply = false }
             if agentStatus != .idle { agentStatus = .idle }
+            if loginState != .none { loginState = .none; loginSucceededAt = nil }
             return
         }
         let lines = readVisibleScreen()
@@ -791,7 +1114,23 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
             boundSessionId = sid
             boundAgentBinary = agent.binaryName
         }
-        let prompt = agent.parsePrompt(lines: lines)
+        updateLoginState(lines, agent: agent)
+        var prompt = agent.parsePrompt(lines: lines)
+        // Don't let the ~1s poll resurrect a prompt we just answered from the chat
+        // card: the agent's TUI may not have repainted yet, so its still-visible
+        // option block would otherwise re-open the dismissed card. Hold the
+        // answered prompt back until the screen moves on (a different prompt, or
+        // none) or a short grace elapses. `AgentPrompt` is `Equatable`, so a
+        // genuinely new question with different options clears the lockout at once.
+        if let answered = answeredPrompt {
+            if let p = prompt, p == answered,
+               let at = answeredPromptAt, Date().timeIntervalSince(at) < 2.0 {
+                prompt = nil
+            } else {
+                answeredPrompt = nil
+                answeredPromptAt = nil
+            }
+        }
         if prompt != pendingPrompt {
             pendingPrompt = prompt
             // Surface the question even if the modal was minimised.
@@ -836,6 +1175,32 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         }
         if interactive != liveInteractivePrompt { liveInteractivePrompt = interactive }
         updateAgentStatus()
+    }
+
+    /// Track the agent's sign-in flow from the visible screen and latch its
+    /// success so the chat can confirm it. The terminal shows "Login successful"
+    /// only until the user presses Enter, after which its welcome screen replaces
+    /// it — so once seen we hold `.succeeded` for a few seconds (or until the
+    /// first message clears it) rather than blinking it away. An in-progress flow
+    /// that vanishes without a success line (e.g. the user cancelled) simply
+    /// clears — we never fabricate a success.
+    private func updateLoginState(_ lines: [String], agent: AgentAdapter) {
+        switch agent.detectLoginState(lines: lines) {
+        case .succeeded:
+            if loginState != .succeeded { loginState = .succeeded }
+            loginSucceededAt = Date()               // refresh while it's on screen
+        case .inProgress:
+            loginSucceededAt = nil
+            if loginState != .inProgress { loginState = .inProgress }
+        case .none:
+            if loginState == .succeeded {
+                if let t = loginSucceededAt, Date().timeIntervalSince(t) > 8 {
+                    loginState = .none; loginSucceededAt = nil
+                }
+            } else if loginState != .none {
+                loginState = .none
+            }
+        }
     }
 
     /// Map the live `pendingPrompt`/`botWorking` flags onto the higher-level
@@ -904,9 +1269,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         return stripped.contains("?")
     }
 
+    /// Latch the prompt we're dismissing so the next screen poll can't resurrect
+    /// it before the agent's TUI has repainted. See `answeredPrompt`.
+    private func markPromptAnswered() {
+        if let p = pendingPrompt {
+            answeredPrompt = p
+            answeredPromptAt = Date()
+        }
+    }
+
     /// Answer a detected prompt by pressing the option's number in the agent.
     func answerPrompt(_ option: AgentPrompt.Option) {
         terminalView.send(txt: "\(option.number)")
+        markPromptAnswered()
         pendingPrompt = nil
         botWorking = true
         agentStatus = .working
@@ -921,6 +1296,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Confirm a multi-select prompt (Enter), proceeding with the current ticks.
     func confirmPrompt() {
         terminalView.send(txt: "\r")
+        markPromptAnswered()
         pendingPrompt = nil
         botWorking = true
         agentStatus = .working
@@ -931,6 +1307,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     func interrupt() {
         guard tuiActive else { return }
         terminalView.send(txt: "\u{1b}")   // ESC
+        markPromptAnswered()
         pendingPrompt = nil
         // Reflect the stop immediately; the on-screen marker poll keeps it honest.
         botWorking = false
@@ -943,7 +1320,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// thread. Polls are serialized via `transcriptInFlight` and stale results
     /// are dropped via `transcriptGeneration`.
     private func refreshAssistantMessage() {
-        guard let cwd = projectPath, !cwd.isEmpty else { return }
+        // The agent's transcript lives under its *real* working directory, which
+        // is the safe copy for an isolated chat — not the logical project.
+        guard let cwd = workingDirectory, !cwd.isEmpty else { return }
         guard isAgentRunning || inAltScreen else { return }
         guard let agent = currentAgent else { return }
         guard !transcriptInFlight else { return }
@@ -1061,6 +1440,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
     func submitInput(_ text: String) {
         historyIndex = nil   // a new message snaps the chat back to live
+        // Sending a message means we're past sign-in — drop any lingering
+        // login confirmation so it doesn't sit above the new turn.
+        if loginState != .none { loginState = .none; loginSucceededAt = nil }
         if tuiActive {
             // Talking to a running agent (or other TUI): show the new question but
             // keep the previous answer pinned (in `priorAnswer`) so the chat doesn't
@@ -1178,6 +1560,10 @@ extension TerminalSession: LocalProcessTerminalViewDelegate {
     /// and "/" is never accepted. Anything failing that is ignored, so a forged
     /// OSC sequence can't rewrite `projectPath`.
     private func adoptReportedCwd(_ raw: String) {
+        // A chat working in a safe copy keeps its logical `projectPath` fixed (so
+        // it stays grouped under, and reachable from, its project). Its real cwd
+        // is the copy and never changes, so ignore what the shell reports.
+        guard safeCopy == nil else { return }
         var path = raw
         if path.hasPrefix("file://") {
             // URL parsing percent-decodes (%20 etc.) — the old string-replace

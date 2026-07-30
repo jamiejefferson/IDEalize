@@ -142,14 +142,19 @@ enum SkillCatalog {
 private struct Pill: View {
     let icon: String
     let text: String
+    /// Overrides the icon/hover accent — used to flag a caution state (e.g. Yolo).
+    let tint: Color?
     @ObservedObject private var settings = AppSettings.shared
     @State private var hovering = false
-    init(_ icon: String, _ text: String) { self.icon = icon; self.text = text }
+    init(_ icon: String, _ text: String, tint: Color? = nil) {
+        self.icon = icon; self.text = text; self.tint = tint
+    }
     private var theme: Theme { settings.theme }
+    private var accent: Color { tint ?? settings.actionStyle.color }
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: icon).font(.system(size: 11))
-                .foregroundStyle(settings.actionStyle.color)
+                .foregroundStyle(accent)
             Text(text).font(settings.ui(11, .medium)).foregroundStyle(Color(theme.foreground))
             Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
                 .foregroundStyle(Color(theme.secondaryForeground))
@@ -157,7 +162,7 @@ private struct Pill: View {
         .padding(.horizontal, 10).padding(.vertical, 5)
         .background(Capsule().fill(Color(hovering ? theme.surfaceHover : theme.surface)))
         .overlay(Capsule().strokeBorder(
-            hovering ? settings.actionStyle.color.opacity(0.5) : Color(theme.border), lineWidth: 1))
+            hovering ? accent.opacity(0.5) : Color(theme.border), lineWidth: 1))
         .contentShape(Capsule())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
@@ -190,8 +195,8 @@ struct ChatToolbar: View {
                 // pane is narrow — the toggle stays pinned on the left.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 7) {
-                        if session.currentAgent?.supportsRuntimeModelSwitch == true {
-                            ModelPill(session: session)
+                        if session.currentAgent?.supportsPermissionModes == true {
+                            PermissionModePill(session: session)
                         }
                         if session.currentAgent?.supportsReasoningEffort == true {
                             EffortPill(session: session)
@@ -206,58 +211,42 @@ struct ChatToolbar: View {
     }
 }
 
-/// A sliding two-icon toggle flipping the chat region between the conversation
-/// and the Flows designer. Deliberately the same slide-toggle language as the pane's
-/// Chat/Terminal `ModeToggle` — a springy knob under the active icon, icons that
-/// bounce, a press dip — so the two reads as members of one family.
+/// A flat capsule button flipping the chat region between the conversation and the
+/// Flows designer. Wears the same pill chrome as the action pills beside it
+/// (`theme.surface` fill, `theme.border` stroke, accent-tinted on hover) so it reads
+/// as a member of that family rather than a separate slide-toggle. The glyph + label
+/// name the mode you'll switch TO (so on the chat view it reads "Flows", and on the
+/// flow designer it reads "Chat"), tinted with the interactive accent.
 private struct FlowModeToggle: View {
     @Binding var on: Bool
     @ObservedObject private var settings = AppSettings.shared
-    @State private var pressed = false
+    @State private var hovering = false
     private var theme: Theme { settings.theme }
-
-    private let slot: CGFloat = 30
-    private let height: CGFloat = 24
+    private var accent: Color { settings.actionStyle.color }
 
     var body: some View {
-        ZStack(alignment: on ? .trailing : .leading) {
-            // Track.
-            Capsule()
-                .fill(Color(theme.surface).opacity(0.95))
-                .overlay(Capsule().strokeBorder(Color(theme.border), lineWidth: 1))
-            // Sliding knob.
-            Capsule()
-                .fill(settings.actionStyle.fill)
-                .frame(width: slot - 4, height: height - 4)
-                .padding(2)
-                .shadow(color: .black.opacity(0.28), radius: 3, y: 1)
-            // Icons.
-            HStack(spacing: 0) {
-                icon("bubble.left.fill", active: !on)
-                icon("arrow.triangle.branch", active: on)
+        Button(action: {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.7)) { on.toggle() }
+        }) {
+            HStack(spacing: 5) {
+                // Interactive glyph — names the mode you'll switch TO, accent-tinted.
+                Image(systemName: on ? "bubble.left" : "arrow.triangle.branch")
+                    .font(.system(size: 11))
+                    .foregroundStyle(accent)
+                    .symbolEffect(.bounce, value: on)
+                Text(on ? "Chat" : "Flows")
+                    .font(settings.ui(11, .medium)).foregroundStyle(Color(theme.foreground))
             }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Capsule().fill(Color(hovering ? theme.surfaceHover : theme.surface)))
+            .overlay(Capsule().strokeBorder(
+                hovering ? accent.opacity(0.5) : Color(theme.border), lineWidth: 1))
+            .contentShape(Capsule())
         }
-        .frame(width: slot * 2, height: height)
-        .scaleEffect(pressed ? 0.93 : 1)
-        .animation(.spring(response: 0.34, dampingFraction: 0.6), value: on)
-        .animation(.spring(response: 0.25, dampingFraction: 0.55), value: pressed)
-        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
-        .contentShape(Capsule())
-        .onLongPressGesture(minimumDuration: 0.6, maximumDistance: 40,
-                            perform: {}, onPressingChanged: { pressed = $0 })
-        .simultaneousGesture(TapGesture().onEnded {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.6)) { on.toggle() }
-        })
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
         .help(on ? "Back to chat" : "Design a flow — describe the outcome and let the interview build it")
-    }
-
-    private func icon(_ name: String, active: Bool) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(active ? .white : Color(theme.secondaryForeground))
-            .scaleEffect(active ? 1 : 0.82)
-            .symbolEffect(.bounce, value: on)
-            .frame(width: slot, height: height)
     }
 }
 
@@ -302,27 +291,26 @@ private struct VersionHistoryButton: View {
     }
 }
 
-private struct ModelPill: View {
+private struct PermissionModePill: View {
     @ObservedObject var session: TerminalSession
     @State private var open = false
-    static let models: [(label: String, id: String, blurb: String)] = [
-        ("Auto", "default", "Let the agent choose"),
-        ("Opus", "opus", "Most capable"),
-        ("Sonnet", "sonnet", "Balanced & fast"),
-        ("Haiku", "haiku", "Fastest"),
-    ]
     var body: some View {
-        Button(action: { open.toggle() }) { Pill("brain.head.profile", session.modelLabel) }
-            .buttonStyle(.plain)
-            .help("\(session.currentAgent?.name ?? "Agent") model")
-            .popover(isPresented: $open, arrowEdge: .top) {
-                OptionList(title: "Model",
-                           options: Self.models.map { ($0.label, $0.blurb) },
-                           current: session.modelLabel) { label in
-                    if let m = Self.models.first(where: { $0.label == label }) { session.setModel(m.id, m.label) }
-                    open = false
+        let mode = session.permissionMode
+        Button(action: { open.toggle() }) {
+            Pill(mode.icon, mode.label, tint: mode.isDangerous ? .orange : nil)
+        }
+        .buttonStyle(.plain)
+        .help("How much the agent can do on its own — applies when the agent next launches")
+        .popover(isPresented: $open, arrowEdge: .top) {
+            OptionList(title: "Permissions",
+                       options: PermissionMode.allCases.map { ($0.label, $0.blurb) },
+                       current: mode.label) { label in
+                if let m = PermissionMode.allCases.first(where: { $0.label == label }) {
+                    session.permissionMode = m
                 }
+                open = false
             }
+        }
     }
 }
 

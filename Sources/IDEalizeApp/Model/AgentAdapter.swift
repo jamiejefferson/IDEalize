@@ -38,6 +38,15 @@ struct AgentWorkingState: Equatable {
     let tip: String?         // e.g. "Use /btw to ask a quick side question…"
 }
 
+/// Where the agent is in its sign-in / authentication flow, read off the
+/// visible terminal. `.inProgress` covers the whole OAuth dance (method choice,
+/// browser hand-off, paste-the-code, retry); `.succeeded` is the terminal's own
+/// "logged in" confirmation. The chat echoes both so the OAuth flow — which
+/// otherwise leaves the viewer blankly saying "ready" — is legible, and its
+/// success (which the terminal only flashes before its welcome screen) is
+/// clearly confirmed.
+enum AgentLoginState: Equatable { case none, inProgress, succeeded }
+
 // MARK: - Adapter protocol
 
 /// A bridge between IDEalize and an agent CLI running in a terminal.
@@ -67,11 +76,18 @@ protocol AgentAdapter {
     /// Lift the agent's working state (spinner/status/tip) from visible lines.
     func detectWorkingState(lines: [String]) -> AgentWorkingState
 
+    /// Detect the agent's sign-in / authentication state from visible lines.
+    func detectLoginState(lines: [String]) -> AgentLoginState
+
     /// Whether the agent supports switching model at runtime (e.g. `/model`).
     var supportsRuntimeModelSwitch: Bool { get }
 
     /// Whether the agent supports reasoning-effort keywords.
     var supportsReasoningEffort: Bool { get }
+
+    /// Whether the agent supports permission modes (plan / accept-edits / yolo),
+    /// selected as a launch flag. Defaults to false; only Claude opts in.
+    var supportsPermissionModes: Bool { get }
 
     /// Slash commands the adapter knows how to run (e.g. `/flow-review`).
     var supportedSlashCommands: [String] { get }
@@ -102,6 +118,17 @@ protocol AgentAdapter {
 }
 
 extension AgentAdapter {
+    /// Agents whose login flow IDEalize doesn't track never report one, so the
+    /// chat treats them as always-signed-in (the common case once set up).
+    func detectLoginState(lines: [String]) -> AgentLoginState { .none }
+
+    /// Most agents don't expose permission modes; Claude overrides this.
+    var supportsPermissionModes: Bool { false }
+
+    /// Most agents can't switch model mid-session; Claude overrides this.
+    var supportsRuntimeModelSwitch: Bool { false }
+    var modelSwitchCommand: String? { nil }
+
     func detectSessionId(lines: [String]) -> String? { nil }
     var launchCommand: String? { nil }
     func resumeCommand(sessionId: String) -> String? { nil }
@@ -153,9 +180,7 @@ struct GenericAgentAdapter: AgentAdapter {
         AgentWorkingState(isWorking: false, status: nil, tip: nil)
     }
 
-    var supportsRuntimeModelSwitch: Bool { false }
     var supportsReasoningEffort: Bool { false }
     var supportedSlashCommands: [String] { [] }
-    var modelSwitchCommand: String? { nil }
     var effortKeywords: [String: String] { [:] }
 }

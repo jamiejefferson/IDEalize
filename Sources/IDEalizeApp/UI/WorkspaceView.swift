@@ -5,8 +5,14 @@ struct WorkspaceView: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var settings = AppSettings.shared
     @ObservedObject private var layout = PanelLayout.shared
+    @ObservedObject private var miniMode = MiniModeManager.shared
 
     private var theme: Theme { settings.theme }
+
+    /// Below this content width the layout reflows to the compact, mobile-style
+    /// single column (spec §5.3). Mini-mode docks the window narrower than this;
+    /// widening it manually past the breakpoint restores the desktop layout.
+    private static let compactBreakpoint: CGFloat = 560
 
     /// The first session with an unrecognised agent awaiting setup, if any.
     private var sessionAwaitingSetup: TerminalSession? {
@@ -22,51 +28,22 @@ struct WorkspaceView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            titleBar
-            AnnouncementBanner()
-            // A plain HStack with hairline dividers — HSplitView's native divider
-            // renders as a hard black line, which reads as "heavy".
-            HStack(spacing: 0) {
-                if workspace.showSessionRail {
-                    SessionRail(workspace: workspace).frame(width: layout.railWidth)
-                        .tourTarget(.sessions)
-                    ResizeHandle(width: $layout.railWidth, range: 150...320)
-                }
-                if workspace.showFileExplorer {
-                    FileExplorerPanel(workspace: workspace).frame(width: layout.filesWidth)
-                        .tourTarget(.files)
-                    ResizeHandle(width: $layout.filesWidth, range: 150...380)
-                }
-                if workspace.showViewer {
-                    FileViewerPanel(workspace: workspace).frame(width: layout.viewerWidth)
-                    ResizeHandle(width: $layout.viewerWidth, range: 260...800)
-                }
-                VStack(spacing: 0) {
-                    Group {
-                        if let tab = workspace.selectedTab {
-                            PaneView(node: tab.root, workspace: workspace)
-                                .id(tab.id)
-                        } else {
-                            EmptyState(workspace: workspace)
-                        }
-                    }
-                    BottomToolbar(workspace: workspace)
-                        .tourTarget(.toolbar)
-                }
-                .frame(minWidth: 420, maxWidth: .infinity)
-                // The Appearance inspector docks as a real trailing column (not a
-                // float over the pane). Overlaying it on top of the live terminal
-                // NSView let SwiftTerm swallow the scroll wheel in the panel's
-                // region; as its own column there's no terminal view beneath it, so
-                // it scrolls — and the terminal stays fully interactive.
-                if workspace.showAppearance {
-                    AppearancePanel(workspace: workspace)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+        GeometryReader { proxy in
+            Group {
+                if proxy.size.width < Self.compactBreakpoint {
+                    CompactWorkspaceView(workspace: workspace)
+                } else {
+                    desktopBody
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 900, minHeight: 460)
+        // Mini-mode needs the window to actually shrink to a narrow column; the
+        // 900-wide floor (propagated to the window's min content size) would clamp
+        // it. Relax the floor while in mini-mode so the docked column can reach
+        // its ~320 target and the compact layout can engage.
+        .frame(minWidth: miniMode.isEnabled ? MiniModeManager.minWidth : 900,
+               minHeight: miniMode.isEnabled ? 380 : 460)
         .background(Color(settings.theme.background))
         .background(WindowConfigurator(background: settings.theme.chrome, isDark: settings.theme.isDark))
         .animation(.easeOut(duration: 0.18), value: workspace.showAppearance)
@@ -98,6 +75,28 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.pendingWorkflow) { wf in
             WorkflowSheet(workflow: wf, workspace: workspace)
         }
+        // Help ▸ Keyboard Shortcuts (⌘/) — the whole map at a glance.
+        .sheet(isPresented: $workspace.showShortcutsHelp) {
+            ShortcutsHelpView()
+        }
+        .sheet(item: $workspace.pendingProjectAgentPrompt) { prompt in
+            ProjectAgentPromptSheet(
+                projectName: prompt.displayName,
+                onStart: {
+                    // The agent starts in the background: the user was just
+                    // opening a chat when this offer appeared, so focus stays
+                    // with that chat rather than jumping to the agent.
+                    workspace.openProjectAgent(forProject: prompt.path, focus: false)
+                    workspace.pendingProjectAgentPrompt = nil
+                },
+                onDismiss: {
+                    // "Not now" settles the suggestion for this project so it
+                    // doesn't reappear as more chats open this run.
+                    workspace.dismissedProjectAgentSuggestions.insert(prompt.path)
+                    workspace.pendingProjectAgentPrompt = nil
+                }
+            )
+        }
         .sheet(item: sessionAwaitingSetupBinding) { session in
             AgentSetupSheet(
                 binary: session.pendingAgentSetup ?? "agent",
@@ -112,9 +111,82 @@ struct WorkspaceView: View {
             )
         }
         .onChange(of: settings.themeName) { workspace.reapplyAppearance() }
+        .onChange(of: settings.terminalThemeName) { workspace.reapplyAppearance() }
         .onChange(of: settings.fontName) { workspace.reapplyAppearance() }
         .onChange(of: settings.fontSize) { workspace.reapplyAppearance() }
+        .onChange(of: settings.terminalLineSpacing) { workspace.reapplyAppearance() }
         .onChange(of: settings.panelAppearances) { throttledReapplyAppearance() }
+    }
+
+    /// The full desktop layout: title bar, then the resizable multi-column split.
+    private var desktopBody: some View {
+        VStack(spacing: 0) {
+            titleBar
+            AnnouncementBanner()
+            // A plain HStack with hairline dividers — HSplitView's native divider
+            // renders as a hard black line, which reads as "heavy".
+            HStack(spacing: 0) {
+                if workspace.showSessionRail {
+                    SessionRail(workspace: workspace).frame(width: layout.railWidth)
+                        .tourTarget(.sessions)
+                    ResizeHandle(width: $layout.railWidth, range: 150...320)
+                }
+                if settings.workspaceLayout == .standard {
+                    // Standard: files | documents | terminal.
+                    if workspace.showFileExplorer {
+                        FileExplorerPanel(workspace: workspace).frame(width: layout.filesWidth)
+                            .tourTarget(.files)
+                        ResizeHandle(width: $layout.filesWidth, range: 150...380)
+                    }
+                    if workspace.showViewer {
+                        FileViewerPanel(workspace: workspace).frame(width: layout.viewerWidth)
+                        ResizeHandle(width: $layout.viewerWidth, range: 260...800)
+                    }
+                    terminalColumn
+                } else {
+                    // Chat-focused: terminal | documents | files. The panels sit
+                    // right of the flexible terminal, so each handle comes *before*
+                    // its panel and resizes in the opposite direction.
+                    terminalColumn
+                    if workspace.showViewer {
+                        ResizeHandle(width: $layout.viewerWidth, range: 260...800, inverted: true)
+                        FileViewerPanel(workspace: workspace).frame(width: layout.viewerWidth)
+                    }
+                    if workspace.showFileExplorer {
+                        ResizeHandle(width: $layout.filesWidth, range: 150...380, inverted: true)
+                        FileExplorerPanel(workspace: workspace).frame(width: layout.filesWidth)
+                            .tourTarget(.files)
+                    }
+                }
+                // The Appearance inspector docks as a real trailing column (not a
+                // float over the pane). Overlaying it on top of the live terminal
+                // NSView let SwiftTerm swallow the scroll wheel in the panel's
+                // region; as its own column there's no terminal view beneath it, so
+                // it scrolls — and the terminal stays fully interactive.
+                if workspace.showAppearance {
+                    AppearancePanel(workspace: workspace)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+        }
+    }
+
+    /// The flexible terminal column (panes + bottom toolbar) — the one column
+    /// present in both screen layouts, so it lives outside the ordering branch.
+    private var terminalColumn: some View {
+        VStack(spacing: 0) {
+            Group {
+                if let tab = workspace.selectedTab {
+                    PaneView(node: tab.root, workspace: workspace)
+                        .id(tab.id)
+                } else {
+                    EmptyState(workspace: workspace)
+                }
+            }
+            BottomToolbar(workspace: workspace)
+                .tourTarget(.toolbar)
+        }
+        .frame(minWidth: 420, maxWidth: .infinity)
     }
 
     @State private var lastAppearanceApply = Date.distantPast
@@ -152,12 +224,51 @@ struct WorkspaceView: View {
 
 /// A transparent AppKit view that lets a click-drag move the window. Scoped to
 /// the title bar so it never hijacks gestures elsewhere (e.g. the chat resize).
-private struct WindowDragBar: NSViewRepresentable {
+struct WindowDragBar: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { DragView() }
     func updateNSView(_ nsView: NSView, context: Context) {}
 
     private final class DragView: NSView {
         override var mouseDownCanMoveWindow: Bool { true }
+    }
+}
+
+/// A one-time, friendly modal offered the moment a project gains a second chat:
+/// a project agent can sit alongside the chats and keep their work in sync.
+/// Replaces the old standing rail banner — same offer, surfaced when it's
+/// actually relevant. "Not now" settles the suggestion for that project.
+private struct ProjectAgentPromptSheet: View {
+    let projectName: String
+    let onStart: () -> Void
+    let onDismiss: () -> Void
+    @ObservedObject private var settings = AppSettings.shared
+    private var theme: Theme { settings.theme }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 18))
+                    .foregroundStyle(settings.actionStyle.color)
+                Text("Add a project agent?")
+                    .font(settings.ui(16, .semibold))
+                    .foregroundStyle(Color(theme.foreground))
+            }
+            Text("“\(projectName)” now has a few chats working in it. A project agent sits alongside them and keeps their work in sync — spotting when two chats might clash and helping everything come together. It doesn't touch your files itself.")
+                .font(settings.ui(12.5))
+                .foregroundStyle(Color(theme.secondaryForeground))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Not now", action: onDismiss)
+                    .keyboardShortcut(.cancelAction)
+                Button("Start project agent", action: onStart)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 380)
+        .background(Color(theme.chrome))
     }
 }
 
@@ -180,13 +291,13 @@ private struct BottomToolbar: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            toggle("sidebar.left", on: workspace.showSessionRail, help: "Toggle sessions") {
+            toggle("sidebar.left", on: workspace.showSessionRail, help: "Toggle sessions (⇧⌘R)") {
                 workspace.showSessionRail.toggle()
             }
-            toggle("folder", on: workspace.showFileExplorer, help: "Toggle file explorer") {
+            toggle("folder", on: workspace.showFileExplorer, help: "Toggle file explorer (⇧⌘E)") {
                 workspace.showFileExplorer.toggle()
             }
-            toggle("doc.text", on: workspace.showViewer, help: "Toggle document panel") {
+            toggle("doc.text", on: workspace.showViewer, help: "Toggle document panel (⇧⌘V)") {
                 workspace.showViewer.toggle()
             }
             .tourTarget(.documentPanel)
@@ -199,15 +310,16 @@ private struct BottomToolbar: View {
             toggle("wrench.and.screwdriver", on: workspace.isServiceHatchOpen, help: "Service hatch — open an agent dev session on IDEalize's own code (click again to close)") {
                 workspace.toggleServiceHatch()
             }
-            toggle("bubble.left.and.bubble.right", on: workspace.isProjectAgentOpen, help: "Project agent — a chat that keeps this project's chats working well together (click again to close)") {
+            toggle("sparkles", on: workspace.isProjectAgentOpen, help: "Project agent — a chat that keeps this project's chats working well together (click again to close)") {
                 workspace.toggleProjectAgent()
             }
             .disabled(!workspace.canOpenProjectAgent)
             .opacity(workspace.canOpenProjectAgent ? 1 : 0.4)
-            toggle("paintpalette", on: workspace.showAppearance, help: "Appearance (⌘⌥A)") {
+            // The shortcut itself lives on the View-menu command (menu shortcuts
+            // take precedence; a duplicate here would shadow it).
+            toggle("paintpalette", on: workspace.showAppearance, help: "Appearance (⌥⌘A)") {
                 workspace.showAppearance.toggle()
             }
-            .keyboardShortcut("a", modifiers: [.command, .option])
             Spacer()
             HStack(spacing: 5) {
                 Image(systemName: "folder.fill").font(.system(size: 9))
@@ -249,13 +361,23 @@ private struct BottomToolbar: View {
 }
 
 /// A subtle hairline divider that doubles as a drag handle to resize the panel
-/// on its left. Keeps the clean look while restoring resizing.
+/// on its left — or, when `inverted`, the panel on its right (used by the
+/// chat-focused layout, where the resizable panels trail the flexible terminal).
+/// Keeps the clean look while restoring resizing.
 private struct ResizeHandle: View {
     @Binding var width: Double
     let range: ClosedRange<Double>
+    /// When true the handle sits on the panel's leading edge, so dragging left
+    /// grows the panel instead of shrinking it.
+    var inverted = false
     @ObservedObject private var settings = AppSettings.shared
     @State private var startWidth: Double?
     @State private var hovering = false
+    /// Resets to false on gesture end OR cancel — SwiftUI's only cancellation
+    /// signal. A cancelled drag skips `onEnded`; without this the monitor's
+    /// panel refcount leaks, `isResizing` latches true, and every terminal
+    /// stays frozen at its drag-time size for good.
+    @GestureState private var dragActive = false
 
     var body: some View {
         Rectangle()
@@ -277,6 +399,7 @@ private struct ResizeHandle: View {
                         // widths for the whole drag. Global coords can't be perturbed by
                         // the handle moving.
                         DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .updating($dragActive) { _, state, _ in state = true }
                             .onChanged { v in
                                 if startWidth == nil {
                                     startWidth = width
@@ -285,15 +408,17 @@ private struct ResizeHandle: View {
                                 let s = startWidth ?? width
                                 // Snap to whole points: the mouse reports sub-pixel
                                 // deltas, and every distinct value relayouts the tree.
-                                let next = (s + v.translation.width).rounded()
+                                let delta = inverted ? -v.translation.width : v.translation.width
+                                let next = (s + delta).rounded()
                                 let clamped = min(range.upperBound, max(range.lowerBound, next))
                                 if clamped != width { width = clamped }
                             }
                             .onEnded { _ in endDrag() }
                     )
             )
-            // A cancelled gesture skips `onEnded`; without this the terminal grid
-            // would stay frozen for good.
+            // A cancelled gesture skips `onEnded` — catch it via the GestureState
+            // reset; without this the terminal grid would stay frozen for good.
+            .onChange(of: dragActive) { _, active in if !active { endDrag() } }
             .onDisappear { endDrag() }
     }
 
@@ -388,24 +513,90 @@ private struct WindowConfigurator: NSViewRepresentable {
     }
 }
 
-private struct EmptyState: View {
+/// The welcome owl on the empty "What shall we make?" slate — plays its
+/// run-cycle of transparent PNGs once, then settles. Roll over it for another go,
+/// so the slate is still rather than perpetually fidgeting.
+struct OwlView: View {
+    var size: CGFloat = 150
+    private let frameStep: TimeInterval = 0.083   // ~12fps
+    @State private var frameIndex = 0
+    /// The run in flight, if any — also the "already playing" guard, so a
+    /// jittering pointer doesn't restart the cycle from the top.
+    @State private var run: Task<Void, Never>?
+    /// Whether the pointer is over the owl. Tracked on a static overlay, not on
+    /// the frames themselves: swapping the image rebuilds its tracking area, and
+    /// the exit/enter that fires each frame would loop the owl for as long as the
+    /// pointer rested on it.
+    @State private var hovering = false
+    private var frames: [NSImage] { Owl.frames() }
+
+    var body: some View {
+        Group {
+            if let image = currentFrame {
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+            } else {
+                Image(systemName: "bird.fill").font(.system(size: size * 0.55)).foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .onAppear { play() }
+        .onDisappear { run?.cancel(); run = nil }
+        .overlay {
+            Color.clear
+                .contentShape(Rectangle())
+                .onHover { inside in
+                    guard inside != hovering else { return }
+                    hovering = inside
+                    if inside { play() }
+                }
+                .help("Hello")
+        }
+    }
+
+    private var currentFrame: NSImage? {
+        let fr = frames
+        guard !fr.isEmpty else { return nil }
+        return fr[min(max(0, frameIndex), fr.count - 1)]
+    }
+
+    /// One pass through the cycle, resting on its last frame (which sits next to
+    /// the first, so a replay doesn't visibly jump).
+    private func play() {
+        guard run == nil else { return }
+        let count = frames.count
+        guard count > 1 else { return }
+        run = Task { @MainActor in
+            for i in 0..<count {
+                frameIndex = i
+                try? await Task.sleep(nanoseconds: UInt64(frameStep * 1_000_000_000))
+                if Task.isCancelled { return }
+            }
+            run = nil
+        }
+    }
+}
+
+struct EmptyState: View {
     @ObservedObject var workspace: Workspace
 
     @ObservedObject private var settings = AppSettings.shared
-    private var theme: Theme { settings.theme }
+    /// The empty slate is the terminal's own surface — warm paper (Linen) by
+    /// default — not the window chrome's, so the owl always sits on the same
+    /// ground the grid will fill when a session opens, whatever the app theme.
+    private var theme: Theme { settings.terminalTheme }
 
     private var recents: [String] { Array(settings.recentFolders.prefix(3)) }
 
     var body: some View {
-        VStack(spacing: 20) {
-            if let logo = Branding.logo {
-                Image(nsImage: logo).resizable().scaledToFit().frame(width: 150)
-                    .opacity(0.92)
-            } else {
-                Image(systemName: "terminal").font(.system(size: 48)).foregroundStyle(.secondary)
-            }
+        VStack(spacing: 18) {
+            OwlView(size: 150)
+                .padding(.bottom, 6)
+            Text("What shall we make?")
+                .font(settings.ui(24, .bold))
+                .foregroundStyle(Color(theme.foreground))
             if recents.isEmpty {
-                Text("No recent sessions").font(settings.ui(14)).foregroundStyle(Color(theme.secondaryForeground))
+                Text("Message Claude below, or open a project to begin.")
+                    .font(settings.ui(13)).foregroundStyle(Color(theme.secondaryForeground))
             } else {
                 VStack(spacing: 6) {
                     Text("RECENT SESSIONS").font(settings.ui(10, .semibold)).tracking(1)
@@ -415,14 +606,22 @@ private struct EmptyState: View {
                         Button(action: { workspace.newTab(projectPath: path) }) {
                             HStack(spacing: 9) {
                                 Image(systemName: "folder.fill").font(.system(size: 12))
-                                    .foregroundStyle(Color(theme.accent))
-                                Text((path as NSString).lastPathComponent)
-                                    .font(settings.ui(14, .medium)).foregroundStyle(Color(theme.foreground))
-                                Spacer()
-                                Text(abbreviate(path)).font(settings.ui(11))
-                                    .foregroundStyle(Color(theme.secondaryForeground)).lineLimit(1).truncationMode(.head)
+                                    .foregroundStyle(Color(Theme.folderIcon))
+                                // Title over path: the project name always gets the
+                                // full line, so a long path can never crush it —
+                                // the path truncates from the head underneath.
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text((path as NSString).lastPathComponent)
+                                        .font(settings.ui(13, .semibold))
+                                        .foregroundStyle(Color(theme.foreground))
+                                        .lineLimit(1)
+                                    Text(abbreviate(path)).font(settings.ui(10.5))
+                                        .foregroundStyle(Color(theme.secondaryForeground).opacity(0.8))
+                                        .lineLimit(1).truncationMode(.head)
+                                }
+                                Spacer(minLength: 0)
                             }
-                            .padding(.horizontal, 14).padding(.vertical, 9)
+                            .padding(.horizontal, 12).padding(.vertical, 8)
                             .background(RoundedRectangle(cornerRadius: 9).fill(Color(theme.surface)))
                             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(theme.border), lineWidth: 1))
                             .contentShape(Rectangle())
@@ -430,11 +629,11 @@ private struct EmptyState: View {
                         .help("Pick up where you left off in \((path as NSString).lastPathComponent)")
                     }
                 }
-                .frame(width: 360)
+                .frame(width: 300)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(settings.panelStyle(.terminal, base: 13, background: theme.background).background)
+        .background(Color(theme.background))
     }
 
     private func abbreviate(_ path: String) -> String {

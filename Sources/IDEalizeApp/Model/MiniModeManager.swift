@@ -32,6 +32,7 @@ final class MiniModeManager: ObservableObject {
     /// live in `AppSettings` so they survive restarts.
     private var savedFrame: NSRect?
     private var savedIsZoomed: Bool?
+    private var savedIsFullScreen: Bool?
 
     private init() {
         isEnabled = AppSettings.shared.miniModeEnabled
@@ -71,16 +72,41 @@ final class MiniModeManager: ObservableObject {
     }
 
     private func enable(window: NSWindow, saveCurrentState: Bool) {
+        let isFullScreen = window.styleMask.contains(.fullScreen)
         if saveCurrentState {
             savedFrame = window.frame
             savedIsZoomed = window.isZoomed
+            savedIsFullScreen = isFullScreen
             AppSettings.shared.miniModePreFrame = window.frame
             AppSettings.shared.miniModePreZoomed = window.isZoomed
+            AppSettings.shared.miniModePreFullScreen = isFullScreen
         } else {
             savedFrame = AppSettings.shared.miniModePreFrame
             savedIsZoomed = AppSettings.shared.miniModePreZoomed
+            savedIsFullScreen = AppSettings.shared.miniModePreFullScreen
         }
+        isEnabled = true
 
+        if isFullScreen {
+            // Leave native full-screen first, then dock once the (animated) exit
+            // completes. Docking while still in the full-screen Space leaves the
+            // window in that Space, so the rest of the screen stays black behind
+            // the narrow column and returning to it snaps back to full-screen.
+            var token: NSObjectProtocol?
+            token = NotificationCenter.default.addObserver(
+                forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                if let token { NotificationCenter.default.removeObserver(token) }
+                self?.applyDock(window: window)
+            }
+            window.toggleFullScreen(nil)
+        } else {
+            applyDock(window: window)
+        }
+    }
+
+    /// Resize + dock the (already windowed) column to the preferred edge.
+    private func applyDock(window: NSWindow) {
         guard let screen = window.screen ?? NSScreen.main else { return }
         let visible = screen.visibleFrame
         let targetWidth = max(Self.minWidth, visible.width * Self.widthFraction)
@@ -94,21 +120,81 @@ final class MiniModeManager: ObservableObject {
             height: visible.height
         )
 
+        // Drop the window's minimum content size *now*, synchronously: the root
+        // view's `.frame(minWidth:)` propagates to `contentMinSize`, and while
+        // that floor is still 900 (SwiftUI only relaxes it on the next render)
+        // AppKit would clamp this resize back up. Setting it here lets the column
+        // actually reach its narrow target; SwiftUI then reconciles to the same
+        // value once `isEnabled` re-renders.
+        window.contentMinSize = NSSize(width: Self.minWidth, height: 380)
         window.setFrame(targetFrame, display: true, animate: true)
         window.level = AppSettings.shared.miniModeAlwaysOnTop ? .floating : .normal
-
-        isEnabled = true
+        refitTerminals(after: window, animatingTo: targetFrame)
     }
 
     private func disable(window: NSWindow) {
+        isEnabled = false
+        window.level = .normal
+        window.contentMinSize = NSSize(width: Self.minWidth, height: 380)
+
+        if savedIsFullScreen ?? AppSettings.shared.miniModePreFullScreen {
+            // The window was full-screen before mini-mode — return to full-screen
+            // rather than restoring a windowed frame.
+            if !window.styleMask.contains(.fullScreen) {
+                // Refit only once the (animated) full-screen transition has
+                // finished, mirroring `enable`'s wait for the exit animation. A
+                // fixed-delay pulse lands mid-transition — before the compact →
+                // desktop layout swap — so it refits the old layout's containers
+                // and the desktop terminal keeps the narrow mini-mode grid.
+                var token: NSObjectProtocol?
+                token = NotificationCenter.default.addObserver(
+                    forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
+                ) { [weak self] _ in
+                    if let token { NotificationCenter.default.removeObserver(token) }
+                    self?.refitTerminals()
+                }
+                window.toggleFullScreen(nil)
+            } else {
+                refitTerminals()
+            }
+            return
+        }
+
+        // Let the window grow back before SwiftUI restores the 900 floor.
         if let frame = savedFrame ?? AppSettings.shared.miniModePreFrame {
             window.setFrame(frame, display: true, animate: true)
             let shouldZoom = savedIsZoomed ?? AppSettings.shared.miniModePreZoomed
             if shouldZoom, !window.isZoomed {
                 window.zoom(nil)
             }
+            refitTerminals(after: window, animatingTo: frame)
+        } else {
+            refitTerminals()
         }
-        window.level = .normal
-        isEnabled = false
+    }
+
+    /// After a programmatic mini-mode resize, force every terminal to reflow to
+    /// the new pane size. Pulsing the live-resize monitor runs the same
+    /// freeze→unfreeze path a real window-drag ends on; without it SwiftTerm
+    /// keeps its old column count, so the grid stays narrow after exiting
+    /// mini-mode even though the window has grown back.
+    ///
+    /// The pulse has to land *after* the animated `setFrame` has finished and
+    /// the desktop ↔ compact layout swap has happened. `setFrame(animate:)`
+    /// returns immediately and animates over ~0.2s, so a next-tick pulse would
+    /// refit the *old* layout's containers at the *old* size and leave the new
+    /// layout's terminal at a stale width — the mini-mode column then shows a
+    /// grid still wrapped for the full-size window.
+    private func refitTerminals(after window: NSWindow? = nil, animatingTo frame: NSRect? = nil) {
+        let delay: TimeInterval
+        if let window, let frame {
+            delay = window.animationResizeTime(frame) + 0.1
+        } else {
+            delay = 0.1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            LiveResizeMonitor.shared.beginWindowResize()
+            LiveResizeMonitor.shared.endWindowResize()
+        }
     }
 }

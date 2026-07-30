@@ -77,6 +77,16 @@ any time to update to the newest version** — it replaces the old app in place.
 | **Default launch command** | Auto-run e.g. `claude --dangerously-skip-permissions` in every new terminal. |
 | **Inline visuals** | `idealize image foo.png` renders images inline (Kitty graphics, native). |
 
+### Agent chat & workflows (new in 0.5.0)
+
+| Feature | What you get |
+|---|---|
+| **Agent chat GUI** | A chat pane wrapped around the coding agent running in the terminal — works with **Claude Code** and **Kimi Code** out of the box, and any other agent can introduce itself once with `idealize agent-hello`. |
+| **Flows** | Build multi-step AI workflows by describing what you want in plain language — an interview turns the conversation into a runnable Flow, no nodes or code. |
+| **Project agent** | An optional per-project coordinating chat that watches your other chats, spots when their work might collide, and helps the project land cleanly. |
+| **Mini-mode** | One toggle docks IDEalize to a slim, mobile-style column (~⅕ of the screen) so it stays visible beside the app you're building; toggle it back to restore your window exactly. |
+| **Hardened IPC** | Mutating `idealize` commands require a per-instance capability token, transcript parsing runs off the main thread, and flow/workflow saves are atomic. |
+
 ---
 
 ## Build & run
@@ -132,6 +142,7 @@ idealize status <text>                           set this tab's status label
 idealize focus <session>                         bring a terminal to the front
 idealize whoami                                  print my session id
 idealize ping                                    check the app is reachable
+idealize agent-hello --name <n> --format <f>     introduce a non-built-in agent to the chat GUI (handshake)
 ```
 
 A "session" can be referenced by its id (`t-a6a6`), its tab/label, or its
@@ -246,4 +257,5 @@ ships as `Contents/Helpers/idealize-cli` and is exposed under the name
 
 ## License
 
-Personal project. SwiftTerm is MIT-licensed.
+[MIT](LICENSE) © 2026 Jamie Jefferson. Bundled third-party components (SwiftTerm,
+etc.) keep their own terms — see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

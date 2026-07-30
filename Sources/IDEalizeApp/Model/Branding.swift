@@ -1,4 +1,47 @@
 import AppKit
+import CoreText
+
+/// Bundled fonts (Resources/Fonts). Registered at launch so NSFont / SwiftUI
+/// can resolve them by family name (e.g. the default terminal face "DM Mono").
+enum Fonts {
+    static func registerBundled() {
+        let dirs = [
+            Bundle.main.resourceURL?.appendingPathComponent("Fonts"),
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath + "/Resources/Fonts"),
+        ].compactMap { $0 }
+        for dir in dirs {
+            let fonts = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
+                .filter { ["ttf", "otf"].contains($0.pathExtension.lowercased()) } ?? []
+            guard !fonts.isEmpty else { continue }
+            for url in fonts { CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil) }
+            return
+        }
+    }
+}
+
+/// The IDEalize owl — the welcome mascot shown on the empty "What shall we make?"
+/// slate. A run-cycle of transparent PNG frames (Resources/Owl/owl_NN.png),
+/// cycled like the working critters.
+enum Owl {
+    private static var cache: [NSImage]?
+
+    static func frames() -> [NSImage] {
+        if let c = cache { return c }
+        var out: [NSImage] = []
+        var i = 0
+        while let img = load(String(format: "Owl/owl_%02d.png", i)) { out.append(img); i += 1 }
+        cache = out
+        return out
+    }
+
+    private static func load(_ relativePath: String) -> NSImage? {
+        if let url = Bundle.main.resourceURL?.appendingPathComponent(relativePath),
+           let image = NSImage(contentsOf: url) {
+            return image
+        }
+        return NSImage(contentsOfFile: FileManager.default.currentDirectoryPath + "/Resources/" + relativePath)
+    }
+}
 
 /// App identity assets (the IDEalize wordmark logo).
 enum Branding {

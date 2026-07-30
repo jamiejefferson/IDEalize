@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Palette lab — IDEalize terminal</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { height:auto; background:#0d0e12; color:#e7e7ea; }
+  .page { max-width: 1180px; margin: 0 auto; padding: 48px 26px 80px; }
+  h1 { font-size: 28px; font-weight: 750; letter-spacing:-.02em; }
+  .lede { color:#9a9ca2; font-size:14.5px; line-height:1.6; margin-top:10px; max-width:760px; }
+  .lede b { color:#e7e7ea; }
+  .spec-note { display:inline-flex; gap:10px; align-items:center; margin-top:14px; font:600 12px/1 var(--term-font);
+    color:#cdd0d4; background:#1c1d21; border:1px solid #2c2e33; border-radius:8px; padding:9px 12px; }
+  .spec-note b { color:#ffd466; }
+
+  h2.fam { font-size:16px; font-weight:700; margin: 40px 0 4px; }
+  h2.fam small { color:#8b8d93; font-weight:500; margin-left:8px; font-size:12.5px; }
+  .pair { display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-top:14px; }
+  @media (max-width: 940px){ .pair { grid-template-columns:1fr; } }
+
+  /* ---- One palette card = a mini terminal window ---- */
+  .card { border-radius:14px; overflow:hidden; border:1px solid var(--border);
+    background:var(--bg); box-shadow:0 22px 55px -34px #000; }
+  .win-bar { display:flex; align-items:center; gap:9px; padding:10px 14px; background:var(--surface);
+    border-bottom:1px solid var(--border); }
+  .win-bar .lts { display:flex; gap:6px; }
+  .win-bar .lts i { width:10px; height:10px; border-radius:50%; display:block; opacity:.9; }
+  .win-bar .name { font:600 12px/1 var(--ui); color:var(--fg); }
+  .win-bar .mode { margin-left:auto; font:600 10px/1 var(--ui); letter-spacing:.06em; text-transform:uppercase;
+    color:var(--secondary); border:1px solid var(--border); padding:4px 7px; border-radius:6px; }
+
+  .term { padding:14px 16px 16px; font-family:var(--term-font); font-size:var(--term-size);
+    line-height:var(--term-lh); letter-spacing:var(--term-track); font-weight:var(--term-weight); color:var(--fg); }
+  .term .row { white-space:pre-wrap; }
+  .you { color:var(--fg); font-weight:500; }
+  .u { color:var(--secondary); }
+  .path { color:var(--c-path); }
+  .url { color:var(--c-url); text-decoration:underline; text-underline-offset:2px; }
+  .kw { color:var(--c-kw); }
+  .str { color:var(--c-str); }
+  .num { color:var(--c-num); }
+  .add { color:var(--c-add); }
+  .del { color:var(--c-del); }
+  .err { color:var(--c-err); }
+  .ok  { color:var(--c-ok); font-weight:500; }
+  .cur { display:inline-block; width:.5em; height:1em; background:var(--accent); vertical-align:-.14em;
+    border-radius:2px; animation:blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+
+  /* composer preview */
+  .composer2 { display:flex; align-items:center; gap:10px; margin:12px 16px 14px;
+    padding:9px 12px; border-radius:11px; background:var(--elevated); border:1px solid var(--border); }
+  .composer2 .chip { display:inline-flex; align-items:center; gap:5px; font:500 10.5px/1 var(--ui);
+    color:var(--secondary); padding:4px 8px; border-radius:999px; background:var(--surface); border:1px solid var(--border); }
+  .composer2 .p { color:var(--accent); font:600 15px/1 var(--term-font); }
+  .composer2 .ph { flex:1; color:var(--secondary); font:var(--term-weight) 13px/1 var(--term-font); }
+  .composer2 .snd { width:24px; height:24px; border-radius:50%; background:var(--accent); display:grid; place-items:center;
+    color:#fff; font-size:11px; font-weight:700; }
+
+  /* swatch strip */
+  .sw { display:flex; gap:6px; flex-wrap:wrap; padding:0 16px 16px; }
+  .sw span { display:inline-flex; align-items:center; gap:6px; font:500 10px/1 var(--ui); color:var(--secondary); }
+  .sw i { width:13px; height:13px; border-radius:4px; display:block; box-shadow:inset 0 0 0 1px rgba(128,128,128,.25); }
+
+  /* ============ palette families ============ */
+  /* Ember — warm & cosy */
+  .p-ember-d { --bg:#1A1613; --fg:#ECE3D6; --accent:#FF8A5B; --surface:#241E19; --elevated:#2A231D;
+    --surface-hover:#322A23; --border:#3D332B; --secondary:#AC9C8B; --sel:#3A2C22;
+    --c-path:#6FD3C0; --c-url:#7BB6FF; --c-kw:#E7A6FF; --c-str:#F3C87C; --c-num:#F3C87C; --c-add:#93DB8C; --c-del:#FF8079; --c-err:#FF7A72; --c-ok:#93DB8C; }
+  .p-ember-l { --bg:#FBF6EE; --fg:#3A302A; --accent:#CE5528; --surface:#F2EADE; --elevated:#EFE6D9;
+    --surface-hover:#E9DECE; --border:#E1D4C2; --secondary:#8B7A69; --sel:#F2E0CB;
+    --c-path:#0E8577; --c-url:#1F6BCB; --c-kw:#8A3FC4; --c-str:#8F6410; --c-num:#8F6410; --c-add:#2C8639; --c-del:#C4382E; --c-err:#C4382E; --c-ok:#2C8639; }
+  /* Tide — calm aqua */
+  .p-tide-d { --bg:#0F1A1E; --fg:#DBE7E9; --accent:#5AD6C5; --surface:#16242A; --elevated:#1A2B31;
+    --surface-hover:#20343B; --border:#2C424A; --secondary:#92A8AD; --sel:#1D3A40;
+    --c-path:#8FD6FF; --c-url:#7FB0FF; --c-kw:#CBA6FF; --c-str:#F2CE7B; --c-num:#F2CE7B; --c-add:#87E08C; --c-del:#FF8B85; --c-err:#FF8B85; --c-ok:#87E08C; }
+  .p-tide-l { --bg:#F1FAF9; --fg:#213338; --accent:#0E9B8C; --surface:#E5F2F1; --elevated:#ECF6F5;
+    --surface-hover:#DBEEEC; --border:#CDE5E2; --secondary:#6C8388; --sel:#D1ECE8;
+    --c-path:#0B7C97; --c-url:#1F6BCB; --c-kw:#7A3FCC; --c-str:#886310; --c-num:#886310; --c-add:#1E8A3A; --c-del:#C4382E; --c-err:#C4382E; --c-ok:#1E8A3A; }
+  /* Orchard — moody plum + pink */
+  .p-orchard-d { --bg:#191320; --fg:#EBE0EE; --accent:#FF7FB0; --surface:#231A2C; --elevated:#291F33;
+    --surface-hover:#33273F; --border:#3E3049; --secondary:#AB98B2; --sel:#342742;
+    --c-path:#7FE0C8; --c-url:#93AAFF; --c-kw:#E3A3FF; --c-str:#F5C97A; --c-num:#F5C97A; --c-add:#93DB8C; --c-del:#FF8098; --c-err:#FF8098; --c-ok:#93DB8C; }
+  .p-orchard-l { --bg:#FBF4FB; --fg:#33283A; --accent:#C43B84; --surface:#F2E9F2; --elevated:#EEE2EE;
+    --surface-hover:#E8DAE9; --border:#E1D1E1; --secondary:#8B7691; --sel:#EFD8EA;
+    --c-path:#0E8577; --c-url:#4257CE; --c-kw:#983FBE; --c-str:#8F6410; --c-num:#8F6410; --c-add:#2C8639; --c-del:#C22E5A; --c-err:#C22E5A; --c-ok:#2C8639; }
+  /* Ink / Linen — editorial neutral, single warm accent */
+  .p-ink-d { --bg:#17181A; --fg:#E6E7E9; --accent:#E8B84B; --surface:#202123; --elevated:#26272A;
+    --surface-hover:#2E2F32; --border:#383A3D; --secondary:#9B9DA1; --sel:#2E2F33;
+    --c-path:#9CB8C8; --c-url:#A9B7D8; --c-kw:#C9A9C4; --c-str:#D9C089; --c-num:#D9C089; --c-add:#88C08C; --c-del:#DA8A86; --c-err:#DA8A86; --c-ok:#88C08C; }
+  .p-linen-l { --bg:#F7F5F0; --fg:#2A2A27; --accent:#B67A12; --surface:#EFEDE5; --elevated:#F1EFE8;
+    --surface-hover:#E7E3DA; --border:#DDD8CD; --secondary:#7C7A71; --sel:#E7E0D1;
+    --c-path:#3E6C7E; --c-url:#4A5A86; --c-kw:#7A5570; --c-str:#8A6A2A; --c-num:#8A6A2A; --c-add:#3E7A44; --c-del:#B24A44; --c-err:#B24A44; --c-ok:#3E7A44; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>A better palette — four moods, light &amp; dark</h1>
+  <p class="lede">
+    Each is a full syntax system, not just a background: a signature <b>accent</b> plus soft-syntax roles
+    for paths, URLs, keywords, strings/numbers, additions, deletions and errors — tuned to stay legible
+    (AA body text) in both modes. The random running critter shows in the “working” line of every one.
+  </p>
+  <div class="spec-note">Type: <b>DM&nbsp;Mono</b> · 14px · line&nbsp;2.5 · tracking&nbsp;−0.03em · weight&nbsp;400</div>
+
+  <h2 class="fam">Ember <small>warm &amp; cosy — the most “ownable”, pairs with the critter</small></h2>
+  <div class="pair">
+    <div class="card p-ember-d"><div class="win"></div></div>
+    <div class="card p-ember-l"><div class="win"></div></div>
+  </div>
+
+  <h2 class="fam">Tide <small>calm aqua — techy but soft, easy on the eyes</small></h2>
+  <div class="pair">
+    <div class="card p-tide-d"><div class="win"></div></div>
+    <div class="card p-tide-l"><div class="win"></div></div>
+  </div>
+
+  <h2 class="fam">Orchard <small>plum &amp; pink — moody and distinctive</small></h2>
+  <div class="pair">
+    <div class="card p-orchard-d"><div class="win"></div></div>
+    <div class="card p-orchard-l"><div class="win"></div></div>
+  </div>
+
+  <h2 class="fam">Ink / Linen ✓ <small>chosen default — editorial neutral, one warm accent, restrained</small></h2>
+  <div class="pair">
+    <div class="card p-ink-d"><div class="win"></div></div>
+    <div class="card p-linen-l"><div class="win"></div></div>
+  </div>
+</div>
+
+<template id="win">
+  <div class="win-bar">
+    <span class="lts"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></span>
+    <span class="name">IDEalize — los-angeles</span>
+    <span class="mode">·</span>
+  </div>
+  <div class="term">
+    <div class="row"><span class="you">›</span> add a dark-mode toggle to the <span class="str">Settings</span> screen</div>
+    <div class="row u">Read <span class="path">Sources/IDEalizeApp/UI/SettingsView.swift</span></div>
+    <div class="row u">Docs <span class="url">developer.apple.com/documentation/swiftui/toggle</span></div>
+    <div class="row"><span class="kw">edit</span> <span class="path">SettingsView.swift</span>  <span class="u">+<span class="num">2</span> −<span class="num">1</span></span></div>
+    <div class="row add">+   Toggle(<span class="str">"Dark mode"</span>, isOn: $settings.darkMode)</div>
+    <div class="row del">-   // appearance follows the system</div>
+    <div class="row err">error: no member 'darkMode' <span class="u">— fixing</span></div>
+    <div class="row"><span class="crit"></span> <span class="u">rebuilding</span> <span class="cur"></span></div>
+    <div class="row ok">✓ Build succeeded · <span class="num">2</span> files · <span class="num">0.9</span>s</div>
+  </div>
+  <div class="composer2">
+    <span class="chip">📁 IDEalize</span><span class="p">›</span>
+    <span class="ph">Message Claude…</span><span class="snd">↩</span>
+  </div>
+  <div class="sw">
+    <span><i style="background:var(--accent)"></i>accent</span>
+    <span><i style="background:var(--c-path)"></i>path</span>
+    <span><i style="background:var(--c-url)"></i>url</span>
+    <span><i style="background:var(--c-kw)"></i>keyword</span>
+    <span><i style="background:var(--c-str)"></i>string</span>
+    <span><i style="background:var(--c-add)"></i>add</span>
+    <span><i style="background:var(--c-del)"></i>del</span>
+  </div>
+</template>
+
+<script src="critter.js"></script>
+<script>
+  const tpl = document.getElementById('win').content;
+  document.querySelectorAll('.card').forEach(card => {
+    card.querySelector('.win').appendChild(tpl.cloneNode(true));
+    // label the mode tag from the palette class suffix
+    const mode = /-d$/.test(card.className.match(/p-[a-z]+-[dl]/)[0]) ? 'Dark' : 'Light';
+    card.querySelector('.mode').textContent = mode;
+  });
+  IDCritter.mountAll('.crit', 22);
+</script>
+</body>
+</html>

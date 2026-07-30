@@ -165,9 +165,23 @@ final class DirectoryWatcher {
     }
 
     func stop() {
-        guard let s = stream else { return }
-        FSEventStreamStop(s); FSEventStreamInvalidate(s); FSEventStreamRelease(s)
-        stream = nil
+        // FSEvents delivers callbacks on `.main` (see `start`). This object is held
+        // by SwiftUI `@State` and `ProjectMonitor`, so ARC can call `deinit` — and
+        // thus `stop()` — on any thread. Tearing the stream down off-main races a
+        // callback that may be mid-flight on main: `FSEventStreamInvalidate` frees
+        // the event's `paths` array underneath the running `as? [String]` bridge,
+        // which then messages a dangling element and crashes (SIGSEGV in
+        // objc_msgSend). Serialise all teardown on main so it can never overlap a
+        // callback, and clear `onChange` there too so any already-queued callback
+        // is a no-op. Synchronous, so a live stream never outlives this object.
+        let teardown = { [self] in
+            guard let s = stream else { return }
+            FSEventStreamStop(s); FSEventStreamInvalidate(s); FSEventStreamRelease(s)
+            stream = nil
+            onChange = nil
+        }
+        if Thread.isMainThread { teardown() }
+        else { DispatchQueue.main.sync(execute: teardown) }
     }
 
     deinit { stop() }
@@ -367,7 +381,7 @@ private struct FileExplorerInner: View {
         HStack(spacing: 6) {
             Image(systemName: "folder.fill")
                 .font(.system(size: 11))
-                .foregroundStyle(Color(theme.accent))
+                .foregroundStyle(Color(Theme.folderIcon))
             Text(rootName)
                 .font(settings.ui(12, .semibold))
                 .foregroundStyle(Color(theme.foreground))
@@ -662,7 +676,7 @@ private struct FileRow: View {
             }
             Image(systemName: node.isDirectory ? "folder.fill" : icon(for: node.name))
                 .font(.system(size: 11))
-                .foregroundStyle(Color(node.isDirectory ? theme.accent : theme.secondaryForeground))
+                .foregroundStyle(node.isDirectory ? Color(Theme.folderIcon) : Color(theme.secondaryForeground))
                 .frame(width: 15)
             Text(node.name)
                 .font(style.font(12))
@@ -747,6 +761,11 @@ private struct VerticalResizeHandle: View {
     let range: ClosedRange<Double>
     @ObservedObject private var settings = AppSettings.shared
     @State private var startHeight: Double?
+    /// Resets to false on gesture end OR cancel — SwiftUI's only cancellation
+    /// signal. A cancelled drag skips `onEnded`; without this the monitor's
+    /// panel refcount leaks, `isResizing` latches true, and every terminal
+    /// stays frozen at its drag-time size for good.
+    @GestureState private var dragActive = false
 
     var body: some View {
         Rectangle()
@@ -764,6 +783,7 @@ private struct VerticalResizeHandle: View {
                         // the handle rides the pane it resizes, so its translation feeds
                         // back on itself and the pane judders between two heights.
                         DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .updating($dragActive) { _, state, _ in state = true }
                             .onChanged { v in
                                 if startHeight == nil {
                                     startHeight = height
@@ -779,6 +799,9 @@ private struct VerticalResizeHandle: View {
                             .onEnded { _ in endDrag() }
                     )
             )
+            // A cancelled gesture skips `onEnded` — catch it via the GestureState
+            // reset; without this the terminal grid would stay frozen for good.
+            .onChange(of: dragActive) { _, active in if !active { endDrag() } }
             .onDisappear { endDrag() }
     }
 

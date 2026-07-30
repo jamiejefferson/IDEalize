@@ -20,6 +20,30 @@ struct PersistedChat: Codable {
 
     /// The agent to restore, honouring legacy records that only knew "Claude".
     var effectiveAgentBinary: String? { agentBinary ?? (wasClaude ? "claude" : nil) }
+
+    /// Whether this chat was the project's coordinating agent, so restore brings
+    /// it back *as* one — relaunched with the `/project-agent` guide and watched
+    /// by a fresh `ProjectMonitor` — rather than as an ordinary Claude chat.
+    /// Decoded with `decodeIfPresent` so snapshots written before this existed
+    /// still decode (a property default alone is ignored by synthesized
+    /// `Codable`); coordinators from those runs come back as plain chats, once.
+    var isProjectAgent: Bool = false
+
+    init(customName: String?, wasClaude: Bool, agentBinary: String?,
+         isProjectAgent: Bool = false) {
+        self.customName = customName
+        self.wasClaude = wasClaude
+        self.agentBinary = agentBinary
+        self.isProjectAgent = isProjectAgent
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        customName = try c.decodeIfPresent(String.self, forKey: .customName)
+        wasClaude = try c.decodeIfPresent(Bool.self, forKey: .wasClaude) ?? false
+        agentBinary = try c.decodeIfPresent(String.self, forKey: .agentBinary)
+        isProjectAgent = try c.decodeIfPresent(Bool.self, forKey: .isProjectAgent) ?? false
+    }
 }
 
 struct PersistedProject: Codable {

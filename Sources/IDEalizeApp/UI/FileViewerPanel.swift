@@ -15,15 +15,25 @@ struct FileViewerPanel: View {
     @State private var loadedURL: URL?
     @State private var creating = false
     @State private var newName = ""
-    /// Markdown files default to a styled preview; this flips to the raw editor.
-    @State private var editingMarkdown = false
     /// Brief "attached" confirmation on the Use-as-context button.
     @State private var contextConfirm = false
 
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.doc, base: CGFloat(settings.fontSize), background: theme.background) }
-    /// A markdown file we can render as a styled preview (vs. raw text editing).
-    private var isMarkdown: Bool { (loadedURL ?? workspace.viewedFile)?.pathExtension.lowercased() == "md" }
+
+    /// Files IDEalize itself provisions — the companion skills, the slash commands,
+    /// and the project agent's operating guide. They are shown but never edited in
+    /// place: `FlowSkillInstaller.install()` rewrites every one of them on a version
+    /// bump, so an edit here would appear to work and then vanish on the next app
+    /// update. Editing the guide goes through "Edit my own copy" in Preferences
+    /// instead, which forks it somewhere the installer can't reach.
+    ///
+    /// The installer is asked rather than the path being matched here, so the two
+    /// can't drift — the guide moves depending on whether this is a dev build.
+    private var isReadOnly: Bool {
+        guard let url = workspace.viewedFile else { return false }
+        return FlowSkillInstaller.isProvisioned(url)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,16 +54,6 @@ struct FileViewerPanel: View {
     private func documentBody(_ file: URL?) -> some View {
         if let message {
             centeredMessage(message, icon: "doc")
-        } else if file != nil, isMarkdown, !editingMarkdown {
-            // Styled, read-only render of the markdown (headings, bold, lists,
-            // code). Tap the pencil in the header to drop to the raw editor.
-            ScrollView {
-                MarkdownText(text: content, baseSize: CGFloat(settings.fontSize))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-            }
-            .background(style.background)
         } else if file != nil {
             TextEditor(text: $content)
                 .font(style.font(CGFloat(settings.fontSize)))
@@ -62,6 +62,11 @@ struct FileViewerPanel: View {
                 .scrollContentBackground(.hidden)
                 .background(style.background)
                 .padding(6)
+                // Disabled rather than merely unsaved, so a provisioned file can't
+                // be typed into and silently lost. `load()` also leaves `loadedURL`
+                // nil for these, which keeps `dirty` false and makes both `save()`
+                // and the switch-away flush no-ops.
+                .disabled(isReadOnly)
                 .onChange(of: content) { if loadedURL != nil { dirty = true } }
         } else {
             // No document open — offer to create one.
@@ -90,8 +95,18 @@ struct FileViewerPanel: View {
                 .foregroundStyle(Color(theme.foreground))
                 .lineLimit(1).truncationMode(.middle)
             if dirty { Circle().fill(Color(theme.accent)).frame(width: 5, height: 5) }
+            if isReadOnly {
+                Text("read-only")
+                    .font(settings.ui(10, .medium))
+                    .foregroundStyle(Color(theme.secondaryForeground))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Capsule().fill(Color(theme.surface)))
+                    .help("IDEalize installed this file and replaces it on updates. To change how the project agent works, use Preferences ▸ Project agent ▸ Edit my own copy.")
+            }
             Spacer()
-            if workspace.viewedFile != nil, message == nil {
+            // Recording writes its notes into the open document, so it's offered
+            // only where writing is allowed.
+            if workspace.viewedFile != nil, message == nil, !isReadOnly {
                 recordControl
                 Button(action: useAsContext) {
                     Image(systemName: contextConfirm ? "checkmark" : "text.bubble")
@@ -101,25 +116,20 @@ struct FileViewerPanel: View {
                 .foregroundStyle(Color(contextConfirm ? theme.accent : theme.secondaryForeground))
                 .help("Use as context in the active chat")
             }
-            if workspace.viewedFile != nil, isMarkdown, message == nil {
-                Button(action: { editingMarkdown.toggle() }) {
-                    Image(systemName: editingMarkdown ? "eye" : "pencil").font(.system(size: 11))
-                }
-                .buttonStyle(.iconHover(padding: 3)).foregroundStyle(Color(theme.secondaryForeground))
-                .help(editingMarkdown ? "Preview" : "Edit raw markdown")
-            }
             if workspace.viewedFile != nil {
                 Button(action: save) { Image(systemName: "square.and.arrow.down").font(.system(size: 11)) }
                     .buttonStyle(.iconHover(padding: 3)).foregroundStyle(Color(dirty ? theme.accent : theme.secondaryForeground))
                     .help("Save (⌘S)").keyboardShortcut("s", modifiers: .command).disabled(!dirty)
                 Button(action: startCreate) { Image(systemName: "plus").font(.system(size: 11)) }
                     .buttonStyle(.iconHover(padding: 3)).foregroundStyle(Color(theme.secondaryForeground)).help("New document")
+                // Closes the open document (back to the empty state), not the panel
+                // itself — the panel is dismissed with its toolbar toggle.
+                Button(action: { save(); workspace.viewedFile = nil }) {
+                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color(theme.secondaryForeground))
+                }
+                .buttonStyle(.iconHover(padding: 3)).help("Close document")
             }
-            Button(action: { save(); workspace.showViewer = false }) {
-                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color(theme.secondaryForeground))
-            }
-            .buttonStyle(.iconHover(padding: 3)).help("Close")
         }
         .padding(.horizontal, 12).frame(height: 34)
     }
@@ -241,13 +251,14 @@ struct FileViewerPanel: View {
         // Save any pending edits to the previously-open file first.
         if dirty, let prev = loadedURL { try? content.write(to: prev, atomically: true, encoding: .utf8) }
         dirty = false
-        editingMarkdown = false   // a freshly opened doc starts in preview
         guard let url = workspace.viewedFile else { content = ""; message = nil; loadedURL = nil; return }
         do {
             let data = try Data(contentsOf: url)
             if data.count > 2_000_000 { message = "File too large to edit (\(data.count / 1024) KB)."; loadedURL = nil; return }
             if let s = String(data: data, encoding: .utf8) {
-                content = s; message = nil; loadedURL = url
+                // A provisioned file is shown but never adopted as the edit target:
+                // leaving `loadedURL` nil is what makes every write path inert.
+                content = s; message = nil; loadedURL = isReadOnly ? nil : url
             } else { message = "Can't edit this file (binary or non-text)."; loadedURL = nil }
         } catch { message = "Couldn't read this file."; loadedURL = nil }
     }

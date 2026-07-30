@@ -53,13 +53,16 @@ struct IDEalizeApp: App {
 
 /// Menu / keyboard commands for tabs and splits.
 struct IDEalizeCommands: Commands {
-    let workspace: Workspace
+    @ObservedObject var workspace: Workspace
     @ObservedObject private var miniMode = MiniModeManager.shared
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some Commands {
         // The tour is otherwise unreachable once it has been seen — this is how you
-        // get it back.
+        // get it back. Keyboard Shortcuts is the at-a-glance map of everything below.
         CommandGroup(replacing: .help) {
+            Button("Keyboard Shortcuts") { workspace.showShortcutsHelp = true }
+                .keyboardShortcut("/", modifiers: .command)
             Button("Show Tour") { workspace.showTour = true }
         }
         CommandGroup(replacing: .newItem) {
@@ -67,6 +70,8 @@ struct IDEalizeCommands: Commands {
                 .keyboardShortcut("t", modifiers: .command)
             Button("New Session in Home") { workspace.newTab() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
+            Button("New Project…") { _ = workspace.newProject() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             Menu("Open Recent") {
                 let recents = AppSettings.shared.recentFolders
                 if recents.isEmpty {
@@ -88,18 +93,44 @@ struct IDEalizeCommands: Commands {
             Divider()
             Button("Close Pane") { closeFocused() }
                 .keyboardShortcut("w", modifiers: .command)
+            Button("Archive Chat") { archiveSelected() }
+                .keyboardShortcut(.delete, modifiers: [.command, .shift])
+                .disabled(workspace.selectedTab == nil)
+            Divider()
+            // The two faces of a pane: reveal the raw terminal behind the chat,
+            // or put the caret straight into the message input from anywhere.
+            Button("Toggle Chat / Terminal") { toggleChatTerminal() }
+                .keyboardShortcut("j", modifiers: .command)
+            Button("Focus Message Input") { focusMessageInput() }
+                .keyboardShortcut("i", modifiers: .command)
             Divider()
             Button("Next Session") { cycleTab(+1) }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
             Button("Previous Session") { cycleTab(-1) }
                 .keyboardShortcut("[", modifiers: [.command, .shift])
+            // ⌘1–⌘9 jump straight to a chat, in the rail's order.
+            ForEach(Array(workspace.tabs.prefix(9).enumerated()), id: \.element.id) { pair in
+                Button(pair.element.customName ?? pair.element.name) { jumpToTab(pair.element) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(pair.offset + 1)")), modifiers: .command)
+            }
             Divider()
             Button("Copy Last Command") { copyLastCommand() }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
             Button("Re-run Last Command") { rerunLast() }
                 .keyboardShortcut("r", modifiers: [.control])
+            Divider()
+            Button(workspace.isProjectAgentOpen ? "Close Project Agent" : "Open Project Agent") {
+                workspace.toggleProjectAgent()
+            }
+            .keyboardShortcut("a", modifiers: [.command, .shift])
+            .disabled(!workspace.canOpenProjectAgent)
         }
-        CommandMenu("View") {
+        // Inject into the standard "View" menu rather than declaring our own
+        // CommandMenu("View"): a second CommandMenu with that title sits alongside
+        // AppKit's built-in View menu instead of merging, giving two "View" menus
+        // in the bar. The .sidebar placement lands these items in the one real
+        // View menu.
+        CommandGroup(after: .sidebar) {
             Button(miniMode.isEnabled ? "Exit Mini Mode" : "Enter Mini Mode") {
                 miniMode.toggle()
             }
@@ -115,6 +146,31 @@ struct IDEalizeCommands: Commands {
                 workspace.showComposer.toggle()
             }
             .keyboardShortcut("l", modifiers: .command)
+            Divider()
+            // The three workspace panels, left to right: rail, explorer, document.
+            Button(workspace.showSessionRail ? "Hide Sessions Rail" : "Show Sessions Rail") {
+                workspace.showSessionRail.toggle()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button(workspace.showFileExplorer ? "Hide File Explorer" : "Show File Explorer") {
+                workspace.showFileExplorer.toggle()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            Button(workspace.showViewer ? "Hide Document Panel" : "Show Document Panel") {
+                workspace.showViewer.toggle()
+            }
+            .keyboardShortcut("v", modifiers: [.command, .shift])
+            Button(workspace.showAppearance ? "Hide Appearance Panel" : "Show Appearance Panel") {
+                workspace.showAppearance.toggle()
+            }
+            .keyboardShortcut("a", modifiers: [.command, .option])
+            Divider()
+            Button("Bigger Terminal Font") { bumpTerminalFont(+1) }
+                .keyboardShortcut("=", modifiers: .command)
+            Button("Smaller Terminal Font") { bumpTerminalFont(-1) }
+                .keyboardShortcut("-", modifiers: .command)
+            Button("Default Terminal Font") { settings.fontSize = AppearanceDefaults.fontSize }
+                .keyboardShortcut("0", modifiers: .command)
         }
     }
 
@@ -128,6 +184,38 @@ struct IDEalizeCommands: Commands {
         guard let session = workspace.focusedSession,
               let cmd = session.blocks.last?.command else { return }
         session.rerun(cmd)
+    }
+
+    /// Reveal the raw terminal behind the focused pane's chat (or tuck it away),
+    /// mirroring the in-pane ModeToggle — same animation, same state.
+    private func toggleChatTerminal() {
+        guard let session = workspace.focusedSession else { return }
+        withAnimation(LeafPaneView.modeAnim) { session.revealTerminal.toggle() }
+    }
+
+    /// Put the caret in the focused pane's message input. Falls back to the
+    /// selected chat's first session when nothing holds terminal focus yet.
+    private func focusMessageInput() {
+        if workspace.focusedSessionID == nil, let s = workspace.selectedTab?.sessions.first {
+            workspace.focusSession(s.id)
+        }
+        workspace.focusInputRequest += 1
+    }
+
+    private func archiveSelected() {
+        guard let tab = workspace.selectedTab else { return }
+        workspace.archiveTab(tab)
+    }
+
+    private func jumpToTab(_ tab: WorkspaceTab) {
+        workspace.selectedTabID = tab.id
+        if let s = tab.sessions.first { workspace.focusSession(s.id) }
+    }
+
+    /// Nudge the terminal font size (⌘= / ⌘-), clamped to the Appearance
+    /// panel's sensible range. WorkspaceView reapplies it to live terminals.
+    private func bumpTerminalFont(_ delta: Double) {
+        settings.fontSize = min(28, max(9, settings.fontSize + delta))
     }
 
     private func closeFocused() {
@@ -161,7 +249,16 @@ struct IDEalizeCommands: Commands {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Dev build: its own runtime dir (see IPC.socketPath) so it runs alongside
+        // the installed app without fighting over the socket/token. Ensure the dir
+        // exists before the IPC hub binds its socket.
+        if Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true {
+            try? FileManager.default.createDirectory(
+                atPath: NSHomeDirectory() + "/Library/Application Support/IDEalize Dev",
+                withIntermediateDirectories: true)
+        }
         NSApp.setActivationPolicy(.regular)
+        Fonts.registerBundled()   // make the bundled DM Mono resolvable app-wide
         applyDockIcon()
         NotificationManager.shared.requestAuthorization()
         SpeechDictation.shared.requestAuthorization()
@@ -169,6 +266,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the user opens can review and run Flows (idempotent, version-checked).
         // Claude-only for now; other agents get flow support via their own adapters.
         FlowSkillInstaller.install()
+        // Pre-accept Claude Code's one-time "Bypass Permissions mode" gate so the
+        // default `--dangerously-skip-permissions` launch doesn't hang a fresh machine
+        // on a dialog we type past but never answer. Runs before any chat spawns Claude.
+        ClaudeConfigBootstrap.ensureBypassPermissionsAccepted()
         Workspace.shared.startIPCIfNeeded()
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -188,6 +289,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    /// Clicking the Dock icon brings the app back. A minimised window isn't
+    /// "visible", and SwiftUI's `Window` scene doesn't deminiaturize itself — so
+    /// without this the window stays in the Dock and the app looks like it has
+    /// vanished.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        guard !hasVisibleWindows else { return true }
+        for window in sender.windows where window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        sender.windows.first { $0.identifier?.rawValue == "main" }?.makeKeyAndOrderFront(nil)
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {

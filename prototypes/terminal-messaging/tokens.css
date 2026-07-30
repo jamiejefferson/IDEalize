@@ -1,0 +1,181 @@
+/* IDEalize design tokens — extracted from the live app.
+   Theme.swift (IDEalize Dark/Light) + derived semantic surfaces + ANSI palette,
+   CommandComposer.swift (composer anatomy), Branding.swift (critters).
+   Shared by all three terminal-messaging prototypes. */
+
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&display=swap");
+
+:root {
+  /* Chosen terminal type + spacing — DM Mono, 14 / 2.5 / -0.03em / 400. */
+  --term-font:   'DM Mono', ui-monospace, "SF Mono", Menlo, monospace;
+  --term-size:   14px;
+  --term-lh:     2.5;
+  --term-track:  -0.03em;
+  --term-weight: 400;
+
+  /* Default palette — Ink (dark side of the Ink/Linen system). Editorial
+     neutral surfaces + a single warm accent + restrained, desaturated syntax. */
+  --bg:            #17181A;
+  --fg:            #E6E7E9;
+  --accent:        #E8B84B; /* single warm accent (gold) */
+  --sel:           #2E2F33;
+
+  --chrome:        #1C1D1F;
+  --surface:       #202123;
+  --surface-hover: #2E2F32;
+  --elevated:      #26272A;
+  --border:        #383A3D;
+  --secondary:     #9B9DA1;
+
+  /* Soft-syntax roles, mapped onto the ANSI slots the layouts consume. */
+  --red:     #DA8A86; /* deletions / errors */
+  --green:   #88C08C; /* additions / success */
+  --yellow:  #D9C089; /* strings / numbers */
+  --blue:    #A9B7D8; /* urls */
+  --magenta: #C9A9C4; /* keywords */
+  --cyan:    #9CB8C8; /* paths */
+
+  --warm:    #E8B84B;
+
+  --mono: 'DM Mono', ui-monospace, "SF Mono", Menlo, monospace;
+  --ui:   -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+
+  --r-sm: 8px;
+  --r-md: 13px;  /* composer radius — CommandComposer.swift:76 */
+  --r-lg: 18px;
+}
+
+/* Linen — the light side of the Ink/Linen system (toggle with body.light). */
+body.light {
+  --bg:            #F7F5F0;
+  --fg:            #2A2A27;
+  --accent:        #B67A12; /* ochre */
+  --sel:           #E7E0D1;
+  --chrome:        #F2F0EA;
+  --surface:       #EFEDE5;
+  --surface-hover: #E7E3DA;
+  --elevated:      #F1EFE8;
+  --border:        #DDD8CD;
+  --secondary:     #7C7A71;
+  --red:     #B24A44;
+  --green:   #3E7A44;
+  --yellow:  #8A6A2A;
+  --blue:    #4A5A86;
+  --magenta: #7A5570;
+  --cyan:    #3E6C7E;
+  --warm:    #C77A2A;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: #0d0e12;
+  font-family: var(--ui);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Faux macOS app window ---------------------------------------------- */
+.app {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.titlebar {
+  height: 38px; flex: 0 0 38px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 14px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--border);
+  -webkit-user-select: none; user-select: none;
+}
+.lights { display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+.lights .r { background: #ff5f57; }
+.lights .y { background: #febc2e; }
+.lights .g { background: #28c840; }
+.title {
+  flex: 1; text-align: center;
+  font-size: 12.5px; font-weight: 600; color: var(--secondary);
+  letter-spacing: .01em;
+}
+
+/* Breadcrumb (project ▸ branch ▸ cwd) */
+.crumbs { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--secondary); }
+.crumbs b { color: var(--fg); font-weight: 600; }
+.crumbs .sep { opacity: .5; }
+.crumbs .branch { color: var(--accent); font-weight: 600; }
+
+/* State toggle (prototype-only chrome) */
+.states { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px; }
+.states button {
+  font: 600 11px/1 var(--ui); color: var(--secondary);
+  background: transparent; border: 0; cursor: pointer;
+  padding: 5px 11px; border-radius: 999px;
+}
+.states button.on { background: var(--accent); color: #061019; }
+body.light .states button.on { color: #fff; }
+
+.iconbtn {
+  width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--secondary); cursor: pointer;
+  display: grid; place-items: center; font-size: 13px;
+}
+.iconbtn:hover { background: var(--surface-hover); color: var(--fg); }
+
+/* ---- Composer (message-input-only) — CommandComposer.swift ------------- */
+.composer {
+  display: flex; align-items: center; gap: 11px;
+  padding: 12px 16px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.composer.focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 500 11px/1 var(--ui); color: var(--secondary);
+  padding: 5px 9px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.prompt { font: 700 16px/1 var(--mono); color: var(--accent); }
+.composer input {
+  flex: 1; background: transparent; border: 0; outline: 0;
+  font: 400 14px/1.4 var(--mono); color: var(--fg);
+}
+.composer input::placeholder { color: var(--secondary); }
+.send {
+  width: 26px; height: 26px; border-radius: 50%; border: 0; cursor: pointer;
+  background: var(--accent); color: #061019;
+  display: grid; place-items: center; font-size: 12px; font-weight: 700;
+  transition: transform .12s ease, opacity .12s ease;
+}
+body.light .send { color: #fff; }
+.send:hover { transform: translateY(-1px); }
+
+/* ---- Critter "working" indicator + Idealizing shimmer ------------------ */
+.critter { font-size: 15px; display: inline-block; animation: hop .7s ease-in-out infinite; }
+@keyframes hop { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+
+.shimmer {
+  background: linear-gradient(100deg, var(--secondary) 30%, var(--fg) 50%, var(--secondary) 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: sweep 2.2s linear infinite;
+  font-weight: 600;
+}
+@keyframes sweep { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+.dots::after { content: "…"; animation: dots 1.4s steps(4,end) infinite; }
+@keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "…"; } }
+
+.hidden { display: none !important; }

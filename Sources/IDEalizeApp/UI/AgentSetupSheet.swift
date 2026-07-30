@@ -12,7 +12,6 @@ struct AgentSetupSheet: View {
     @State private var transcriptFormat: AgentProfile.TranscriptFormat = .none
     @State private var promptStyle: AgentProfile.PromptStyle = .numberedList
     @State private var workingPatterns: String = "esc to interrupt, esc to cancel"
-    @State private var modelSwitchCommand: String = ""
     @State private var slashCommands: String = ""
     @State private var effortKeywords: String = ""
 
@@ -69,7 +68,6 @@ struct AgentSetupSheet: View {
                 }
 
                 Section("Commands") {
-                    TextField("Model switch command (optional)", text: $modelSwitchCommand)
                     TextField("Slash commands (comma-separated, optional)", text: $slashCommands)
                     TextField("Effort keywords: Label=keyword, one per line (optional)", text: $effortKeywords)
                         .lineLimit(3)
@@ -110,8 +108,6 @@ struct AgentSetupSheet: View {
                 .split(separator: ",")
                 .map { String($0).trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty },
-            modelSwitchCommand: modelSwitchCommand.trimmingCharacters(in: .whitespaces).isEmpty
-                ? nil : modelSwitchCommand.trimmingCharacters(in: .whitespaces),
             effortKeywords: Dictionary(uniqueKeysWithValues: keywords),
             slashCommands: slashCommands
                 .split(separator: ",")

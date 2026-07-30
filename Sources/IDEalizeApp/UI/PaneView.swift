@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
 
 /// Recursively renders a tab's split tree using draggable AppKit split views.
@@ -30,6 +31,9 @@ struct PaneView: View {
 struct LeafPaneView: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var workspace: Workspace
+    /// Mini-mode: render the chat full-bleed (no floating card, no terminal
+    /// bleed-through) so it reads as a proper mobile chat in the narrow column.
+    var compact: Bool = false
 
     private var isFocused: Bool { workspace.focusedSessionID == session.id }
     private var isSplit: Bool { (workspace.selectedTab?.sessions.count ?? 1) > 1 }
@@ -49,7 +53,19 @@ struct LeafPaneView: View {
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var resizeMonitor = LiveResizeMonitor.shared
     @State private var dropTargeted = false
+    /// Set once per view lifetime so the pane opens on its resting view (terminal
+    /// visible with the floating solo input) exactly once, then lets the toggle
+    /// stick. (req 1)
+    @State private var appliedDefaultView = false
     private var theme: Theme { settings.theme }
+
+    /// Height reserved at the terminal's foot so its live output is never hidden
+    /// behind the floating solo input — the input floats above this clear strip.
+    /// Sized to the resting input's height plus a comfortable margin so the terminal's
+    /// last line clears the input top rather than being clipped by it. The focused
+    /// input grows well past this, so it still rises up over the terminal's own input
+    /// line when you compose. (req 2b / bottom-margin feedback)
+    private var floatingInputInset: CGFloat { 136 }
 
     /// The chat backdrop's Gaussian blur, but never while the window is being
     /// live-resized — blurring a continuously-redrawing terminal NSView every
@@ -62,7 +78,9 @@ struct LeafPaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            paneHeader
+            // In mini-mode the compact header already carries the chat name and
+            // controls, so the pane's own title bar would just be clutter.
+            if !compact { paneHeader }
             if tuiActive {
                 chatLayout
             } else {
@@ -70,7 +88,18 @@ struct LeafPaneView: View {
             }
         }
         .overlay { if dropTargeted { dropOverlay } }
+        // SwiftUI-level fallback for plain file-URL drags…
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted, perform: handleDrop)
+        // …but the real work happens at the AppKit level: SwiftUI's `.onDrop`
+        // never sees file *promises* (the drag you get from the screenshot
+        // thumbnail, Mail, Photos…) or raw image data, and drops over the
+        // focused composer are swallowed by the field editor (an NSTextView,
+        // registered for file drags) before SwiftUI is consulted. This
+        // transparent catcher sits over the whole pane and resolves all of
+        // those to concrete file URLs.
+        .overlay {
+            FileDropCatcher(targeted: $dropTargeted) { urls in attach(urls) }
+        }
     }
 
     /// The pane's title bar — aligned with the rail/files headers (28pt clear for
@@ -127,16 +156,20 @@ struct LeafPaneView: View {
         for provider in providers {
             provider.loadDataRepresentation(forTypeIdentifier: UTType.fileURL.identifier) { data, _ in
                 guard let data, let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-                DispatchQueue.main.async {
-                    if !session.pendingAttachments.contains(url) {
-                        session.pendingAttachments.append(url)
-                    }
-                    // A dropped file is a chat intent — surface the chat box.
-                    workspace.focusSession(session.id)
-                }
+                DispatchQueue.main.async { attach([url]) }
             }
         }
         return true
+    }
+
+    /// A dropped file lands as an attachment chip on the chat input (its path is
+    /// sent with the next message so the agent can act on it).
+    private func attach(_ urls: [URL]) {
+        for url in urls where !session.pendingAttachments.contains(url) {
+            session.pendingAttachments.append(url)
+        }
+        // A dropped file is a chat intent — surface the chat box.
+        workspace.focusSession(session.id)
     }
 
     /// Close the terminal pane/tab.
@@ -152,48 +185,112 @@ struct LeafPaneView: View {
         .help("Close this terminal (⌘W)")
     }
 
-    /// Agent/TUI mode: a vertical split — the live terminal readout on top, the
-    /// chat docked beneath it. The divider is a native, draggable VSplitView
-    /// handle (reliable resizing, unlike a custom drag).
-    /// Agent/TUI mode toggles between two full-pane views: the chat overlay
-    /// (terminal blurred behind it) and the raw, interactive terminal. Only one
-    /// input is ever on screen at a time.
+    /// Agent/TUI mode. The floating solo input is pinned to the foot of the pane in
+    /// BOTH modes and never moves; the chat/terminal toggle only reveals or hides
+    /// the response viewer (the conversation transcript) above it. The terminal
+    /// lives behind — sharp and interactive in terminal mode, blurred and dimmed
+    /// while the viewer is up. Mini-mode keeps its full-bleed docked chat. (req 6)
     private var chatLayout: some View {
         ZStack(alignment: .topTrailing) {
             TerminalViewRep(session: session)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // `opaque: true` treats the content edges as solid so the blur
                 // doesn't fade to a grey halo at the pane edges; clip to bounds.
-                .blur(radius: backdropBlur, opaque: true)
+                .blur(radius: compact ? 0 : backdropBlur, opaque: true)
                 .clipped()
-                .opacity(session.revealTerminal ? 1 : 0.5)
+                // Mini-mode hides the terminal entirely behind the full-bleed
+                // chat (no translucent bleed-through); tap the toggle to reveal it.
+                .opacity(session.revealTerminal ? 1 : (compact ? 0 : 0.5))
                 .allowsHitTesting(session.revealTerminal)
                 .animation(Self.modeAnim, value: session.revealTerminal)
+                // Keep the terminal's own last lines clear of the floating input so
+                // live output is never hidden beneath it. (req 2b)
+                .padding(.bottom, compact && !session.revealTerminal ? 0 : floatingInputInset)
 
-            if !session.revealTerminal {
-                // Chat mode: tap the blurred backdrop (outside the card) to reveal
-                // the terminal; the chat card floats on top.
-                Color.clear.contentShape(Rectangle()).onTapGesture { setReveal(true) }
-                chatCard
-                    // Collapse into / expand out of the toggle in the top corner.
-                    .transition(.scale(scale: 0.04, anchor: .topTrailing).combined(with: .opacity))
-
-                // Jump up/down through the conversation — mirrors the mode toggle
-                // in the opposite (top-left) corner, same inset and pill styling.
-                if session.exchanges.count > 1 {
-                    ExchangeNav(session: session)
-                        .padding(.top, 22).padding(.leading, 22)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .transition(.opacity)
+            if compact {
+                // Mini-mode: the full-bleed docked chat (transcript + input in one
+                // card); the toggle reveals the terminal beneath it.
+                if !session.revealTerminal {
+                    chatCard
+                        .transition(.scale(scale: 0.04, anchor: .topTrailing).combined(with: .opacity))
+                } else {
+                    // Terminal revealed: the one floating input stays pinned at
+                    // the foot of the column — the composer is never out of
+                    // reach in mini-mode. Mirrors the desktop layout below.
+                    QAChatBox(session: session, workspace: workspace, collapsed: true)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 }
+            } else {
+                // Chat mode: tap the exposed terminal margin to reveal the terminal.
+                if !session.revealTerminal {
+                    Color.clear.contentShape(Rectangle()).onTapGesture { setReveal(true) }
+                }
+                // The response viewer and the one fixed input, laid out bottom-up.
+                // The input is a single instance pinned to the bottom in both modes;
+                // only the viewer above it appears/disappears with the toggle, so
+                // the input's instance and position never change. (req 6) Its own
+                // single lifted container is the lozenge's — no outer wrapper. (req 2a)
+                VStack(spacing: 0) {
+                    if !session.revealTerminal {
+                        responseViewer
+                            // Collapse into / expand out of the toggle in the corner.
+                            .transition(.scale(scale: 0.04, anchor: .topTrailing).combined(with: .opacity))
+                    }
+                    QAChatBox(session: session, workspace: workspace, collapsed: true)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
 
-            // The mode toggle lives in the top corner, inset to align with the
-            // chat card's rounded corner, present in both modes.
+            // Jump up/down through the conversation — mirrors the mode toggle in the
+            // opposite (top-left) corner, same inset and pill styling.
+            if !session.revealTerminal, session.exchanges.count > 1 {
+                ExchangeNav(session: session)
+                    .padding(.top, 22).padding(.leading, 22)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(.opacity)
+            }
+
+            // The chat/terminal mode toggle sits in the terminal's top-right corner,
+            // reachable in either mode: it reveals or hides the response viewer above
+            // the unchanged input. Mirrors ExchangeNav opposite.
             ModeToggle(session: session)
                 .tourTarget(.modeToggle)
                 .padding(.top, 22).padding(.trailing, 22)
         }
+        // The ground behind the floating input (the reserved strip the terminal is
+        // padded off of) is painted in the terminal's own background, so the input
+        // sits on the same paper as the terminal above it rather than on the window
+        // chrome. The terminal is opaque and covers the rest.
+        .background(Color(settings.terminalTheme.background))
+        .onAppear {
+            // req 1: an agent pane opens on its resting view — terminal visible with
+            // the floating solo input — rather than the docked chat card. Applied
+            // once per view lifetime, and never over a login/prompt the chat viewer
+            // needs to surface, so those flows still land in the transcript.
+            // Mini-mode is the exception: the chat (messages + composer) is the
+            // default focus of the narrow column (spec §5.4), so the compact pane
+            // never forces the terminal forward on appear.
+            guard !appliedDefaultView else { return }
+            appliedDefaultView = true
+            if !compact, session.loginState == .none && session.pendingPrompt == nil {
+                session.revealTerminal = true
+            }
+        }
+    }
+
+    /// The response viewer shown above the fixed input in chat mode: the shared
+    /// conversation transcript (carrying the working animation and any prompts),
+    /// dressed as a lifted card. It appears/disappears with the toggle while the
+    /// input beneath it stays put. (req 6)
+    private var responseViewer: some View {
+        QAChatBox(session: session, workspace: workspace, viewerOnly: true)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(theme.border), lineWidth: 1))
+            .shadow(color: .black.opacity(settings.chatShadowOpacity), radius: 26, y: 12)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
     }
 
     private func setReveal(_ on: Bool) {
@@ -205,12 +302,19 @@ struct LeafPaneView: View {
 
     /// The chat overlay: the chat panel as a translucent card over the blurred
     /// terminal.
-    private var chatCard: some View {
-        QAChatBox(session: session, workspace: workspace, docked: true)
-            .clipShape(RoundedRectangle(cornerRadius: 18))
-            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(theme.border), lineWidth: 1))
-            .shadow(color: .black.opacity(settings.chatShadowOpacity), radius: 26, y: 12)
-            .padding(16)
+    @ViewBuilder private var chatCard: some View {
+        if compact {
+            // Full-bleed chat: fills the narrow column, opaque so the hidden
+            // terminal never shows through. No card inset / rounding / shadow.
+            QAChatBox(session: session, workspace: workspace, docked: true)
+                .background(Color(theme.background))
+        } else {
+            QAChatBox(session: session, workspace: workspace, docked: true)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(theme.border), lineWidth: 1))
+                .shadow(color: .black.opacity(settings.chatShadowOpacity), radius: 26, y: 12)
+                .padding(16)
+        }
     }
 
     /// Plain shell mode: command-block history above a live terminal, with the
@@ -246,7 +350,7 @@ struct LeafPaneView: View {
 /// A polished sliding toggle (CSS-checkbox style) switching the pane between the
 /// Chat overlay and the raw Terminal. The knob springs under the active icon,
 /// the icons bounce, and the whole control dips on press.
-private struct ModeToggle: View {
+struct ModeToggle: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject private var settings = AppSettings.shared
     @State private var pressed = false
@@ -379,6 +483,126 @@ private struct PaneHeader: View {
         .contentShape(Rectangle())
         .onTapGesture { session.onFocusRequested?(session.id) }
     }
+}
+
+// MARK: - AppKit drop catcher
+
+/// Hosts `FileDropCatcherView` over a pane. `targeted` drives the pane's
+/// "Drop it!" overlay; `onFiles` receives every drop resolved to concrete
+/// file URLs (promised files and raw images land as temp files).
+private struct FileDropCatcher: NSViewRepresentable {
+    @Binding var targeted: Bool
+    var onFiles: ([URL]) -> Void
+
+    func makeNSView(context: Context) -> FileDropCatcherView {
+        let view = FileDropCatcherView()
+        update(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: FileDropCatcherView, context: Context) { update(nsView) }
+
+    private func update(_ view: FileDropCatcherView) {
+        view.onTargeted = { on in
+            withAnimation(.easeOut(duration: 0.12)) { targeted = on }
+        }
+        view.onFiles = onFiles
+    }
+}
+
+/// A transparent AppKit drag destination covering the whole pane. It exists
+/// because SwiftUI's `.onDrop` can't reach two drags users actually make:
+/// file promises (the macOS screenshot thumbnail, Photos, Mail…) need
+/// `NSFilePromiseReceiver`, which requires the real `NSDraggingInfo`; and a
+/// drop over the focused composer is claimed by the field editor (an
+/// `NSTextView`, registered for file drags) before SwiftUI is asked. AppKit
+/// delivers a drag to the deepest *registered* view under the cursor, so this
+/// view — registered and topmost — wins, while `hitTest` returning nil keeps
+/// it invisible to every ordinary mouse event.
+final class FileDropCatcherView: NSView {
+    var onTargeted: ((Bool) -> Void)?
+    var onFiles: (([URL]) -> Void)?
+    private let promiseQueue = OperationQueue()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        var types: [NSPasteboard.PasteboardType] = [.fileURL, .png, .tiff]
+        types += NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+        registerForDraggedTypes(types)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// Invisible to clicks/scrolls — only drags land here.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onTargeted?(true)
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) { onTargeted?(false) }
+    override func draggingEnded(_ sender: NSDraggingInfo) { onTargeted?(false) }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { true }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        onTargeted?(false)
+        let pasteboard = sender.draggingPasteboard
+
+        // 1. Concrete file URLs (Finder, the desktop, most apps).
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                             options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           !urls.isEmpty {
+            onFiles?(urls)
+            return true
+        }
+
+        // 2. Promised files (screenshot thumbnail, Photos, Mail…): receive them
+        //    into a temp folder, then attach the delivered files.
+        if let receivers = pasteboard.readObjects(forClasses: [NSFilePromiseReceiver.self])
+            as? [NSFilePromiseReceiver], !receivers.isEmpty {
+            let dest = Self.dropDirectory()
+            for receiver in receivers {
+                receiver.receivePromisedFiles(atDestination: dest, options: [:],
+                                              operationQueue: promiseQueue) { url, error in
+                    guard error == nil else { return }
+                    DispatchQueue.main.async { self.onFiles?([url]) }
+                }
+            }
+            return true
+        }
+
+        // 3. Raw image data (a dragged image region with no backing file):
+        //    save it to a temp file so the agent has a path to read.
+        for (type, ext) in [(NSPasteboard.PasteboardType.png, "png"),
+                            (NSPasteboard.PasteboardType.tiff, "tiff")] {
+            guard let data = pasteboard.data(forType: type) else { continue }
+            let stamp = DateFormatter.dropStamp.string(from: Date())
+            let url = Self.dropDirectory().appendingPathComponent("Dropped image \(stamp).\(ext)")
+            guard (try? data.write(to: url)) != nil else { continue }
+            onFiles?([url])
+            return true
+        }
+        return false
+    }
+
+    /// Where promised files and raw image drops are materialised.
+    private static func dropDirectory() -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("IDEalize Drops", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+}
+
+private extension DateFormatter {
+    /// Filename-safe timestamp for materialised image drops.
+    static let dropStamp: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        return f
+    }()
 }
 
 /// Colored dot indicating session activity: green = running a command,

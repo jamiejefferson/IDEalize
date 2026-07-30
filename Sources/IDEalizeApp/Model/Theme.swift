@@ -10,6 +10,12 @@ struct Theme: Identifiable, Hashable {
     let selection: NSColor
     /// 16 ANSI colors (0-7 normal, 8-15 bright).
     let ansi: [NSColor]
+    /// The box-drawing rules an agent frames its prompt box with, repainted as
+    /// they arrive (see `TerminalInkFilter`). A frame is solid ink for its whole
+    /// length, so it reads far heavier than glyphs of the same colour and wants
+    /// to be lighter than the faintest text on the grid. Left nil it's derived
+    /// from the theme's own ink and ground; set it to place it by eye.
+    var rule: NSColor?
 
     static func rgb(_ r: Int, _ g: Int, _ b: Int) -> NSColor {
         NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
@@ -58,6 +64,52 @@ struct Theme: Identifiable, Hashable {
     var secondaryForeground: NSColor { blend(foreground, background, 0.30) }
     /// Accent used for prompts, focus, and primary affordances.
     var accent: NSColor { cursor }
+    /// The weight Linen's hand-placed rules sit at, and the target every other
+    /// theme solves for. Matching the *contrast* rather than the blend is what
+    /// keeps them even: the same 70% blend lands at 1.19 on warm paper and 1.5 on
+    /// near-black ink, so a fixed fraction would give each theme a different rule.
+    private static let ruleContrast: CGFloat = 1.19
+
+    /// How far dim text (SGR 2) fades toward the ground. SwiftTerm's own is a
+    /// fixed half, which on warm paper takes the `#999999` an agent writes its
+    /// secondary text in out to `#C8C7C5` — past readable. This lands it near
+    /// `#AEAEAE`, still clearly secondary but legible.
+    var dimBlend: CGFloat { 0.22 }
+
+    /// The rule colour: placed by the theme, or the blend from its ink toward its
+    /// ground that reads at the same weight as Linen's.
+    var ruleColor: NSColor {
+        if let rule { return rule }
+        // Contrast falls monotonically as the blend approaches the ground, so a
+        // handful of bisections lands it precisely.
+        var low: CGFloat = 0, high: CGFloat = 1
+        for _ in 0..<20 {
+            let mid = (low + high) / 2
+            if Self.contrast(blend(foreground, background, mid), background) > Self.ruleContrast {
+                low = mid
+            } else {
+                high = mid
+            }
+        }
+        return blend(foreground, background, (low + high) / 2)
+    }
+
+    /// WCAG relative luminance.
+    private static func relativeLuminance(_ color: NSColor) -> CGFloat {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        func channel(_ value: CGFloat) -> CGFloat {
+            value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(c.redComponent)
+             + 0.7152 * channel(c.greenComponent)
+             + 0.0722 * channel(c.blueComponent)
+    }
+
+    /// WCAG contrast ratio, 1 (identical) to 21 (black on white).
+    static func contrast(_ a: NSColor, _ b: NSColor) -> CGFloat {
+        let la = relativeLuminance(a), lb = relativeLuminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
 
     /// Whether this theme is dark (drives the window's NSAppearance so system
     /// controls — pickers, sliders, toggles — render light/dark to match).
@@ -95,11 +147,58 @@ struct Theme: Identifiable, Hashable {
         ]
     )
 
+    /// Ink — editorial warm-neutral dark. A single warm gold accent with
+    /// restrained, desaturated syntax so the type carries the surface. Pairs
+    /// with the IDEalize owl and DM Mono.
+    static let ink = Theme(
+        name: "Ink",
+        background: rgb(23, 24, 26),
+        foreground: rgb(230, 231, 233),
+        cursor: rgb(232, 184, 75),
+        selection: rgb(46, 47, 51),
+        ansi: [
+            rgb(60, 62, 66),    rgb(218, 138, 134), rgb(136, 192, 140), rgb(217, 192, 137),
+            rgb(169, 183, 216), rgb(201, 169, 196), rgb(156, 184, 200), rgb(201, 203, 207),
+            rgb(120, 122, 126), rgb(230, 150, 146), rgb(150, 205, 154), rgb(228, 205, 150),
+            rgb(184, 198, 228), rgb(214, 184, 209), rgb(172, 198, 214), rgb(240, 241, 243),
+        ]
+    )
+
+    /// Linen — the light side of Ink. Warm paper, ochre accent, muted syntax.
+    static let linen = Theme(
+        name: "Linen",
+        background: rgb(247, 245, 240),
+        foreground: rgb(42, 42, 39),
+        cursor: rgb(182, 122, 18),
+        selection: rgb(231, 224, 209),
+        ansi: [
+            rgb(42, 42, 39),   rgb(178, 74, 68),  rgb(62, 122, 68),  rgb(138, 106, 42),
+            // Colour 7 is the "white" slot Claude Code prints most of its body
+            // text in; on paper it must stay a warm grey but still be read. At
+            // #7C7A71 it was 3.95:1 (2.75:1 once dimmed) — a light ghost. #64625A
+            // holds it at ~5.6:1, muted but legible, and clears the dim floor.
+            rgb(74, 90, 134),  rgb(122, 85, 112), rgb(62, 108, 126), rgb(100, 98, 90),
+            rgb(106, 105, 98), rgb(160, 60, 54),  rgb(50, 110, 58),  rgb(120, 92, 36),
+            rgb(64, 80, 120),  rgb(108, 74, 98),  rgb(52, 96, 112),  rgb(42, 42, 39),
+        ],
+        rule: rgb(226, 226, 224)   // #E2E2E0 — placed by eye against the paper
+    )
+
+    /// Themes offered for the app as a whole. Ink/Linen are deliberately absent:
+    /// they're terminal typography schemes, offered in `terminalThemes` instead.
     static let all: [Theme] = [.idealizeDark, .idealizeLight, .solarizedDark]
 
+    /// Themes offered for the terminal grid on its own (Appearance ▸ Terminal).
+    static let terminalThemes: [Theme] = [.linen, .ink] + all
+
     static func named(_ name: String) -> Theme {
-        all.first { $0.name == name } ?? .idealizeDark
+        terminalThemes.first { $0.name == name } ?? .idealizeDark
     }
+
+    /// Folder icons use the standard macOS folder blue rather than the theme
+    /// accent — the accent turned them yellow/ochre under warm themes. Single
+    /// source of truth so this can become a user setting later.
+    static var folderIcon: NSColor { .systemBlue }
 }
 
 extension NSColor {

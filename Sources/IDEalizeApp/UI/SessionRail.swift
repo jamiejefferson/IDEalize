@@ -18,9 +18,6 @@ struct SessionRail: View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(Color(theme.border)).frame(height: 1)
-            if workspace.suggestedProjectAgentPath != nil {
-                projectAgentSuggestion
-            }
             ScrollView {
                 LazyVStack(spacing: 8) {
                     ForEach(workspace.projectGroups) { group in
@@ -78,47 +75,6 @@ struct SessionRail: View {
         .padding(.horizontal, 12).frame(height: 34)
     }
 
-    /// A gentle nudge, shown when several chats share the focused project with
-    /// no project agent coordinating them yet. Dismissed per project for the
-    /// run of the app.
-    private var projectAgentSuggestion: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 12))
-                .foregroundStyle(settings.actionStyle.color)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Several chats are working in this project. A project agent can keep them in sync.")
-                    .font(style.font(11, .medium))
-                    .foregroundStyle(style.textColor)
-                    .panelText(style)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Start project agent") { workspace.openProjectAgent() }
-                    .font(style.font(10, .semibold))
-                    .foregroundStyle(settings.actionStyle.color)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(Capsule().fill(settings.actionStyle.softFill))
-                    .buttonStyle(.plain)
-            }
-            Spacer(minLength: 0)
-            Button(action: dismissProjectAgentSuggestion) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Color(theme.secondaryForeground))
-            }
-            .buttonStyle(.plain)
-            .help("Not now")
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Color(theme.surface)))
-        .padding(.horizontal, 8).padding(.top, 8)
-    }
-
-    private func dismissProjectAgentSuggestion() {
-        guard let p = workspace.suggestedProjectAgentPath else { return }
-        workspace.dismissedProjectAgentSuggestions.insert(p)
-    }
-
     private func renameSheet(_ tab: WorkspaceTab) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Rename Chat").font(settings.ui(15, .semibold))
@@ -165,7 +121,19 @@ private struct ProjectCard: View {
             header
             if noteExpanded { noteEditor }
             if !collapsed {
-                ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
+                // The project's coordinating agent presides at the top of the
+                // card, directly under the title and set a little apart from the
+                // chats it watches — part of the container, not a peer chat in
+                // the list. One per project.
+                if let agentTab = group.agentTab {
+                    ProjectAgentStrip(tab: agentTab, workspace: workspace)
+                    Rectangle()
+                        .fill(Color(theme.border))
+                        .frame(height: 1)
+                        .padding(.horizontal, 2)
+                        .padding(.vertical, 3)
+                }
+                ForEach(Array(group.chatTabs.enumerated()), id: \.element.id) { index, tab in
                     SessionCard(tab: tab, workspace: workspace,
                                 label: chatLabel(tab, index),
                                 onRename: { onRenameTab(tab) })
@@ -205,7 +173,7 @@ private struct ProjectCard: View {
 
             Image(systemName: "folder.fill")
                 .font(.system(size: 11))
-                .foregroundStyle(Color(theme.secondaryForeground))
+                .foregroundStyle(Color(Theme.folderIcon))
 
             Text(group.displayName)
                 .font(style.font(12, hasUnread ? .bold : .semibold))
@@ -219,9 +187,25 @@ private struct ProjectCard: View {
 
             Spacer(minLength: 4)
 
-            Text("\(group.tabs.count)")
+            Text("\(group.chatTabs.count)")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(Color(theme.secondaryForeground).opacity(0.7))
+
+            // Launch this project's coordinating agent. The "Add a project agent?"
+            // sheet only appears once per run and can be dismissed for good, so
+            // without this there's no way back to it. Mirror the running agent's
+            // sparkles + accent tint. The agent can start a project's chats itself,
+            // so it only needs somewhere to work: no agent here yet, real folder.
+            if group.agentTab == nil, ProjectAgent.isCoordinatable(group.path) {
+                Button(action: { workspace.openProjectAgent(forProject: group.path) }) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(settings.actionStyle.color)
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.iconHover(padding: 3))
+                .help("Add a project agent to start and look after \(group.displayName)'s chats")
+            }
 
             Button(action: { toggleNote() }) {
                 Image(systemName: hasNote ? "note.text" : "note")
@@ -274,11 +258,11 @@ private struct ProjectCard: View {
             // Agent Notes: what each chat is doing — auto-derived from Claude's
             // activity, or a chat's own `idealize note --mine`. Sits in the same
             // boxed "field" as Shared Notes so the two sections read consistently.
-            if !group.tabs.isEmpty {
+            if !group.chatTabs.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     sectionTitle("Agent Notes")
                     VStack(alignment: .leading, spacing: 7) {
-                        ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
+                        ForEach(Array(group.chatTabs.enumerated()), id: \.element.id) { index, tab in
                             if let session = tab.sessions.first {
                                 ChatStatusRow(label: chatLabel(tab, index), session: session)
                             }
@@ -303,6 +287,72 @@ private struct ProjectCard: View {
     private func toggleNote() {
         if !noteExpanded { noteText = workspace.projectNote(group.path) }
         withAnimation(.easeOut(duration: 0.12)) { noteExpanded.toggle() }
+    }
+}
+
+// MARK: - Project agent (attached to the project container)
+
+/// The project's coordinating agent, shown fixed to the foot of its project
+/// card — one per project, overseeing the chats above it — rather than sitting
+/// among them as a peer chat. Tinted with the interface accent so it reads as
+/// part of the container's chrome. Tapping it focuses the agent; the close
+/// button stops it.
+private struct ProjectAgentStrip: View {
+    @ObservedObject var tab: WorkspaceTab
+    @ObservedObject var workspace: Workspace
+    @ObservedObject private var settings = AppSettings.shared
+    @State private var hovering = false
+
+    private var theme: Theme { settings.theme }
+    private var style: PanelStyle { settings.panelStyle(.sessions, base: 13, background: theme.chrome) }
+    private var isSelected: Bool { workspace.selectedTabID == tab.id }
+    private var session: TerminalSession? { tab.sessions.first }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12))
+                .foregroundStyle(settings.actionStyle.color)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Project agent")
+                    .font(style.font(11.5, .semibold))
+                    .foregroundStyle(style.textColor)
+                    .panelText(style)
+                    .lineLimit(1)
+                Text("Keeping this project's chats in sync")
+                    .font(style.font(9.5))
+                    .foregroundStyle(style.secondaryTextColor)
+                    .panelText(style)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if let session { AgentStatusBadge(session: session) }
+            if hovering || isSelected {
+                Button(action: { workspace.closeTab(tab) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color(theme.secondaryForeground))
+                }
+                .buttonStyle(.iconHover(padding: 2, radius: 4))
+                .help("Stop the project agent")
+            }
+        }
+        .padding(.horizontal, 9).padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(settings.actionStyle.softFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(isSelected ? settings.actionStyle.color : .clear,
+                                      lineWidth: 1.5)
+                )
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture {
+            workspace.selectedTabID = tab.id
+            if let s = tab.sessions.first { workspace.focusSession(s.id) }
+        }
     }
 }
 
@@ -540,7 +590,7 @@ private struct ArchivedChatsSheet: View {
             HStack(spacing: 6) {
                 Image(systemName: "folder.fill")
                     .font(.system(size: 10))
-                    .foregroundStyle(Color(theme.secondaryForeground))
+                    .foregroundStyle(Color(Theme.folderIcon))
                 Text(group.name)
                     .font(settings.ui(11, .semibold))
                     .foregroundStyle(Color(theme.secondaryForeground))
@@ -565,12 +615,8 @@ private struct ArchivedChatsSheet: View {
                     .foregroundStyle(settings.actionStyle.color)
             }
             .buttonStyle(.plain)
-            .help({
-                if let agent = AgentRegistry.adapter(forBinary: chat.effectiveAgentBinary) {
-                    return "Reopen and resume this \(agent.name) conversation"
-                }
-                return "Reopen this chat"
-            }())
+            .help(chat.wasClaude ? "Reopen and resume this Claude conversation"
+                                 : "Reopen this chat")
             Button(action: { workspace.deleteArchived(chat) }) {
                 Image(systemName: "trash")
                     .font(.system(size: 11))
@@ -589,8 +635,8 @@ private struct ArchivedChatsSheet: View {
             let limit = chat.contextLimit ?? ClaudeTranscript.defaultContextWindowLimit
             let pct = Int(min(1, Double(t) / Double(limit)) * 100)
             parts.append("\(shortTokens(t)) tokens · \(pct)% context")
-        } else if let agent = AgentRegistry.adapter(forBinary: chat.effectiveAgentBinary) {
-            parts.append("\(agent.name) chat")
+        } else if chat.wasClaude {
+            parts.append("Claude chat")
         }
         parts.append("archived \(chat.archivedAt.formatted(date: .abbreviated, time: .shortened))")
         return parts.joined(separator: "  ·  ")

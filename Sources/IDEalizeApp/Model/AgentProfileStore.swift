@@ -110,9 +110,7 @@ struct CustomAgentAdapter: AgentAdapter {
         return AgentWorkingState(isWorking: working, status: nil, tip: nil)
     }
 
-    var supportsRuntimeModelSwitch: Bool { profile.modelSwitchCommand != nil }
     var supportsReasoningEffort: Bool { !profile.effortKeywords.isEmpty }
     var supportedSlashCommands: [String] { profile.slashCommands }
-    var modelSwitchCommand: String? { profile.modelSwitchCommand }
     var effortKeywords: [String: String] { profile.effortKeywords }
 }

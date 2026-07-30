@@ -84,8 +84,15 @@ final class Workspace: ObservableObject {
     /// Whether the first-run showcase is on screen. Transient — whether it has
     /// *been* seen is `AppSettings.hasSeenTour`.
     @Published var showTour: Bool = false
-    /// Which panel the Appearance editor is currently targeting.
-    @Published var appearanceTarget: PanelKind = .chat
+    /// Whether the Keyboard Shortcuts reference sheet is on screen
+    /// (Help ▸ Keyboard Shortcuts, ⌘/).
+    @Published var showShortcutsHelp: Bool = false
+    /// Bumped by the Focus Message Input command (⌘I); the focused pane's chat
+    /// input observes it and takes the caret.
+    @Published var focusInputRequest: Int = 0
+    /// Which section (tab) of the Appearance panel is showing. Starts on the
+    /// theme, which is the base everything else layers over.
+    @Published var appearanceSection: AppearanceSection = .theme
     /// Bumped when files change on disk so the file explorer reloads.
     @Published var fileTreeVersion: Int = 0
 
@@ -257,9 +264,13 @@ final class Workspace: ObservableObject {
         guard ipcHub == nil else { return }
         writeTokenFile()
         let hub = IPCHub { [weak self] request in
-            // Hub runs on a background queue; mutate model on main.
+            guard let self else { return .failure("workspace gone") }
+            // `verify` may run a full build; keep it OFF the main thread so it can
+            // never freeze the UI. Everything else touches the model, so it hops
+            // to main.
+            if request.command == .verify { return self.handleVerify(request) }
             var response = IPCResponse.failure("workspace gone")
-            let work = { response = self?.handle(request) ?? .failure("workspace gone") }
+            let work = { response = self.handle(request) }
             if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
             return response
         }
@@ -304,11 +315,15 @@ final class Workspace: ObservableObject {
     @discardableResult
     func newTab(projectPath: String? = nil,
                 launchOverride: String? = nil,
-                suppressAutoLaunch: Bool = false) -> TerminalSession {
+                openingTurn: String? = nil,
+                suppressAutoLaunch: Bool = false,
+                safeCopy: TerminalSession.SafeCopy? = nil) -> TerminalSession {
         if let projectPath { settings.addRecentFolder(projectPath) }
         let session = makeSession(projectPath: projectPath,
                                   launchOverride: launchOverride,
-                                  suppressAutoLaunch: suppressAutoLaunch)
+                                  openingTurn: openingTurn,
+                                  suppressAutoLaunch: suppressAutoLaunch,
+                                  safeCopy: safeCopy)
         let tab = WorkspaceTab(root: PaneNode(session: session), name: session.label)
         // Keep a project's chats contiguous in `tabs`: insert a new chat right
         // after the last existing chat of the same project, else append. The rail
@@ -324,6 +339,7 @@ final class Workspace: ObservableObject {
         focusedSessionID = session.id
         bindName(tab, to: session)
         scheduleSnapshotSave()
+        considerProjectAgent(for: session, launchOverride: launchOverride)
         return session
     }
 
@@ -336,7 +352,7 @@ final class Workspace: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true   // show Finder's "New Folder" button
         panel.prompt = "Open Terminal Here"
-        panel.message = "Choose a folder for the new terminal"
+        panel.message = "Choose a folder for the new terminal — or use “New Folder” below to create one"
         if panel.runModal() == .OK, let url = panel.url {
             newTab(projectPath: url.path)
             return true
@@ -368,10 +384,16 @@ final class Workspace: ObservableObject {
 
     private func makeSession(projectPath: String?,
                              launchOverride: String? = nil,
-                             suppressAutoLaunch: Bool = false) -> TerminalSession {
+                             openingTurn: String? = nil,
+                             suppressAutoLaunch: Bool = false,
+                             safeCopy: TerminalSession.SafeCopy? = nil) -> TerminalSession {
         let session = TerminalSession(settings: settings, workspace: self, projectPath: projectPath)
         session.launchOverride = launchOverride
+        session.launchPositional = openingTurn
         session.suppressAutoLaunch = suppressAutoLaunch
+        // Set the safe copy *before* start(): the shell's working directory is
+        // derived from it, so it has to be in place when the process launches.
+        session.safeCopy = safeCopy
         session.onFocusRequested = { [weak self] sid in self?.focusSession(sid) }
         session.onUserFocused = { [weak self] sid in self?.setFocusedFromUserInteraction(sid) }
         session.start()
@@ -383,8 +405,17 @@ final class Workspace: ObservableObject {
     /// preloaded with the `/idealize-service-hatch` safe-editing guide. Beeps if the
     /// source checkout can't be located.
     func openServiceHatch() {
-        guard let repo = ServiceHatch.repoRoot() else { NSSound.beep(); return }
-        let session = newTab(projectPath: repo, launchOverride: ServiceHatch.launchCommand())
+        guard let repo = ServiceHatch.repoRoot() else {
+            // No source checkout configured or found. An installed app can't guess
+            // where IDEalize's code lives, so open Settings for the user to point
+            // at it (Launch tab → "IDEalize source folder") rather than beep.
+            SettingsWindow.open()
+            return
+        }
+        let hatch = ServiceHatch.launch()
+        let session = newTab(projectPath: repo,
+                             launchOverride: hatch.command,
+                             openingTurn: hatch.openingTurn)
         session.isServiceHatch = true   // shows the themed opening banner in the chat
     }
 
@@ -418,6 +449,12 @@ final class Workspace: ObservableObject {
     /// next run.
     @Published var dismissedProjectAgentSuggestions: Set<String> = []
 
+    /// The project a "start a project agent?" prompt is currently offered for,
+    /// if any. Set when a project first gains a second chat; drives the modal in
+    /// `WorkspaceView`. Carries the project path so the modal targets the right
+    /// project no matter what's focused when the user answers.
+    @Published var pendingProjectAgentPrompt: ProjectAgentPrompt?
+
     /// The project agent chat for `path`, if one is running.
     func projectAgentSession(forProject path: String) -> TerminalSession? {
         allSessions.first { $0.isProjectAgent && $0.projectPath == path }
@@ -439,31 +476,68 @@ final class Workspace: ObservableObject {
         ProjectAgent.isCoordinatable(focusedSession?.projectPath)
     }
 
-    /// The focused project, when it's worth suggesting a project agent for it:
-    /// two or more chats at work, none coordinating yet, and the user hasn't
-    /// dismissed the suggestion.
-    var suggestedProjectAgentPath: String? {
-        guard let p = focusedSession?.projectPath,
-              ProjectAgent.isCoordinatable(p),
-              !dismissedProjectAgentSuggestions.contains(p),
-              projectAgentSession(forProject: p) == nil,
-              allSessions.filter({ $0.projectPath == p }).count >= 2 else { return nil }
-        return p
-    }
-
-    /// Open a project agent chat for the focused session's project: a regular
-    /// agent chat preloaded with the `/project-agent` coordinating guide, named
-    /// so it's instantly distinguishable from the chats it watches. Beeps when
-    /// there's no real project folder to coordinate.
-    func openProjectAgent() {
-        guard let project = focusedSession?.projectPath,
-              ProjectAgent.isCoordinatable(project) else { NSSound.beep(); return }
-        if let existing = projectAgentSession(forProject: project) {
-            focusSession(existing.id)   // already running — just show it
+    /// Decide about a project agent for the *focused* session's project when it's
+    /// just grown to two or more chats, none coordinating yet, and the user hasn't
+    /// dismissed the suggestion for it: start one outright when the user has said
+    /// they always want that, otherwise offer it as a one-time modal (see
+    /// `pendingProjectAgentPrompt`) rather than a standing banner. Called as a
+    /// real chat is added; no-op during restore or for the hatch/agent's own
+    /// launches (those pass a `launchOverride`).
+    ///
+    /// This guard is the single home of the "two or more chats" rule — it was once
+    /// spelled out in three places and the copies drifted apart. Anything else that
+    /// wants to know whether a project is ready for an agent must come through here.
+    private func considerProjectAgent(for session: TerminalSession, launchOverride: String?) {
+        guard !isRestoring, launchOverride == nil,
+              let project = session.projectPath,
+              ProjectAgent.isCoordinatable(project),
+              !dismissedProjectAgentSuggestions.contains(project),
+              projectAgentSession(forProject: project) == nil,
+              allSessions.filter({ $0.projectPath == project && !$0.isProjectAgent }).count >= 2
+        else { return }
+        guard settings.projectAgentAutoStart else {
+            pendingProjectAgentPrompt = ProjectAgentPrompt(path: project)
             return
         }
-        let session = newTab(projectPath: project, launchOverride: ProjectAgent.launchCommand())
+        // The agent works in the background: the user asked for a chat, so
+        // that's where their focus (and next keystrokes) should land.
+        openProjectAgent(forProject: project, focus: false)
+    }
+
+    /// Open a project agent for the focused session's project. Beeps when
+    /// there's no real project folder to coordinate.
+    func openProjectAgent() {
+        guard let project = focusedSession?.projectPath else { NSSound.beep(); return }
+        openProjectAgent(forProject: project)
+    }
+
+    /// Open a project agent for `project`: a regular agent chat preloaded with
+    /// the `/project-agent` coordinating guide, named so it's instantly
+    /// distinguishable from the chats it watches. Enforces one agent per
+    /// project — if one is already running it's simply focused, never
+    /// duplicated. Beeps when the path isn't a real project folder.
+    ///
+    /// Pass `focus: false` to launch the agent in the background: every new tab
+    /// takes selection with it, so without putting focus back the user (and
+    /// their next keystrokes) would land in the agent instead of the chat they
+    /// were in. The agent still appears in the rail.
+    func openProjectAgent(forProject project: String, focus: Bool = true) {
+        guard ProjectAgent.isCoordinatable(project) else { NSSound.beep(); return }
+        if let existing = projectAgentSession(forProject: project) {
+            if focus { focusSession(existing.id) }   // already running — just show it
+            return
+        }
+        let originTab = selectedTabID
+        let originFocus = focusedSessionID
+        let agent = ProjectAgent.launch()
+        let session = newTab(projectPath: project,
+                             launchOverride: agent.command,
+                             openingTurn: agent.openingTurn)
         session.isProjectAgent = true
+        if !focus {
+            selectedTabID = originTab
+            focusedSessionID = originFocus
+        }
         if let tab = tabs.first(where: { t in t.sessions.contains { $0.id == session.id } }) {
             tab.customName = "Project agent"
         }
@@ -605,7 +679,7 @@ final class Workspace: ObservableObject {
 
     /// Re-apply theme/font to every live terminal (called when settings change).
     func reapplyAppearance() {
-        let theme = settings.theme
+        let theme = settings.terminalTheme
         let font = settings.resolvedFont()
         for s in allSessions {
             s.applyTheme(theme, font: font)
@@ -657,6 +731,30 @@ final class Workspace: ObservableObject {
         var isHome: Bool { path == FileManager.default.homeDirectoryForCurrentUser.path }
         var displayName: String {
             if isHome || path.isEmpty || path == "/" { return "Home" }
+            return (path as NSString).lastPathComponent
+        }
+
+        /// The project's coordinating agent tab, if one is running. Shown
+        /// attached to the project container rather than among the chats.
+        var agentTab: WorkspaceTab? {
+            tabs.first { $0.sessions.first?.isProjectAgent == true }
+        }
+
+        /// The ordinary chats in this project — everything but the agent.
+        var chatTabs: [WorkspaceTab] {
+            tabs.filter { $0.sessions.first?.isProjectAgent != true }
+        }
+    }
+
+    /// Identifies the project a "start a project agent?" prompt is offered for,
+    /// so the modal can act on that project regardless of what's focused when
+    /// the user answers.
+    struct ProjectAgentPrompt: Identifiable {
+        let path: String
+        var id: String { path }
+        var displayName: String {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            if path == home || path.isEmpty || path == "/" { return "Home" }
             return (path as NSString).lastPathComponent
         }
     }
@@ -858,7 +956,8 @@ final class Workspace: ObservableObject {
 
     /// Rebuild the rail from the persisted snapshot. Reopens each project's
     /// folders and re-launches its chats (Claude for chats that were Claude,
-    /// otherwise a bare shell). Call only when `tabs` is empty.
+    /// otherwise a bare shell), and brings a project's coordinating chat back as
+    /// a coordinator. Call only when `tabs` is empty.
     func restoreProjects() {
         guard tabs.isEmpty else { return }
         let snapshot = settings.projectSnapshot
@@ -882,12 +981,43 @@ final class Workspace: ObservableObject {
             // $HOME, which would otherwise let a shared note leak into ~/.idealize.
             let restorePath: String? = (project.path == home) ? nil : project.path
             for chat in project.chats {
-                let launch = agentLaunch(chat.effectiveAgentBinary)
-                newTab(projectPath: restorePath,
-                       launchOverride: launch,
-                       suppressAutoLaunch: launch == nil)
+                // A coordinating chat comes back *as* one: relaunched with the
+                // coordinating guide, so the project is watched again instead of
+                // returning as an ordinary chat that leaves the work uncoordinated
+                // (and lets the rail offer to start a second coordinator).
+                //
+                // Chats saved before the flag existed decode as false, so a
+                // coordinator from an older run comes back as a plain chat — once,
+                // after which it persists as what it now is. We deliberately never
+                // infer coordinator-ness from the chat's *name*: a chat the user
+                // happened to call "Project agent" would silently start watching
+                // their files.
+                let restored: AgentLaunch? = chat.isProjectAgent
+                    ? ProjectAgent.launch()
+                    : agentLaunch(chat.effectiveAgentBinary).map { AgentLaunch(command: $0) }
+                let session = newTab(
+                    projectPath: restorePath,
+                    launchOverride: restored?.command,
+                    openingTurn: restored?.openingTurn,
+                    suppressAutoLaunch: restored == nil)
                 if let name = chat.customName, !name.isEmpty {
                     tabs.last?.customName = name   // newTab just inserted this tab
+                } else if chat.isProjectAgent {
+                    // A coordinator is named as it's opened, so it normally arrives
+                    // here already named — and if the user renamed it, that name is
+                    // what we just restored above. This only covers a coordinator
+                    // that somehow saved without a name, so it stays recognisable.
+                    tabs.last?.customName = "Project agent"
+                }
+                if chat.isProjectAgent {
+                    session.isProjectAgent = true
+                    // Watch the project again exactly as opening a coordinator
+                    // does — but only for a real project folder: Home (restored as
+                    // a nil path) has nothing coherent to coordinate.
+                    if let project = restorePath, ProjectAgent.isCoordinatable(project) {
+                        projectMonitors[project] = ProjectMonitor(
+                            projectPath: project, coordinator: session, workspace: self)
+                    }
                 }
             }
         }
@@ -916,13 +1046,19 @@ final class Workspace: ObservableObject {
     private func saveProjectSnapshot() {
         let snapshot: [PersistedProject] = projectGroups.map { group in
             let chats: [PersistedChat] = group.tabs
-                // Don't persist the Service Hatch — it's launched by its own path.
+                // Don't persist the Service Hatch — it's opened on demand from the
+                // toolbar and belongs to whichever source folder is configured at
+                // the time. The project agent *is* persisted, flagged as one, so
+                // restore can bring it back still coordinating; leaving it out is
+                // what used to make a project come back unwatched and then offer to
+                // start a second agent.
                 .filter { !($0.sessions.first?.isServiceHatch ?? false) }
                 .map { tab in
                     let binary = tab.sessions.compactMap(\.agentBinary).first
                     return PersistedChat(customName: tab.customName,
                                          wasClaude: binary == "claude",
-                                         agentBinary: binary)
+                                         agentBinary: binary,
+                                         isProjectAgent: tab.sessions.first?.isProjectAgent ?? false)
                 }
             return PersistedProject(path: group.path, chats: chats)
         }
@@ -1058,9 +1194,14 @@ final class Workspace: ObservableObject {
             }
             let body = request.body ?? ""
             guard !body.isEmpty else { return .failure("missing text") }
-            // Ctrl-U first clears any partial text in the target's line editor,
-            // so the injected body can't inherit a stray prefix (as `rerun` does).
-            s.insert("\u{15}" + body)
+            // The session decides how to land it: an agent chat needs the message
+            // *submitted* (a discrete Return after a beat), not merely typed. It
+            // refuses while the target is mid-confirmation, so a steering message
+            // can't accidentally answer a yes/no prompt.
+            guard s.deliverExternalInput(body) else {
+                return .failure("\(s.label) is waiting on a yes/no answer of its own — "
+                                + "leave it a moment and send this again")
+            }
             return IPCResponse(ok: true, info: "sent to \(s.label)")
 
         case .reveal:
@@ -1101,7 +1242,254 @@ final class Workspace: ObservableObject {
                 return IPCExchange(index: e.index, question: e.question, answer: answer)
             }
             return IPCResponse(ok: true, exchanges: exchanges)
+
+        case .agentHello:
+            // An unknown agent answering the first-run introduction — hand the
+            // descriptor to its session, which verifies it (nonce, $HOME-bound
+            // transcript path) and saves it as a custom agent profile. The
+            // automatic counterpart of the manual AgentSetupSheet.
+            guard let from = request.from, let s = session(withID: from) else {
+                return .failure("unknown sender session")
+            }
+            guard let body = request.body, !body.isEmpty else {
+                return .failure("missing hello payload")
+            }
+            if let problem = s.receiveAgentHello(json: body) {
+                return .failure(problem)
+            }
+            return IPCResponse(ok: true, info: "hello received — IDEalize can read this agent now")
+
+        case .spawn:
+            // The project agent (or any authorized chat) starts a new worker chat
+            // and, optionally, hands it an opening task. The new chat is a normal
+            // member of the project — the user can open and review it like any
+            // other — so this is how one coordinating agent delegates work while
+            // the user keeps talking to just that agent.
+            let project: String
+            if let t = request.target, !t.isEmpty {
+                project = t                                   // explicit --path
+            } else if let from = request.from,
+                      let p = session(withID: from)?.projectPath {
+                project = p                                   // default: caller's project
+            } else {
+                return .failure("no project folder to spawn in — pass a path")
+            }
+            guard ProjectAgent.isCoordinatable(project) else {
+                return .failure("'\(project)' isn't a real project folder to spawn a chat in")
+            }
+            // With `--isolated`, give the child its own safe copy (a separate
+            // worktree) so it can't collide with other chats. If the folder can't
+            // support one (not a git repo, no commits), fall back to the shared
+            // folder — spawning still succeeds, additive and non-fatal.
+            var safeCopy: TerminalSession.SafeCopy? = nil
+            if request.isolated == true,
+               let copy = WorktreeService.create(from: project, label: request.body) {
+                safeCopy = TerminalSession.SafeCopy(worktreePath: copy.path,
+                                                    branch: copy.branch,
+                                                    baseCommit: copy.base)
+            }
+            let launch = ProjectAgent.childLaunch(initialPrompt: request.body)
+            let child = newTab(projectPath: project, launchOverride: launch.command,
+                               openingTurn: launch.openingTurn, safeCopy: safeCopy)
+            // Name the tab after the piece of work, so the sidebar reads as the
+            // project's actual jobs rather than "Chat 3", "Chat 4". The caller's own
+            // label wins — it knows what the piece *is*, which the opening words of
+            // a full brief often don't say — and we read one off the task when it
+            // didn't supply one. Both go through `chatName` so a caller can't put an
+            // essay in the sidebar.
+            if let label = request.name.flatMap(ProjectAgent.chatName(fromTask:))
+                ?? request.body.flatMap(ProjectAgent.chatName(fromTask:)),
+               let tab = tabs.first(where: { t in t.sessions.contains { $0.id == child.id } }) {
+                tab.customName = label
+            }
+            // Don't steal the user's place: spawning opens the child in the
+            // background and returns focus to the caller (the coordinator chat),
+            // so the user keeps talking to the one agent. `newTab` moved focus to
+            // the child; put it back.
+            if let from = request.from, session(withID: from) != nil {
+                focusSession(from)
+            }
+            // Echo whether isolation actually happened, so a caller that asked for
+            // it can tell when the folder couldn't support a separate copy.
+            return IPCResponse(ok: true, info: child.id,
+                               isolated: request.isolated == true ? (safeCopy != nil) : nil)
+
+        case .gitDiff:
+            // Read-only: what a chat has changed. Isolated chats compare against
+            // their safe copy's base; shared-tree chats against the given ref
+            // (default origin/main). `--target REF` arrives in `body`.
+            let t = request.target ?? request.from
+            guard let t else { return .failure("unknown chat") }
+            let s: TerminalSession
+            switch resolveTarget(t) {
+            case .success(let found): s = found
+            case .failure(let error): return .failure(error.message)
+            }
+            guard let dir = s.workingDirectory, !dir.isEmpty else {
+                return .failure("this chat has no folder to look at")
+            }
+            let base = (request.body?.isEmpty == false) ? request.body!
+                     : (s.safeCopy?.baseCommit ?? "origin/main")
+            guard let diff = WorktreeService.diff(worktree: dir, base: base) else {
+                return .failure("this chat's folder isn't set up to track changes")
+            }
+            return IPCResponse(ok: true, diff: diff)
+
+        case .survey:
+            // Read-only: every member chat's change summary, plus which safe copies
+            // are changing the same files (the pre-combine overlap check).
+            guard let from = request.from, let me = session(withID: from),
+                  let project = me.projectPath else {
+                return .failure("this chat isn't in a project")
+            }
+            let members = allSessions.filter { $0.projectPath == project && !$0.isProjectAgent }
+            var copies: [IPCCopyStatus] = []
+            var pathOwners: [String: [String]] = [:]
+            for s in members {
+                let dir = s.workingDirectory ?? project
+                let base = s.safeCopy?.baseCommit ?? "HEAD"
+                let d = WorktreeService.diff(worktree: dir, base: base)
+                let files = d?.files ?? []
+                copies.append(IPCCopyStatus(id: s.id, label: s.label, isolated: s.safeCopy != nil,
+                                            branch: s.safeCopy?.branch, changedFiles: files.count,
+                                            ahead: d?.ahead ?? 0))
+                // Only separate copies can *clash* — shared-tree chats already point
+                // at the same files, which isn't a copy conflict.
+                if s.safeCopy != nil {
+                    for f in files { pathOwners[f.path, default: []].append(s.id) }
+                }
+            }
+            let overlaps = pathOwners.filter { $0.value.count > 1 }
+                .map { IPCOverlap(path: $0.key, ids: $0.value) }
+            let summary = overlaps.isEmpty
+                ? "No two copies are changing the same files."
+                : "\(overlaps.count) file\(overlaps.count == 1 ? "" : "s") "
+                  + "\(overlaps.count == 1 ? "is" : "are") being changed in more than one copy — "
+                  + "worth a look before combining."
+            return IPCResponse(ok: true, survey: IPCSurvey(copies: copies, overlaps: overlaps, summary: summary))
+
+        case .combinePlan:
+            // Read-only: propose an order to combine the project's safe copies,
+            // with a trial (no-op) conflict check. Changes nothing.
+            guard let from = request.from, let me = session(withID: from),
+                  let project = me.projectPath else {
+                return .failure("this chat isn't in a project")
+            }
+            let target = (request.body?.isEmpty == false) ? request.body! : project
+            let isolated = allSessions.filter { $0.projectPath == project && $0.safeCopy != nil }
+            var items: [IPCCombinePlanItem] = []
+            var pathOwners: [String: [String]] = [:]
+            for s in isolated {
+                guard let sc = s.safeCopy else { continue }
+                let d = WorktreeService.diff(worktree: sc.worktreePath, base: sc.baseCommit)
+                let files = d?.files ?? []
+                for f in files { pathOwners[f.path, default: []].append(s.id) }
+                let unsaved = !WorktreeService.isClean(sc.worktreePath)
+                let trialStr: String
+                if unsaved {
+                    trialStr = "needs-save"   // trial merge can't see work that isn't a checkpoint yet
+                } else {
+                    switch WorktreeService.trialMerge(into: "HEAD", incoming: sc.branch, in: target) {
+                    case .clean: trialStr = "clean"
+                    case .conflicts(let p): trialStr = "conflicts:\(p.count)"
+                    case .unknown: trialStr = "unknown"
+                    }
+                }
+                items.append(IPCCombinePlanItem(id: s.id, label: s.label, branch: sc.branch,
+                                                changedFiles: files.count, hasUnsavedWork: unsaved,
+                                                trialResult: trialStr))
+            }
+            // Safest first: copies that trial-merge clean, then the rest.
+            let order = items.sorted { ($0.trialResult == "clean" ? 0 : 1) < ($1.trialResult == "clean" ? 0 : 1) }
+            let overlaps = pathOwners.filter { $0.value.count > 1 }
+                .map { IPCOverlap(path: $0.key, ids: $0.value) }
+            let summary: String
+            if items.isEmpty {
+                summary = "There are no separate copies to combine — the chats share the main version."
+            } else {
+                summary = "\(items.count) cop\(items.count == 1 ? "y" : "ies") to bring in"
+                        + (overlaps.isEmpty ? ", none changing the same files."
+                                            : ", \(overlaps.count) file(s) changed in more than one — review those first.")
+            }
+            return IPCResponse(ok: true, combinePlan: IPCCombinePlan(order: order, overlaps: overlaps, summary: summary))
+
+        case .combineApply:
+            // The one mutating combine step, for ONE copy, and it is safe:
+            // snapshot the copy's work, refuse a dirty target, then merge — aborting
+            // and reporting on any conflict so nothing is ever silently lost, and
+            // never deleting the source. `target` = the source chat; `body` = an
+            // optional folder to combine into (defaults to the source's project).
+            guard let t = request.target else {
+                return .failure("say which chat's work to bring in")
+            }
+            let src: TerminalSession
+            switch resolveTarget(t) {
+            case .success(let found): src = found
+            case .failure(let error): return .failure(error.message)
+            }
+            guard let sc = src.safeCopy else {
+                return .failure("this chat is already working in the main version — there's nothing separate to bring in")
+            }
+            let into = (request.body?.isEmpty == false) ? request.body! : (src.projectPath ?? "")
+            guard !into.isEmpty else { return .failure("there's no main version to bring this into") }
+            // 1. Snapshot the copy's own work into a checkpoint (safe, recoverable).
+            WorktreeService.snapshot(worktree: sc.worktreePath, message: "Work from \(src.label)")
+            // 2. Never combine into a folder with unsaved changes.
+            guard WorktreeService.isClean(into) else {
+                return IPCResponse(ok: true, combineResult: IPCCombineResult(
+                    status: "blocked", files: [], conflicts: [], recoveryPoint: nil,
+                    summary: "The main version has unsaved changes, so I've left everything exactly "
+                           + "as it is. Save or set those aside first, then I can bring this copy in."))
+            }
+            // 3. Merge, rolling back untouched on any conflict.
+            let result: IPCCombineResult
+            switch WorktreeService.merge(incomingBranch: sc.branch, into: into) {
+            case .merged(let recovery, let files):
+                result = IPCCombineResult(status: "merged", files: files, conflicts: [],
+                    recoveryPoint: recovery,
+                    summary: "Brought \(src.label)'s changes into the main version — "
+                           + "\(files.count) file\(files.count == 1 ? "" : "s"). "
+                           + "Nothing was lost, and we can go back to how it was if you want.")
+            case .conflict(let conflicts, let recovery):
+                result = IPCCombineResult(status: "conflict", files: [], conflicts: conflicts,
+                    recoveryPoint: recovery,
+                    summary: "\(src.label)'s work clashes with what's already in the main version, in "
+                           + "\(conflicts.count) file\(conflicts.count == 1 ? "" : "s"). I've left everything "
+                           + "untouched — nothing was combined. For each, we need to pick which version to keep.")
+            case .failed(let why):
+                result = IPCCombineResult(status: "blocked", files: [], conflicts: [],
+                                          recoveryPoint: nil, summary: why)
+            }
+            return IPCResponse(ok: true, combineResult: result)
+
+        case .verify:
+            // Handled off the main thread in `handleVerify` (see `startIPCIfNeeded`);
+            // this branch only exists to keep the switch exhaustive.
+            return handleVerify(request)
         }
+    }
+
+    /// `verify` runs the project's build, which can take many seconds — far too
+    /// long to hold the main thread. Resolve the target session on main (model
+    /// access), then run the build on whatever background thread the IPC hub
+    /// called us on.
+    private func handleVerify(_ request: IPCRequest) -> IPCResponse {
+        var authError: String?
+        var dir: String?
+        let resolve = {
+            guard self.isAuthorized(request) else {
+                authError = "unauthorized: missing or invalid IDEALIZE_TOKEN"; return
+            }
+            guard let t = request.target ?? request.from else { authError = "unknown chat"; return }
+            switch self.resolveTarget(t) {
+            case .success(let s): dir = s.workingDirectory
+            case .failure(let e): authError = e.message
+            }
+        }
+        if Thread.isMainThread { resolve() } else { DispatchQueue.main.sync(execute: resolve) }
+        if let authError { return .failure(authError) }
+        guard let dir, !dir.isEmpty else { return .failure("this chat has no folder to check") }
+        return IPCResponse(ok: true, verify: WorktreeService.verify(dir))
     }
 
     /// Whether the request carries the per-instance capability token. Compared

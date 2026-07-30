@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terminal + message-input prototypes — IDEalize</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { height:auto; background: var(--bg); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 56px 28px 80px; }
+  h1 { font-size: 30px; font-weight: 750; letter-spacing:-.02em; }
+  .lede { color: var(--secondary); font-size: 15.5px; line-height:1.6; max-width: 720px; margin-top: 12px; }
+  .lede b { color: var(--fg); font-weight:600; }
+  .grid { display:grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 40px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    border:1px solid var(--border); border-radius: 16px; overflow:hidden;
+    background: var(--surface); text-decoration:none; color:inherit; display:block;
+    transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease;
+  }
+  .card:hover { transform: translateY(-3px); border-color: var(--accent);
+    box-shadow: 0 24px 50px -30px #000; }
+  .thumb { height: 232px; border-bottom:1px solid var(--border); overflow:hidden; position:relative; background: var(--bg); }
+  .thumb iframe { position:absolute; top:0; left:0; width: 1280px; height: 800px;
+    transform: scale(.353); transform-origin: top left; border:0; pointer-events:none; }
+  .meta { padding: 16px 18px 20px; }
+  .tag { font: 700 11px/1 var(--ui); letter-spacing:.08em; text-transform:uppercase; color: var(--accent); }
+  .meta h2 { font-size: 18px; font-weight: 700; margin: 8px 0 6px; }
+  .meta p { color: var(--secondary); font-size: 13.5px; line-height:1.55; }
+  .meta ul { color: var(--secondary); font-size: 12.5px; line-height:1.6; margin: 10px 0 0 16px; }
+  .meta ul b { color: var(--fg); font-weight:600; }
+  .note { margin-top: 40px; padding: 16px 18px; border:1px dashed var(--border); border-radius: 12px;
+    color: var(--secondary); font-size: 13px; line-height:1.6; }
+  .note b { color: var(--fg); }
+  .shared { margin-top: 28px; display:flex; gap:20px; flex-wrap:wrap; color:var(--secondary); font-size:13px; }
+  .shared span b { color: var(--fg); }
+  kbd { font: 11px/1 var(--mono); background:var(--elevated); border:1px solid var(--border);
+    border-radius:6px; padding:3px 6px; color:var(--fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Terminal + message-input — three directions</h1>
+  <p class="lede">
+    Same brief in all three: <b>replace the messaging panel with a message input only</b>,
+    and give the terminal a <b>tidier look and feel</b>. The conversation with Claude happens
+    inline in the terminal surface; you drive it from a single composer. Each direction takes a
+    different attitude to warmth and chrome. Built from the live app’s real tokens
+    (<span style="font-family:var(--mono)">Theme.swift</span>, the composer, the critters) so they read as IDEalize.
+  </p>
+
+  <div class="shared">
+    <span><b>Try:</b> the <b>Empty / Working / Done</b> toggle (top-right of each)</span>
+    <span><b>◐</b> toggles light / dark</span>
+    <span>Click the composer to see focus</span>
+  </div>
+
+  <a class="card" href="e-palette-lab.html" style="margin-top:28px; display:flex; align-items:center; gap:18px; padding:18px 22px">
+    <div style="font-size:30px">🎨</div>
+    <div>
+      <div class="tag">Palette lab · newest</div>
+      <h2 style="font-size:18px; font-weight:700; margin:6px 0 4px">A better palette — four moods, light &amp; dark</h2>
+      <p style="color:var(--secondary); font-size:13.5px; line-height:1.5; max-width:640px">
+        <b style="color:var(--fg)">Ember</b> (warm), <b style="color:var(--fg)">Tide</b> (aqua),
+        <b style="color:var(--fg)">Orchard</b> (plum/pink) and <b style="color:var(--fg)">Ink/Linen</b> (editorial) —
+        each a full soft-syntax system in both modes, shown in DM Mono with the real running critter.
+      </p>
+    </div>
+  </a>
+
+  <a class="card" href="d-typeface-lab.html" style="margin-top:20px; display:flex; align-items:center; gap:18px; padding:18px 22px">
+    <div style="font-size:30px">🔤</div>
+    <div>
+      <div class="tag">Typeface &amp; spacing lab</div>
+      <h2 style="font-size:18px; font-weight:700; margin:6px 0 4px">Four terminal fonts, light &amp; dark</h2>
+      <p style="color:var(--secondary); font-size:13.5px; line-height:1.5; max-width:640px">
+        The same transcript in <b style="color:var(--fg)">Sono</b>, <b style="color:var(--fg)">Google Sans Code</b>,
+        <b style="color:var(--fg)">Atkinson Hyperlegible Mono</b> and <b style="color:var(--fg)">DM Mono</b> — with live
+        size, line-height, tracking and weight sliders, and a glyph-distinction ruler in each.
+      </p>
+    </div>
+  </a>
+
+  <div class="grid">
+    <a class="card" href="a-designed-surface.html">
+      <div class="thumb"><iframe src="a-designed-surface.html" scrolling="no" tabindex="-1"></iframe></div>
+      <div class="meta">
+        <div class="tag">Direction A</div>
+        <h2>Designed Surface</h2>
+        <p>Calm and premium. The terminal becomes a first-class inset surface — soft rounded frame, top-lit ambient glow, faint grain — with the composer floating over it.</p>
+        <ul>
+          <li><b>Feels:</b> considered, atmospheric</li>
+          <li><b>Hero:</b> the surface itself</li>
+          <li><b>Risk:</b> glow/grain can feel “much” for power users (opt-outable)</li>
+        </ul>
+      </div>
+    </a>
+
+    <a class="card" href="b-warm-front-door.html">
+      <div class="thumb"><iframe src="b-warm-front-door.html" scrolling="no" tabindex="-1"></iframe></div>
+      <div class="meta">
+        <div class="tag">Direction B</div>
+        <h2>Warm Front Door</h2>
+        <p>Friendliest. A welcome mat with a critter, plain-language greeting and one-tap starters; the message input is the hero, centred when empty and docked when running, with a hint band.</p>
+        <ul>
+          <li><b>Feels:</b> welcoming, human</li>
+          <li><b>Hero:</b> the empty state + first 10 seconds</li>
+          <li><b>Risk:</b> can read “consumer” — dial warmth to taste</li>
+        </ul>
+      </div>
+    </a>
+
+    <a class="card" href="c-clean-minimal.html">
+      <div class="thumb"><iframe src="c-clean-minimal.html" scrolling="no" tabindex="-1"></iframe></div>
+      <div class="meta">
+        <div class="tag">Direction C</div>
+        <h2>Clean &amp; Minimal</h2>
+        <p>Tidiest. No glow, no grain — restraint. Readable output with soft-syntax (paths, URLs, diffs, errors), gutter status glyphs and breathing room; a slim, monochrome single-line composer.</p>
+        <ul>
+          <li><b>Feels:</b> precise, pro-tool</li>
+          <li><b>Hero:</b> legible output + spacing</li>
+          <li><b>Risk:</b> less “friendly” on its own — leans on copy</li>
+        </ul>
+      </div>
+    </a>
+  </div>
+
+  <div class="note">
+    <b>Notes for review.</b> These are static HTML mocks — no real terminal, PTY or Claude — for look-and-feel only, and they change nothing in the app.
+    The working indicator now uses the <b>real animated critters</b> from <span style="font-family:var(--mono)">Resources/Critters</span> (random per view).
+    Defaults are now <b>Ink / Linen</b> palette + <b>DM Mono · 14 / 2.5 / −0.03em / 400</b>.
+    All three keep the principle from the research doc: <b>never touch what SwiftTerm draws</b> — the styling layers around / behind the grid and restyles IDEalize’s own re-render.
+    Mix-and-match is expected (e.g. A’s surface + C’s readable output).
+  </div>
+</div>
+</body>
+</html>
