@@ -362,9 +362,8 @@ private struct BottomToolbar: View {
             }
             .disabled(!workspace.canOpenProjectAgent)
             .opacity(workspace.canOpenProjectAgent ? 1 : 0.4)
-            toggle("crown", on: workspace.isLeadAgentOpen, help: "Lead agent — one chat that watches every project's agent and only brings you the calls that are truly yours (click again to close)") {
-                workspace.toggleLeadAgent()
-            }
+            // The lead agent's crown toggle lives in the session rail's
+            // Projects header, beside the list it presides over.
             // The shortcut itself lives on the View-menu command (menu shortcuts
             // take precedence; a duplicate here would shadow it).
             toggle("paintpalette", on: workspace.showAppearance, help: "Appearance (⌥⌘A)") {

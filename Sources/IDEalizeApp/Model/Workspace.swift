@@ -874,6 +874,25 @@ final class Workspace: ObservableObject {
         return "Chat \(index + 1)"
     }
 
+    /// The lead agent's tab, if one is running. The rail draws it as its own
+    /// card pinned above the project list — the lead visually leads the fleet
+    /// rather than sitting inside a "Fleet" folder card.
+    var leadAgentTab: WorkspaceTab? {
+        tabs.first { $0.sessions.first?.isLeadAgent == true }
+    }
+
+    /// The groups the rail shows: `projectGroups` minus the lead agent's tab.
+    /// A group left empty by its removal (the lead's Fleet home) disappears
+    /// entirely. Persistence keeps using `projectGroups`, so the lead still
+    /// snapshots and restores.
+    var railGroups: [ProjectGroup] {
+        projectGroups.compactMap { group in
+            var g = group
+            g.tabs.removeAll { $0.sessions.first?.isLeadAgent == true }
+            return g.tabs.isEmpty ? nil : g
+        }
+    }
+
     /// Tabs bucketed into projects, in first-appearance order (chats keep their
     /// order within a project).
     var projectGroups: [ProjectGroup] {

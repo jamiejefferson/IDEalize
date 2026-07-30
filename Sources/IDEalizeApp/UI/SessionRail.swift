@@ -18,9 +18,16 @@ struct SessionRail: View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(Color(theme.border)).frame(height: 1)
+            // The lead agent presides over the whole rail: pinned above the
+            // project list (it never scrolls away), not boxed inside a "Fleet"
+            // folder card — it leads the projects, it isn't one of them.
+            if let leadTab = workspace.leadAgentTab {
+                LeadAgentCard(tab: leadTab, workspace: workspace)
+                    .padding(.horizontal, 8).padding(.top, 8)
+            }
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    ForEach(workspace.projectGroups) { group in
+                    ForEach(workspace.railGroups) { group in
                         ProjectCard(group: group, workspace: workspace) { tab in
                             renameText = tab.customName ?? ""
                             renaming = tab
@@ -62,6 +69,21 @@ struct SessionRail: View {
                 .buttonStyle(.raisedIconHover)
                 .help("View archived chats")
             }
+            // The lead agent's home control sits with the list it presides
+            // over — up here in the Projects header, not in the bottom toolbar
+            // with the panel toggles.
+            Button(action: { workspace.toggleLeadAgent() }) {
+                Image(systemName: "crown")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(workspace.isLeadAgentOpen ? settings.actionStyle.color
+                                                               : Color(theme.secondaryForeground))
+                    .frame(width: 26, height: 26)
+                    .background(RoundedRectangle(cornerRadius: 7)
+                        .fill(workspace.isLeadAgentOpen ? settings.actionStyle.softFill
+                                                        : AnyShapeStyle(Color(theme.surface))))
+            }
+            .buttonStyle(.raisedIconHover)
+            .help("Lead agent — one chat that watches every project's agent and only brings you the calls that are truly yours (click again to close)")
             Button(action: { workspace.newTabPickingFolder() }) {
                 Image(systemName: "plus")
                     .font(.system(size: 12, weight: .semibold))
@@ -287,6 +309,71 @@ private struct ProjectCard: View {
     private func toggleNote() {
         if !noteExpanded { noteText = workspace.projectNote(group.path) }
         withAnimation(.easeOut(duration: 0.12)) { noteExpanded.toggle() }
+    }
+}
+
+// MARK: - Lead agent (pinned above the project list)
+
+/// The fleet's lead agent, drawn as its own card at the very top of the rail —
+/// above every project, never inside one. Same accent chrome as a project
+/// agent's strip so the coordination tier reads consistently, but standalone:
+/// the lead watches the projects below it rather than belonging to any of them.
+private struct LeadAgentCard: View {
+    @ObservedObject var tab: WorkspaceTab
+    @ObservedObject var workspace: Workspace
+    @ObservedObject private var settings = AppSettings.shared
+    @State private var hovering = false
+
+    private var theme: Theme { settings.theme }
+    private var style: PanelStyle { settings.panelStyle(.sessions, base: 13, background: theme.chrome) }
+    private var isSelected: Bool { workspace.selectedTabID == tab.id }
+    private var session: TerminalSession? { tab.sessions.first }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "crown")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(settings.actionStyle.color)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Lead agent")
+                    .font(style.font(12, .semibold))
+                    .foregroundStyle(style.textColor)
+                    .panelText(style)
+                    .lineLimit(1)
+                Text("Watching every project's agent")
+                    .font(style.font(9.5))
+                    .foregroundStyle(style.secondaryTextColor)
+                    .panelText(style)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if let session { AgentStatusBadge(session: session) }
+            if hovering || isSelected {
+                Button(action: { workspace.closeTab(tab) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color(theme.secondaryForeground))
+                }
+                .buttonStyle(.iconHover(padding: 2, radius: 4))
+                .help("Stop the lead agent")
+            }
+        }
+        .padding(.horizontal, 9).padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 11)
+                .fill(settings.actionStyle.softFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11)
+                        .strokeBorder(isSelected ? settings.actionStyle.color : Color(theme.border),
+                                      lineWidth: isSelected ? 1.5 : 1)
+                )
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture {
+            workspace.selectedTabID = tab.id
+            if let s = tab.sessions.first { workspace.focusSession(s.id) }
+        }
     }
 }
 
