@@ -11,6 +11,11 @@ struct ClaudeAgentAdapter: AgentAdapter {
 
     var launchCommand: String? { "claude --dangerously-skip-permissions" }
 
+    var sessionIdLaunchFlag: String? { "--session-id" }
+    var sessionSelectorFlags: [String] {
+        ["--session-id", "--resume", "--continue", "-r", "-c"]
+    }
+
     func resumeCommand(sessionId: String) -> String? {
         "claude --dangerously-skip-permissions --resume \(sessionId)"
     }

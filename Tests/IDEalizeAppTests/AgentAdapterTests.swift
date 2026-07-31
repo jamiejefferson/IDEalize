@@ -182,4 +182,91 @@ final class AgentAdapterTests: XCTestCase {
         XCTAssertTrue(adapter.matches(command: "ls && kimi"))
         XCTAssertFalse(adapter.matches(command: "claude"))
     }
+
+    // MARK: - Pi adapter
+
+    func testPiAdapterMatchesPiCommand() {
+        let adapter = PiAgentAdapter()
+        XCTAssertTrue(adapter.matches(command: "pi"))
+        XCTAssertTrue(adapter.matches(command: "pi 'do the thing'"))
+        XCTAssertTrue(adapter.matches(command: "/usr/local/bin/pi --continue"))
+        XCTAssertTrue(adapter.matches(command: "ls && pi"))
+        XCTAssertFalse(adapter.matches(command: "pip install requests"))
+        XCTAssertFalse(adapter.matches(command: "spin"))
+        XCTAssertFalse(adapter.matches(command: "claude"))
+    }
+
+    func testPiRegistryResolvesPiBeforeGenericFallback() {
+        XCTAssertEqual(AgentRegistry.adapter(forCommand: "pi")?.binaryName, "pi")
+        XCTAssertEqual(AgentRegistry.adapter(forBinary: "pi")?.name, "Pi")
+    }
+
+    func testPiEncodedDirMatchesPiScheme() {
+        // Pi drops the leading slash, replaces / \ : with '-', keeps everything
+        // else (including spaces), and wraps in double dashes.
+        XCTAssertEqual(PiTranscript.encodedDir(for: "/Users/jj"), "--Users-jj--")
+        XCTAssertEqual(PiTranscript.encodedDir(for: "/Users/jj/My Dir/_App"),
+                       "--Users-jj-My Dir-_App--")
+    }
+
+    func testPiSessionIdReadFromTranscriptURL() {
+        let adapter = PiAgentAdapter()
+        let url = URL(fileURLWithPath:
+            "/Users/jj/.pi/agent/sessions/--Users-jj--/2026-07-31T09-37-53-984Z_019fb789-9140-74ed-a2f2-9c81ff5a7755.jsonl")
+        XCTAssertEqual(adapter.sessionId(fromTranscriptURL: url),
+                       "019fb789-9140-74ed-a2f2-9c81ff5a7755")
+        XCTAssertEqual(adapter.resumeCommand(sessionId: "abc-123"), "pi --session abc-123")
+    }
+
+    private func writeTempPiSession(_ contents: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("2026-01-01T00-00-00-000Z_test-session.jsonl")
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    func testPiTranscriptParsesUserAndAssistantTurns() throws {
+        let session = """
+        {"type":"session","version":3,"id":"x","timestamp":"t","cwd":"/Users/jj"}
+        {"type":"model_change","id":"a","parentId":null,"timestamp":"t","provider":"p","modelId":"m"}
+        {"type":"message","id":"b","parentId":"a","timestamp":"t","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}
+        {"type":"message","id":"c","parentId":"b","timestamp":"t","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Hi there!"}]}}
+        {"type":"message","id":"d","parentId":"c","timestamp":"t","message":{"role":"user","content":[{"type":"text","text":"and now?"}]}}
+        {"type":"message","id":"e","parentId":"d","timestamp":"t","message":{"role":"toolResult","content":[{"type":"text","text":"raw tool output"}]}}
+        {"type":"message","id":"f","parentId":"e","timestamp":"t","message":{"role":"assistant","content":[{"type":"text","text":"Part one."},{"type":"text","text":"Part two."}]}}
+        """
+        let url = try writeTempPiSession(session)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let exchanges = PiTranscript.allExchanges(in: url)
+        XCTAssertEqual(exchanges.count, 2)
+        XCTAssertEqual(exchanges[0].question, "hello")
+        XCTAssertEqual(exchanges[0].answer, "Hi there!")
+        XCTAssertEqual(exchanges[1].question, "and now?")
+        XCTAssertEqual(exchanges[1].answer, "Part one.\nPart two.")
+    }
+
+    func testPiTranscriptLastExchangeHasNoAnswerWhileWorking() throws {
+        let session = """
+        {"type":"message","id":"b","parentId":null,"timestamp":"t","message":{"role":"user","content":[{"type":"text","text":"still thinking?"}]}}
+        """
+        let url = try writeTempPiSession(session)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let last = PiTranscript.lastExchange(in: url)
+        XCTAssertEqual(last?.question, "still thinking?")
+        XCTAssertNil(last?.answer)
+    }
+
+    func testPiWorkingStateDetection() {
+        let adapter = PiAgentAdapter()
+        XCTAssertTrue(adapter.detectWorkingState(lines: ["⠋ Working... (esc to interrupt)"]).isWorking)
+        XCTAssertTrue(adapter.detectWorkingState(lines: ["Working..."]).isWorking)
+        // The idle welcome's key hints ("escape interrupt") must not read as busy.
+        XCTAssertFalse(adapter.detectWorkingState(
+            lines: ["escape interrupt · ctrl+c/ctrl+d clear/exit · / commands"]).isWorking)
+        XCTAssertFalse(adapter.detectWorkingState(lines: ["$0.000 (sub) 0.0%/262k (auto)"]).isWorking)
+    }
 }

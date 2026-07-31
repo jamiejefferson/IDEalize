@@ -335,18 +335,21 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         var result = command
         // Detection runs on the flags alone, so a brief that merely mentions
         // "claude" can't make a `kimi` launch look like Claude's.
-        if let agent = AgentRegistry.adapter(forCommand: command.lowercased()),
-           agent.binaryName == "claude" {   // only Claude binds sessions / takes modes
-            // Bind a fresh session id unless the command already selects one, so this
-            // chat's transcript is identifiable.
-            let selectors = ["--session-id", "--resume", "--continue", " -r ", " -c "]
-            let alreadySelectsSession = selectors.contains(where: { command.contains($0) })
-                || command.hasSuffix(" -r") || command.hasSuffix(" -c")
-            if !alreadySelectsSession {
-                let uuid = UUID().uuidString.lowercased()
-                boundSessionId = uuid
-                boundAgentBinary = agent.binaryName
-                result += " --session-id \(uuid)"
+        if let agent = AgentRegistry.adapter(forCommand: command.lowercased()) {
+            // Bind a fresh session id unless the agent can't take one at launch or
+            // the command already selects one, so this chat's transcript is
+            // identifiable.
+            if let flag = agent.sessionIdLaunchFlag {
+                let alreadySelectsSession = agent.sessionSelectorFlags.contains { s in
+                    command.contains(" \(s) ") || command.hasSuffix(" \(s)")
+                        || command.contains(" \(s)=")
+                }
+                if !alreadySelectsSession {
+                    let uuid = UUID().uuidString.lowercased()
+                    boundSessionId = uuid
+                    boundAgentBinary = agent.binaryName
+                    result += " \(flag) \(uuid)"
+                }
             }
             // Apply this chat's permission mode, so the toolbar pill — not whatever
             // flag happens to be in the launch command — is the single source of truth.
