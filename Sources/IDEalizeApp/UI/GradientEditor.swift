@@ -13,6 +13,11 @@ struct HexField: View {
     // The picker drives its own HSB colour; we only push to hex (and pull back
     // when hex genuinely changes) to stop the wheel/lightness fighting itself.
     @State private var pickerColor: Color = .gray
+    // True while we set the picker ourselves (initial sync, clear, external hex
+    // change). Without it, that programmatic set re-enters `onChange` and writes
+    // the fallback back into `hex` — silently turning "inherit" into an
+    // override, and undoing Clear the moment it was pressed.
+    @State private var syncing = false
 
     private var theme: Theme { settings.theme }
 
@@ -21,6 +26,7 @@ struct HexField: View {
             ColorPicker("", selection: $pickerColor, supportsOpacity: false)
                 .labelsHidden().frame(width: 32)
                 .onChange(of: pickerColor) {
+                    if syncing { syncing = false; return }
                     let h = NSColor(pickerColor).hexString
                     if h != hex { hex = h }
                 }
@@ -66,6 +72,7 @@ struct HexField: View {
     private func syncPickerFromHex() {
         let target = NSColor(hex: hex).map { Color($0) } ?? fallback
         if NSColor(target).hexString != NSColor(pickerColor).hexString {
+            syncing = true
             pickerColor = target
         }
     }

@@ -21,19 +21,21 @@ struct Theme: Identifiable, Hashable {
         NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
     }
 
-    /// Default dark theme tuned for AI coding sessions — deep slate, high
-    /// contrast text, calm accent colors.
+    /// Default dark theme — a mid-range zen slate, deliberately lifted well off
+    /// Ink's near-black so the two read as different rooms: Ink is late-night
+    /// editorial, this is a lit stone garden. Sage-teal accent, desaturated
+    /// syntax that stays calm during long agent sessions.
     static let idealizeDark = Theme(
         name: "IDEalize Dark",
-        background: rgb(22, 24, 30),
-        foreground: rgb(222, 227, 234),
-        cursor: rgb(111, 194, 255),
-        selection: rgb(45, 60, 86),
+        background: rgb(47, 53, 60),
+        foreground: rgb(213, 221, 227),
+        cursor: rgb(133, 193, 180),
+        selection: rgb(68, 78, 88),
         ansi: [
-            rgb(60, 66, 77),   rgb(255, 123, 114), rgb(126, 231, 135), rgb(255, 212, 102),
-            rgb(111, 194, 255),rgb(210, 168, 255), rgb(86, 211, 222),  rgb(201, 209, 217),
-            rgb(110, 118, 129),rgb(255, 160, 152), rgb(160, 245, 168), rgb(255, 224, 150),
-            rgb(140, 192, 255),rgb(225, 195, 255), rgb(150, 230, 240), rgb(244, 248, 255),
+            rgb(74, 82, 90),   rgb(224, 138, 125), rgb(148, 192, 144), rgb(222, 198, 140),
+            rgb(132, 170, 206),rgb(186, 158, 196), rgb(133, 193, 180), rgb(200, 208, 214),
+            rgb(122, 132, 141),rgb(236, 160, 148), rgb(168, 210, 164), rgb(233, 214, 160),
+            rgb(154, 188, 220),rgb(204, 178, 214), rgb(158, 210, 198), rgb(238, 243, 246),
         ]
     )
 
@@ -184,12 +186,39 @@ struct Theme: Identifiable, Hashable {
         rule: rgb(226, 226, 224)   // #E2E2E0 — placed by eye against the paper
     )
 
+    /// Y2K — millennium-bug chic. Deep cyber violet under candy neon: hot pink,
+    /// acid lime, aqua and cyber yellow, the palette of translucent plastic and
+    /// early-web chrome. Terminal-only, like Ink and Linen.
+    static let y2k = Theme(
+        name: "Y2K",
+        background: rgb(24, 14, 44),
+        foreground: rgb(238, 232, 252),
+        cursor: rgb(255, 92, 190),
+        selection: rgb(64, 40, 104),
+        ansi: [
+            rgb(70, 54, 108),  rgb(255, 94, 158),  rgb(114, 240, 138), rgb(255, 224, 92),
+            rgb(102, 164, 255),rgb(196, 122, 255), rgb(70, 226, 238),  rgb(224, 214, 246),
+            rgb(140, 122, 180),rgb(255, 138, 188), rgb(158, 250, 172), rgb(255, 238, 138),
+            rgb(146, 190, 255),rgb(216, 162, 255), rgb(130, 240, 250), rgb(250, 246, 255),
+        ]
+    )
+
+    /// This theme over a different ground. Selection is re-derived from the new
+    /// background (a hand-placed one could vanish against it), and a hand-placed
+    /// rule is dropped for the same reason — `ruleColor` re-solves against the
+    /// new ground. Ink, cursor and the ANSI palette stay the theme's own.
+    func withBackground(_ bg: NSColor) -> Theme {
+        Theme(name: name, background: bg, foreground: foreground,
+              cursor: cursor, selection: blend(bg, foreground, 0.14),
+              ansi: ansi, rule: nil)
+    }
+
     /// Themes offered for the app as a whole. Ink/Linen are deliberately absent:
     /// they're terminal typography schemes, offered in `terminalThemes` instead.
     static let all: [Theme] = [.idealizeDark, .idealizeLight, .solarizedDark]
 
     /// Themes offered for the terminal grid on its own (Appearance ▸ Terminal).
-    static let terminalThemes: [Theme] = [.linen, .ink] + all
+    static let terminalThemes: [Theme] = [.linen, .ink, .y2k] + all
 
     static func named(_ name: String) -> Theme {
         terminalThemes.first { $0.name == name } ?? .idealizeDark
