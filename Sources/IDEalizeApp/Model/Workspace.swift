@@ -90,6 +90,12 @@ final class Workspace: ObservableObject {
     /// Bumped by the Focus Message Input command (⌘I); the focused pane's chat
     /// input observes it and takes the caret.
     @Published var focusInputRequest: Int = 0
+    /// A chat the user just opened, whose message input should take the caret
+    /// the moment it lands on screen — so a new chat is ready to type into
+    /// without a click. Set by `newTab` (not during restore, which would fight
+    /// over it across many tabs) and consumed by the first input that appears
+    /// for the session.
+    var pendingInputFocusSessionID: String?
     /// Which section (tab) of the Appearance panel is showing. Starts on the
     /// theme, which is the base everything else layers over.
     @Published var appearanceSection: AppearanceSection = .theme
@@ -337,6 +343,7 @@ final class Workspace: ObservableObject {
         }
         selectedTabID = tab.id
         focusedSessionID = session.id
+        if !isRestoring { pendingInputFocusSessionID = session.id }
         bindName(tab, to: session)
         scheduleSnapshotSave()
         considerProjectAgent(for: session, launchOverride: launchOverride)
