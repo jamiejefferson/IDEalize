@@ -69,6 +69,11 @@ enum ClaudeTranscript {
     struct ContextUsage: Equatable {
         let tokens: Int
         let limit: Int
+        /// The model id on that same newest turn — what actually answered, as
+        /// logged by Claude Code (e.g. `claude-opus-4-8`). Drives the model
+        /// pill in the chat toolbar, so the label reflects the model in use
+        /// rather than the last thing anyone clicked.
+        let model: String?
         var fraction: Double { min(1, Double(tokens) / Double(limit)) }
     }
 
@@ -90,7 +95,31 @@ enum ClaudeTranscript {
             }
         }
         guard let tokens = latestTokens else { return nil }
-        return ContextUsage(tokens: tokens, limit: contextWindowLimit(forModel: latestModel, tokens: tokens))
+        return ContextUsage(tokens: tokens,
+                            limit: contextWindowLimit(forModel: latestModel, tokens: tokens),
+                            model: latestModel)
+    }
+
+    /// A short human label for a model id: `claude-opus-4-8[1m]` → "Opus 4.8 · 1M",
+    /// `claude-haiku-4-5-20251001` → "Haiku 4.5", `claude-fable-5` → "Fable 5".
+    /// Derives the label rather than looking it up, so models newer than the app
+    /// still read sensibly; anything unparseable falls back to the raw id.
+    static func friendlyModelName(_ id: String) -> String {
+        let oneM = id.contains("[1m]")
+        var s = id.replacingOccurrences(of: "[1m]", with: "")
+        if s.hasPrefix("claude-") { s.removeFirst("claude-".count) }
+        var words: [String] = [], version: [String] = []
+        for part in s.split(separator: "-").map(String.init) {
+            if part.allSatisfy(\.isNumber) {
+                if part.count < 8 { version.append(part) }   // 8+ digits = a date stamp
+            } else {
+                words.append(part.capitalized)
+            }
+        }
+        var label = words.joined(separator: " ")
+        if !version.isEmpty { label += (label.isEmpty ? "" : " ") + version.joined(separator: ".") }
+        if label.isEmpty { label = id }
+        return oneM ? label + " · 1M" : label
     }
 
     /// One real user prompt and Claude's reply to it. `answer` is nil while

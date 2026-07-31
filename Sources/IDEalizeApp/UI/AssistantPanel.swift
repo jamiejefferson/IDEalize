@@ -1285,8 +1285,10 @@ struct QAChatBox: View {
             .map { $0.path.contains(" ") ? "\"\($0.path)\"" : $0.path }
             .joined(separator: " ")
         settings.hasSeenWelcome = true   // first message dismisses the welcome
-        // Prepend the effort keyword ("think" / "ultrathink" …) to dial reasoning.
-        let effort = session.effortKeyword
+        // Prepend the effort keyword ("think" / "ultrathink" …) to dial reasoning
+        // — but never onto a slash command ("/model opus"), which the agent must
+        // see verbatim to recognise.
+        let effort = msg.hasPrefix("/") ? "" : session.effortKeyword
         let full = [effort, msg, attachPaths].filter { !$0.isEmpty }.joined(separator: " ")
         guard !msg.isEmpty || !attachPaths.isEmpty else { return }
         session.submitInput(full)

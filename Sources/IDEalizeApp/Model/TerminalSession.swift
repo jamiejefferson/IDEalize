@@ -137,8 +137,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// The pane's mode toggle. false = chat overlay (terminal blurred behind);
     /// true = the full, interactive terminal.
     @Published var revealTerminal: Bool = false
-    /// The model label shown in the input toolbar (display only).
+    /// The model label shown in the input toolbar. Optimistically set by a pick
+    /// from the model pill, then corrected from the transcript (`currentModelId`)
+    /// once a turn actually answers — so it converges on the truth either way.
     @Published var modelLabel: String = "Auto"
+    /// The model id the agent's transcript last reported answering with, e.g.
+    /// `claude-opus-4-8`. nil until a turn with usage lands.
+    @Published var currentModelId: String?
+    /// Set while a model pick from the pill awaits its first answering turn:
+    /// the transcript still reports the pre-switch model, so its label is held
+    /// back until the reported id moves off `modelIdAtPick`.
+    private var modelPickPending = false
+    private var modelIdAtPick: String?
     /// How much autonomy the agent runs with. Applied as a launch flag when the
     /// agent (re)starts — defaults to `.yolo` to preserve IDEalize's long-standing
     /// permissions-skipped launch. Chosen from the chat toolbar's permission pill.
@@ -189,8 +199,23 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// Switch the running agent's model via its model-switch command, if it has one.
     func setModel(_ id: String, _ label: String) {
         modelLabel = label
+        modelPickPending = true
+        modelIdAtPick = currentModelId
         guard let cmd = currentAgent?.modelSwitchCommand, tuiActive else { return }
         sendLineToTUI("\(cmd) \(id)")
+    }
+
+    /// Fold the transcript's reported model into the pill label. Called on the
+    /// main thread from the transcript tick. While a pick awaits its first
+    /// answering turn, reports of the pre-switch model are ignored so the pill
+    /// doesn't flick back to the old model mid-switch.
+    private func applyReportedModel(_ id: String?) {
+        guard let id else { return }
+        if modelPickPending && id == modelIdAtPick { return }
+        modelPickPending = false
+        if id != currentModelId { currentModelId = id }
+        let friendly = ClaudeTranscript.friendlyModelName(id)
+        if friendly != modelLabel { modelLabel = friendly }
     }
 
     /// The nonce IDEalize included when it asked this pane's agent to introduce
@@ -1391,6 +1416,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 if let usage {
                     if usage.tokens != self.contextTokens { self.contextTokens = usage.tokens }
                     if usage.limit != self.contextLimit { self.contextLimit = usage.limit }
+                    self.applyReportedModel(usage.model)
                 }
                 guard let all = parsed else { return }
                 // Transcripts are append-only, so count + last exchange decide

@@ -195,6 +195,9 @@ struct ChatToolbar: View {
                 // pane is narrow — the toggle stays pinned on the left.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 7) {
+                        if session.currentAgent?.supportsRuntimeModelSwitch == true {
+                            ModelPill(session: session, draft: $draft, focus: focus)
+                        }
                         if session.currentAgent?.supportsPermissionModes == true {
                             PermissionModePill(session: session)
                         }
@@ -287,6 +290,55 @@ private struct VersionHistoryButton: View {
             .popover(isPresented: $open, arrowEdge: .top) {
                 FlowsVersionHistoryView(flowStore: flowStore,
                                         onClose: { open = false })
+            }
+    }
+}
+
+/// Switches the running agent's model mid-chat via its model-switch command
+/// (`/model` for Claude). The label converges on the truth: a pick shows
+/// immediately, then the transcript's reported model takes over once a turn
+/// actually answers — so it can never silently lie about what's running. The
+/// short list is the common aliases; "Other…" stages the command in the input
+/// for any model the list doesn't know, which is what keeps this pill from
+/// going stale the way its 0.5.1 ancestor did.
+private struct ModelPill: View {
+    @ObservedObject var session: TerminalSession
+    @Binding var draft: String
+    var focus: () -> Void
+    @State private var open = false
+
+    static let models: [(label: String, id: String, blurb: String)] = [
+        ("Default", "default", "The agent's standard choice"),
+        ("Opus", "opus", "Most capable"),
+        ("Sonnet", "sonnet", "Balanced speed and depth"),
+        ("Haiku", "haiku", "Fastest and cheapest"),
+    ]
+    private static let other = ("Other…", "Type any model name yourself")
+
+    /// Which row to tick: the reported label's first word matches an alias
+    /// ("Opus 4.8" ticks Opus); anything else ticks nothing.
+    private var currentAlias: String {
+        String(session.modelLabel.split(separator: " ").first ?? "")
+    }
+
+    var body: some View {
+        Button(action: { open.toggle() }) { Pill("brain.head.profile", session.modelLabel) }
+            .buttonStyle(.plain)
+            .help("Which model this chat uses — switches the running agent right away")
+            .popover(isPresented: $open, arrowEdge: .top) {
+                OptionList(title: "Model",
+                           options: Self.models.map { ($0.label, $0.blurb) } + [Self.other],
+                           current: currentAlias) { label in
+                    open = false
+                    if let m = Self.models.first(where: { $0.label == label }) {
+                        session.setModel(m.id, m.label)
+                    } else {
+                        // "Other…" — stage the switch command for the user to
+                        // finish with any model name, current or future.
+                        draft = (session.currentAgent?.modelSwitchCommand ?? "/model") + " "
+                        focus()
+                    }
+                }
             }
     }
 }

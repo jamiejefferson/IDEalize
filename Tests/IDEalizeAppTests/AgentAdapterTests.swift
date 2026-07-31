@@ -182,4 +182,30 @@ final class AgentAdapterTests: XCTestCase {
         XCTAssertTrue(adapter.matches(command: "ls && kimi"))
         XCTAssertFalse(adapter.matches(command: "claude"))
     }
+
+    // MARK: - Model reporting (the chat toolbar's model pill)
+
+    func testContextUsageCarriesTheAnsweringModel() throws {
+        let url = try writeTempTranscript("""
+        {"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+        {"type":"assistant","message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+
+        """)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let usage = ClaudeTranscript.contextUsage(in: url)
+        XCTAssertEqual(usage?.model, "claude-haiku-4-5-20251001",
+                       "the newest answering turn's model is the one in use")
+    }
+
+    func testFriendlyModelNamesReadSensibly() {
+        XCTAssertEqual(ClaudeTranscript.friendlyModelName("claude-opus-4-8"), "Opus 4.8")
+        XCTAssertEqual(ClaudeTranscript.friendlyModelName("claude-opus-4-8[1m]"), "Opus 4.8 · 1M")
+        XCTAssertEqual(ClaudeTranscript.friendlyModelName("claude-haiku-4-5-20251001"), "Haiku 4.5",
+                       "date stamps are not version numbers")
+        XCTAssertEqual(ClaudeTranscript.friendlyModelName("claude-fable-5"), "Fable 5")
+        XCTAssertEqual(ClaudeTranscript.friendlyModelName("claude-3-5-sonnet-20241022"), "Sonnet 3.5",
+                       "old ids with leading version digits still read name-first")
+        XCTAssertEqual(ClaudeTranscript.friendlyModelName(""), "",
+                       "an empty id has nothing better to fall back to")
+    }
 }
