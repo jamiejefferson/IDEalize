@@ -119,7 +119,9 @@ struct QAChatBox: View {
                 .background(dockedBackground)
         } else if collapsed {
             inputLozenge
-                .padding(.horizontal, 14).padding(.vertical, 8)
+                // Bottom margin matches the 14pt sides so the lozenge sits evenly
+                // inset from the pane edges; the top stays tighter to the viewer.
+                .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 14)
         } else {
             dockedView
         }
@@ -140,7 +142,8 @@ struct QAChatBox: View {
                 Rectangle().fill(Color(theme.border).opacity(0.5)).frame(height: 1)
             }
             inputLozenge
-                .padding(.horizontal, 14).padding(.vertical, 10)
+                // Same even inset as the floating lozenge: bottom matches the sides.
+                .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 14)
                 .frame(maxHeight: flowMode ? .infinity : nil, alignment: .bottom)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
