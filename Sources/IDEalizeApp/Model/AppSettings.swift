@@ -15,6 +15,7 @@ enum AppearanceDefaults {
     static let terminalMargin = 36.0
     static let terminalLineSpacing = 1.0
     static var terminalThemeName: String { Theme.linen.name }
+    static let terminalBgHex = ""       // "" == the theme's own background
     // Chat
     static let chatInputOpacity = 1.0
     static let chatInputLineSpacing = 2.0
@@ -108,6 +109,12 @@ final class AppSettings: ObservableObject {
     @Published var terminalThemeName: String {
         didSet { defaults.set(terminalThemeName, forKey: "terminalThemeName") }
     }
+    /// A custom ground for the terminal grid ("" = the theme's own). Overrides
+    /// just the background; the theme's ink, cursor and palette stay, and the
+    /// derived surfaces (selection, rules) re-solve against the new ground.
+    @Published var terminalBgHex: String {
+        didSet { defaults.set(terminalBgHex, forKey: "terminalBgHex") }
+    }
     /// Inner padding (margins) of the chat modal.
     @Published var chatMargin: Double {
         didSet { defaults.set(chatMargin, forKey: "chatMargin") }
@@ -126,8 +133,13 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(themeName, forKey: "themeName") }
     }
     var theme: Theme { Theme.named(themeName) }
-    /// The terminal grid's own colour scheme.
-    var terminalTheme: Theme { Theme.named(terminalThemeName) }
+    /// The terminal grid's own colour scheme, with the user's custom ground
+    /// (if any) layered over it.
+    var terminalTheme: Theme {
+        let base = Theme.named(terminalThemeName)
+        guard let bg = NSColor(hex: terminalBgHex) else { return base }
+        return base.withBackground(bg)
+    }
 
     // MARK: Per-panel appearance (the USP)
     /// Typography + background overrides keyed by `PanelKind.rawValue`.
@@ -409,6 +421,7 @@ final class AppSettings: ObservableObject {
         self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? AppearanceDefaults.terminalMargin
         self.terminalLineSpacing = defaults.object(forKey: "terminalLineSpacing") as? Double ?? AppearanceDefaults.terminalLineSpacing
         self.terminalThemeName = defaults.string(forKey: "terminalThemeName") ?? AppearanceDefaults.terminalThemeName
+        self.terminalBgHex = defaults.string(forKey: "terminalBgHex") ?? AppearanceDefaults.terminalBgHex
         self.chatMargin = defaults.object(forKey: "chatMargin") as? Double ?? AppearanceDefaults.chatMargin
         self.returnToSend = defaults.object(forKey: "returnToSend") as? Bool ?? AppearanceDefaults.returnToSend
         self.voiceReleaseToSend = defaults.object(forKey: "voiceReleaseToSend") as? Bool ?? false

@@ -123,6 +123,7 @@ struct WorkspaceView: View {
         }
         .onChange(of: settings.themeName) { workspace.reapplyAppearance() }
         .onChange(of: settings.terminalThemeName) { workspace.reapplyAppearance() }
+        .onChange(of: settings.terminalBgHex) { workspace.reapplyAppearance() }
         .onChange(of: settings.fontName) { workspace.reapplyAppearance() }
         .onChange(of: settings.fontSize) { workspace.reapplyAppearance() }
         .onChange(of: settings.terminalLineSpacing) { workspace.reapplyAppearance() }

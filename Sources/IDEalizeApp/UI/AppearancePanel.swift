@@ -312,6 +312,11 @@ struct AppearancePanel: View {
                     }
                 }
             }
+            Text("Your own background colour, over any theme. Clear it to go back to the theme's.")
+                .font(settings.ui(10)).foregroundStyle(Color(theme.secondaryForeground))
+                .padding(.top, 4)
+            colorRow("Background", $settings.terminalBgHex,
+                     fallback: Color(Theme.named(settings.terminalThemeName).background))
         }
         card("Terminal type") {
             globalFontRow("Font", $settings.fontName, families: terminalFamilies)
@@ -347,6 +352,7 @@ struct AppearancePanel: View {
                 || settings.fontSize != AppearanceDefaults.fontSize
                 || settings.terminalLineSpacing != AppearanceDefaults.terminalLineSpacing
                 || settings.terminalMargin != AppearanceDefaults.terminalMargin
+                || settings.terminalBgHex != AppearanceDefaults.terminalBgHex
         default:
             return s.panel.map { settings.appearance($0).isCustomised } ?? false
         }
@@ -371,6 +377,7 @@ struct AppearancePanel: View {
             settings.fontSize = AppearanceDefaults.fontSize
             settings.terminalLineSpacing = AppearanceDefaults.terminalLineSpacing
             settings.terminalMargin = AppearanceDefaults.terminalMargin
+            settings.terminalBgHex = AppearanceDefaults.terminalBgHex
         default:
             if let p = s.panel { settings.setAppearance(.empty, for: p) }
         }
