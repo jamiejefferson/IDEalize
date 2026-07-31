@@ -96,8 +96,8 @@ struct QAChatBox: View {
     private var chatTextColor: Color { chatStyle.textColor }
     private var working: Bool { session.botWorking }
 
-    /// Approx height of one line of chat input at the current font + line spacing.
-    private var chatLineHeight: CGFloat { size * 1.2 + CGFloat(settings.chatInputLineSpacing) }
+    /// Approx height of one line of chat input at the current font.
+    private var chatLineHeight: CGFloat { size * 1.2 + 2 }
     /// Active/standby height for the focused composer: comfortably holds five-plus
     /// lines before it has to scroll (the field itself keeps growing to ~14 lines,
     /// then scrolls), and — sized generously at ~6.5 lines — it also rises up over the
@@ -1018,7 +1018,6 @@ struct QAChatBox: View {
             .textFieldStyle(.plain)
             .font(chatStyle.font(size))
             .foregroundStyle(chatTextColor)
-            .lineSpacing(CGFloat(settings.chatInputLineSpacing))
             .lineLimit(1...14)
             // Fill the row's width so long lines wrap (and reflow as the pane
             // narrows) instead of stretching the field past the card edge.

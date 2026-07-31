@@ -17,7 +17,6 @@ enum AppearanceDefaults {
     static var terminalThemeName: String { Theme.linen.name }
     // Chat
     static let chatInputOpacity = 1.0
-    static let chatInputLineSpacing = 2.0
     static let chatShadowOpacity = 0.4
     static let chatMargin = 18.0
     static let terminalBlur = 3.0       // the terminal backdrop behind chat
@@ -77,11 +76,6 @@ final class AppSettings: ObservableObject {
     /// Opacity of the chat input lozenge (separate from the modal card).
     @Published var chatInputOpacity: Double {
         didSet { defaults.set(chatInputOpacity, forKey: "chatInputOpacity") }
-    }
-    /// Line spacing for the chat INPUT field only (independent of the chat
-    /// answer/modal line spacing).
-    @Published var chatInputLineSpacing: Double {
-        didSet { defaults.set(chatInputLineSpacing, forKey: "chatInputLineSpacing") }
     }
     /// Opacity of the docked chat card's drop shadow.
     @Published var chatShadowOpacity: Double {
@@ -403,7 +397,6 @@ final class AppSettings: ObservableObject {
         self.chatFontSize = defaults.object(forKey: "chatFontSize") as? Double ?? 16.0
         self.chatLineSpacing = defaults.object(forKey: "chatLineSpacing") as? Double ?? 5.0
         self.chatInputOpacity = defaults.object(forKey: "chatInputOpacity") as? Double ?? AppearanceDefaults.chatInputOpacity
-        self.chatInputLineSpacing = defaults.object(forKey: "chatInputLineSpacing") as? Double ?? AppearanceDefaults.chatInputLineSpacing
         self.chatShadowOpacity = defaults.object(forKey: "chatShadowOpacity") as? Double ?? AppearanceDefaults.chatShadowOpacity
         self.terminalBlur = defaults.object(forKey: "terminalBlur") as? Double ?? AppearanceDefaults.terminalBlur
         self.terminalMargin = defaults.object(forKey: "terminalMargin") as? Double ?? AppearanceDefaults.terminalMargin
