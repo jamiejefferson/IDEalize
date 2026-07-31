@@ -972,7 +972,17 @@ struct QAChatBox: View {
         // (docked and the floating solo form), so the handlers live here rather
         // than on the docked container — the floating input is now the resting
         // form and must drive these too.
-        .onAppear { installDictationKey() }
+        .onAppear {
+            installDictationKey()
+            // A just-opened chat is ready to type into: the workspace flags the
+            // session it created, and the first input on screen for it takes the
+            // caret. Deferred a beat — focus set during onAppear can be dropped
+            // while the new pane is still being installed in the hierarchy.
+            if workspace.pendingInputFocusSessionID == session.id {
+                workspace.pendingInputFocusSessionID = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused = true }
+            }
+        }
         .onChange(of: session.botWorking) { _, working in
             guard !working else { return }
             // The review turn has ended — adopt the agent's `review` from disk.
