@@ -200,7 +200,7 @@ struct Theme: Identifiable, Hashable {
     static let y2k = Theme(
         name: "Y2K",
         background: rgb(219, 172, 227),   // gradient midpoint
-        foreground: rgb(40, 72, 78),
+        foreground: rgb(171, 0, 142),     // hot pink held to 3:1 across the wash
         cursor: rgb(255, 116, 231),
         selection: rgb(175, 202, 185),
         // Normal slots are the Figma candy deepened along its own hue until it
@@ -208,8 +208,8 @@ struct Theme: Identifiable, Hashable {
         // warn text. Bright slots are the Figma colours verbatim: the pops.
         ansi: [
             rgb(40, 72, 78),   rgb(235, 24, 0),   rgb(0, 134, 122),  rgb(161, 108, 0),
-            rgb(13, 110, 255), rgb(175, 48, 255), rgb(0, 133, 128),  rgb(57, 98, 98),
-            rgb(74, 113, 113), rgb(255, 113, 134),rgb(5, 252, 140),  rgb(255, 217, 138),
+            rgb(13, 110, 255), rgb(175, 48, 255), rgb(0, 133, 128),  rgb(171, 0, 142),
+            rgb(189, 55, 166), rgb(255, 113, 134),rgb(5, 252, 140),  rgb(255, 217, 138),
             rgb(169, 203, 255),rgb(255, 116, 231),rgb(0, 242, 218),  rgb(255, 255, 255),
         ],
         backgroundGradient: [rgb(253, 133, 202), rgb(183, 210, 251)]
