@@ -186,20 +186,22 @@ struct Theme: Identifiable, Hashable {
         rule: rgb(226, 226, 224)   // #E2E2E0 — placed by eye against the paper
     )
 
-    /// Y2K — millennium-bug chic. Deep cyber violet under candy neon: hot pink,
-    /// acid lime, aqua and cyber yellow, the palette of translucent plastic and
-    /// early-web chrome. Terminal-only, like Ink and Linen.
+    /// Y2K — pastel millennium desktop: the soft sage-mint of an old OS
+    /// wallpaper under deep teal ink, with dusty-pink chrome, cherry red,
+    /// butter yellow and lavender. Sweet, faded, pixel-era. Terminal-only,
+    /// like Ink and Linen. Colour 7 is kept a legible grey-teal rather than
+    /// cream — it's the slot agents print body text in (see Linen).
     static let y2k = Theme(
         name: "Y2K",
-        background: rgb(24, 14, 44),
-        foreground: rgb(238, 232, 252),
-        cursor: rgb(255, 92, 190),
-        selection: rgb(64, 40, 104),
+        background: rgb(174, 199, 183),
+        foreground: rgb(44, 72, 77),
+        cursor: rgb(215, 106, 115),
+        selection: rgb(232, 197, 201),
         ansi: [
-            rgb(70, 54, 108),  rgb(255, 94, 158),  rgb(114, 240, 138), rgb(255, 224, 92),
-            rgb(102, 164, 255),rgb(196, 122, 255), rgb(70, 226, 238),  rgb(224, 214, 246),
-            rgb(140, 122, 180),rgb(255, 138, 188), rgb(158, 250, 172), rgb(255, 238, 138),
-            rgb(146, 190, 255),rgb(216, 162, 255), rgb(130, 240, 250), rgb(250, 246, 255),
+            rgb(44, 72, 77),   rgb(197, 79, 88),  rgb(66, 118, 88),  rgb(158, 132, 44),
+            rgb(74, 108, 150), rgb(136, 104, 168),rgb(56, 122, 126), rgb(78, 102, 104),
+            rgb(104, 126, 122),rgb(221, 110, 118),rgb(92, 148, 116), rgb(180, 152, 62),
+            rgb(106, 138, 178),rgb(162, 132, 192),rgb(86, 150, 154), rgb(252, 249, 240),
         ]
     )
 
