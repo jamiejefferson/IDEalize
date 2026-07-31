@@ -203,10 +203,13 @@ struct Theme: Identifiable, Hashable {
         foreground: rgb(40, 72, 78),
         cursor: rgb(255, 116, 231),
         selection: rgb(175, 202, 185),
+        // Normal slots are the Figma candy deepened along its own hue until it
+        // reads (~2:1) against every stop of the wash — they carry error/ok/
+        // warn text. Bright slots are the Figma colours verbatim: the pops.
         ansi: [
-            rgb(40, 72, 78),   rgb(249, 159, 149),rgb(3, 191, 174),  rgb(242, 197, 104),
-            rgb(137, 182, 250),rgb(195, 101, 255),rgb(1, 186, 178),  rgb(88, 134, 134),
-            rgb(127, 163, 163),rgb(255, 138, 126),rgb(5, 252, 140),  rgb(255, 217, 138),
+            rgb(40, 72, 78),   rgb(235, 24, 0),   rgb(0, 134, 122),  rgb(161, 108, 0),
+            rgb(13, 110, 255), rgb(175, 48, 255), rgb(0, 133, 128),  rgb(57, 98, 98),
+            rgb(74, 113, 113), rgb(255, 113, 134),rgb(5, 252, 140),  rgb(255, 217, 138),
             rgb(169, 203, 255),rgb(255, 116, 231),rgb(0, 242, 218),  rgb(255, 255, 255),
         ],
         backgroundGradient: [rgb(253, 133, 202), rgb(183, 210, 251)]
