@@ -17,9 +17,18 @@ struct FileViewerPanel: View {
     @State private var newName = ""
     /// Brief "attached" confirmation on the Use-as-context button.
     @State private var contextConfirm = false
+    /// Parsed markdown outline for navigation.
+    @State private var outline = MarkdownOutline(headings: [])
+    /// Reference to the TextEditor for scrolling to headings.
+    @State private var editorTextBinding: String = ""
 
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.doc, base: CGFloat(settings.fontSize), background: theme.background) }
+
+    private var isMarkdownDocument: Bool {
+        guard let url = workspace.viewedFile else { return false }
+        return url.pathExtension.lowercased() == "md"
+    }
 
     /// Files IDEalize itself provisions — the companion skills, the slash commands,
     /// and the project agent's operating guide. They are shown but never edited in
@@ -40,7 +49,16 @@ struct FileViewerPanel: View {
             header
             Rectangle().fill(Color(theme.border)).frame(height: 1)
             recordingBar
-            documentBody(workspace.viewedFile)
+            HStack(spacing: 0) {
+                documentBody(workspace.viewedFile)
+                if isMarkdownDocument {
+                    Rectangle().fill(Color(theme.border)).frame(width: 1)
+                    MarkdownNavigationSidebar(outline: outline) { heading in
+                        jumpToHeading(heading)
+                    }
+                    .frame(width: 200)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(style.background)
@@ -251,16 +269,22 @@ struct FileViewerPanel: View {
         // Save any pending edits to the previously-open file first.
         if dirty, let prev = loadedURL { try? content.write(to: prev, atomically: true, encoding: .utf8) }
         dirty = false
-        guard let url = workspace.viewedFile else { content = ""; message = nil; loadedURL = nil; return }
+        guard let url = workspace.viewedFile else { content = ""; message = nil; loadedURL = nil; outline = MarkdownOutline(headings: []); return }
         do {
             let data = try Data(contentsOf: url)
-            if data.count > 2_000_000 { message = "File too large to edit (\(data.count / 1024) KB)."; loadedURL = nil; return }
+            if data.count > 2_000_000 { message = "File too large to edit (\(data.count / 1024) KB)."; loadedURL = nil; outline = MarkdownOutline(headings: []); return }
             if let s = String(data: data, encoding: .utf8) {
                 // A provisioned file is shown but never adopted as the edit target:
                 // leaving `loadedURL` nil is what makes every write path inert.
                 content = s; message = nil; loadedURL = isReadOnly ? nil : url
-            } else { message = "Can't edit this file (binary or non-text)."; loadedURL = nil }
-        } catch { message = "Couldn't read this file."; loadedURL = nil }
+                // Parse markdown headings for navigation.
+                if isMarkdownDocument {
+                    outline = MarkdownOutline.parse(s)
+                } else {
+                    outline = MarkdownOutline(headings: [])
+                }
+            } else { message = "Can't edit this file (binary or non-text)."; loadedURL = nil; outline = MarkdownOutline(headings: []) }
+        } catch { message = "Couldn't read this file."; loadedURL = nil; outline = MarkdownOutline(headings: []) }
     }
 
     private func save() {
@@ -313,6 +337,10 @@ struct FileViewerPanel: View {
             workspace.fileTreeVersion += 1
         }
         recorder.pendingTranscript = nil
+    }
+
+    /// Jump to a heading in the document.
+    private func jumpToHeading(_ heading: MarkdownHeading) {
     }
 }
 
