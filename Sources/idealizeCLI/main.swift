@@ -38,9 +38,11 @@ func pngData(forFileAt path: String) -> Data? {
 //   idealize spawn "build the hero section"      # start a new chat with an opening task
 //   idealize spawn "redo the nav" --isolated     # …in its own separate copy of the folder
 //   idealize spawn "<brief>" --name "Nav bar"     # …with a short tab label for the sidebar
+//   idealize spawn "<brief>" --verify "npm test"  # …with the check that proves the piece done
+//   idealize spawn "<brief>" --model haiku        # …on a cheaper model for a mechanical piece
 //   idealize diff <session>                      # what a chat has changed
 //   idealize survey                              # all chats' changes + copies touching the same files
-//   idealize verify <session>                    # run the folder's build/check; honest pass/fail
+//   idealize verify <session>                    # run the chat's check; honest pass/fail
 //   idealize combine plan                        # a safe order to combine copies (read-only)
 //   idealize combine apply <session>             # bring one copy's work into the main version
 //   idealize transcript <session> [--last N]     # read a chat's recent Q&A
@@ -129,11 +131,11 @@ func printUsage() {
       inbox [--wait] [--json] [--timeout S]  read & clear my messages
       peek [--json]                         read my messages without clearing
       list [--json]                         list active terminals
-      spawn <task> [--name LABEL] [--path DIR] [--isolated]  start a new chat (in DIR, else my project) with an opening task; prints its id. --name labels its tab (else one is read off the task). --isolated gives it its own separate copy of the folder
+      spawn <task> [--name LABEL] [--path DIR] [--isolated] [--verify "CMD"] [--model M]  start a new chat (in DIR, else my project) with an opening task; prints its id. --name labels its tab (else one is read off the task). --isolated gives it its own separate copy of the folder. --verify attaches the check that proves the piece done (run later via `verify`). --model picks the new chat's model
       spawn --coordinator [--path DIR]      start (or surface) DIR's project agent instead of a worker; prints its id
       diff [session] [--base REF] [--json]  what a chat has changed (vs its copy's start, or REF)
       survey [--path DIR] [--json]          every chat's changes + which copies touch the same files (--path: lead agent only)
-      verify [session] [--json]             run the folder's build/check for a chat; honest pass/fail
+      verify [session] [--check "CMD"] [--json]  run the chat's attached check (or CMD, this run only); honest pass/fail
       combine plan [--path DIR] [--into DIR] [--json]  read-only: a safe order to combine copies (changes nothing; --path: lead agent only)
       combine apply <session> [--into DIR]  bring ONE copy's work into the main version (gated, reversible)
       blocks [session] [--json]             list recorded command blocks
@@ -348,18 +350,26 @@ case "spawn":
     // --coordinator starts the project's *coordinating agent* rather than a
     // worker — the lead agent uses this to watch a project that has no agent
     // yet (or whose agent died). Idempotent: one coordinator per project.
+    // --verify attaches the command that proves this piece of work done; run it
+    // later with `idealize verify <id>`. The check passing is the proof — a
+    // chat saying "done" is only a claim.
+    // --model picks the model for the new chat (e.g. a cheaper one for a
+    // well-specified mechanical piece). Applied when the default agent takes a
+    // model flag (Claude); otherwise ignored.
     let flags = Flags(rest, boolFlags: ["isolated", "coordinator"])   // --path DIR, --name LABEL; positionals join into the task
     let task = flags.positionals.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     let coordinator = flags.bools.contains("coordinator")
     guard !task.isEmpty || flags.values["path"] != nil || coordinator else {
-        fail("usage: idealize spawn <task> [--name LABEL] [--path DIR] [--isolated] | idealize spawn --coordinator [--path DIR]")
+        fail("usage: idealize spawn <task> [--name LABEL] [--path DIR] [--isolated] [--verify \"CMD\"] [--model M] | idealize spawn --coordinator [--path DIR]")
     }
     let resp = sendRequest(IPCRequest(command: .spawn, from: mySession,
                                       target: flags.values["path"],
                                       body: task.isEmpty ? nil : task,
                                       isolated: flags.bools.contains("isolated") ? true : nil,
                                       name: flags.values["name"],
-                                      coordinator: coordinator ? true : nil))
+                                      coordinator: coordinator ? true : nil,
+                                      check: flags.values["verify"],
+                                      model: flags.values["model"]))
     if !resp.ok { fail(resp.error ?? "spawn failed") }
     out(resp.info ?? "spawned")   // info carries the new chat's session id
 
@@ -409,11 +419,14 @@ case "survey":
     }
 
 case "verify":
-    // Run the folder's build/check for a chat and report honestly (says so when
-    // there's no known check rather than faking a pass). Session defaults to me.
+    // Run the chat's check and report honestly (says so when there's no known
+    // check rather than faking a pass). Session defaults to me. Runs, in order:
+    // --check "CMD" (this run only, never stored) → the check attached at spawn
+    // (`spawn --verify`) → the folder's built-in build check.
     let flags = Flags(rest, boolFlags: ["json"])
     let target = flags.positionals.first ?? mySession
-    let resp = sendRequest(IPCRequest(command: .verify, from: mySession, target: target))
+    let resp = sendRequest(IPCRequest(command: .verify, from: mySession, target: target,
+                                      check: flags.values["check"]))
     if !resp.ok { fail(resp.error ?? "verify failed") }
     guard let v = resp.verify else { fail("verify returned nothing") }
     if flags.bools.contains("json") {

@@ -35,12 +35,16 @@ enum ProjectAgent {
     /// child is a *normal* member chat, not another coordinator: the user can
     /// open and review it like any other. Session-id binding and permission mode
     /// are appended later by `TerminalSession.augmentAgentLaunch`.
-    static func childLaunch(initialPrompt: String?) -> AgentLaunch {
+    static func childLaunch(initialPrompt: String?, model: String? = nil) -> AgentLaunch {
         // Children start from the *global* default agent, never the coordinator's
         // own override: only the model is role-specific, so picking a cheap
         // coordinator never quietly downgrades the chats doing the building.
-        let cmd = applyingModel(AppSettings.shared.projectAgentChildModel,
-                               to: baseCommand(""))
+        // A per-spawn model (the coordinator routing a well-specified mechanical
+        // piece to a cheaper model) wins over the role-wide setting.
+        let override = model?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chosen = (override?.isEmpty == false) ? override!
+                                                  : AppSettings.shared.projectAgentChildModel
+        let cmd = applyingModel(chosen, to: baseCommand(""))
         // The brief stays out of the command string — it's the user's prose, and
         // rewriting a command containing it corrupted briefs (see `AgentLaunch`).
         let turn = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)

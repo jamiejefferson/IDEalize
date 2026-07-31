@@ -26,6 +26,20 @@ final class AgentLifecycleTests: XCTestCase {
         XCTAssertEqual(chat.effectiveAgentBinary, "kimi")
     }
 
+    func testLegacyPersistedChatWithoutVerifyCommandDecodes() throws {
+        let legacy = #"{"wasClaude":true}"#.data(using: .utf8)!
+        let chat = try JSONDecoder().decode(PersistedChat.self, from: legacy)
+        XCTAssertNil(chat.verifyCommand)
+    }
+
+    func testPersistedChatVerifyCommandRoundTrips() throws {
+        let original = PersistedChat(customName: "Footer", wasClaude: true,
+                                     agentBinary: "claude", verifyCommand: "npm test")
+        let data = try JSONEncoder().encode(original)
+        let chat = try JSONDecoder().decode(PersistedChat.self, from: data)
+        XCTAssertEqual(chat.verifyCommand, "npm test")
+    }
+
     func testLegacyArchivedChatDecodesAndMigrates() throws {
         let legacy = """
         {"id":"6F1E9C9E-2C1B-4A5B-9AAA-000000000001","projectPath":"/tmp/p",

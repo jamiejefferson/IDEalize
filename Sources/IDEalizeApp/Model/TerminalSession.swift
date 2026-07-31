@@ -467,6 +467,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// (`workingDirectory`), not which project the chat belongs to.
     @Published var safeCopy: SafeCopy?
 
+    /// The command that proves this chat's piece of work done, attached by the
+    /// coordinator at spawn time (`idealize spawn --verify "…"`) and run by
+    /// `idealize verify`. Set only from a spawn request or session restore —
+    /// never synthesized by the app. Engineering detail: never shown in
+    /// user-facing copy (translate, never expose).
+    @Published var verifyCommand: String?
+
     /// Descriptor for a chat's safe copy. See `safeCopy`.
     struct SafeCopy: Equatable {
         /// The isolated working directory — this chat's real cwd.

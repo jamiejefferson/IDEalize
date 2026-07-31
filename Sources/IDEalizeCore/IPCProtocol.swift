@@ -101,6 +101,15 @@ public struct IPCRequest: Codable, Sendable {
     /// Used by `spawn`: start the project's *coordinating agent* rather than a
     /// worker chat — how the lead agent bootstraps or relaunches a project agent.
     public var coordinator: Bool?
+    /// Used by `spawn` (attach the command that proves the new chat's piece of
+    /// work done, stored with the chat) and by `verify` (a one-off command to
+    /// run instead of the stored one — never stored). The app only ever runs a
+    /// check that arrived through one of these two doors; it never invents one.
+    public var check: String?
+    /// Used by `spawn`: the model the new chat should run (e.g. a cheaper one
+    /// for a well-specified mechanical piece). Applied only when the default
+    /// agent understands a model flag (Claude today); otherwise ignored.
+    public var model: String?
 
     public init(command: Command,
                 from: String? = nil,
@@ -113,7 +122,9 @@ public struct IPCRequest: Codable, Sendable {
                 limit: Int? = nil,
                 isolated: Bool? = nil,
                 name: String? = nil,
-                coordinator: Bool? = nil) {
+                coordinator: Bool? = nil,
+                check: String? = nil,
+                model: String? = nil) {
         self.command = command
         self.from = from
         self.token = token
@@ -126,6 +137,8 @@ public struct IPCRequest: Codable, Sendable {
         self.isolated = isolated
         self.name = name
         self.coordinator = coordinator
+        self.check = check
+        self.model = model
     }
 }
 
