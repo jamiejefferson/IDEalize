@@ -279,13 +279,16 @@ struct TerminalInkFilter {
             // Dim off without a full reset: our explicit colour is still in
             // force, so put back what the program actually asked for.
             out += restoreForegroundSGR()
-        } else if Self.isLight(background) {
+        } else if Self.isLight(background), !foregroundIsThemePalette {
             // Non-dim on a light ground: a program that assumes a dark terminal
             // paints its de-emphasised text — notably the echo of what you just
             // typed — in a pale grey that vanishes on paper. `kept` has already
             // emitted that pale colour; if it can't be read, append a floored
             // version so this last SGR wins. Dark grounds are left alone (a pale
             // colour reads fine there, and dark-on-dark can be intentional).
+            // The theme's own 16 palette slots are exempt: those are the theme
+            // author's deliberate marks against this exact ground (Y2K's candy
+            // on its sunrise wash), and flooring them would repaint the theme.
             let resolved = resolvedForeground()
             let floored = legible(resolved, floor: Self.bodyContrastFloor)
             if floored != resolved, let sgr = Self.trueColorSGR(floored) { out += sgr }
@@ -298,7 +301,8 @@ struct TerminalInkFilter {
         if dim, let blended = Self.trueColorSGR(effectiveDimColor()) { return blended }
         // On a light ground, floor a too-pale foreground so text restored after a
         // rule (or a dim-off) stays legible rather than washing into the paper.
-        if Self.isLight(background) {
+        // Theme-palette colours are exempt, as in `rewriteSGR`.
+        if Self.isLight(background), !foregroundIsThemePalette {
             let resolved = resolvedForeground()
             let floored = legible(resolved, floor: Self.bodyContrastFloor)
             if floored != resolved, let sgr = Self.trueColorSGR(floored) { return sgr }
@@ -380,6 +384,13 @@ struct TerminalInkFilter {
             if Theme.contrast(candidate, background) < Self.dimContrastFloor { low = mid } else { high = mid }
         }
         return dimmed.blended(withFraction: high, of: base) ?? base
+    }
+
+    /// Whether the program picked one of the theme's own 16 colours — a choice
+    /// the theme has already made legible (or deliberately loud) on its ground.
+    private var foregroundIsThemePalette: Bool {
+        if case .indexed(let n) = foregroundSpec, n < 16 { return true }
+        return false
     }
 
     /// What the current foreground spec actually looks like in this theme.

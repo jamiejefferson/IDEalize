@@ -261,7 +261,7 @@ struct LeafPaneView: View {
         // padded off of) is painted in the terminal's own background, so the input
         // sits on the same paper as the terminal above it rather than on the window
         // chrome. The terminal is opaque and covers the rest.
-        .background(Color(settings.terminalTheme.background))
+        .background(terminalGround)
         .onAppear {
             // req 1: an agent pane opens on its resting view — terminal visible with
             // the floating solo input — rather than the docked chat card. Applied
@@ -291,6 +291,17 @@ struct LeafPaneView: View {
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, 8)
+    }
+
+    /// The terminal's ground as a paintable view: its wash when the theme has
+    /// one (Y2K), the flat background otherwise.
+    @ViewBuilder private var terminalGround: some View {
+        let t = settings.terminalTheme
+        if let wash = t.backgroundGradient {
+            LinearGradient(colors: wash.map { Color($0) }, startPoint: .top, endPoint: .bottom)
+        } else {
+            Color(t.background)
+        }
     }
 
     private func setReveal(_ on: Bool) {

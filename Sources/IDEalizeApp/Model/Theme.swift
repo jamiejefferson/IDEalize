@@ -16,6 +16,11 @@ struct Theme: Identifiable, Hashable {
     /// to be lighter than the faintest text on the grid. Left nil it's derived
     /// from the theme's own ink and ground; set it to place it by eye.
     var rule: NSColor?
+    /// Optional vertical wash behind the grid (top → bottom). When set, the
+    /// grid and its margins paint this instead of the flat `background`, which
+    /// stays the wash's midpoint so every derived surface, contrast check and
+    /// `isDark` still has a single ground to reason against.
+    var backgroundGradient: [NSColor]?
 
     static func rgb(_ r: Int, _ g: Int, _ b: Int) -> NSColor {
         NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
@@ -186,31 +191,39 @@ struct Theme: Identifiable, Hashable {
         rule: rgb(226, 226, 224)   // #E2E2E0 — placed by eye against the paper
     )
 
-    /// Y2K — millennium-bug chic. Deep cyber violet under candy neon: hot pink,
-    /// acid lime, aqua and cyber yellow, the palette of translucent plastic and
-    /// early-web chrome. Terminal-only, like Ink and Linen.
+    /// Y2K — millennium candy on a sunrise wash. JJ's palette (Figma
+    /// `idealize` 35-17/35-32): a hot-pink → periwinkle vertical gradient
+    /// under violet, aqua, spring green, hot pink and salmon, with slate teal
+    /// carrying the body text. The yellow slot is the one colour not in the
+    /// set — ANSI needs one, so it's a butter tone matched to the sweetness.
+    /// Terminal-only, like Ink and Linen.
     static let y2k = Theme(
         name: "Y2K",
-        background: rgb(24, 14, 44),
-        foreground: rgb(238, 232, 252),
-        cursor: rgb(255, 92, 190),
-        selection: rgb(64, 40, 104),
+        background: rgb(219, 172, 227),   // gradient midpoint
+        foreground: rgb(171, 0, 142),     // hot pink held to 3:1 across the wash
+        cursor: rgb(255, 116, 231),
+        selection: rgb(175, 202, 185),
+        // Normal slots are the Figma candy deepened along its own hue until it
+        // reads (~2:1) against every stop of the wash — they carry error/ok/
+        // warn text. Bright slots are the Figma colours verbatim: the pops.
         ansi: [
-            rgb(70, 54, 108),  rgb(255, 94, 158),  rgb(114, 240, 138), rgb(255, 224, 92),
-            rgb(102, 164, 255),rgb(196, 122, 255), rgb(70, 226, 238),  rgb(224, 214, 246),
-            rgb(140, 122, 180),rgb(255, 138, 188), rgb(158, 250, 172), rgb(255, 238, 138),
-            rgb(146, 190, 255),rgb(216, 162, 255), rgb(130, 240, 250), rgb(250, 246, 255),
-        ]
+            rgb(40, 72, 78),   rgb(235, 24, 0),   rgb(0, 134, 122),  rgb(161, 108, 0),
+            rgb(13, 110, 255), rgb(175, 48, 255), rgb(0, 133, 128),  rgb(171, 0, 142),
+            rgb(189, 55, 166), rgb(255, 113, 134),rgb(5, 252, 140),  rgb(255, 217, 138),
+            rgb(169, 203, 255),rgb(255, 116, 231),rgb(0, 242, 218),  rgb(255, 255, 255),
+        ],
+        backgroundGradient: [rgb(253, 133, 202), rgb(183, 210, 251)]
     )
 
     /// This theme over a different ground. Selection is re-derived from the new
     /// background (a hand-placed one could vanish against it), and a hand-placed
     /// rule is dropped for the same reason — `ruleColor` re-solves against the
-    /// new ground. Ink, cursor and the ANSI palette stay the theme's own.
+    /// new ground. A background wash is dropped too: a custom ground is a solid.
+    /// Ink, cursor and the ANSI palette stay the theme's own.
     func withBackground(_ bg: NSColor) -> Theme {
         Theme(name: name, background: bg, foreground: foreground,
               cursor: cursor, selection: blend(bg, foreground, 0.14),
-              ansi: ansi, rule: nil)
+              ansi: ansi, rule: nil, backgroundGradient: nil)
     }
 
     /// Themes offered for the app as a whole. Ink/Linen are deliberately absent:

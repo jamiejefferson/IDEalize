@@ -851,7 +851,16 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// needs lives in one place (Appearance ▸ Terminal), and a stale override
     /// used to win over the theme silently.
     func applyTheme(_ theme: Theme, font: NSFont) {
-        terminalView.nativeBackgroundColor = theme.background
+        // Under a background wash the grid goes transparent and the container's
+        // gradient layer (TerminalViewRep) shows through; the flat colour would
+        // otherwise sit opaquely on top of it.
+        let ground: NSColor = theme.backgroundGradient == nil ? theme.background : .clear
+        terminalView.nativeBackgroundColor = ground
+        // SwiftTerm's setter doesn't refresh the view's layer background — only
+        // its one-time setup does, leaving the layer on the library default
+        // (black). Opaque cell fills always cover it; a transparent grid shows
+        // it, so keep the layer in step ourselves.
+        terminalView.layer?.backgroundColor = ground.cgColor
         terminalView.nativeForegroundColor = theme.foreground
         // Knocked back, and never the focus-ring outline: SwiftTerm draws an
         // unfocused caret as a 3pt stroke around the whole cell, which is the
