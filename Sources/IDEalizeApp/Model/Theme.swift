@@ -16,6 +16,11 @@ struct Theme: Identifiable, Hashable {
     /// to be lighter than the faintest text on the grid. Left nil it's derived
     /// from the theme's own ink and ground; set it to place it by eye.
     var rule: NSColor?
+    /// Optional vertical wash behind the grid (top → bottom). When set, the
+    /// grid and its margins paint this instead of the flat `background`, which
+    /// stays the wash's midpoint so every derived surface, contrast check and
+    /// `isDark` still has a single ground to reason against.
+    var backgroundGradient: [NSColor]?
 
     static func rgb(_ r: Int, _ g: Int, _ b: Int) -> NSColor {
         NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
@@ -186,33 +191,36 @@ struct Theme: Identifiable, Hashable {
         rule: rgb(226, 226, 224)   // #E2E2E0 — placed by eye against the paper
     )
 
-    /// Y2K — pastel millennium desktop: the soft sage-mint of an old OS
-    /// wallpaper under deep teal ink, with dusty-pink chrome, cherry red,
-    /// butter yellow and lavender. Sweet, faded, pixel-era. Terminal-only,
-    /// like Ink and Linen. Colour 7 is kept a legible grey-teal rather than
-    /// cream — it's the slot agents print body text in (see Linen).
+    /// Y2K — millennium candy on a sunrise wash. JJ's palette (Figma
+    /// `idealize` 35-17/35-32): a hot-pink → periwinkle vertical gradient
+    /// under violet, aqua, spring green, hot pink and salmon, with slate teal
+    /// carrying the body text. The yellow slot is the one colour not in the
+    /// set — ANSI needs one, so it's a butter tone matched to the sweetness.
+    /// Terminal-only, like Ink and Linen.
     static let y2k = Theme(
         name: "Y2K",
-        background: rgb(174, 199, 183),
-        foreground: rgb(44, 72, 77),
-        cursor: rgb(215, 106, 115),
-        selection: rgb(232, 197, 201),
+        background: rgb(219, 172, 227),   // gradient midpoint
+        foreground: rgb(40, 72, 78),
+        cursor: rgb(255, 116, 231),
+        selection: rgb(175, 202, 185),
         ansi: [
-            rgb(44, 72, 77),   rgb(197, 79, 88),  rgb(66, 118, 88),  rgb(158, 132, 44),
-            rgb(74, 108, 150), rgb(136, 104, 168),rgb(56, 122, 126), rgb(78, 102, 104),
-            rgb(104, 126, 122),rgb(221, 110, 118),rgb(92, 148, 116), rgb(180, 152, 62),
-            rgb(106, 138, 178),rgb(162, 132, 192),rgb(86, 150, 154), rgb(252, 249, 240),
-        ]
+            rgb(40, 72, 78),   rgb(249, 159, 149),rgb(3, 191, 174),  rgb(242, 197, 104),
+            rgb(137, 182, 250),rgb(195, 101, 255),rgb(1, 186, 178),  rgb(88, 134, 134),
+            rgb(127, 163, 163),rgb(255, 138, 126),rgb(5, 252, 140),  rgb(255, 217, 138),
+            rgb(169, 203, 255),rgb(255, 116, 231),rgb(0, 242, 218),  rgb(255, 255, 255),
+        ],
+        backgroundGradient: [rgb(253, 133, 202), rgb(183, 210, 251)]
     )
 
     /// This theme over a different ground. Selection is re-derived from the new
     /// background (a hand-placed one could vanish against it), and a hand-placed
     /// rule is dropped for the same reason — `ruleColor` re-solves against the
-    /// new ground. Ink, cursor and the ANSI palette stay the theme's own.
+    /// new ground. A background wash is dropped too: a custom ground is a solid.
+    /// Ink, cursor and the ANSI palette stay the theme's own.
     func withBackground(_ bg: NSColor) -> Theme {
         Theme(name: name, background: bg, foreground: foreground,
               cursor: cursor, selection: blend(bg, foreground, 0.14),
-              ansi: ansi, rule: nil)
+              ansi: ansi, rule: nil, backgroundGradient: nil)
     }
 
     /// Themes offered for the app as a whole. Ink/Linen are deliberately absent:

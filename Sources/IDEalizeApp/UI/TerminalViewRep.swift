@@ -134,9 +134,38 @@ struct TerminalViewRep: NSViewRepresentable {
         // terminal view: on a theme tap this update runs before the onChange
         // that re-themes the sessions, so the view's own colour is still the
         // old theme's — which left the margins one tap behind.
-        container.layer?.backgroundColor = settings.terminalTheme.background.cgColor
+        paintGround(container)
         hideScroller(term)
         return container
+    }
+
+    /// The container's ground: the theme's flat background, with its wash (if
+    /// any) layered over the full container — margins included — so the grid,
+    /// which goes transparent under a wash, sits directly on it.
+    private func paintGround(_ container: NSView) {
+        let theme = settings.terminalTheme
+        container.layer?.backgroundColor = theme.background.cgColor
+        let existing = container.layer?.sublayers?
+            .compactMap { $0 as? CAGradientLayer }
+            .first { $0.name == "terminalGroundWash" }
+        guard let colors = theme.backgroundGradient else {
+            existing?.removeFromSuperlayer()
+            return
+        }
+        let wash: CAGradientLayer
+        if let existing {
+            wash = existing
+        } else {
+            wash = CAGradientLayer()
+            wash.name = "terminalGroundWash"
+            wash.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+            container.layer?.insertSublayer(wash, at: 0)
+        }
+        // Non-flipped layer geometry: (0.5, 1) is the top edge on macOS.
+        wash.startPoint = CGPoint(x: 0.5, y: 1)
+        wash.endPoint = CGPoint(x: 0.5, y: 0)
+        wash.colors = colors.map(\.cgColor)
+        wash.frame = container.bounds
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
@@ -150,7 +179,7 @@ struct TerminalViewRep: NSViewRepresentable {
             context.coordinator.unfreeze()
             context.coordinator.thawStalePins()
         }
-        nsView.layer?.backgroundColor = settings.terminalTheme.background.cgColor
+        paintGround(nsView)
         hideScroller(session.terminalView)
     }
 
