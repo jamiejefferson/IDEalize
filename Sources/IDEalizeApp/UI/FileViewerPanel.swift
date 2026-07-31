@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The themed document panel — edits the open file, or offers to create a new
 /// markdown doc when nothing is open. Sits between the file explorer and the
@@ -19,8 +20,8 @@ struct FileViewerPanel: View {
     @State private var contextConfirm = false
     /// Parsed markdown outline for navigation.
     @State private var outline = MarkdownOutline(headings: [])
-    /// Reference to the TextEditor for scrolling to headings.
-    @State private var editorTextBinding: String = ""
+    /// Line number to scroll to when a heading is selected.
+    @State private var scrollToLine: Int?
 
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.doc, base: CGFloat(settings.fontSize), background: theme.background) }
@@ -73,19 +74,18 @@ struct FileViewerPanel: View {
         if let message {
             centeredMessage(message, icon: "doc")
         } else if file != nil {
-            TextEditor(text: $content)
-                .font(style.font(CGFloat(settings.fontSize)))
-                .foregroundStyle(style.textColor)
-                .lineSpacing(style.lineSpacing)
-                .scrollContentBackground(.hidden)
-                .background(style.background)
-                .padding(6)
-                // Disabled rather than merely unsaved, so a provisioned file can't
-                // be typed into and silently lost. `load()` also leaves `loadedURL`
-                // nil for these, which keeps `dirty` false and makes both `save()`
-                // and the switch-away flush no-ops.
-                .disabled(isReadOnly)
-                .onChange(of: content) { if loadedURL != nil { dirty = true } }
+            ScrollableMarkdownEditor(
+                text: $content,
+                isEditable: !isReadOnly,
+                isSelectable: true,
+                font: NSFont.systemFont(ofSize: CGFloat(settings.fontSize)),
+                textColor: style.textColor.toNSColor(),
+                backgroundColor: theme.background,
+                lineSpacing: style.lineSpacing,
+                scrollToLineNumber: scrollToLine
+            )
+            .padding(6)
+            .onChange(of: content) { if loadedURL != nil { dirty = true } }
         } else {
             // No document open — offer to create one.
             VStack(spacing: 14) {
@@ -339,8 +339,12 @@ struct FileViewerPanel: View {
         recorder.pendingTranscript = nil
     }
 
-    /// Jump to a heading in the document.
+    /// Jump to a heading in the document by scrolling to its line.
     private func jumpToHeading(_ heading: MarkdownHeading) {
+        scrollToLine = heading.lineIndex
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            scrollToLine = nil
+        }
     }
 }
 
@@ -357,5 +361,11 @@ private struct RecordingDot: View {
                     bright = true
                 }
             }
+    }
+}
+
+private extension Color {
+    func toNSColor() -> NSColor {
+        return NSColor(self)
     }
 }

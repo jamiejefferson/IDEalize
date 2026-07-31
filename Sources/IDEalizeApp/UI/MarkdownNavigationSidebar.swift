@@ -44,30 +44,25 @@ struct MarkdownNavigationSidebar: View {
     }
 
     private func headingButton(_ heading: MarkdownHeading) -> some View {
-        Button(action: { onSelectHeading(heading) }) {
-            HStack(spacing: 8) {
+        let indent = CGFloat(heading.level - 1) * 12
+        let fontSize = CGFloat(10 + (6 - heading.level))
+        return Button(action: { onSelectHeading(heading) }) {
+            HStack(spacing: 6) {
                 Text(heading.title)
-                    .font(settings.ui(11))
+                    .font(settings.ui(fontSize))
                     .foregroundStyle(Color(theme.foreground))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                Spacer()
+                Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
         }
         .buttonStyle(.plain)
         .help(heading.title)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 1)
-        .background(
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color(theme.surface).opacity(0.5))
-        )
-        .padding(.horizontal, 8)
+        .padding(.leading, 8 + indent)
+        .padding(.trailing, 8)
         .padding(.vertical, 2)
-        .opacity(0.8)
         .contentShape(Rectangle())
     }
 }
