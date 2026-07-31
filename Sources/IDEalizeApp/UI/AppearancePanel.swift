@@ -285,7 +285,6 @@ struct AppearancePanel: View {
         surfaceSection(.chat)
         card("Chat panel") {
             slider("Input opacity", $settings.chatInputOpacity, 0.3...1.0, step: 0.02) { String(format: "%.0f%%", $0 * 100) }
-            slider("Input line spacing", $settings.chatInputLineSpacing, 0...16, step: 0.5) { String(format: "%.1f", $0) }
             slider("Shadow", $settings.chatShadowOpacity, 0...0.8, step: 0.02) { String(format: "%.0f%%", $0 * 100) }
             slider("Margins", $settings.chatMargin, 8...40, step: 1) { String(format: "%.0f", $0) }
             // The terminal backdrop is only blurred in chat mode, so it belongs
@@ -337,7 +336,6 @@ struct AppearancePanel: View {
         case .chat:
             return settings.appearance(.chat).isCustomised
                 || settings.chatInputOpacity != AppearanceDefaults.chatInputOpacity
-                || settings.chatInputLineSpacing != AppearanceDefaults.chatInputLineSpacing
                 || settings.chatShadowOpacity != AppearanceDefaults.chatShadowOpacity
                 || settings.chatMargin != AppearanceDefaults.chatMargin
                 || settings.terminalBlur != AppearanceDefaults.terminalBlur
@@ -361,7 +359,6 @@ struct AppearancePanel: View {
         case .chat:
             settings.setAppearance(.empty, for: .chat)
             settings.chatInputOpacity = AppearanceDefaults.chatInputOpacity
-            settings.chatInputLineSpacing = AppearanceDefaults.chatInputLineSpacing
             settings.chatShadowOpacity = AppearanceDefaults.chatShadowOpacity
             settings.chatMargin = AppearanceDefaults.chatMargin
             settings.terminalBlur = AppearanceDefaults.terminalBlur
