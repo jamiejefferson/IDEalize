@@ -100,7 +100,14 @@ enum PiTranscript {
     }
 
     private static func sessionDir(forCwd cwd: String) -> URL {
-        sessionsRoot().appendingPathComponent(encodedDir(for: cwd), isDirectory: true)
+        // Pi names the directory after its process's getcwd(), which resolves
+        // symlinks — e.g. /tmp/... is really /private/tmp/... — while IDEalize
+        // carries the path as the user gave it. POSIX realpath(3), not
+        // Foundation's resolvingSymlinksInPath, is what matches getcwd():
+        // Foundation deliberately keeps /tmp and strips /private.
+        var buf = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let physical = realpath(cwd, &buf).map { String(cString: $0) } ?? cwd
+        return sessionsRoot().appendingPathComponent(encodedDir(for: physical), isDirectory: true)
     }
 
     /// The transcript for a specific session id under a project's cwd, if it
