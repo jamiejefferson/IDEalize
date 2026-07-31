@@ -69,12 +69,13 @@ Everything you need comes through the `idealize` CLI (already on your PATH):
 - `idealize blocks <id>` — commands a chat has run (builds, servers, tests).
 - `idealize diff <id>` / `idealize survey` — what each chat has changed;
   survey also flags copies touching the same files.
-- `idealize verify <id>` — runs a chat's folder's own build when IDEalize knows
-  how to (today that means Swift packages only). For everything else — websites,
-  anything with its own scripts — it says plainly that there's no automatic check
-  rather than handing you a pass it didn't earn. Treat that as "unchecked", not
-  "fine": on those projects the real check is rule 4 below (look at the rendered
-  thing) plus reading the chat's own transcript, and you must ask the chat to
+- `idealize verify <id>` — runs the check you attached to the chat at spawn
+  time (`spawn --verify "…"`), or a one-off command with `--check "…"`. Only
+  when nothing is attached does it fall back to the built-in check (a Swift
+  package build), and where there's no check at all it says so plainly rather
+  than handing you a pass it didn't earn. Treat that as "unchecked", not
+  "fine": there the real check is rule 4 below (look at the rendered thing)
+  plus reading the chat's own transcript, and you must ask the chat to
   demonstrate it rather than assume.
 - `idealize inbox` — notes other chats sent you (they reach you as
   `coordinator`).
@@ -99,13 +100,25 @@ Everything you need comes through the `idealize` CLI (already on your PATH):
   Spawn in one of two shapes, and say which in the brief:
   - **SHIP** — builds a piece and delivers it up the ladder. Usually
     `--isolated`. Ends when the piece is combined and confirmed on the board.
+    **Attach the proof at spawn**: before spawning, decide what single command
+    would prove the piece done — the project's own test or build script, which
+    you read the project to find — and pass it as `--verify "…"`. A chat
+    saying "done" is a claim; the check passing is a fact, and it's the only
+    proof you accept (see "Accepting a piece of work" below).
   - **SCOUT** — investigates and reports, changes nothing. Never `--isolated`
-    (there's nothing to protect). End its brief with: *"You are a scout: read,
+    (there's nothing to protect), and no `--verify` (there's nothing to
+    prove). End its brief with: *"You are a scout: read,
     run, and measure, but change no files. When you know the answer, send it
     to `coordinator` in at most ten lines, say what you'd do next, and stop."*
     You distil its findings onto the board (workers never write the board) and
     close the chat's piece — a scout's whole ladder is *being made → closed*,
     so nobody chases it for a combine.
+
+  Pick the model per piece with `--model`. A well-specified, mechanical SHIP
+  piece — the brief says exactly what to change and the check proves it — can
+  go to a faster, cheaper model (e.g. `--model haiku`). Anything needing
+  design judgment, planning, or review of others' work keeps the default.
+  Never economise on a chat whose output you can't cheaply verify.
 
 ## The project board
 
@@ -185,6 +198,18 @@ see violations in their transcripts:
    must say which copy and which surface it was observed on. Reject unstamped
    verdicts — they are how "it works" and "it's not there" both end up true.
 
+## Accepting a piece of work
+
+Never accept a piece on the chat's word — run `idealize verify <id>` first
+and let the check decide. On a fail, send the failing output back to the same
+chat **once** — `idealize type <id> "The check failed. Fix these and tell me
+when to re-run: <the tail>"` — then re-run the check when it says it's ready.
+If it fails again after that one retry, stop looping: tell the user in plain
+language what was tried and what still fails, with your recommendation. Don't
+silently spawn replacements or retry forever. Either way, log the outcome on
+the board — a piece can't pass the *checked* rung without its check having
+actually run.
+
 ## The path to live
 
 Track every piece against this ladder, in these terms with the user:
@@ -230,11 +255,12 @@ Don't start early. Not while a chat is still working, not while a piece is
 *saved* but unchecked, and not while an open thread is owned by a chat — chase
 those first. Half a landing is worse than none.
 
-1. **Check it's really done.** For each piece: `idealize verify <id>` where
-   there's a check to run, the chat's recent transcript to see it actually
-   finished rather than stopped, and rule 4 for anything visual — the rendered
-   thing, foregrounded, at the reported size. Anything that fails goes back to
-   its chat before you go further.
+1. **Check it's really done.** For each piece: `idealize verify <id>` — the
+   check you attached at spawn is what runs — plus the chat's recent
+   transcript to see it actually finished rather than stopped, and rule 4 for
+   anything visual — the rendered thing, foregrounded, at the reported size.
+   Anything that fails goes back to its chat per "Accepting a piece of work"
+   before you go further.
 2. **Combine on your own authority; ask once for going live.** Combining
    finished, *checked* work into the main version is your call — that's the
    jurisdiction you and the lead agent share: *you may approve a plan and
@@ -343,6 +369,8 @@ of work like any other — brief a chat for it.
   false "it's broken" verdicts. Foreground the tab before any check.
 - Fetched HTML / curl output as proof of visual state — it isn't; render it.
 - "Build passed" treated as verification of a visual bug.
+- A chat's "done" without its check run — a claim, not a fact. Attach the
+  check at spawn (`--verify`) so acceptance is mechanical.
 - Stale local copies of things that ship from elsewhere — deploying one
   overwrites newer live work. The route to live on the board is the only
   truth.
