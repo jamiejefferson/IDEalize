@@ -96,8 +96,8 @@ struct QAChatBox: View {
     private var chatTextColor: Color { chatStyle.textColor }
     private var working: Bool { session.botWorking }
 
-    /// Approx height of one line of chat input at the current font + line spacing.
-    private var chatLineHeight: CGFloat { size * 1.2 + CGFloat(settings.chatInputLineSpacing) }
+    /// Approx height of one line of chat input at the current font.
+    private var chatLineHeight: CGFloat { size * 1.2 + 2 }
     /// Active/standby height for the focused composer: comfortably holds five-plus
     /// lines before it has to scroll (the field itself keeps growing to ~14 lines,
     /// then scrolls), and — sized generously at ~6.5 lines — it also rises up over the
@@ -119,7 +119,9 @@ struct QAChatBox: View {
                 .background(dockedBackground)
         } else if collapsed {
             inputLozenge
-                .padding(.horizontal, 14).padding(.vertical, 8)
+                // Bottom margin matches the 14pt sides so the lozenge sits evenly
+                // inset from the pane edges; the top stays tighter to the viewer.
+                .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 14)
         } else {
             dockedView
         }
@@ -140,7 +142,8 @@ struct QAChatBox: View {
                 Rectangle().fill(Color(theme.border).opacity(0.5)).frame(height: 1)
             }
             inputLozenge
-                .padding(.horizontal, 14).padding(.vertical, 10)
+                // Same even inset as the floating lozenge: bottom matches the sides.
+                .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 14)
                 .frame(maxHeight: flowMode ? .infinity : nil, alignment: .bottom)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -972,7 +975,17 @@ struct QAChatBox: View {
         // (docked and the floating solo form), so the handlers live here rather
         // than on the docked container — the floating input is now the resting
         // form and must drive these too.
-        .onAppear { installDictationKey() }
+        .onAppear {
+            installDictationKey()
+            // A just-opened chat is ready to type into: the workspace flags the
+            // session it created, and the first input on screen for it takes the
+            // caret. Deferred a beat — focus set during onAppear can be dropped
+            // while the new pane is still being installed in the hierarchy.
+            if workspace.pendingInputFocusSessionID == session.id {
+                workspace.pendingInputFocusSessionID = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused = true }
+            }
+        }
         .onChange(of: session.botWorking) { _, working in
             guard !working else { return }
             // The review turn has ended — adopt the agent's `review` from disk.
@@ -1005,7 +1018,6 @@ struct QAChatBox: View {
             .textFieldStyle(.plain)
             .font(chatStyle.font(size))
             .foregroundStyle(chatTextColor)
-            .lineSpacing(CGFloat(settings.chatInputLineSpacing))
             .lineLimit(1...14)
             // Fill the row's width so long lines wrap (and reflow as the pane
             // narrows) instead of stretching the field past the card edge.
@@ -1285,8 +1297,10 @@ struct QAChatBox: View {
             .map { $0.path.contains(" ") ? "\"\($0.path)\"" : $0.path }
             .joined(separator: " ")
         settings.hasSeenWelcome = true   // first message dismisses the welcome
-        // Prepend the effort keyword ("think" / "ultrathink" …) to dial reasoning.
-        let effort = session.effortKeyword
+        // Prepend the effort keyword ("think" / "ultrathink" …) to dial reasoning
+        // — but never onto a slash command ("/model opus"), which the agent must
+        // see verbatim to recognise.
+        let effort = msg.hasPrefix("/") ? "" : session.effortKeyword
         let full = [effort, msg, attachPaths].filter { !$0.isEmpty }.joined(separator: " ")
         guard !msg.isEmpty || !attachPaths.isEmpty else { return }
         session.submitInput(full)

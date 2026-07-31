@@ -285,7 +285,6 @@ struct AppearancePanel: View {
         surfaceSection(.chat)
         card("Chat panel") {
             slider("Input opacity", $settings.chatInputOpacity, 0.3...1.0, step: 0.02) { String(format: "%.0f%%", $0 * 100) }
-            slider("Input line spacing", $settings.chatInputLineSpacing, 0...16, step: 0.5) { String(format: "%.1f", $0) }
             slider("Shadow", $settings.chatShadowOpacity, 0...0.8, step: 0.02) { String(format: "%.0f%%", $0 * 100) }
             slider("Margins", $settings.chatMargin, 8...40, step: 1) { String(format: "%.0f", $0) }
             // The terminal backdrop is only blurred in chat mode, so it belongs
@@ -312,6 +311,11 @@ struct AppearancePanel: View {
                     }
                 }
             }
+            Text("Your own background colour, over any theme. Clear it to go back to the theme's.")
+                .font(settings.ui(10)).foregroundStyle(Color(theme.secondaryForeground))
+                .padding(.top, 4)
+            colorRow("Background", $settings.terminalBgHex,
+                     fallback: Color(Theme.named(settings.terminalThemeName).background))
         }
         card("Terminal type") {
             globalFontRow("Font", $settings.fontName, families: terminalFamilies)
@@ -337,7 +341,6 @@ struct AppearancePanel: View {
         case .chat:
             return settings.appearance(.chat).isCustomised
                 || settings.chatInputOpacity != AppearanceDefaults.chatInputOpacity
-                || settings.chatInputLineSpacing != AppearanceDefaults.chatInputLineSpacing
                 || settings.chatShadowOpacity != AppearanceDefaults.chatShadowOpacity
                 || settings.chatMargin != AppearanceDefaults.chatMargin
                 || settings.terminalBlur != AppearanceDefaults.terminalBlur
@@ -347,6 +350,7 @@ struct AppearancePanel: View {
                 || settings.fontSize != AppearanceDefaults.fontSize
                 || settings.terminalLineSpacing != AppearanceDefaults.terminalLineSpacing
                 || settings.terminalMargin != AppearanceDefaults.terminalMargin
+                || settings.terminalBgHex != AppearanceDefaults.terminalBgHex
         default:
             return s.panel.map { settings.appearance($0).isCustomised } ?? false
         }
@@ -361,7 +365,6 @@ struct AppearancePanel: View {
         case .chat:
             settings.setAppearance(.empty, for: .chat)
             settings.chatInputOpacity = AppearanceDefaults.chatInputOpacity
-            settings.chatInputLineSpacing = AppearanceDefaults.chatInputLineSpacing
             settings.chatShadowOpacity = AppearanceDefaults.chatShadowOpacity
             settings.chatMargin = AppearanceDefaults.chatMargin
             settings.terminalBlur = AppearanceDefaults.terminalBlur
@@ -371,6 +374,7 @@ struct AppearancePanel: View {
             settings.fontSize = AppearanceDefaults.fontSize
             settings.terminalLineSpacing = AppearanceDefaults.terminalLineSpacing
             settings.terminalMargin = AppearanceDefaults.terminalMargin
+            settings.terminalBgHex = AppearanceDefaults.terminalBgHex
         default:
             if let p = s.panel { settings.setAppearance(.empty, for: p) }
         }

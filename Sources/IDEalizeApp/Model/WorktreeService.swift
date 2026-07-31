@@ -214,7 +214,23 @@ enum WorktreeService {
     /// (`Package.swift` → `swift build`); when there's none, returns `ran: false`
     /// and says so rather than faking a pass. Heavy: callers must run this OFF the
     /// main thread.
-    static func verify(_ dir: String) -> IPCVerify {
+    static func verify(_ dir: String, check: String? = nil) -> IPCVerify {
+        // An attached check wins over autodetect: the caller (a coordinator, at
+        // spawn time or per-run) decided what proves this piece of work done, and
+        // the executed result — not the chat's claim — is the proof. The command
+        // only ever arrives via IPC (`spawn --verify` / `verify --check`); this
+        // code never invents one. 15-minute budget: custom checks are usually a
+        // test script, not a cold build.
+        if let check = check?.trimmingCharacters(in: .whitespacesAndNewlines), !check.isEmpty {
+            let r = Subprocess.run("/bin/sh", ["-c", check], cwd: dir,
+                                   extraEnv: ["GIT_TERMINAL_PROMPT": "0"], timeout: 900)
+            let passed = (r?.status == 0)
+            let combined = (r?.stdout ?? "") + "\n" + (r?.stderr ?? "")
+            return IPCVerify(ran: true, passed: passed, check: check,
+                             tail: tailLines(combined, 40),
+                             summary: passed ? "The check passed."
+                                             : "The check didn't pass — there are problems to sort out.")
+        }
         let fm = FileManager.default
         if fm.fileExists(atPath: dir + "/Package.swift") {
             let r = Subprocess.run("/usr/bin/env", ["swift", "build"], cwd: dir,

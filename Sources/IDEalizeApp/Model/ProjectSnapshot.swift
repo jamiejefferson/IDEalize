@@ -34,13 +34,21 @@ struct PersistedChat: Codable {
     /// folder. Same legacy-decode contract as `isProjectAgent`.
     var isLeadAgent: Bool = false
 
+    /// The check attached at spawn (`idealize spawn --verify`) that proves this
+    /// chat's piece of work done — it's the piece's definition of done, so it
+    /// survives restart. Note the safe copy itself is *not* persisted today, so
+    /// a restored chat's check runs in the shared project folder.
+    var verifyCommand: String?
+
     init(customName: String?, wasClaude: Bool, agentBinary: String?,
-         isProjectAgent: Bool = false, isLeadAgent: Bool = false) {
+         isProjectAgent: Bool = false, isLeadAgent: Bool = false,
+         verifyCommand: String? = nil) {
         self.customName = customName
         self.wasClaude = wasClaude
         self.agentBinary = agentBinary
         self.isProjectAgent = isProjectAgent
         self.isLeadAgent = isLeadAgent
+        self.verifyCommand = verifyCommand
     }
 
     init(from decoder: Decoder) throws {
@@ -50,6 +58,7 @@ struct PersistedChat: Codable {
         agentBinary = try c.decodeIfPresent(String.self, forKey: .agentBinary)
         isProjectAgent = try c.decodeIfPresent(Bool.self, forKey: .isProjectAgent) ?? false
         isLeadAgent = try c.decodeIfPresent(Bool.self, forKey: .isLeadAgent) ?? false
+        verifyCommand = try c.decodeIfPresent(String.self, forKey: .verifyCommand)
     }
 }
 

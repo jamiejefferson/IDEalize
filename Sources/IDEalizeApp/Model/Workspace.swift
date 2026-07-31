@@ -90,6 +90,12 @@ final class Workspace: ObservableObject {
     /// Bumped by the Focus Message Input command (⌘I); the focused pane's chat
     /// input observes it and takes the caret.
     @Published var focusInputRequest: Int = 0
+    /// A chat the user just opened, whose message input should take the caret
+    /// the moment it lands on screen — so a new chat is ready to type into
+    /// without a click. Set by `newTab` (not during restore, which would fight
+    /// over it across many tabs) and consumed by the first input that appears
+    /// for the session.
+    var pendingInputFocusSessionID: String?
     /// Which section (tab) of the Appearance panel is showing. Starts on the
     /// theme, which is the base everything else layers over.
     @Published var appearanceSection: AppearanceSection = .theme
@@ -337,6 +343,7 @@ final class Workspace: ObservableObject {
         }
         selectedTabID = tab.id
         focusedSessionID = session.id
+        if !isRestoring { pendingInputFocusSessionID = session.id }
         bindName(tab, to: session)
         scheduleSnapshotSave()
         considerProjectAgent(for: session, launchOverride: launchOverride)
@@ -1119,6 +1126,9 @@ final class Workspace: ObservableObject {
                     launchOverride: restored?.command,
                     openingTurn: restored?.openingTurn,
                     suppressAutoLaunch: restored == nil)
+                // The piece's check survives restart (its definition of done);
+                // the safe copy doesn't, so the check runs in the shared folder.
+                session.verifyCommand = chat.verifyCommand
                 if let name = chat.customName, !name.isEmpty {
                     tabs.last?.customName = name   // newTab just inserted this tab
                 } else if chat.isLeadAgent {
@@ -1190,7 +1200,8 @@ final class Workspace: ObservableObject {
                                          wasClaude: binary == "claude",
                                          agentBinary: binary,
                                          isProjectAgent: tab.sessions.first?.isProjectAgent ?? false,
-                                         isLeadAgent: tab.sessions.first?.isLeadAgent ?? false)
+                                         isLeadAgent: tab.sessions.first?.isLeadAgent ?? false,
+                                         verifyCommand: tab.sessions.first?.verifyCommand)
                 }
             return PersistedProject(path: group.path, chats: chats)
         }
@@ -1444,9 +1455,18 @@ final class Workspace: ObservableObject {
                                                     branch: copy.branch,
                                                     baseCommit: copy.base)
             }
-            let launch = ProjectAgent.childLaunch(initialPrompt: request.body)
+            let launch = ProjectAgent.childLaunch(initialPrompt: request.body,
+                                                  model: request.model)
             let child = newTab(projectPath: project, launchOverride: launch.command,
                                openingTurn: launch.openingTurn, safeCopy: safeCopy)
+            // Remember the check that proves this piece done (`--verify "CMD"`),
+            // so `idealize verify <id>` later runs it. Stored verbatim; empty
+            // means "not attached". The app never invents a check itself.
+            if let check = request.check?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !check.isEmpty {
+                child.verifyCommand = check
+                scheduleSnapshotSave()
+            }
             // Name the tab after the piece of work, so the sidebar reads as the
             // project's actual jobs rather than "Chat 3", "Chat 4". The caller's own
             // label wins — it knows what the piece *is*, which the opening words of
@@ -1653,20 +1673,26 @@ final class Workspace: ObservableObject {
     private func handleVerify(_ request: IPCRequest) -> IPCResponse {
         var authError: String?
         var dir: String?
+        var storedCheck: String?
         let resolve = {
             guard self.isAuthorized(request) else {
                 authError = "unauthorized: missing or invalid IDEALIZE_TOKEN"; return
             }
             guard let t = request.target ?? request.from else { authError = "unknown chat"; return }
             switch self.resolveTarget(t, from: request.from) {
-            case .success(let s): dir = s.workingDirectory
+            case .success(let s):
+                dir = s.workingDirectory
+                storedCheck = s.verifyCommand
             case .failure(let e): authError = e.message
             }
         }
         if Thread.isMainThread { resolve() } else { DispatchQueue.main.sync(execute: resolve) }
         if let authError { return .failure(authError) }
         guard let dir, !dir.isEmpty else { return .failure("this chat has no folder to check") }
-        return IPCResponse(ok: true, verify: WorktreeService.verify(dir))
+        // A one-off `--check` wins for this run only (never stored), else the
+        // check attached at spawn, else the built-in autodetect.
+        let check = (request.check?.isEmpty == false) ? request.check : storedCheck
+        return IPCResponse(ok: true, verify: WorktreeService.verify(dir, check: check))
     }
 
     /// Whether the request carries the per-instance capability token. Compared

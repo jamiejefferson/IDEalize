@@ -172,4 +172,42 @@ final class WorktreeServiceTests: XCTestCase {
         XCTAssertFalse(result.ran, "with no known check, verify must not claim to have run one")
         XCTAssertNil(result.passed, "and must not report a pass it never observed")
     }
+
+    func testVerifyRunsAnAttachedCheckAndReportsAPass() {
+        let dir = tempDir()
+        let result = WorktreeService.verify(dir, check: "exit 0")
+        XCTAssertTrue(result.ran)
+        XCTAssertEqual(result.passed, true)
+        XCTAssertEqual(result.check, "exit 0", "the result must say which command proved it")
+    }
+
+    func testVerifyReportsAFailingCheckWithItsOutput() {
+        let dir = tempDir()
+        let result = WorktreeService.verify(dir, check: "echo boom >&2; exit 1")
+        XCTAssertTrue(result.ran)
+        XCTAssertEqual(result.passed, false)
+        XCTAssertTrue(result.tail.contains("boom"),
+                      "the failing output travels back so the chat can be told what broke")
+    }
+
+    func testAttachedCheckWinsOverAutodetect() {
+        let dir = tempDir()
+        write(dir, "Package.swift", "// swift-tools-version:5.9\n")  // would autodetect swift build
+        let result = WorktreeService.verify(dir, check: "true")
+        XCTAssertEqual(result.check, "true", "an attached check must run instead of the built-in build")
+        XCTAssertEqual(result.passed, true)
+    }
+
+    func testEmptyCheckFallsBackToAutodetect() {
+        let plain = tempDir()
+        let result = WorktreeService.verify(plain, check: "   ")
+        XCTAssertFalse(result.ran, "a blank check means 'not attached', never a run")
+    }
+
+    func testCheckRunsInTheChatsOwnFolder() {
+        let dir = tempDir()
+        write(dir, "marker.txt", "here\n")
+        let result = WorktreeService.verify(dir, check: "test -f marker.txt")
+        XCTAssertEqual(result.passed, true, "the check must execute in the given directory")
+    }
 }

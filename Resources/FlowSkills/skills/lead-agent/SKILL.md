@@ -104,7 +104,9 @@ inbox must be able to answer "where are we?" without asking anyone. Sections:
 All tiers share one vocabulary: the ladder rungs (*being made → preview →
 saved → checked → combined → live → confirmed → closed*) plus four blocker
 states (`none / stuck / waiting-on-lead / waiting-on-user`). No tier invents
-synonyms.
+synonyms. *Checked* means a check actually ran: coordinators attach a proving
+check to every building task at spawn, and no piece reports *checked* — and no
+`LIVE?` recommendation reaches you — on a chat's claim alone.
 
 Project agents report **upward only state changes**, one line each, in this
 grammar:

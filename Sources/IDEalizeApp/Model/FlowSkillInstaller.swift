@@ -33,7 +33,10 @@ enum FlowSkillInstaller {
     /// v12: added `lead-agent` (the fleet coordinator above the project agents);
     ///      project-agent gains "Reporting upward", ship/scout task shapes, and
     ///      self-serve combining (the one ask moves to go-live).
-    static let version = 12
+    /// v13: verification-first spawns — attach the proving check at spawn
+    ///      (`spawn --verify`), accept work only on an executed check with one
+    ///      retry-then-escalate — and per-task model routing (`spawn --model`).
+    static let version = 13
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
     /// Add-only, and only for files the app owns: every entry here is *overwritten*

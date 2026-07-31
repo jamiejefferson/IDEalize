@@ -27,6 +27,24 @@ final class IDEalizeCoreTests: XCTestCase {
         XCTAssertNil(decoded.token)
     }
 
+    func testSpawnCheckAndModelRoundTrip() throws {
+        let req = IPCRequest(command: .spawn, from: "a", body: "build the footer",
+                             check: "npm test", model: "haiku")
+        let data = try IPC.makeEncoder().encode(req)
+        let decoded = try IPC.makeDecoder().decode(IPCRequest.self, from: data)
+        XCTAssertEqual(decoded.check, "npm test")
+        XCTAssertEqual(decoded.model, "haiku")
+    }
+
+    func testSpawnWithoutCheckOrModelDecodes() throws {
+        // Older clients (no check/model fields) must still decode — both stay nil.
+        let json = #"{"command":"spawn","body":"task"}"#.data(using: .utf8)!
+        let decoded = try IPC.makeDecoder().decode(IPCRequest.self, from: json)
+        XCTAssertEqual(decoded.command, .spawn)
+        XCTAssertNil(decoded.check)
+        XCTAssertNil(decoded.model)
+    }
+
     // MARK: - Capability token loading
 
     /// Save/restore the two env vars `loadToken` consults (process-wide state).
