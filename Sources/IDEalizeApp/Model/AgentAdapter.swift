@@ -108,6 +108,15 @@ protocol AgentAdapter {
     /// nil when IDEalize shouldn't auto-launch it (screen-only adapters).
     var launchCommand: String? { get }
 
+    /// Flag that hands the agent a fresh session id at launch (e.g.
+    /// "--session-id"), so its transcript is identifiable. nil when the agent
+    /// can't bind a session at launch (Kimi prints its id instead).
+    var sessionIdLaunchFlag: String? { get }
+
+    /// Flags meaning a launch command already picks its own session, so a fresh
+    /// id must not be appended alongside them.
+    var sessionSelectorFlags: [String] { get }
+
     /// Command that relaunches this agent resuming the given session, or nil
     /// when it can't resume by id. Drives "reopen archived chat".
     func resumeCommand(sessionId: String) -> String?
@@ -131,6 +140,8 @@ extension AgentAdapter {
 
     func detectSessionId(lines: [String]) -> String? { nil }
     var launchCommand: String? { nil }
+    var sessionIdLaunchFlag: String? { nil }
+    var sessionSelectorFlags: [String] { [] }
     func resumeCommand(sessionId: String) -> String? { nil }
     func sessionId(fromTranscriptURL url: URL) -> String? { nil }
 }
@@ -140,7 +151,7 @@ extension AgentAdapter {
 enum AgentRegistry {
     /// All registered adapters, most specific first.
     static var adapters: [AgentAdapter] {
-        var list: [AgentAdapter] = [ClaudeAgentAdapter(), KimiAgentAdapter()]
+        var list: [AgentAdapter] = [ClaudeAgentAdapter(), PiAgentAdapter(), KimiAgentAdapter()]
         list.append(contentsOf: AgentProfileStore.shared.customAdapters())
         list.append(GenericAgentAdapter())
         return list

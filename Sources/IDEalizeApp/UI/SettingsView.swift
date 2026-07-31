@@ -60,10 +60,19 @@ struct SettingsView: View {
         Form {
             Section("Default launch command") {
                 Toggle("Run a command automatically in new terminals", isOn: $settings.launchOnNewTerminal)
+                Picker("Default agent", selection: defaultAgentSelection) {
+                    ForEach(defaultAgentChoices, id: \.binaryName) { agent in
+                        Text(agent.name).tag(agent.binaryName)
+                    }
+                    if selectedAgentBinary == "custom" {
+                        Text("Custom").tag("custom")
+                    }
+                }
+                .disabled(!settings.launchOnNewTerminal)
                 TextField("Command", text: $settings.defaultLaunchCommand)
                     .font(.system(.body, design: .monospaced))
                     .disabled(!settings.launchOnNewTerminal)
-                Text("e.g. claude --dangerously-skip-permissions, kimi, or another agent CLI")
+                Text("e.g. claude --dangerously-skip-permissions, pi, kimi, or another agent CLI")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Shell") {
@@ -92,6 +101,33 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Agents offered in the default-agent picker: every registered adapter
+    /// IDEalize knows how to launch (custom screen-only profiles have no
+    /// launch command, so they stay out).
+    private var defaultAgentChoices: [AgentAdapter] {
+        AgentRegistry.adapters.filter { $0.launchCommand != nil }
+    }
+
+    /// The adapter the current default command resolves to, or "custom" when
+    /// the command doesn't match any registered agent.
+    private var selectedAgentBinary: String {
+        AgentRegistry.adapter(forCommand: settings.defaultLaunchCommand
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased())?.binaryName ?? "custom"
+    }
+
+    /// Picking an agent swaps the command for that agent's preferred launch;
+    /// the text field below stays the place to add flags on top.
+    private var defaultAgentSelection: Binding<String> {
+        Binding(
+            get: { selectedAgentBinary },
+            set: { binary in
+                guard let cmd = AgentRegistry.adapters
+                    .first(where: { $0.binaryName == binary })?.launchCommand else { return }
+                settings.defaultLaunchCommand = cmd
+            }
+        )
     }
 
     private var sourceFolderLabel: String {
