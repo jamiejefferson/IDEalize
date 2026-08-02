@@ -40,8 +40,6 @@ struct IDEalizeApp: App {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         MiniModeManager.shared.restoreIfNeeded()
                     }
-                    // TEMPORARY: headless drag-selection check (env-gated).
-                    SelectionSelfTest.startIfRequested(workspace: workspace)
                 }
         }
         .windowStyle(.hiddenTitleBar)
