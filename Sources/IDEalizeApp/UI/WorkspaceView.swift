@@ -88,12 +88,16 @@ struct WorkspaceView: View {
                     // with that chat rather than jumping to the agent.
                     workspace.openProjectAgent(forProject: prompt.path, focus: false)
                     workspace.pendingProjectAgentPrompt = nil
+                    // The chat underneath was waiting for the caret while this
+                    // sheet held the keyboard — hand it over now.
+                    workspace.refocusInputAfterSheet()
                 },
                 onDismiss: {
                     // "Not now" settles the suggestion for this project so it
                     // doesn't reappear as more chats open this run.
                     workspace.dismissedProjectAgentSuggestions.insert(prompt.path)
                     workspace.pendingProjectAgentPrompt = nil
+                    workspace.refocusInputAfterSheet()
                 }
             )
         }

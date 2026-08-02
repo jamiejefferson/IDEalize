@@ -981,13 +981,20 @@ struct QAChatBox: View {
             // session it created, and the first input on screen for it takes the
             // caret. Deferred a beat — focus set during onAppear can be dropped
             // while the new pane is still being installed in the hierarchy.
-            FocusDebug.log("QAChatBox.onAppear session=\(session.id) collapsed=\(collapsed) docked=\(docked) viewerOnly=\(viewerOnly) pending=\(workspace.pendingInputFocusSessionID ?? "nil")")
-            if workspace.pendingInputFocusSessionID == session.id {
-                workspace.pendingInputFocusSessionID = nil
+            // A just-opened chat is ready to type into: the workspace claims the
+            // caret for the chat it created, and every input that appears for it
+            // while the claim is live takes the caret. The claim is not spent by
+            // the first one — a new pane rebuilds its composer a beat after it
+            // opens, and only the composer that survives that rebuild can hold
+            // the caret. Deferred a beat because focus set during onAppear is
+            // dropped while the pane is still being installed.
+            FocusDebug.log("QAChatBox.onAppear session=\(session.id) collapsed=\(collapsed) docked=\(docked) viewerOnly=\(viewerOnly) claimed=\(workspace.wantsInputFocus(session.id))")
+            if workspace.wantsInputFocus(session.id) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    guard workspace.wantsInputFocus(session.id) else { return }
                     focused = true
                     FocusDebug.log("set focused=true for \(session.id)")
-                    for delay in [0.1, 0.3, 0.8, 1.5] {
+                    for delay in [0.3, 1.0, 2.0, 3.0] {
                         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                             FocusDebug.log("after +\(delay)s focusState=\(focused) session=\(session.id)")
                         }
