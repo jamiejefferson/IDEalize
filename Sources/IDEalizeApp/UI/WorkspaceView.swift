@@ -80,6 +80,15 @@ struct WorkspaceView: View {
             ShortcutsHelpView()
         }
         .sheet(item: $workspace.pendingProjectAgentPrompt) { prompt in
+            // "Not now" settles the suggestion for this project so it doesn't
+            // reappear as more chats open this run, then hands the caret to the
+            // chat underneath — which was waiting for it while this sheet held
+            // the keyboard.
+            let dismiss = {
+                workspace.dismissedProjectAgentSuggestions.insert(prompt.path)
+                workspace.pendingProjectAgentPrompt = nil
+                workspace.refocusInputAfterSheet()
+            }
             ProjectAgentPromptSheet(
                 projectName: prompt.displayName,
                 onStart: {
@@ -88,13 +97,9 @@ struct WorkspaceView: View {
                     // with that chat rather than jumping to the agent.
                     workspace.openProjectAgent(forProject: prompt.path, focus: false)
                     workspace.pendingProjectAgentPrompt = nil
+                    workspace.refocusInputAfterSheet()
                 },
-                onDismiss: {
-                    // "Not now" settles the suggestion for this project so it
-                    // doesn't reappear as more chats open this run.
-                    workspace.dismissedProjectAgentSuggestions.insert(prompt.path)
-                    workspace.pendingProjectAgentPrompt = nil
-                }
+                onDismiss: dismiss
             )
         }
         .sheet(isPresented: $workspace.pendingLeadAgentPrompt) {

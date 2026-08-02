@@ -977,13 +977,18 @@ struct QAChatBox: View {
         // form and must drive these too.
         .onAppear {
             installDictationKey()
-            // A just-opened chat is ready to type into: the workspace flags the
-            // session it created, and the first input on screen for it takes the
-            // caret. Deferred a beat — focus set during onAppear can be dropped
-            // while the new pane is still being installed in the hierarchy.
-            if workspace.pendingInputFocusSessionID == session.id {
-                workspace.pendingInputFocusSessionID = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused = true }
+            // A just-opened chat is ready to type into: the workspace claims the
+            // caret for the chat it created, and every input that appears for it
+            // while the claim is live takes the caret. The claim is not spent by
+            // the first one — a new pane rebuilds its composer a beat after it
+            // opens, and only the composer that survives that rebuild can hold
+            // the caret. Deferred a beat because focus set during onAppear is
+            // dropped while the pane is still being installed.
+            if workspace.wantsInputFocus(session.id) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    guard workspace.wantsInputFocus(session.id) else { return }
+                    focused = true
+                }
             }
         }
         .onChange(of: session.botWorking) { _, working in
@@ -1005,7 +1010,16 @@ struct QAChatBox: View {
         // Menu: Terminal ▸ Focus Message Input (⌘I). Only the focused pane's
         // input answers, so the caret lands in exactly one place.
         .onChange(of: workspace.focusInputRequest) {
-            if session.id == workspace.focusedSessionID { focused = true }
+            if session.id == workspace.focusedSessionID {
+                // Re-assert rather than simply set. After a sheet has held the
+                // keyboard, the field can still report itself focused while the
+                // window's first responder has moved on — and assigning `true`
+                // to an already-true focus state changes nothing, so the caret
+                // would never come back. Dropping it first forces the field to
+                // be made first responder again.
+                focused = false
+                DispatchQueue.main.async { focused = true }
+            }
         }
     }
 

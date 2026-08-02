@@ -90,12 +90,22 @@ final class Workspace: ObservableObject {
     /// Bumped by the Focus Message Input command (⌘I); the focused pane's chat
     /// input observes it and takes the caret.
     @Published var focusInputRequest: Int = 0
-    /// A chat the user just opened, whose message input should take the caret
-    /// the moment it lands on screen — so a new chat is ready to type into
-    /// without a click. Set by `newTab` (not during restore, which would fight
-    /// over it across many tabs) and consumed by the first input that appears
-    /// for the session.
-    var pendingInputFocusSessionID: String?
+    /// The chat the user just opened, whose message input should take the caret
+    /// so the chat is ready to type into without a click — and the moment that
+    /// claim lapses.
+    ///
+    /// Deliberately *not* spent by the first input that appears. A brand-new
+    /// chat builds its composer, then rebuilds it a beat later as the pane
+    /// settles onto its resting view, which tears the first composer down and
+    /// takes the caret with it. A one-shot claim is always spent by that first,
+    /// doomed composer and the chat lands unfocused. So the claim stays live for
+    /// a short window instead, and *every* composer that appears for that chat
+    /// takes the caret — leaving it in the one that survives.
+    private var inputFocusClaim: (sessionID: String, until: Date)?
+    /// How long a new chat's claim on the caret stays live. Comfortably longer
+    /// than the pane's settle-and-rebuild (measured at ~0.6s) without lingering
+    /// so long that it could pull the caret back after the user has moved on.
+    private static let inputFocusClaimWindow: TimeInterval = 2.5
     /// Which section (tab) of the Appearance panel is showing. Starts on the
     /// theme, which is the base everything else layers over.
     @Published var appearanceSection: AppearanceSection = .theme
@@ -343,7 +353,9 @@ final class Workspace: ObservableObject {
         }
         selectedTabID = tab.id
         focusedSessionID = session.id
-        if !isRestoring { pendingInputFocusSessionID = session.id }
+        // Restore reopens many tabs through this same path; only a chat the user
+        // actually asked for gets the caret.
+        if !isRestoring { claimInputFocus(for: session.id) }
         bindName(tab, to: session)
         scheduleSnapshotSave()
         considerProjectAgent(for: session, launchOverride: launchOverride)
@@ -742,12 +754,44 @@ final class Workspace: ObservableObject {
         if let tab = tabs.first(where: { t in t.sessions.contains { $0.id == id } }) {
             if selectedTabID != tab.id { selectedTabID = tab.id }
         }
+        // The user has put their attention somewhere else — a new chat's claim
+        // on the caret must not pull it back out from under them.
+        inputFocusClaim = nil
         focusedSessionID = id
         session(withID: id)?.markRead()
     }
 
+    /// Claim the caret for a chat's message input for the next moment. See
+    /// `inputFocusClaim` for why the claim outlives the first composer.
+    func claimInputFocus(for id: String?) {
+        guard let id else { return }
+        inputFocusClaim = (id, Date().addingTimeInterval(Self.inputFocusClaimWindow))
+    }
+
+    /// Whether this chat's message input should take the caret as it appears.
+    /// Non-consuming: the claim lapses on its own deadline.
+    func wantsInputFocus(_ id: String) -> Bool {
+        guard let claim = inputFocusClaim else { return false }
+        return claim.sessionID == id && Date() < claim.until
+    }
+
+    /// Put the caret back in the focused chat's composer after a sheet that took
+    /// the keyboard closes over it. A modal sheet holds the keyboard while it is
+    /// up, so a new chat opened underneath one can't be typed into until the
+    /// sheet goes — this hands the caret over the moment it does. Deferred past
+    /// the sheet's dismissal so the field isn't asked to focus behind it.
+    func refocusInputAfterSheet() {
+        claimInputFocus(for: focusedSessionID)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            self?.focusInputRequest += 1
+        }
+    }
+
     func focusSession(_ id: String) {
         guard let tab = tabs.first(where: { t in t.sessions.contains { $0.id == id } }) else { return }
+        // Focus is being sent somewhere deliberately (the terminal takes the
+        // keyboard below); a different chat's claim on the caret is now stale.
+        if id != inputFocusClaim?.sessionID { inputFocusClaim = nil }
         selectedTabID = tab.id
         focusedSessionID = id
         if let s = session(withID: id) {
