@@ -16,7 +16,7 @@ enum SelectionSelfTest {
     static func startIfRequested(workspace: Workspace) {
         let env = ProcessInfo.processInfo.environment
         let mode = env["IDEALIZE_SELFTEST_SELECTION"] ?? ""
-        guard mode == "synthetic" || mode == "claude" else { return }
+        guard mode == "synthetic" || mode == "claude" || mode == "switch" else { return }
         let settle: Double = mode == "claude" ? 25 : 6
         DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
             waitForGrid(workspace: workspace, mode: mode, attemptsLeft: 40)
@@ -37,9 +37,20 @@ enum SelectionSelfTest {
         if ProcessInfo.processInfo.environment["IDEALIZE_SELFTEST_NOFIX"] == "1" {
             session.terminalView.dragSelectsUnderMouseReporting = false
         }
-        if mode == "synthetic" { feedSample(into: session.terminalView) }
+        if mode != "claude" { feedSample(into: session.terminalView) }
+        guard mode == "switch" else {
+            return DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                drag(in: session, mode: mode)
+            }
+        }
+        // The sequence we cannot otherwise reproduce: a session opened under one
+        // terminal theme, then switched to another while it is live — exactly what
+        // the Appearance panel does.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            drag(in: session, mode: mode)
+            AppSettings.shared.terminalThemeName = "Y2K"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                drag(in: session, mode: mode)
+            }
         }
     }
 
@@ -95,8 +106,21 @@ enum SelectionSelfTest {
         }
         tv.needsDisplay = true
         let selection = tv.getSelection() ?? ""
+        func hex(_ c: NSColor) -> String {
+            guard let s = c.usingColorSpace(.sRGB) else { return "\(c)" }
+            return String(format: "#%02X%02X%02X", Int(s.redComponent * 255 + 0.5),
+                          Int(s.greenComponent * 255 + 0.5), Int(s.blueComponent * 255 + 0.5))
+        }
+        // What the GRID is actually drawing with, versus what the theme says it
+        // should be. A gap between these two is a stale-theme bug.
+        let themeSays = AppSettings.shared.terminalTheme
         write(env: "IDEALIZE_SELFTEST_OUT", """
             mode=\(mode)
+            gridHighlight=\(hex(tv.selectedTextBackgroundColor)) \
+            gridSelectedText=\(hex(tv.selectedTextForegroundColor))
+            themeWantsHighlight=\(hex(themeSays.selectionColor)) \
+            themeWantsSelectedText=\(hex(themeSays.selectedTextColor))
+            stale=\(hex(tv.selectedTextBackgroundColor) != hex(themeSays.selectionColor))
             mouseMode=\(terminal.mouseMode)
             fixEnabled=\(tv.dragSelectsUnderMouseReporting)
             theme=\(AppSettings.shared.terminalTheme.name) \
