@@ -80,6 +80,15 @@ struct WorkspaceView: View {
             ShortcutsHelpView()
         }
         .sheet(item: $workspace.pendingProjectAgentPrompt) { prompt in
+            // "Not now" settles the suggestion for this project so it doesn't
+            // reappear as more chats open this run, then hands the caret to the
+            // chat underneath — which was waiting for it while this sheet held
+            // the keyboard.
+            let dismiss = {
+                workspace.dismissedProjectAgentSuggestions.insert(prompt.path)
+                workspace.pendingProjectAgentPrompt = nil
+                workspace.refocusInputAfterSheet()
+            }
             ProjectAgentPromptSheet(
                 projectName: prompt.displayName,
                 onStart: {
@@ -88,18 +97,22 @@ struct WorkspaceView: View {
                     // with that chat rather than jumping to the agent.
                     workspace.openProjectAgent(forProject: prompt.path, focus: false)
                     workspace.pendingProjectAgentPrompt = nil
-                    // The chat underneath was waiting for the caret while this
-                    // sheet held the keyboard — hand it over now.
                     workspace.refocusInputAfterSheet()
                 },
-                onDismiss: {
-                    // "Not now" settles the suggestion for this project so it
-                    // doesn't reappear as more chats open this run.
-                    workspace.dismissedProjectAgentSuggestions.insert(prompt.path)
-                    workspace.pendingProjectAgentPrompt = nil
-                    workspace.refocusInputAfterSheet()
-                }
+                onDismiss: dismiss
             )
+            .onAppear {
+                FocusDebug.log("project-agent sheet appeared for \(prompt.path)")
+                // Headless verification: press "Not now" for us, so the whole
+                // open-chat → sheet → dismiss → caret sequence can be measured
+                // without driving the window. Debug builds only.
+                if FocusDebug.autoDismissSheet {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        FocusDebug.log("auto-dismissing project-agent sheet")
+                        dismiss()
+                    }
+                }
+            }
         }
         .sheet(isPresented: $workspace.pendingLeadAgentPrompt) {
             LeadAgentPromptSheet(

@@ -5,6 +5,13 @@ import AppKit
 /// is silent.
 enum FocusDebug {
     static let on = ProcessInfo.processInfo.environment["IDEALIZE_FOCUS_DEBUG"] != nil
+    /// A/B switch: restores the old one-shot claim (spent by the first composer
+    /// that appears) so the fix can be measured against the bug in one binary.
+    static let oneShot = ProcessInfo.processInfo.environment["IDEALIZE_FOCUS_ONESHOT"] != nil
+    /// Presses "Not now" on the project-agent sheet automatically, so the
+    /// open-chat → sheet → dismiss → caret sequence can be measured without
+    /// driving the window (and without stealing the screen).
+    static let autoDismissSheet = ProcessInfo.processInfo.environment["IDEALIZE_FOCUS_AUTOSHEET"] != nil
 
     static func log(_ message: @autoclosure () -> String) {
         guard on else { return }

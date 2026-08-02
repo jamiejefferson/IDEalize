@@ -991,7 +991,10 @@ struct QAChatBox: View {
             FocusDebug.log("QAChatBox.onAppear session=\(session.id) collapsed=\(collapsed) docked=\(docked) viewerOnly=\(viewerOnly) claimed=\(workspace.wantsInputFocus(session.id))")
             if workspace.wantsInputFocus(session.id) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    guard workspace.wantsInputFocus(session.id) else { return }
+                    // A/B: the old code set focus unconditionally here, having
+                    // already spent the claim at onAppear.
+                    FocusDebug.log("deferred block ran oneShot=\(FocusDebug.oneShot) wants=\(workspace.wantsInputFocus(session.id)) session=\(session.id)")
+                    guard FocusDebug.oneShot || workspace.wantsInputFocus(session.id) else { return }
                     focused = true
                     FocusDebug.log("set focused=true for \(session.id)")
                     for delay in [0.3, 1.0, 2.0, 3.0] {
@@ -1021,7 +1024,15 @@ struct QAChatBox: View {
         // Menu: Terminal ▸ Focus Message Input (⌘I). Only the focused pane's
         // input answers, so the caret lands in exactly one place.
         .onChange(of: workspace.focusInputRequest) {
-            if session.id == workspace.focusedSessionID { focused = true }
+            if session.id == workspace.focusedSessionID {
+                focused = true
+                FocusDebug.log("focusInputRequest took caret for \(session.id)")
+                for delay in [0.3, 1.0, 2.0] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        FocusDebug.log("post-sheet +\(delay)s focusState=\(focused) session=\(session.id)")
+                    }
+                }
+            }
         }
     }
 

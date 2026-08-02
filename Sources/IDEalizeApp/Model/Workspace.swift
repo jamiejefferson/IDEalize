@@ -774,7 +774,9 @@ final class Workspace: ObservableObject {
     /// Non-consuming: the claim lapses on its own deadline.
     func wantsInputFocus(_ id: String) -> Bool {
         guard let claim = inputFocusClaim else { return false }
-        return claim.sessionID == id && Date() < claim.until
+        let live = claim.sessionID == id && Date() < claim.until
+        if live && FocusDebug.oneShot { inputFocusClaim = nil }   // A/B: old behaviour
+        return live
     }
 
     /// Put the caret back in the focused chat's composer after a sheet that took
