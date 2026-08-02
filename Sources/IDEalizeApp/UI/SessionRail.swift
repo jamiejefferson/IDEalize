@@ -360,14 +360,30 @@ private extension View {
 /// the house rule keeps the highlight fill for interactive things — which also
 /// keeps it clear of the selection tint. Derived from the theme's own text
 /// colour, so it recolours with every theme.
-private struct AgentSpine: View {
+///
+/// Drawn as an overlay rather than as an element inside the row's `HStack`: a
+/// `Shape` is vertically flexible, so in the stack it stretches the row to fill
+/// whatever height is going (which ballooned the lead agent's card to the full
+/// height of the rail). As an overlay it is measured by the row instead.
+private struct AgentSpine: ViewModifier {
     @ObservedObject private var settings = AppSettings.shared
 
-    var body: some View {
-        Capsule()
-            .fill(Color(settings.theme.secondaryForeground))
-            .frame(width: 2.5)
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .leading) {
+            Capsule()
+                .fill(Color(settings.theme.secondaryForeground))
+                .frame(width: 2.5)
+                .padding(.vertical, 6)
+                .padding(.leading, 5)
+        }
     }
+}
+
+private extension View {
+    /// Mark this row as a coordinating agent's (see `AgentSpine`). Apply *after*
+    /// the row's padding so the rule sits in the gutter, and before the
+    /// selection treatment so the tint stays behind it.
+    func agentSpine() -> some View { modifier(AgentSpine()) }
 }
 
 // MARK: - Lead agent (pinned above the project list)
@@ -391,7 +407,6 @@ private struct LeadAgentCard: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            AgentSpine()
             Image(systemName: "crown")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(settings.actionStyle.color)
@@ -419,7 +434,8 @@ private struct LeadAgentCard: View {
                 .help("Stop the lead agent")
             }
         }
-        .padding(.leading, 7).padding(.trailing, 9).padding(.vertical, 8)
+        .padding(.leading, 14).padding(.trailing, 9).padding(.vertical, 8)
+        .agentSpine()
         .railSelectable(isSelected, radius: 11,
                         restFill: AnyShapeStyle(Color(theme.surface)),
                         restStroke: Color(theme.border))
@@ -454,7 +470,6 @@ private struct ProjectAgentStrip: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            AgentSpine()
             Image(systemName: "sparkles")
                 .font(.system(size: 12))
                 .foregroundStyle(settings.actionStyle.color)
@@ -482,7 +497,8 @@ private struct ProjectAgentStrip: View {
                 .help("Stop the project agent")
             }
         }
-        .padding(.leading, 7).padding(.trailing, 9).padding(.vertical, 7)
+        .padding(.leading, 14).padding(.trailing, 9).padding(.vertical, 7)
+        .agentSpine()
         .railSelectable(isSelected, radius: 8,
                         restFill: AnyShapeStyle(Color(theme.background)))
         .contentShape(Rectangle())
