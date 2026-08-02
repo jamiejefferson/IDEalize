@@ -277,9 +277,8 @@ enum WorktreeService {
     @discardableResult
     static func snapshot(worktree: String, message: String) -> Bool {
         _ = git(["-C", worktree, "add", "-A"])
-        _ = git(["-C", worktree,
-                 "-c", "user.email=agent@idealize.local", "-c", "user.name=IDEalize",
-                 "commit", "-m", message])
+        _ = git(["-C", worktree] + identityArgs(for: worktree)
+                + ["commit", "-m", message])
         return true
     }
 
@@ -300,9 +299,8 @@ enum WorktreeService {
         guard let recovery = headCommit(of: repoDir) else {
             return .failed("The main version has no saved history to combine into.")
         }
-        let m = git(["-C", repoDir,
-                     "-c", "user.email=agent@idealize.local", "-c", "user.name=IDEalize",
-                     "merge", "--no-ff", "--no-edit", incomingBranch])
+        let m = git(["-C", repoDir] + identityArgs(for: repoDir)
+                    + ["merge", "--no-ff", "--no-edit", incomingBranch])
         if let m, m.status == 0 {
             return .merged(recovery: recovery, files: changedNames(repoDir, range: "\(recovery)..HEAD"))
         }
@@ -313,6 +311,28 @@ enum WorktreeService {
     }
 
     // MARK: - git plumbing (kept private to this file)
+
+    /// `-c` overrides that stand in an identity *only* where the repo has none.
+    /// Commits IDEalize makes on the user's behalf must carry the repo's own
+    /// configured `user.email`/`user.name`: tooling downstream keys off the
+    /// author (git-connected Vercel builds, for one, won't deploy a commit from
+    /// an unknown address). So we normally pass nothing and let git resolve the
+    /// identity as it would for a hand-typed commit; the IDEalize pair is only a
+    /// last resort for a repo with no identity at all, where git would otherwise
+    /// refuse to commit or merge.
+    private static func identityArgs(for dir: String) -> [String] {
+        var args: [String] = []
+        if !hasConfig(dir, "user.email") { args += ["-c", "user.email=agent@idealize.local"] }
+        if !hasConfig(dir, "user.name")  { args += ["-c", "user.name=IDEalize"] }
+        return args
+    }
+
+    /// True when `key` resolves to a non-empty value for `dir` (local, global or
+    /// system — whatever git itself would use).
+    private static func hasConfig(_ dir: String, _ key: String) -> Bool {
+        guard let r = git(["-C", dir, "config", "--get", key]), r.status == 0 else { return false }
+        return !r.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     private static func revExists(_ dir: String, _ ref: String) -> Bool {
         git(["-C", dir, "rev-parse", "--verify", "--quiet", ref + "^{commit}"])?.status == 0
