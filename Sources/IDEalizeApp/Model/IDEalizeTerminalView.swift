@@ -43,6 +43,11 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
     private var claimedPressForSelection = false
     /// Whether that press has moved far enough to be a drag rather than a click.
     private var pressBecameDrag = false
+    /// Where the press landed, to measure that distance from.
+    private var pressOrigin: NSPoint = .zero
+    /// How far the pointer must travel before a press counts as a drag. A click
+    /// on a TUI's own UI wobbles by a pixel or two; that must still be a click.
+    private static let dragSlop: CGFloat = 3
 
     /// Whether this event should select instead of being reported to the program.
     ///
@@ -70,13 +75,16 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
     override func mouseDown(with event: NSEvent) {
         claimedPressForSelection = pressBelongsToSelection(event)
         pressBecameDrag = false
+        pressOrigin = event.locationInWindow
         guard claimedPressForSelection else { return super.mouseDown(with: event) }
         selecting { super.mouseDown(with: event) }
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard claimedPressForSelection else { return super.mouseDragged(with: event) }
-        pressBecameDrag = true
+        let moved = hypot(event.locationInWindow.x - pressOrigin.x,
+                          event.locationInWindow.y - pressOrigin.y)
+        if moved > Self.dragSlop { pressBecameDrag = true }
         selecting { super.mouseDragged(with: event) }
     }
 
