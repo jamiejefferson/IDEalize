@@ -793,6 +793,9 @@ final class Workspace: ObservableObject {
 
     func focusSession(_ id: String) {
         guard let tab = tabs.first(where: { t in t.sessions.contains { $0.id == id } }) else { return }
+        // Focus is being sent somewhere deliberately (the terminal takes the
+        // keyboard below); a different chat's claim on the caret is now stale.
+        if id != inputFocusClaim?.sessionID { inputFocusClaim = nil }
         selectedTabID = tab.id
         focusedSessionID = id
         if let s = session(withID: id) {
