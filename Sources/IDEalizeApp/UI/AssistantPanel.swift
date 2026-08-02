@@ -979,8 +979,6 @@ struct QAChatBox: View {
             installDictationKey()
             // A just-opened chat is ready to type into: the workspace flags the
             // session it created, and the first input on screen for it takes the
-            // caret. Deferred a beat — focus set during onAppear can be dropped
-            // while the new pane is still being installed in the hierarchy.
             // A just-opened chat is ready to type into: the workspace claims the
             // caret for the chat it created, and every input that appears for it
             // while the claim is live takes the caret. The claim is not spent by
@@ -988,20 +986,10 @@ struct QAChatBox: View {
             // opens, and only the composer that survives that rebuild can hold
             // the caret. Deferred a beat because focus set during onAppear is
             // dropped while the pane is still being installed.
-            FocusDebug.log("QAChatBox.onAppear session=\(session.id) collapsed=\(collapsed) docked=\(docked) viewerOnly=\(viewerOnly) claimed=\(workspace.wantsInputFocus(session.id))")
             if workspace.wantsInputFocus(session.id) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    // A/B: the old code set focus unconditionally here, having
-                    // already spent the claim at onAppear.
-                    FocusDebug.log("deferred block ran oneShot=\(FocusDebug.oneShot) wants=\(workspace.wantsInputFocus(session.id)) session=\(session.id)")
-                    guard FocusDebug.oneShot || workspace.wantsInputFocus(session.id) else { return }
+                    guard workspace.wantsInputFocus(session.id) else { return }
                     focused = true
-                    FocusDebug.log("set focused=true for \(session.id)")
-                    for delay in [0.3, 1.0, 2.0, 3.0] {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                            FocusDebug.log("after +\(delay)s focusState=\(focused) session=\(session.id)")
-                        }
-                    }
                 }
             }
         }
@@ -1033,12 +1021,6 @@ struct QAChatBox: View {
                 // be made first responder again.
                 focused = false
                 DispatchQueue.main.async { focused = true }
-                FocusDebug.log("focusInputRequest re-asserted caret for \(session.id)")
-                for delay in [0.3, 1.0, 2.0] {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        FocusDebug.log("post-sheet +\(delay)s focusState=\(focused) session=\(session.id)")
-                    }
-                }
             }
         }
     }

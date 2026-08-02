@@ -101,18 +101,6 @@ struct WorkspaceView: View {
                 },
                 onDismiss: dismiss
             )
-            .onAppear {
-                FocusDebug.log("project-agent sheet appeared for \(prompt.path)")
-                // Headless verification: press "Not now" for us, so the whole
-                // open-chat → sheet → dismiss → caret sequence can be measured
-                // without driving the window. Debug builds only.
-                if FocusDebug.autoDismissSheet {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                        FocusDebug.log("auto-dismissing project-agent sheet")
-                        dismiss()
-                    }
-                }
-            }
         }
         .sheet(isPresented: $workspace.pendingLeadAgentPrompt) {
             LeadAgentPromptSheet(

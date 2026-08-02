@@ -356,7 +356,6 @@ final class Workspace: ObservableObject {
         // Restore reopens many tabs through this same path; only a chat the user
         // actually asked for gets the caret.
         if !isRestoring { claimInputFocus(for: session.id) }
-        FocusDebug.log("newTab created session=\(session.id) isRestoring=\(isRestoring)")
         bindName(tab, to: session)
         scheduleSnapshotSave()
         considerProjectAgent(for: session, launchOverride: launchOverride)
@@ -517,7 +516,6 @@ final class Workspace: ObservableObject {
         else { return }
         guard settings.projectAgentAutoStart else {
             pendingProjectAgentPrompt = ProjectAgentPrompt(path: project)
-            FocusDebug.log("considerProjectAgent presented sheet for \(project)")
             return
         }
         // The agent works in the background: the user asked for a chat, so
@@ -774,9 +772,7 @@ final class Workspace: ObservableObject {
     /// Non-consuming: the claim lapses on its own deadline.
     func wantsInputFocus(_ id: String) -> Bool {
         guard let claim = inputFocusClaim else { return false }
-        let live = claim.sessionID == id && Date() < claim.until
-        if live && FocusDebug.oneShot { inputFocusClaim = nil }   // A/B: old behaviour
-        return live
+        return claim.sessionID == id && Date() < claim.until
     }
 
     /// Put the caret back in the focused chat's composer after a sheet that took
