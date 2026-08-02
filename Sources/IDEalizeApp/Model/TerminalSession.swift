@@ -886,7 +886,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         // message input docked below it. Re-asserted on every theme apply since
         // a TUI can change the style out from under us (DECSCUSR).
         terminalView.getTerminal().setCursorStyle(.steadyBar)
-        terminalView.selectedTextBackgroundColor = theme.selection
+        // The highlight, and the one colour every selected glyph is flattened to.
+        // SwiftTerm's default for the latter is black, which is illegible on a
+        // dark theme's highlight and was never set here at all.
+        terminalView.selectedTextBackgroundColor = theme.selectionColor
+        terminalView.selectedTextForegroundColor = theme.selectedTextColor
         terminalView.font = font
         // Line spacing as a multiple of the font's natural line height.
         terminalView.lineSpacing = CGFloat(settings.terminalLineSpacing)
