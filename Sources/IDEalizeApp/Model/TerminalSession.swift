@@ -771,13 +771,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 guard let self else { return }
                 let tv = self.terminalView
                 tv.feed(text: "\u{1B}[2J\u{1B}[H")
-                let lines = [
+                let sample = [
                     "IDEalize — terminal selection check",
                     "the quick brown fox jumps over the lazy dog",
                     "\u{1B}[31merror:\u{1B}[0m could not open \u{1B}[36msrc/main.swift\u{1B}[0m",
                     "\u{1B}[32mok\u{1B}[0m  164 tests passed in 3.2s",
                     "$ git status --short && swift build",
                 ]
+                // Fill the grid so the selection can be dragged the whole height
+                // of the wash — the foot of the gradient is where it vanished.
+                var lines: [String] = []
+                while lines.count < max(tv.getTerminal().rows - 2, 6) {
+                    lines.append(contentsOf: sample)
+                }
                 tv.feed(text: lines.joined(separator: "\r\n") + "\r\n")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                     self?.selectSampleRange()
@@ -791,6 +797,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     private func selectSampleRange() {
         let tv = terminalView
         guard let window = tv.window else { return }
+        // Reinstate the pre-fix colours (raw theme selection, SwiftTerm's black
+        // selected text) so a "before" shot can come off the same build.
+        if ProcessInfo.processInfo.environment["IDEALIZE_SELFTEST_LEGACY"] == "1" {
+            tv.selectedTextBackgroundColor = settings.terminalTheme.selection
+            tv.selectedTextForegroundColor = .black
+        }
         let rows = max(tv.getTerminal().rows, 1)
         let cell = tv.bounds.height / CGFloat(rows)
         // The view is not flipped: row 0 is at the top.
@@ -809,7 +821,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         if let down = event(.leftMouseDown, point(row: 1, fraction: 0.1), [], 3) {
             tv.mouseDown(with: down)
         }
-        if let extend = event(.leftMouseDown, point(row: 3, fraction: 0.55), [.shift], 1) {
+        if let extend = event(.leftMouseDown, point(row: rows - 3, fraction: 0.55), [.shift], 1) {
             tv.mouseDown(with: extend)
         }
         tv.needsDisplay = true
@@ -948,7 +960,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
         // message input docked below it. Re-asserted on every theme apply since
         // a TUI can change the style out from under us (DECSCUSR).
         terminalView.getTerminal().setCursorStyle(.steadyBar)
-        terminalView.selectedTextBackgroundColor = theme.selection
+        // The highlight, and the one colour every selected glyph is flattened to.
+        // SwiftTerm's default for the latter is black, which is illegible on a
+        // dark theme's highlight and was never set here at all.
+        terminalView.selectedTextBackgroundColor = theme.selectionColor
+        terminalView.selectedTextForegroundColor = theme.selectedTextColor
         terminalView.font = font
         // Line spacing as a multiple of the font's natural line height.
         terminalView.lineSpacing = CGFloat(settings.terminalLineSpacing)

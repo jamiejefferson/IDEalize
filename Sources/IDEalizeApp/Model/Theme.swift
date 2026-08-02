@@ -101,6 +101,76 @@ struct Theme: Identifiable, Hashable {
         return blend(foreground, background, (low + high) / 2)
     }
 
+    // MARK: Selection
+
+    /// How far the selection highlight must stand off every stop of the ground.
+    /// Pitched just above where the themes nobody has complained about already
+    /// sit (IDEalize Dark is 1.46), so those keep their hand-placed colour to
+    /// within a hair and only the ones that vanish get moved.
+    private static let selectionContrast: CGFloat = 1.5
+    /// How readable the theme's own type has to be *on* the highlight. A
+    /// highlight is only useful if the text it covers can still be read, and a
+    /// mid-luminance slab is the one place no colour in the theme can sit — so
+    /// this is what pushes a pastel theme's selection to a definite dark rather
+    /// than leaving it hovering at the ground's own brightness.
+    private static let selectionTextContrast: CGFloat = 3.0
+
+    /// Every ground the grid paints: a wash's stops as well as the flat
+    /// midpoint. A selection has to separate from all of them — Y2K's sat at
+    /// 1.09 against the midpoint but 1.14 against the periwinkle foot of the
+    /// wash, which is exactly where the prompt (and so the text you select)
+    /// lives.
+    private var groundStops: [NSColor] { (backgroundGradient ?? []) + [background] }
+
+    /// The selection highlight: the theme's own colour when it separates from
+    /// the ground, otherwise that same colour deepened along its own hue (lifted
+    /// on a dark ground) until it does. Deepening in sRGB scales all three
+    /// channels together, so the hue and saturation the theme chose survive — it
+    /// only ever gets darker, never muted toward a neutral.
+    /// It is deepened toward the theme's own black slot (lifted toward its white
+    /// slot on a dark ground) so every step stays inside the palette, and only
+    /// walks on past it to true black/white if the palette can't reach.
+    var selectionColor: NSColor {
+        let palette: NSColor = isDark ? (ansi.last ?? .white) : (ansi.first ?? .black)
+        let pure: NSColor = isDark ? .white : .black
+        return deepenedSelection(toward: palette)
+            ?? deepenedSelection(toward: pure)
+            ?? pure
+    }
+
+    /// The first step along the line from the theme's selection colour toward
+    /// `target` that is legible, or nil if the whole line is not.
+    private func deepenedSelection(toward target: NSColor) -> NSColor? {
+        var moved: CGFloat = 0
+        while moved <= 1 {
+            let candidate = blend(selection, target, moved)
+            if selectionIsLegible(candidate) { return candidate }
+            moved += 0.005
+        }
+        return nil
+    }
+
+    /// Whether a candidate highlight both stands off every ground stop and
+    /// leaves room for the theme's ink or ground to be read on top of it.
+    private func selectionIsLegible(_ candidate: NSColor) -> Bool {
+        let standsOff = groundStops.allSatisfy {
+            Self.contrast(candidate, $0) >= Self.selectionContrast
+        }
+        let readable = max(Self.contrast(foreground, candidate),
+                           Self.contrast(background, candidate))
+        return standsOff && readable >= Self.selectionTextContrast
+    }
+
+    /// The colour selected text is drawn in. SwiftTerm flattens every selected
+    /// glyph to one colour (its own default is black, which is unreadable on a
+    /// dark theme's highlight), so pick the theme's own ink or ground —
+    /// whichever the highlight carries better.
+    var selectedTextColor: NSColor {
+        let highlight = selectionColor
+        return Self.contrast(foreground, highlight) >= Self.contrast(background, highlight)
+            ? foreground : background
+    }
+
     /// WCAG relative luminance.
     private static func relativeLuminance(_ color: NSColor) -> CGFloat {
         let c = color.usingColorSpace(.sRGB) ?? color
