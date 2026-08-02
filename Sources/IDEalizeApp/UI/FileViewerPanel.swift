@@ -20,15 +20,21 @@ struct FileViewerPanel: View {
     @State private var contextConfirm = false
     /// Parsed markdown outline for navigation.
     @State private var outline = MarkdownOutline(headings: [])
-    /// Line number to scroll to when a heading is selected.
-    @State private var scrollToLine: Int?
+    /// The heading the outline last asked the editor to scroll to.
+    @State private var scrollTarget: MarkdownScrollTarget?
+    /// Bumped per jump so picking the same heading twice still scrolls.
+    @State private var jumpToken = 0
 
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.doc, base: CGFloat(settings.fontSize), background: theme.background) }
 
+    /// The extensions Markdown actually ships under — `.md` alone would leave
+    /// the outline off documents that are plainly markdown.
+    private static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mdx"]
+
     private var isMarkdownDocument: Bool {
         guard let url = workspace.viewedFile else { return false }
-        return url.pathExtension.lowercased() == "md"
+        return Self.markdownExtensions.contains(url.pathExtension.lowercased())
     }
 
     /// Files IDEalize itself provisions — the companion skills, the slash commands,
@@ -82,10 +88,18 @@ struct FileViewerPanel: View {
                 textColor: style.textColor.toNSColor(),
                 backgroundColor: theme.background,
                 lineSpacing: style.lineSpacing,
-                scrollToLineNumber: scrollToLine
+                scrollTarget: scrollTarget,
+                documentID: workspace.viewedFile?.path
             )
             .padding(6)
-            .onChange(of: content) { if loadedURL != nil { dirty = true } }
+            .onChange(of: content) {
+                if loadedURL != nil { dirty = true }
+                // Keep the outline honest while the document is edited —
+                // parsing only on load leaves it describing the file as it was
+                // opened, so headings typed since are missing and deleted ones
+                // still jump.
+                if isMarkdownDocument { outline = MarkdownOutline.parse(content) }
+            }
         } else {
             // No document open — offer to create one.
             VStack(spacing: 14) {
@@ -269,6 +283,8 @@ struct FileViewerPanel: View {
         // Save any pending edits to the previously-open file first.
         if dirty, let prev = loadedURL { try? content.write(to: prev, atomically: true, encoding: .utf8) }
         dirty = false
+        // A heading picked in the previous document means nothing in this one.
+        scrollTarget = nil
         guard let url = workspace.viewedFile else { content = ""; message = nil; loadedURL = nil; outline = MarkdownOutline(headings: []); return }
         do {
             let data = try Data(contentsOf: url)
@@ -341,10 +357,8 @@ struct FileViewerPanel: View {
 
     /// Jump to a heading in the document by scrolling to its line.
     private func jumpToHeading(_ heading: MarkdownHeading) {
-        scrollToLine = heading.lineIndex
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            scrollToLine = nil
-        }
+        jumpToken += 1
+        scrollTarget = MarkdownScrollTarget(line: heading.lineIndex, token: jumpToken)
     }
 }
 
