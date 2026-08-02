@@ -344,6 +344,7 @@ final class Workspace: ObservableObject {
         selectedTabID = tab.id
         focusedSessionID = session.id
         if !isRestoring { pendingInputFocusSessionID = session.id }
+        FocusDebug.log("newTab created session=\(session.id) isRestoring=\(isRestoring)")
         bindName(tab, to: session)
         scheduleSnapshotSave()
         considerProjectAgent(for: session, launchOverride: launchOverride)
@@ -504,6 +505,7 @@ final class Workspace: ObservableObject {
         else { return }
         guard settings.projectAgentAutoStart else {
             pendingProjectAgentPrompt = ProjectAgentPrompt(path: project)
+            FocusDebug.log("considerProjectAgent presented sheet for \(project)")
             return
         }
         // The agent works in the background: the user asked for a chat, so

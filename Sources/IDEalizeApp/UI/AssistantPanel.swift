@@ -981,9 +981,18 @@ struct QAChatBox: View {
             // session it created, and the first input on screen for it takes the
             // caret. Deferred a beat — focus set during onAppear can be dropped
             // while the new pane is still being installed in the hierarchy.
+            FocusDebug.log("QAChatBox.onAppear session=\(session.id) collapsed=\(collapsed) docked=\(docked) viewerOnly=\(viewerOnly) pending=\(workspace.pendingInputFocusSessionID ?? "nil")")
             if workspace.pendingInputFocusSessionID == session.id {
                 workspace.pendingInputFocusSessionID = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    focused = true
+                    FocusDebug.log("set focused=true for \(session.id)")
+                    for delay in [0.1, 0.3, 0.8, 1.5] {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                            FocusDebug.log("after +\(delay)s focusState=\(focused) session=\(session.id)")
+                        }
+                    }
+                }
             }
         }
         .onChange(of: session.botWorking) { _, working in
