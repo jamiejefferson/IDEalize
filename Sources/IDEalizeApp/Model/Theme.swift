@@ -122,14 +122,12 @@ struct Theme: Identifiable, Hashable {
     /// lives.
     private var groundStops: [NSColor] { (backgroundGradient ?? []) + [background] }
 
-    /// The selection highlight: the theme's own colour when it separates from
-    /// the ground, otherwise that same colour deepened along its own hue (lifted
-    /// on a dark ground) until it does. Deepening in sRGB scales all three
-    /// channels together, so the hue and saturation the theme chose survive — it
-    /// only ever gets darker, never muted toward a neutral.
-    /// It is deepened toward the theme's own black slot (lifted toward its white
-    /// slot on a dark ground) so every step stays inside the palette, and only
-    /// walks on past it to true black/white if the palette can't reach.
+    /// The selection highlight: the theme's own colour when it already separates
+    /// from the ground, otherwise that colour deepened until it does — toward the
+    /// theme's own black slot (its white slot on a dark ground), so every step of
+    /// the walk lands on a mix of two colours the theme already owns rather than
+    /// on a neutral. Only if the palette can't reach does it carry on to true
+    /// black/white.
     var selectionColor: NSColor {
         let palette: NSColor = isDark ? (ansi.last ?? .white) : (ansi.first ?? .black)
         let pure: NSColor = isDark ? .white : .black
