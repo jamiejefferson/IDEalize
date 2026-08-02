@@ -725,6 +725,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
         startStatusPolling()
         installScrollFix()
+        runSelectionSelfTestIfRequested()
 
         // A per-session override (Service Hatch) wins; otherwise fall back to the
         // configured default launch, if enabled.
@@ -751,6 +752,67 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 self?.firePendingLaunch()
             }
         }
+    }
+
+    // MARK: - Selection self-test (verification harness, IDEALIZE_SELFTEST_SELECTION=1)
+
+    private static var selectionSelfTestRan = false
+
+    /// Reveal the grid, print a sample of themed text and drag-select part of it,
+    /// so a headless screenshot can show the selection highlight. Test-only.
+    private func runSelectionSelfTestIfRequested() {
+        guard ProcessInfo.processInfo.environment["IDEALIZE_SELFTEST_SELECTION"] == "1",
+              !Self.selectionSelfTestRan else { return }
+        Self.selectionSelfTestRan = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard let self else { return }
+            self.revealTerminal = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self else { return }
+                let tv = self.terminalView
+                tv.feed(text: "\u{1B}[2J\u{1B}[H")
+                let lines = [
+                    "IDEalize — terminal selection check",
+                    "the quick brown fox jumps over the lazy dog",
+                    "\u{1B}[31merror:\u{1B}[0m could not open \u{1B}[36msrc/main.swift\u{1B}[0m",
+                    "\u{1B}[32mok\u{1B}[0m  164 tests passed in 3.2s",
+                    "$ git status --short && swift build",
+                ]
+                tv.feed(text: lines.joined(separator: "\r\n") + "\r\n")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                    self?.selectSampleRange()
+                }
+            }
+        }
+    }
+
+    /// Triple-click the second sample line, then shift-click part-way into the
+    /// fourth, giving a multi-line selection with a visible boundary.
+    private func selectSampleRange() {
+        let tv = terminalView
+        guard let window = tv.window else { return }
+        let rows = max(tv.getTerminal().rows, 1)
+        let cell = tv.bounds.height / CGFloat(rows)
+        // The view is not flipped: row 0 is at the top.
+        func point(row: Int, fraction: CGFloat) -> NSPoint {
+            let p = NSPoint(x: tv.bounds.width * fraction,
+                            y: tv.bounds.height - (CGFloat(row) + 0.5) * cell)
+            return tv.convert(p, to: nil)
+        }
+        func event(_ type: NSEvent.EventType, _ location: NSPoint,
+                   _ flags: NSEvent.ModifierFlags, _ clicks: Int) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: location, modifierFlags: flags,
+                               timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil,
+                               eventNumber: 0, clickCount: clicks, pressure: 1)
+        }
+        if let down = event(.leftMouseDown, point(row: 1, fraction: 0.1), [], 3) {
+            tv.mouseDown(with: down)
+        }
+        if let extend = event(.leftMouseDown, point(row: 3, fraction: 0.55), [.shift], 1) {
+            tv.mouseDown(with: extend)
+        }
+        tv.needsDisplay = true
     }
 
     /// A launch command (e.g. an agent CLI) queued to run once the shell is ready.
