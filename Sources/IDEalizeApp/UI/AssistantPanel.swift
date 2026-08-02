@@ -977,8 +977,6 @@ struct QAChatBox: View {
         // form and must drive these too.
         .onAppear {
             installDictationKey()
-            // A just-opened chat is ready to type into: the workspace flags the
-            // session it created, and the first input on screen for it takes the
             // A just-opened chat is ready to type into: the workspace claims the
             // caret for the chat it created, and every input that appears for it
             // while the claim is live takes the caret. The claim is not spent by
