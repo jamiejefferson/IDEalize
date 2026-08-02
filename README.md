@@ -116,8 +116,11 @@ swift test                # core unit tests
 
 Every terminal IDEalize spawns gets an `idealize` command on its `PATH`
 automatically (a shim is installed at
-`~/Library/Application Support/IDEalize/bin/idealize`). To use it from *outside*
-IDEalize too:
+`~/Library/Application Support/IDEalize/bin/idealize`). That shared shim belongs
+to the app installed in `/Applications`; a build run from anywhere else — a dev
+build, a probe, a release build under test — gets its own private shim dir under
+`IDEalize Dev/` instead, so it never repoints the CLI the installed app's chats
+rely on. To use the CLI from *outside* IDEalize too:
 
 ```bash
 ln -sf "/Applications/IDEalize.app/Contents/Helpers/idealize-cli" /usr/local/bin/idealize
