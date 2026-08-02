@@ -1025,8 +1025,15 @@ struct QAChatBox: View {
         // input answers, so the caret lands in exactly one place.
         .onChange(of: workspace.focusInputRequest) {
             if session.id == workspace.focusedSessionID {
-                focused = true
-                FocusDebug.log("focusInputRequest took caret for \(session.id)")
+                // Re-assert rather than simply set. After a sheet has held the
+                // keyboard, the field can still report itself focused while the
+                // window's first responder has moved on — and assigning `true`
+                // to an already-true focus state changes nothing, so the caret
+                // would never come back. Dropping it first forces the field to
+                // be made first responder again.
+                focused = false
+                DispatchQueue.main.async { focused = true }
+                FocusDebug.log("focusInputRequest re-asserted caret for \(session.id)")
                 for delay in [0.3, 1.0, 2.0] {
                     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                         FocusDebug.log("post-sheet +\(delay)s focusState=\(focused) session=\(session.id)")
