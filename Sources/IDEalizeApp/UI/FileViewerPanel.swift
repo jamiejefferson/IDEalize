@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The themed document panel — edits the open file, or offers to create a new
 /// markdown doc when nothing is open. Sits between the file explorer and the
@@ -17,9 +18,24 @@ struct FileViewerPanel: View {
     @State private var newName = ""
     /// Brief "attached" confirmation on the Use-as-context button.
     @State private var contextConfirm = false
+    /// Parsed markdown outline for navigation.
+    @State private var outline = MarkdownOutline(headings: [])
+    /// The heading the outline last asked the editor to scroll to.
+    @State private var scrollTarget: MarkdownScrollTarget?
+    /// Bumped per jump so picking the same heading twice still scrolls.
+    @State private var jumpToken = 0
 
     private var theme: Theme { settings.theme }
     private var style: PanelStyle { settings.panelStyle(.doc, base: CGFloat(settings.fontSize), background: theme.background) }
+
+    /// The extensions Markdown actually ships under — `.md` alone would leave
+    /// the outline off documents that are plainly markdown.
+    private static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mdx"]
+
+    private var isMarkdownDocument: Bool {
+        guard let url = workspace.viewedFile else { return false }
+        return Self.markdownExtensions.contains(url.pathExtension.lowercased())
+    }
 
     /// Files IDEalize itself provisions — the companion skills, the slash commands,
     /// and the project agent's operating guide. They are shown but never edited in
@@ -40,7 +56,16 @@ struct FileViewerPanel: View {
             header
             Rectangle().fill(Color(theme.border)).frame(height: 1)
             recordingBar
-            documentBody(workspace.viewedFile)
+            HStack(spacing: 0) {
+                documentBody(workspace.viewedFile)
+                if isMarkdownDocument {
+                    Rectangle().fill(Color(theme.border)).frame(width: 1)
+                    MarkdownNavigationSidebar(outline: outline) { heading in
+                        jumpToHeading(heading)
+                    }
+                    .frame(width: 200)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(style.background)
@@ -55,19 +80,26 @@ struct FileViewerPanel: View {
         if let message {
             centeredMessage(message, icon: "doc")
         } else if file != nil {
-            TextEditor(text: $content)
-                .font(style.font(CGFloat(settings.fontSize)))
-                .foregroundStyle(style.textColor)
-                .lineSpacing(style.lineSpacing)
-                .scrollContentBackground(.hidden)
-                .background(style.background)
-                .padding(6)
-                // Disabled rather than merely unsaved, so a provisioned file can't
-                // be typed into and silently lost. `load()` also leaves `loadedURL`
-                // nil for these, which keeps `dirty` false and makes both `save()`
-                // and the switch-away flush no-ops.
-                .disabled(isReadOnly)
-                .onChange(of: content) { if loadedURL != nil { dirty = true } }
+            ScrollableMarkdownEditor(
+                text: $content,
+                isEditable: !isReadOnly,
+                isSelectable: true,
+                font: NSFont.systemFont(ofSize: CGFloat(settings.fontSize)),
+                textColor: style.textColor.toNSColor(),
+                backgroundColor: theme.background,
+                lineSpacing: style.lineSpacing,
+                scrollTarget: scrollTarget,
+                documentID: workspace.viewedFile?.path
+            )
+            .padding(6)
+            .onChange(of: content) {
+                if loadedURL != nil { dirty = true }
+                // Keep the outline honest while the document is edited —
+                // parsing only on load leaves it describing the file as it was
+                // opened, so headings typed since are missing and deleted ones
+                // still jump.
+                if isMarkdownDocument { outline = MarkdownOutline.parse(content) }
+            }
         } else {
             // No document open — offer to create one.
             VStack(spacing: 14) {
@@ -251,16 +283,24 @@ struct FileViewerPanel: View {
         // Save any pending edits to the previously-open file first.
         if dirty, let prev = loadedURL { try? content.write(to: prev, atomically: true, encoding: .utf8) }
         dirty = false
-        guard let url = workspace.viewedFile else { content = ""; message = nil; loadedURL = nil; return }
+        // A heading picked in the previous document means nothing in this one.
+        scrollTarget = nil
+        guard let url = workspace.viewedFile else { content = ""; message = nil; loadedURL = nil; outline = MarkdownOutline(headings: []); return }
         do {
             let data = try Data(contentsOf: url)
-            if data.count > 2_000_000 { message = "File too large to edit (\(data.count / 1024) KB)."; loadedURL = nil; return }
+            if data.count > 2_000_000 { message = "File too large to edit (\(data.count / 1024) KB)."; loadedURL = nil; outline = MarkdownOutline(headings: []); return }
             if let s = String(data: data, encoding: .utf8) {
                 // A provisioned file is shown but never adopted as the edit target:
                 // leaving `loadedURL` nil is what makes every write path inert.
                 content = s; message = nil; loadedURL = isReadOnly ? nil : url
-            } else { message = "Can't edit this file (binary or non-text)."; loadedURL = nil }
-        } catch { message = "Couldn't read this file."; loadedURL = nil }
+                // Parse markdown headings for navigation.
+                if isMarkdownDocument {
+                    outline = MarkdownOutline.parse(s)
+                } else {
+                    outline = MarkdownOutline(headings: [])
+                }
+            } else { message = "Can't edit this file (binary or non-text)."; loadedURL = nil; outline = MarkdownOutline(headings: []) }
+        } catch { message = "Couldn't read this file."; loadedURL = nil; outline = MarkdownOutline(headings: []) }
     }
 
     private func save() {
@@ -314,6 +354,12 @@ struct FileViewerPanel: View {
         }
         recorder.pendingTranscript = nil
     }
+
+    /// Jump to a heading in the document by scrolling to its line.
+    private func jumpToHeading(_ heading: MarkdownHeading) {
+        jumpToken += 1
+        scrollTarget = MarkdownScrollTarget(line: heading.lineIndex, token: jumpToken)
+    }
 }
 
 /// A softly pulsing red dot — the recording indicator.
@@ -329,5 +375,11 @@ private struct RecordingDot: View {
                     bright = true
                 }
             }
+    }
+}
+
+private extension Color {
+    func toNSColor() -> NSColor {
+        return NSColor(self)
     }
 }
