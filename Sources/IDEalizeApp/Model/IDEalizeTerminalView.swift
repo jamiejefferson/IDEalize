@@ -31,6 +31,90 @@ final class IDEalizeTerminalView: LocalProcessTerminalView {
     /// prompt box with, and how far dim text is faded. Configured from the theme.
     var ink = TerminalInkFilter()
 
+    // MARK: - Dragging always selects, even while a TUI tracks the mouse
+
+    /// Whether a plain left-button drag selects text even while the foreground
+    /// program is tracking the mouse. Off restores SwiftTerm's stock behaviour
+    /// (the program gets the drag, nothing is selected) — used by verification.
+    var dragSelectsUnderMouseReporting = true
+
+    /// True between mouse-down and mouse-up for a press this view took for
+    /// selection rather than reporting onward.
+    private var claimedPressForSelection = false
+    /// Whether that press has moved far enough to be a drag rather than a click.
+    private var pressBecameDrag = false
+    /// Where the press landed, to measure that distance from.
+    private var pressOrigin: NSPoint = .zero
+    /// How far the pointer must travel before a press counts as a drag. A click
+    /// on a TUI's own UI wobbles by a pixel or two; that must still be a click.
+    private static let dragSlop: CGFloat = 3
+
+    /// Whether this event should select instead of being reported to the program.
+    ///
+    /// Claude Code turns on full mouse tracking (`?1000h ?1002h ?1003h ?1006h`),
+    /// and SwiftTerm then hands every press and drag to it — so dragging across
+    /// its output selected nothing at all. Shift bypasses reporting, but nobody
+    /// discovers that, and selecting the agent's output is the whole point of
+    /// this app. So a plain left drag belongs to selection; anything modified,
+    /// and every other button, still reaches the program.
+    private func pressBelongsToSelection(_ event: NSEvent) -> Bool {
+        dragSelectsUnderMouseReporting && allowMouseReporting
+            && getTerminal().mouseMode != .off
+            && event.modifierFlags
+                .intersection([.shift, .control, .option, .command]).isEmpty
+    }
+
+    /// Run `body` with mouse reporting off, so SwiftTerm takes its selection path.
+    private func selecting(_ body: () -> Void) {
+        let saved = allowMouseReporting
+        allowMouseReporting = false
+        body()
+        allowMouseReporting = saved
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        claimedPressForSelection = pressBelongsToSelection(event)
+        pressBecameDrag = false
+        pressOrigin = event.locationInWindow
+        guard claimedPressForSelection else { return super.mouseDown(with: event) }
+        selecting { super.mouseDown(with: event) }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard claimedPressForSelection else { return super.mouseDragged(with: event) }
+        let moved = hypot(event.locationInWindow.x - pressOrigin.x,
+                          event.locationInWindow.y - pressOrigin.y)
+        if moved > Self.dragSlop { pressBecameDrag = true }
+        selecting { super.mouseDragged(with: event) }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard claimedPressForSelection else { return super.mouseUp(with: event) }
+        claimedPressForSelection = false
+        selecting { super.mouseUp(with: event) }
+        // A press that never moved was a click, not a selection: hand it to the
+        // program after the fact so a TUI's clickable UI still works. Multi-click
+        // is word/line selection and is never forwarded.
+        guard !pressBecameDrag, event.clickCount == 1 else { return }
+        forwardClick(at: event)
+    }
+
+    /// Send a left press + release at the event's cell to the foreground program.
+    private func forwardClick(at event: NSEvent) {
+        let terminal = getTerminal()
+        let cols = max(terminal.cols, 1), rows = max(terminal.rows, 1)
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let p = convert(event.locationInWindow, from: nil)
+        let col = min(max(0, Int(p.x / (bounds.width / CGFloat(cols)))), cols - 1)
+        // The view is not flipped (y grows upward), so invert for the grid row.
+        let row = min(max(0, Int((bounds.height - p.y) / (bounds.height / CGFloat(rows)))), rows - 1)
+        for release in [false, true] {
+            let flags = terminal.encodeButton(button: 0, release: release,
+                                              shift: false, meta: false, control: false)
+            terminal.sendEvent(buttonFlags: flags, x: col, y: row)
+        }
+    }
+
     /// Alternate-screen enter/leave sequences, matched in one pass. Enter and
     /// leave share the `ESC [ ? …` prefix shape, so partial tails are carried
     /// between chunks (a sequence can straddle a read boundary).
