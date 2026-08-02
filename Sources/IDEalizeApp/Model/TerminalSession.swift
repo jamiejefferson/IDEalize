@@ -725,7 +725,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
 
         startStatusPolling()
         installScrollFix()
-        runSelectionSelfTestIfRequested()
 
         // A per-session override (Service Hatch) wins; otherwise fall back to the
         // configured default launch, if enabled.
@@ -752,107 +751,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
                 self?.firePendingLaunch()
             }
         }
-    }
-
-    // MARK: - Selection self-test (verification harness, temporary)
-    //
-    // IDEALIZE_SELFTEST_SELECTION=synthetic — put the grid into the mouse-tracking
-    //   mode Claude Code asks for and drag across sample output.
-    // IDEALIZE_SELFTEST_SELECTION=claude — let the real agent launch, then drag
-    //   across whatever it has printed.
-    // IDEALIZE_SELFTEST_NOFIX=1 — restore stock SwiftTerm behaviour, to show the bug.
-    // IDEALIZE_SELFTEST_OUT=<path> — where to write the window number + result.
-
-    private static var selectionSelfTestRan = false
-
-    private func runSelectionSelfTestIfRequested() {
-        let env = ProcessInfo.processInfo.environment
-        let mode = env["IDEALIZE_SELFTEST_SELECTION"] ?? ""
-        guard mode == "synthetic" || mode == "claude", !Self.selectionSelfTestRan else { return }
-        Self.selectionSelfTestRan = true
-        if env["IDEALIZE_SELFTEST_NOFIX"] == "1" {
-            terminalView.dragSelectsUnderMouseReporting = false
-        }
-        let settle: Double = mode == "claude" ? 22 : 3
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            guard let self else { return }
-            self.revealTerminal = true
-            if mode == "synthetic" {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    self?.feedSelectionSample()
-                }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + settle) { [weak self] in
-                self?.dragAcrossSample(mode: mode)
-            }
-        }
-    }
-
-    /// Sample output plus the exact mouse-tracking modes Claude Code turns on
-    /// (`?1000h ?1002h ?1003h ?1006h`), so the grid is in the state the bug needs.
-    private func feedSelectionSample() {
-        let tv = terminalView
-        tv.feed(text: "\u{1B}[2J\u{1B}[H")
-        let lines = [
-            "\u{1B}[36m●\u{1B}[0m I've fixed the selection handling in the terminal.",
-            "",
-            "  The foreground program was taking every drag, so nothing",
-            "  was ever selected. A plain drag now belongs to selection.",
-            "",
-            "\u{1B}[32m✓\u{1B}[0m  Sources/IDEalizeApp/Model/IDEalizeTerminalView.swift",
-            "\u{1B}[31merror:\u{1B}[0m no such module 'Nope'   \u{1B}[33mwarning:\u{1B}[0m unused result",
-        ]
-        tv.feed(text: lines.joined(separator: "\r\n") + "\r\n")
-        tv.feed(text: "\u{1B}[?1000h\u{1B}[?1002h\u{1B}[?1003h\u{1B}[?1006h")
-    }
-
-    /// Plain, unmodified left drag across a few lines — the gesture the user made.
-    private func dragAcrossSample(mode: String) {
-        let tv = terminalView
-        let terminal = tv.getTerminal()
-        guard let window = tv.window else { return writeSelfTestResult("no window") }
-        let rows = max(terminal.rows, 1)
-        let cell = tv.bounds.height / CGFloat(rows)
-        func point(row: Int, fraction: CGFloat) -> NSPoint {
-            tv.convert(NSPoint(x: tv.bounds.width * fraction,
-                               y: tv.bounds.height - (CGFloat(row) + 0.5) * cell), to: nil)
-        }
-        func event(_ type: NSEvent.EventType, _ location: NSPoint) -> NSEvent? {
-            NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
-                               timestamp: ProcessInfo.processInfo.systemUptime,
-                               windowNumber: window.windowNumber, context: nil,
-                               eventNumber: 0, clickCount: 1, pressure: 1)
-        }
-        // Claude Code paints from the top of the alt screen; the synthetic sample
-        // starts at row 0 too. Drag from the first body line to the last.
-        let (first, last) = mode == "claude" ? (2, 12) : (0, 6)
-        if let down = event(.leftMouseDown, point(row: first, fraction: 0.02)) {
-            tv.mouseDown(with: down)
-        }
-        for step in 1...8 {
-            let t = CGFloat(step) / 8
-            let row = first + Int((CGFloat(last - first) * t).rounded())
-            if let drag = event(.leftMouseDragged, point(row: row, fraction: 0.02 + 0.7 * t)) {
-                tv.mouseDragged(with: drag)
-            }
-        }
-        if let up = event(.leftMouseUp, point(row: last, fraction: 0.72)) {
-            tv.mouseUp(with: up)
-        }
-        tv.needsDisplay = true
-        let selected = tv.getSelection()?.isEmpty == false
-        writeSelfTestResult("""
-            window=\(window.windowNumber)
-            mouseMode=\(terminal.mouseMode)
-            fixEnabled=\(tv.dragSelectsUnderMouseReporting)
-            selectedChars=\(tv.getSelection()?.count ?? 0)
-            selected=\(selected)
-            """)
-    }
-
-    private func writeSelfTestResult(_ text: String) {
-        guard let path = ProcessInfo.processInfo.environment["IDEALIZE_SELFTEST_OUT"] else { return }
-        try? (text + "\n").write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     /// A launch command (e.g. an agent CLI) queued to run once the shell is ready.
