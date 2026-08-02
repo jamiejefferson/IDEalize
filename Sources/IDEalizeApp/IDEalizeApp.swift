@@ -270,6 +270,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // default `--dangerously-skip-permissions` launch doesn't hang a fresh machine
         // on a dialog we type past but never answer. Runs before any chat spawns Claude.
         ClaudeConfigBootstrap.ensureBypassPermissionsAccepted()
+        // Repoint the `idealize` shim at this build's CLI now rather than waiting
+        // for the first shell to spawn, so an installed app heals a shim left
+        // dangling or hijacked by some other bundle. A non-installed build only
+        // ever touches its own private bin dir (see CLIInstaller).
+        CLIInstaller.installShim()
         Workspace.shared.startIPCIfNeeded()
         NSApp.activate(ignoringOtherApps: true)
     }
