@@ -20,18 +20,20 @@ enum CLIInstaller {
     static let sharedBinDir = NSHomeDirectory() + "/Library/Application Support/IDEalize/bin"
 
     /// True when the running bundle is the installed app (`/Applications` or the
-    /// per-user `~/Applications`). Location, not bundle id, is the test: a
-    /// release build under test in /tmp carries the production bundle id and
-    /// would still hijack the shared shim if we keyed off the id alone.
+    /// per-user `~/Applications`). Location, not bundle id, is the test — this is
+    /// deliberately stricter than `AppPaths.isDevBuild`: a release build under
+    /// test in /tmp, or a probe bundle assembled into `dist/`, carries the
+    /// production bundle id and would still hijack the shared shim if we keyed
+    /// off the id alone. Both of those have happened.
     static var isInstalledBuild: Bool {
         let path = Bundle.main.bundlePath
         return path.hasPrefix("/Applications/")
             || path.hasPrefix(NSHomeDirectory() + "/Applications/")
     }
 
-    /// Where this build's shim lives. Installed app: the shared dir. Anything
-    /// else: a private dir keyed to the bundle path, so two dev builds in two
-    /// safe copies don't fight over one shim either.
+    /// Where this build's shim lives. Installed app: the shared dir. Every other
+    /// build: a private dir under `IDEalize Dev`, keyed to the bundle path so two
+    /// dev builds in two safe copies don't fight over one shim either.
     static var binDir: String {
         guard !isInstalledBuild else { return sharedBinDir }
         let key = String(format: "%08x", fnv1a(Bundle.main.bundlePath))
