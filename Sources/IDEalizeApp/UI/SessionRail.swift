@@ -312,12 +312,88 @@ private struct ProjectCard: View {
     }
 }
 
+// MARK: - Selection
+
+/// The rail's one and only "this row is selected" treatment: the highlight tint
+/// washed across the row plus a highlight border — the same pair the Appearance
+/// panel's chips and swatches use, so selection reads identically everywhere.
+///
+/// The rule this enforces: **nothing in the rail may wear the highlight tint
+/// except the selected row.** Role — lead agent, project agent, plain chat — is
+/// said with depth, a spine, an icon and a label, never with the tint. The
+/// project agent used to sit on a permanent `softFill`, which is exactly this
+/// costume, so it read as "selected" and left real selection (a hairline stroke)
+/// with nothing to win by.
+private struct RailSelectable: ViewModifier {
+    let selected: Bool
+    let radius: CGFloat
+    /// What the row sits on when it is *not* selected — its role surface.
+    let restFill: AnyShapeStyle
+    /// The hairline it carries when not selected (`.clear` for none).
+    let restStroke: Color
+    @ObservedObject private var settings = AppSettings.shared
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: radius)
+                    .fill(selected ? settings.actionStyle.softFill : restFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: radius)
+                    .strokeBorder(selected ? settings.actionStyle.color : restStroke,
+                                  lineWidth: selected ? 1.5 : 1)
+            )
+    }
+}
+
+private extension View {
+    func railSelectable(_ selected: Bool, radius: CGFloat,
+                        restFill: AnyShapeStyle, restStroke: Color = .clear) -> some View {
+        modifier(RailSelectable(selected: selected, radius: radius,
+                                restFill: restFill, restStroke: restStroke))
+    }
+}
+
+/// The vertical rule that marks a coordinating agent's row as a different tier
+/// from the chats around it. Ink, not highlight: it is a static role marker, and
+/// the house rule keeps the highlight fill for interactive things — which also
+/// keeps it clear of the selection tint. Derived from the theme's own text
+/// colour, so it recolours with every theme.
+///
+/// Drawn as an overlay rather than as an element inside the row's `HStack`: a
+/// `Shape` is vertically flexible, so in the stack it stretches the row to fill
+/// whatever height is going (which ballooned the lead agent's card to the full
+/// height of the rail). As an overlay it is measured by the row instead.
+private struct AgentSpine: ViewModifier {
+    @ObservedObject private var settings = AppSettings.shared
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .leading) {
+            Capsule()
+                .fill(Color(settings.theme.secondaryForeground))
+                .frame(width: 2.5)
+                .padding(.vertical, 6)
+                .padding(.leading, 5)
+        }
+    }
+}
+
+private extension View {
+    /// Mark this row as a coordinating agent's (see `AgentSpine`). Apply *after*
+    /// the row's padding so the rule sits in the gutter, and before the
+    /// selection treatment so the tint stays behind it.
+    func agentSpine() -> some View { modifier(AgentSpine()) }
+}
+
 // MARK: - Lead agent (pinned above the project list)
 
 /// The fleet's lead agent, drawn as its own card at the very top of the rail —
-/// above every project, never inside one. Same accent chrome as a project
-/// agent's strip so the coordination tier reads consistently, but standalone:
-/// the lead watches the projects below it rather than belonging to any of them.
+/// above every project, never inside one. Carries the same tier marks as a
+/// project agent's strip (ink spine, glyph, two-line label) so the coordination
+/// tier reads consistently, but standalone: the lead watches the projects below
+/// it rather than belonging to any of them. At rest it sits on the same surface
+/// + hairline a project card does; the highlight tint is reserved for selection.
 private struct LeadAgentCard: View {
     @ObservedObject var tab: WorkspaceTab
     @ObservedObject var workspace: Workspace
@@ -358,16 +434,11 @@ private struct LeadAgentCard: View {
                 .help("Stop the lead agent")
             }
         }
-        .padding(.horizontal, 9).padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 11)
-                .fill(settings.actionStyle.softFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 11)
-                        .strokeBorder(isSelected ? settings.actionStyle.color : Color(theme.border),
-                                      lineWidth: isSelected ? 1.5 : 1)
-                )
-        )
+        .padding(.leading, 14).padding(.trailing, 9).padding(.vertical, 8)
+        .agentSpine()
+        .railSelectable(isSelected, radius: 11,
+                        restFill: AnyShapeStyle(Color(theme.surface)),
+                        restStroke: Color(theme.border))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture {
@@ -379,11 +450,13 @@ private struct LeadAgentCard: View {
 
 // MARK: - Project agent (attached to the project container)
 
-/// The project's coordinating agent, shown fixed to the foot of its project
-/// card — one per project, overseeing the chats above it — rather than sitting
-/// among them as a peer chat. Tinted with the interface accent so it reads as
-/// part of the container's chrome. Tapping it focuses the agent; the close
-/// button stops it.
+/// The project's coordinating agent, shown fixed to the head of its project
+/// card — one per project, overseeing the chats below it — rather than sitting
+/// among them as a peer chat. It reads as a different tier by *depth*, not by
+/// colour: recessed into a well cut out of the card's surface, marked with an
+/// ink spine and its own glyph and subtitle. The highlight tint it used to wear
+/// permanently belongs to selection alone. Tapping it focuses the agent; the
+/// close button stops it.
 private struct ProjectAgentStrip: View {
     @ObservedObject var tab: WorkspaceTab
     @ObservedObject var workspace: Workspace
@@ -424,16 +497,10 @@ private struct ProjectAgentStrip: View {
                 .help("Stop the project agent")
             }
         }
-        .padding(.horizontal, 9).padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(settings.actionStyle.softFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(isSelected ? settings.actionStyle.color : .clear,
-                                      lineWidth: 1.5)
-                )
-        )
+        .padding(.leading, 14).padding(.trailing, 9).padding(.vertical, 7)
+        .agentSpine()
+        .railSelectable(isSelected, radius: 8,
+                        restFill: AnyShapeStyle(Color(theme.background)))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture {
@@ -519,15 +586,11 @@ private struct SessionCard: View {
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: 7)
-                .fill(Color(hovering ? theme.surfaceHover : .clear))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(isSelected ? settings.actionStyle.color : .clear,
-                              lineWidth: isSelected ? 1.5 : 1)
-        )
+        // Selection is the tint *and* the border, the same pair every other row
+        // wears — a hairline alone was too quiet to beat the project agent's
+        // old permanent fill.
+        .railSelectable(isSelected, radius: 7,
+                        restFill: AnyShapeStyle(Color(hovering ? theme.surfaceHover : .clear)))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         // Double-click the chat to rename it in place; a single click selects.
