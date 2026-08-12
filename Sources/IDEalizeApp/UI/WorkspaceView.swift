@@ -331,6 +331,10 @@ private struct LeadAgentPromptSheet: View {
 private struct BottomToolbar: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject private var settings = AppSettings.shared
+    /// Supported way to present the Settings scene — used when the service hatch
+    /// has no source checkout to open (the private `showSettingsWindow:` selector
+    /// no-ops on recent macOS).
+    @Environment(\.openSettings) private var openSettings
 
     private var theme: Theme { settings.theme }
 
@@ -361,7 +365,7 @@ private struct BottomToolbar: View {
                 workspace.splitFocused(axis: .horizontal)
             }
             toggle("wrench.and.screwdriver", on: workspace.isServiceHatchOpen, help: "Service hatch — open an agent dev session on IDEalize's own code (click again to close)") {
-                workspace.toggleServiceHatch()
+                if workspace.toggleServiceHatch() == .needsSourcePath { openSettings() }
             }
             // Agent controls live in the session rail, next to the chats they
             // coordinate: each project's sparkles button for its agent, the
@@ -631,10 +635,12 @@ struct EmptyState: View {
     @ObservedObject var workspace: Workspace
 
     @ObservedObject private var settings = AppSettings.shared
-    /// The empty slate is the terminal's own surface — warm paper (Linen) by
-    /// default — not the window chrome's, so the owl always sits on the same
-    /// ground the grid will fill when a session opens, whatever the app theme.
-    private var theme: Theme { settings.terminalTheme }
+    /// The welcome slate follows the app's light/dark mode, never the terminal
+    /// colourway. The owl's cream-and-rust palette is designed for IDEalize
+    /// Light or Dark; an arbitrary terminal ground (e.g. a lilac theme) clashes
+    /// with it. So the slate always sits on one of the two neutral IDEalize
+    /// grounds, picked by whether the app theme reads light or dark.
+    private var theme: Theme { settings.theme.isDark ? .idealizeDark : .idealizeLight }
 
     private var recents: [String] { Array(settings.recentFolders.prefix(3)) }
 

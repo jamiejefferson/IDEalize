@@ -419,23 +419,31 @@ final class Workspace: ObservableObject {
         return session
     }
 
+    /// Outcome of a service-hatch action. Returned rather than handled here so the
+    /// view layer can present Settings via the SwiftUI `openSettings` environment
+    /// action — the private `showSettingsWindow:` selector no-ops on recent macOS,
+    /// and a model can't reach the environment anyway.
+    enum ServiceHatchOutcome { case opened, closed, needsSourcePath }
+
     /// Open a "service hatch": a new tab rooted in IDEalize's own source, dropping
     /// straight into an agent dev session (permissions skipped, vault docs in scope)
-    /// preloaded with the `/idealize-service-hatch` safe-editing guide. Beeps if the
-    /// source checkout can't be located.
-    func openServiceHatch() {
+    /// preloaded with the `/idealize-service-hatch` safe-editing guide. Returns
+    /// `.needsSourcePath` (so the caller can open Settings) if no source checkout
+    /// is configured or can be located.
+    @discardableResult
+    func openServiceHatch() -> ServiceHatchOutcome {
         guard let repo = ServiceHatch.repoRoot() else {
             // No source checkout configured or found. An installed app can't guess
-            // where IDEalize's code lives, so open Settings for the user to point
-            // at it (Launch tab → "IDEalize source folder") rather than beep.
-            SettingsWindow.open()
-            return
+            // where IDEalize's code lives, so ask the view to open Settings for the
+            // user to point at it (Launch tab → "IDEalize source folder").
+            return .needsSourcePath
         }
         let hatch = ServiceHatch.launch()
         let session = newTab(projectPath: repo,
                              launchOverride: hatch.command,
                              openingTurn: hatch.openingTurn)
         session.isServiceHatch = true   // shows the themed opening banner in the chat
+        return .opened
     }
 
     /// The currently open service-hatch session, if any (searches every tab).
@@ -449,12 +457,13 @@ final class Workspace: ObservableObject {
 
     /// Toggle the service hatch: open one if none is open, otherwise close the
     /// open one. Lets the toolbar button act as an on/off switch.
-    func toggleServiceHatch() {
+    @discardableResult
+    func toggleServiceHatch() -> ServiceHatchOutcome {
         if let hatch = serviceHatchSession {
             closeSession(hatch)
-        } else {
-            openServiceHatch()
+            return .closed
         }
+        return openServiceHatch()
     }
 
     // MARK: - Project agent

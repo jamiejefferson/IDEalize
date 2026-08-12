@@ -1,17 +1,6 @@
 import SwiftUI
 import AppKit
 
-/// Opens the standard SwiftUI `Settings` scene programmatically (there's no public
-/// API for it, so we send the AppKit action). Used by the Service hatch when it
-/// can't find IDEalize's source and needs the user to point at it.
-enum SettingsWindow {
-    static func open() {
-        NSApp.activate(ignoringOtherApps: true)
-        // macOS 14+ renamed the selector from `showPreferencesWindow:`.
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-    }
-}
-
 /// Preferences window: default launch behavior, the project agent, notifications,
 /// sound. (All appearance controls live in the in-view Appearance panel — ⌘⌥A.)
 struct SettingsView: View {
