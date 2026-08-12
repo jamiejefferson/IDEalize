@@ -137,39 +137,48 @@ it current — it is how you answer "where are we?" instantly. Sections:
 5. **Decisions** — what the user decided, in their words, so no chat re-asks.
 6. **Traps** — project-specific gotchas learned the hard way (seed list below).
 
-## Reporting upward — when a lead agent is running
+## Reporting upward — the comms protocol
 
-A **lead agent** may be running above you: one chat watching every project's
-coordinator. You'll know because `$IDEALIZE_LEAD_AGENT` is set in your
-environment (or `idealize send lead …` resolves). When one is:
+The full protocol — the shared vocabulary, the message classes, and the line
+grammars every tier uses — is defined once, canonically, in the user's vault at
+`Projects/IDEalize/Agent-Comms-Protocol.md`. This section is its operative
+mirror; if the two ever disagree, the vault doc wins. The essentials:
 
-- **Report state changes, one line each**, via `idealize send lead "…"`, in
-  this exact grammar — a rung change, a blocker change, nothing else:
+**Compress on the way up.** Each hop upward compresses to *state*; detail travels
+only downward. You turn a worker's activity into one rung line for the lead — you
+never forward its story.
 
-  ```
-  [this-project] Piece name → rung (t-xxxx) — blocker: none
-  [this-project] LIVE? Piece ready — recommend go: checked and combined, route confirmed
-  ```
+**Below you — the task chats.** Each worker keeps its `idealize note --mine`
+current in the ladder's own words (*"selection-fix → checked (t-4f2a)"*). You read
+that state (and, when you need detail, its transcript) rather than expecting a
+worker to write you a report; workers never message the lead or the user.
 
-  The rungs are the ladder's own words; the only blocker states are
-  `none / stuck / waiting-on-lead / waiting-on-user`. Several changes inside
-  ten minutes travel as one multi-line note.
-- **Never send up the wire:** code, diffs, transcripts, file contents, command
-  output, screenshots. The lead needs a rung, not a story. If it needs more,
-  it will ask one question.
+**Above you — the lead agent**, if one is running (you'll know: `$IDEALIZE_LEAD_AGENT`
+is set, or `idealize send lead …` resolves). Report **only state changes**, one
+line each, via `idealize send lead "…"`:
+
+```
+[this-project] Piece name → rung (t-xxxx) — blocker: none
+[this-project] LIVE? Piece ready — recommend go: checked and combined, route confirmed
+```
+
+The rungs are the ladder's own words; the only blocker states are
+`none / stuck / waiting-on-lead / waiting-on-user`. Several changes inside ten
+minutes travel as one multi-line note.
+
+- **Never up the wire:** code, diffs, transcripts, file contents, command output,
+  screenshots. The lead needs a rung, not a story — if it needs more, it asks one
+  question.
 - **`send`, not `type`**, unless the lead itself is your blocker and work has
-  actually halted — `type` spends attention immediately; `send` spends it when
-  they next look up.
+  actually halted (`type` is the only interrupt).
 - **Outward-facing questions go to the lead, not the user** — going live,
-  publishing, anything that leaves this machine. It batches your question with
-  everyone else's so the user decides once, not five times. The user talking
-  to you directly is still first-class: answer plainly, and relay any decision
-  they make to the lead in one line, in their words.
-- Whenever you're woken for any reason, drain your inbox first — the lead's
-  directives arrive there.
+  publishing, announcing, anything that leaves this machine — so the user decides
+  once, not five times. The user talking to you directly is still first-class:
+  answer plainly, and relay any decision they make to the lead in one line, in
+  their words.
+- Whenever you're woken, drain your inbox first — the lead's directives arrive there.
 
-With no lead running, everything in this guide works exactly as written: the
-user is your only "upward".
+With no lead running, everything works as written: the user is your only "upward".
 
 ## Rules every chat works under
 

@@ -36,7 +36,10 @@ enum FlowSkillInstaller {
     /// v13: verification-first spawns — attach the proving check at spawn
     ///      (`spawn --verify`), accept work only on an executed check with one
     ///      retry-then-escalate — and per-task model routing (`spawn --model`).
-    static let version = 13
+    /// v14: comms protocol consolidated — lead + project guides now mirror one
+    ///      canonical protocol (compress-on-the-way-up, the task-chat tier via
+    ///      `note --mine`, one interrupt) instead of two drifting copies.
+    static let version = 14
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
     /// Add-only, and only for files the app owns: every entry here is *overwritten*

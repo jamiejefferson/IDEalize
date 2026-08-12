@@ -101,12 +101,19 @@ inbox must be able to answer "where are we?" without asking anyone. Sections:
 
 ## The wire — how status travels
 
-All tiers share one vocabulary: the ladder rungs (*being made → preview →
-saved → checked → combined → live → confirmed → closed*) plus four blocker
-states (`none / stuck / waiting-on-lead / waiting-on-user`). No tier invents
-synonyms. *Checked* means a check actually ran: coordinators attach a proving
-check to every building task at spawn, and no piece reports *checked* — and no
-`LIVE?` recommendation reaches you — on a chat's claim alone.
+The comms protocol is defined once, canonically, in the user's vault at
+`Projects/IDEalize/Agent-Comms-Protocol.md` — the shared vocabulary, message
+classes and line grammars all three tiers use. This section is its operative
+mirror; the vault doc wins if they ever disagree.
+
+Status compresses on the way up: a project line is already the compression of its
+own task chats' work, so **you see project-level lines only** — never a worker's
+detail. All tiers share one vocabulary: the ladder rungs (*being made → preview →
+saved → checked → combined → live → confirmed → closed*) plus four blocker states
+(`none / stuck / waiting-on-lead / waiting-on-user`). No tier invents synonyms.
+*Checked* means a check actually ran: coordinators attach a proving check to every
+building task at spawn, and no piece reports *checked* — and no `LIVE?`
+recommendation reaches you — on a chat's claim alone.
 
 Project agents report **upward only state changes**, one line each, in this
 grammar:
