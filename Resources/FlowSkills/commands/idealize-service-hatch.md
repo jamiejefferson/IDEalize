@@ -8,11 +8,14 @@ running IDEalize app, rooted in its own source tree (`Package.swift`,
 self-surgery session. Work in short, verifiable steps and keep the user in the loop.
 
 ## 1. Orient before touching anything
+- **Confirm where you are first.** Everything below uses paths relative to the repo
+  root, so check you're actually in the checkout: `git rev-parse --show-toplevel`, and
+  that it has `Package.swift` and `Sources/IDEalizeApp/`. If it doesn't, say so plainly
+  and stop — don't guess at another folder.
 - Read `CLAUDE.md` at the repo root — it is the ground truth for how this project works.
-- Status, thinking, and next actions live in the **vault**, not the repo:
-  `~/Documents/_Obsidian Vaults/JacqVault/Projects/IDEalize/_index.md`
-  (added to your working dirs). Read it first, and read
-  `JacqVault/VAULT-INDEX.md` for the writing/frontmatter conventions.
+- Status, thinking, and next actions live in the user's Obsidian vault, not the repo —
+  `CLAUDE.md` names the project's page there. The vault is outside this session's
+  working directories, so ask before reading or writing it rather than assuming access.
 - Skim recent history: `git status` and `git log --oneline -15`. Note the current branch.
 
 ## 2. This session runs *inside the app you're editing* — the golden rule
@@ -44,7 +47,7 @@ picks up your changes. So:
   you can, exercise it. Report honestly if something is unverified.
 
 ## 5. Wrap up
-- Update the vault `_index.md` (Status, Open threads, Next actions, `last_touched`)
-  per the conventions in `VAULT-INDEX.md`. The repo is the source of truth for code;
-  the vault is the source of truth for status and thinking.
+- If you have access to the vault, bring the project's page up to date (Status, Open
+  threads, Next actions, `last_touched`) per that vault's own conventions. The repo is
+  the source of truth for code; the vault is the source of truth for status and thinking.
 - Give the user a tight summary: what changed, what's built/committed, and what's left.

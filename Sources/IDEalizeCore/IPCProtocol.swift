@@ -72,6 +72,8 @@ public struct IPCRequest: Codable, Sendable {
         case verify        // run the project's build/check in a chat's folder; pass/fail + output tail
         case combinePlan   // read-only: proposed order to combine copies, with a trial conflict check
         case combineApply  // bring one copy's work into the main version (gated; aborts on conflict)
+        case rung          // record where a piece has got to, and report it upward in one act
+        case board         // read-only: every piece's rung for a project — the status digest
     }
 
     public var command: Command
@@ -110,6 +112,12 @@ public struct IPCRequest: Codable, Sendable {
     /// for a well-specified mechanical piece). Applied only when the default
     /// agent understands a model flag (Claude today); otherwise ignored.
     public var model: String?
+    /// Used by `rung`: which piece of work, where it has got to, and what (if
+    /// anything) is holding it. Validated against `Wire.rungs` / `Wire.blockers`,
+    /// so the canonical status line is generated rather than hand-typed.
+    public var piece: String?
+    public var rung: String?
+    public var blocker: String?
 
     public init(command: Command,
                 from: String? = nil,
@@ -124,7 +132,10 @@ public struct IPCRequest: Codable, Sendable {
                 name: String? = nil,
                 coordinator: Bool? = nil,
                 check: String? = nil,
-                model: String? = nil) {
+                model: String? = nil,
+                piece: String? = nil,
+                rung: String? = nil,
+                blocker: String? = nil) {
         self.command = command
         self.from = from
         self.token = token
@@ -139,21 +150,130 @@ public struct IPCRequest: Codable, Sendable {
         self.coordinator = coordinator
         self.check = check
         self.model = model
+        self.piece = piece
+        self.rung = rung
+        self.blocker = blocker
     }
 }
 
-/// A single inter-agent message held in a session mailbox.
+/// The rules of the wire between agents. The guides have always said upward traffic
+/// is rungs, blockers and questions — never code, transcripts or command output — but
+/// nothing enforced it, and supervision that costs more than the work is the failure
+/// mode. These are the enforcement points.
+public enum Wire {
+    /// The most a mailbox message may carry. Room for a multi-line batched note;
+    /// nowhere near enough for a retelling. Deliberately does *not* apply to `input`
+    /// (`idealize type`/`exec`), which is a real terminal-typing channel and carries
+    /// things like check-failure output downward on purpose.
+    public static let maxBodyCharacters = 800
+
+    /// A rung's optional note is a fragment — "needs a go/no-go" — not a paragraph.
+    /// Bounded separately and much harder, because it lands inside the generated
+    /// status line, and a status report that wraps isn't a status report.
+    public static let maxNoteCharacters = 160
+
+    public static let truncationNote = "…[truncated — the wire carries rungs, not stories]"
+
+    /// Cut a rung note down to a fragment, ending on a word rather than mid-syllable.
+    public static func clampNote(_ note: String) -> String {
+        let flat = note.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard flat.count > maxNoteCharacters else { return flat }
+        let cut = String(flat.prefix(maxNoteCharacters))
+        let onAWord = cut.lastIndex(of: " ").map { String(cut[cut.startIndex..<$0]) } ?? cut
+        return onAWord + "…"
+    }
+
+    /// Trim an over-long body rather than rejecting it: a rejection costs the sender
+    /// another turn, and turn count is the bill. The sender is told what happened.
+    public static func clamp(_ body: String) -> (text: String, truncated: Bool) {
+        guard body.count > maxBodyCharacters else { return (body, false) }
+        return (String(body.prefix(maxBodyCharacters)) + "\n" + truncationNote, true)
+    }
+
+    /// The path to live, in order. A piece only ever sits on one of these.
+    public static let rungs = ["being-made", "preview", "saved", "checked",
+                               "combined", "live", "confirmed", "closed"]
+
+    /// Why a piece isn't moving, if it isn't.
+    public static let blockers = ["none", "stuck", "waiting-on-lead", "waiting-on-user"]
+
+    /// Accept the spoken form ("being made") as well as the wire form ("being-made"),
+    /// so the guides can read naturally and the CLI stays typo-proof.
+    public static func normalise(_ word: String) -> String {
+        word.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+    }
+
+    /// The one-line form every status report takes. Generated, never hand-typed, so
+    /// the grammar can't drift between agents:
+    /// `[project] Piece → saved (t-abc123) — blocker: none`
+    public static func statusLine(project: String?, piece: String, rung: String,
+                                  blocker: String, session: String?, note: String?) -> String {
+        var line = ""
+        if let project, !project.isEmpty { line += "[\(project)] " }
+        line += "\(piece) → \(rung)"
+        if let session, !session.isEmpty { line += " (\(session))" }
+        line += " — blocker: \(blocker)"
+        if let note, !note.isEmpty { line += " — \(note)" }
+        return line
+    }
+}
+
+/// Where one piece of work has got to. Set by `idealize rung`, read back by
+/// `idealize board`. This is the state the boards used to hold as prose: keeping it
+/// as fields means the lead can read a project's position without pulling a whole
+/// hand-written board into context.
+public struct IPCRung: Codable, Sendable {
+    public var piece: String
+    public var rung: String
+    public var blocker: String
+    public var note: String?
+    /// The chat that owns this piece.
+    public var session: String
+    public var sessionLabel: String?
+    public var projectPath: String?
+    public var updated: Date
+
+    public init(piece: String, rung: String, blocker: String, note: String? = nil,
+                session: String, sessionLabel: String? = nil,
+                projectPath: String? = nil, updated: Date) {
+        self.piece = piece
+        self.rung = rung
+        self.blocker = blocker
+        self.note = note
+        self.session = session
+        self.sessionLabel = sessionLabel
+        self.projectPath = projectPath
+        self.updated = updated
+    }
+}
+
+/// A single inter-agent message held in a session mailbox. `piece`/`rung`/`blocker`
+/// are set when the message came from `idealize rung`, so a status report arrives as
+/// state the receiver can act on rather than a sentence it has to parse. All optional,
+/// so an older CLI and a newer app (or the reverse) still understand each other.
 public struct IPCMessage: Codable, Sendable {
     public var from: String
     public var fromLabel: String?
     public var body: String
     public var timestamp: Date
+    public var piece: String?
+    public var rung: String?
+    public var blocker: String?
 
-    public init(from: String, fromLabel: String? = nil, body: String, timestamp: Date) {
+    public init(from: String, fromLabel: String? = nil, body: String, timestamp: Date,
+                piece: String? = nil, rung: String? = nil, blocker: String? = nil) {
         self.from = from
         self.fromLabel = fromLabel
         self.body = body
         self.timestamp = timestamp
+        self.piece = piece
+        self.rung = rung
+        self.blocker = blocker
     }
 }
 
@@ -348,6 +468,12 @@ public struct IPCResponse: Codable, Sendable {
     public var verify: IPCVerify?
     public var combinePlan: IPCCombinePlan?
     public var combineResult: IPCCombineResult?
+    /// `board`: where every piece in the project has got to. The digest that replaces
+    /// reading a hand-written board file just to learn positions.
+    public var rungs: [IPCRung]?
+    /// Set when the app trimmed an over-long message body, so the sender learns the
+    /// wire's shape instead of silently losing the tail.
+    public var warning: String?
 
     public init(ok: Bool,
                 error: String? = nil,
@@ -361,7 +487,9 @@ public struct IPCResponse: Codable, Sendable {
                 survey: IPCSurvey? = nil,
                 verify: IPCVerify? = nil,
                 combinePlan: IPCCombinePlan? = nil,
-                combineResult: IPCCombineResult? = nil) {
+                combineResult: IPCCombineResult? = nil,
+                rungs: [IPCRung]? = nil,
+                warning: String? = nil) {
         self.ok = ok
         self.error = error
         self.sessions = sessions
@@ -375,6 +503,8 @@ public struct IPCResponse: Codable, Sendable {
         self.verify = verify
         self.combinePlan = combinePlan
         self.combineResult = combineResult
+        self.rungs = rungs
+        self.warning = warning
     }
 
     public static func failure(_ message: String) -> IPCResponse {

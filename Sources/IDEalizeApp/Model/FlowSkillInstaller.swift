@@ -36,7 +36,12 @@ enum FlowSkillInstaller {
     /// v13: verification-first spawns — attach the proving check at spawn
     ///      (`spawn --verify`), accept work only on an executed check with one
     ///      retry-then-escalate — and per-task model routing (`spawn --model`).
-    static let version = 13
+    /// v14: leaner guides — both rewritten as an always-on core plus reference
+    ///      files read only at the stage that needs them; status travels by
+    ///      `idealize rung` and is read back with `idealize board`; briefs point
+    ///      at the board instead of retelling it; boards get a length budget and
+    ///      an archive; the measured cost rules ship inside both guides.
+    static let version = 14
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
     /// Add-only, and only for files the app owns: every entry here is *overwritten*
@@ -82,6 +87,25 @@ enum FlowSkillInstaller {
             : claudeDir.appendingPathComponent("skills/lead-agent/SKILL.md")
     }
 
+    /// Where the reference files each guide defers to are installed — the long
+    /// procedures an agent only needs at one stage, kept out of the always-on system
+    /// prompt. The agent is told this directory at launch, so nothing has to hardcode
+    /// a path that differs between an installed app and a dev build.
+    ///
+    /// Installed, they sit in the skill folder beside the guide. A dev build's two
+    /// guides share one support folder, so its references get a folder each — the
+    /// *file* names must stay exactly as the guides name them.
+    static func referenceDir(forLead lead: Bool) -> URL {
+        let guideDir = (lead ? leadAgentGuideURL : projectAgentGuideURL)
+            .deletingLastPathComponent()
+        guard AppPaths.isDevBuild else { return guideDir }
+        return guideDir.appendingPathComponent(lead ? "lead-agent-refs" : "project-agent-refs")
+    }
+
+    /// The reference file names each guide names in its own text.
+    static let projectAgentReferences = ["landing.md", "board.md", "closing.md", "traps.md"]
+    static let leadAgentReferences = ["board.md", "briefing.md", "quiet.md"]
+
     /// Whether `url` is a file this installer owns and will overwrite on the next
     /// version bump. The document panel uses this to refuse in-place edits: an edit
     /// here looks like it worked and is then silently reverted by an app update.
@@ -124,6 +148,12 @@ enum FlowSkillInstaller {
             files.map { ($0.src, claudeDir.appendingPathComponent($0.dest)) }
             + [("FlowSkills/skills/project-agent/SKILL.md", projectAgentGuideURL),
                ("FlowSkills/skills/lead-agent/SKILL.md",    leadAgentGuideURL)]
+            + projectAgentReferences.map {
+                ("FlowSkills/skills/project-agent/\($0)", referenceDir(forLead: false).appendingPathComponent($0))
+              }
+            + leadAgentReferences.map {
+                ("FlowSkills/skills/lead-agent/\($0)", referenceDir(forLead: true).appendingPathComponent($0))
+              }
         for f in work {
             guard let src = sourceURL(for: f.src) else {
                 NSLog("IDEalize: flow skill resource missing: \(f.src)"); ok = false; continue

@@ -72,6 +72,13 @@ func fail(_ message: String, code: Int32 = 1) -> Never {
 
 func out(_ s: String) { print(s) }
 
+/// Surface an advisory the app sent back (e.g. a trimmed message). Goes to stderr so
+/// it can't be mistaken for the command's result, but the agent still reads it.
+func warn(_ s: String?) {
+    guard let s, !s.isEmpty else { return }
+    FileHandle.standardError.write(Data(("idealize: " + s + "\n").utf8))
+}
+
 /// Pull `--flag value` and boolean `--flag` out of an argument list.
 struct Flags {
     var values: [String: String] = [:]
@@ -128,6 +135,8 @@ func printUsage() {
       notify <text> [--title T] [--sound]   show a system notification
       send <session> <text>                 message another terminal's inbox
       broadcast <text>                      message every other terminal
+      rung <piece> <rung> [--blocker B] [--note T] [--to TARGET]  record where a piece has got to AND report it upward in one act (default: my coordinator). Rungs: being-made|preview|saved|checked|combined|live|confirmed|closed. Blockers: none|stuck|waiting-on-lead|waiting-on-user
+      board [--path DIR] [--json]           where every piece in the project stands (from what chats reported — no board file needed)
       inbox [--wait] [--json] [--timeout S]  read & clear my messages
       peek [--json]                         read my messages without clearing
       list [--json]                         list active terminals
@@ -196,6 +205,7 @@ case "send":
     let body = rest.dropFirst().joined(separator: " ")
     let resp = sendRequest(IPCRequest(command: .send, from: mySession, target: target, body: body))
     if !resp.ok { fail(resp.error ?? "send failed") }
+    warn(resp.warning)
     out(resp.info ?? "sent")
 
 case "broadcast":
@@ -203,7 +213,54 @@ case "broadcast":
     let body = rest.joined(separator: " ")
     let resp = sendRequest(IPCRequest(command: .broadcast, from: mySession, body: body))
     if !resp.ok { fail(resp.error ?? "broadcast failed") }
+    warn(resp.warning)
     out(resp.info ?? "broadcast")
+
+case "rung":
+    // Record where a piece of work has got to, and tell the tier above, in one act.
+    // Replaces the three-step ritual of editing the board, composing a status line
+    // and sending it — and generates the line, so the grammar can't drift.
+    let flags = Flags(rest, boolFlags: [])   // --blocker B, --note TEXT, --to TARGET
+    guard flags.positionals.count >= 2 else {
+        fail("usage: idealize rung <piece> <\(Wire.rungs.joined(separator: "|"))> "
+             + "[--blocker \(Wire.blockers.joined(separator: "|"))] [--note TEXT] [--to TARGET]")
+    }
+    let piece = flags.positionals.dropLast().joined(separator: " ")
+    let rung = flags.positionals[flags.positionals.count - 1]
+    let resp = sendRequest(IPCRequest(command: .rung,
+                                      from: mySession,
+                                      // Default upward: the coordinating agent.
+                                      target: flags.values["to"] ?? "coordinator",
+                                      body: flags.values["note"],
+                                      piece: piece,
+                                      rung: rung,
+                                      blocker: flags.values["blocker"] ?? "none"))
+    if !resp.ok { fail(resp.error ?? "rung failed") }
+    warn(resp.warning)
+    out(resp.info ?? "recorded")
+
+case "board":
+    // Where every piece in a project stands, generated from what chats reported —
+    // so nobody has to read a hand-written board just to learn positions.
+    let flags = Flags(rest, boolFlags: ["json"])
+    let resp = sendRequest(IPCRequest(command: .board, from: mySession,
+                                      target: flags.values["path"]))
+    if !resp.ok { fail(resp.error ?? "board failed") }
+    let rows = resp.rungs ?? []
+    if flags.bools.contains("json") {
+        let data = (try? IPC.makeEncoder().encode(rows)) ?? Data()
+        out(String(data: data, encoding: .utf8) ?? "[]")
+    } else if rows.isEmpty {
+        out(resp.info ?? "no pieces reported yet")
+    } else {
+        for r in rows {
+            var line = "\(r.piece) → \(r.rung)"
+            if r.blocker != "none" { line += " — blocker: \(r.blocker)" }
+            line += "  (\(r.sessionLabel ?? r.session))"
+            if let n = r.note, !n.isEmpty { line += " — \(n)" }
+            out(line)
+        }
+    }
 
 case "inbox", "peek":
     let flags = Flags(rest, boolFlags: ["wait", "json"])

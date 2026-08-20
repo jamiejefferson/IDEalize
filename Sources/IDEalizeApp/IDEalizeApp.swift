@@ -34,6 +34,10 @@ struct IDEalizeApp: App {
                             workspace.showTour = true
                         }
                     }
+                    // Find IDEalize's own source in the background, so the wrench
+                    // button works on an installed build that was never pointed at a
+                    // checkout. No-ops when it's already configured or resolvable.
+                    ServiceHatch.discoverInBackground()
                     // If the previous session ended in mini-mode, re-apply it now
                     // that the NSWindow exists. A short delay lets SwiftUI finish
                     // its initial window placement.

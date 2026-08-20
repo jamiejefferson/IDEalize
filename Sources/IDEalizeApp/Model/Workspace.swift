@@ -425,9 +425,10 @@ final class Workspace: ObservableObject {
     /// source checkout can't be located.
     func openServiceHatch() {
         guard let repo = ServiceHatch.repoRoot() else {
-            // No source checkout configured or found. An installed app can't guess
-            // where IDEalize's code lives, so open Settings for the user to point
-            // at it (Launch tab → "IDEalize source folder") rather than beep.
+            // Nothing configured and nothing inferable from where this build runs.
+            // Startup discovery may still be in flight, or may have found several
+            // checkouts and declined to guess — either way Settings is where the
+            // answer is (Launch tab → "Service hatch"), and it offers what was found.
             SettingsWindow.open()
             return
         }
@@ -1261,6 +1262,13 @@ final class Workspace: ObservableObject {
 
     // MARK: - IPC handling (called on main thread)
 
+    /// Told to the sender, not the receiver: the point is that the next message is
+    /// shorter, which only happens if the agent that wrote this one hears about it.
+    private static let truncationWarning =
+        "Message trimmed at \(Wire.maxBodyCharacters) characters. The wire carries rungs, "
+        + "blockers and questions — one line each. Use `idealize rung` for status, and point "
+        + "at the board instead of retelling it."
+
     private func handle(_ request: IPCRequest) -> IPCResponse {
         // Unauthenticated peers may only probe (ping/list). Everything else can
         // read mailboxes or inject keystrokes into terminals, so it requires the
@@ -1297,28 +1305,101 @@ final class Workspace: ObservableObject {
             case .success(let s): dest = s
             case .failure(let error): return .failure(error.message)
             }
+            let (body, truncated) = Wire.clamp(request.body ?? "")
             let msg = IPCMessage(
                 from: request.from ?? "?",
                 fromLabel: request.from.flatMap { session(withID: $0)?.label },
-                body: request.body ?? "",
-                timestamp: Date())
+                body: body,
+                timestamp: Date(),
+                piece: request.piece,
+                rung: request.rung,
+                blocker: request.blocker)
             dest.deliver(msg)
             announceIncoming(to: dest, from: msg)
-            return IPCResponse(ok: true, info: "delivered to \(dest.label) (\(dest.id))")
+            return IPCResponse(ok: true,
+                               info: "delivered to \(dest.label) (\(dest.id))",
+                               warning: truncated ? Self.truncationWarning : nil)
 
         case .broadcast:
             let sender = request.from
             let recipients = allSessions.filter { $0.id != sender }
+            let (body, truncated) = Wire.clamp(request.body ?? "")
             for dest in recipients {
                 let msg = IPCMessage(
                     from: sender ?? "?",
                     fromLabel: sender.flatMap { session(withID: $0)?.label },
-                    body: request.body ?? "",
-                    timestamp: Date())
+                    body: body,
+                    timestamp: Date(),
+                    piece: request.piece,
+                    rung: request.rung,
+                    blocker: request.blocker)
                 dest.deliver(msg)
                 announceIncoming(to: dest, from: msg)
             }
-            return IPCResponse(ok: true, info: "broadcast to \(recipients.count) session(s)")
+            return IPCResponse(ok: true,
+                               info: "broadcast to \(recipients.count) session(s)",
+                               warning: truncated ? Self.truncationWarning : nil)
+
+        case .rung:
+            guard let from = request.from, let me = session(withID: from) else {
+                return .failure("unknown sender session")
+            }
+            guard let rawPiece = request.piece?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !rawPiece.isEmpty else { return .failure("missing piece") }
+            // Same reasoning as the note: a piece is a name, so it can't be an essay
+            // that pushes the generated line past the wire's cap.
+            let piece = Wire.clampNote(rawPiece)
+            let rung = Wire.normalise(request.rung ?? "")
+            guard Wire.rungs.contains(rung) else {
+                return .failure("unknown rung '\(rung)' — one of: \(Wire.rungs.joined(separator: ", "))")
+            }
+            let blocker = Wire.normalise(request.blocker ?? "none")
+            guard Wire.blockers.contains(blocker) else {
+                return .failure("unknown blocker '\(blocker)' — one of: \(Wire.blockers.joined(separator: ", "))")
+            }
+            // A note rides inside the generated one-line report, so it's held to a
+            // fragment: the detail belongs on the board, not in a status ping.
+            let note = (request.body?.isEmpty ?? true) ? nil : Wire.clampNote(request.body!)
+            let state = IPCRung(piece: piece, rung: rung, blocker: blocker,
+                                note: (note?.isEmpty ?? true) ? nil : note,
+                                session: me.id, sessionLabel: me.label,
+                                projectPath: me.projectPath, updated: Date())
+            me.rung = state
+            // The canonical line is generated here, so every agent's status reads the
+            // same and none of them has to remember the grammar.
+            let line = Wire.statusLine(project: me.projectPath.map { ($0 as NSString).lastPathComponent },
+                                       piece: piece, rung: rung, blocker: blocker,
+                                       session: me.id, note: state.note)
+            // Report upward in the same act as recording it — one call instead of
+            // editing a board, composing a line and sending it.
+            guard let target = request.target else {
+                return IPCResponse(ok: true, info: line)
+            }
+            switch resolveTarget(target, from: request.from) {
+            case .failure(let error):
+                // The state is recorded either way; only the delivery failed.
+                return IPCResponse(ok: true, info: line,
+                                   warning: "recorded, but not delivered: \(error.message)")
+            case .success(let dest):
+                let msg = IPCMessage(from: me.id, fromLabel: me.label, body: line,
+                                     timestamp: Date(), piece: piece, rung: rung, blocker: blocker)
+                dest.deliver(msg)
+                announceIncoming(to: dest, from: msg)
+                return IPCResponse(ok: true, info: "\(line)  → \(dest.label)")
+            }
+
+        case .board:
+            // Default to the caller's own project; `--path` reads another one, which
+            // is how the lead sees a project's position without opening its board file.
+            let scope = request.target
+                ?? request.from.flatMap { session(withID: $0)?.projectPath }
+            let rows = allSessions
+                .compactMap(\.rung)
+                .filter { scope == nil || $0.projectPath == scope }
+                .sorted { $0.updated > $1.updated }
+            return IPCResponse(ok: true,
+                               info: rows.isEmpty ? "no pieces reported yet" : "\(rows.count) piece(s)",
+                               rungs: rows)
 
         case .inbox:
             guard let from = request.from, let s = session(withID: from) else {
@@ -1500,7 +1581,8 @@ final class Workspace: ObservableObject {
                                                     baseCommit: copy.base)
             }
             let launch = ProjectAgent.childLaunch(initialPrompt: request.body,
-                                                  model: request.model)
+                                                  model: request.model,
+                                                  projectPath: project)
             let child = newTab(projectPath: project, launchOverride: launch.command,
                                openingTurn: launch.openingTurn, safeCopy: safeCopy)
             // Remember the check that proves this piece done (`--verify "CMD"`),

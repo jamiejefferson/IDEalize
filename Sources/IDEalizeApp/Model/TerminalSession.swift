@@ -1041,6 +1041,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable {
     /// words. Cleared with an empty `--mine`.
     @Published var agentNote: String?
 
+    /// Where this chat's piece of work has got to, set by `idealize rung`. Held as
+    /// state rather than prose so `idealize board` can report the project's whole
+    /// position without anyone re-narrating it.
+    @Published var rung: IPCRung?
+
     /// A one-line "what this chat is working on", for the project's shared status
     /// view. Prefers the agent's explicit note; otherwise derived from what Claude
     /// is currently doing (its live status, last prompt, or last reply).

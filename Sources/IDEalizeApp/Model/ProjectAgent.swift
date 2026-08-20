@@ -1,4 +1,5 @@
 import Foundation
+import IDEalizeCore
 
 /// The "project agent": a coordinating chat opened *inside* a project, running
 /// the user's configured agent with the `/project-agent` companion guide as its
@@ -21,7 +22,8 @@ enum ProjectAgent {
         // printed in the chat) rather than a visible skill invocation. The
         // `/project-agent` command then only carries the short opening turn.
         if TerminalSession.isClaudeCommand(cmd) {
-            cmd += " --append-system-prompt \"$(cat \(doubleQuoted(promptURL().path)))\""
+            cmd += " --append-system-prompt \"$(cat \(doubleQuoted(promptURL().path)))"
+                + referenceNote(forLead: false) + "\""
         }
         cmd = applyingModel(AppSettings.shared.projectAgentModel, to: cmd)
         return AgentLaunch(command: cmd, openingTurn: "/project-agent")
@@ -35,7 +37,64 @@ enum ProjectAgent {
     /// child is a *normal* member chat, not another coordinator: the user can
     /// open and review it like any other. Session-id binding and permission mode
     /// are appended later by `TerminalSession.augmentAgentLaunch`.
-    static func childLaunch(initialPrompt: String?, model: String? = nil) -> AgentLaunch {
+    /// The sentence appended to a guide's system prompt naming where its reference
+    /// files live. The guide defers its long procedures to those files, and the path
+    /// differs between an installed app and a dev build — so the app supplies it
+    /// rather than the guide hardcoding one that would be wrong half the time.
+    ///
+    /// One line, no newlines: this is spliced into a shell command, and a literal
+    /// newline there would submit the command early. The `$(cat …)` before it brings
+    /// its own line breaks, so the sentence lands after the guide's last line.
+    static func referenceNote(forLead lead: Bool) -> String {
+        // Escaped for the same double-quoted context the guide's `$(cat …)` sits in:
+        // a `$` or backtick in a home-directory path would otherwise be expanded.
+        let dir = shellEscapedInDoubleQuotes(FlowSkillInstaller.referenceDir(forLead: lead).path)
+        let names = (lead ? FlowSkillInstaller.leadAgentReferences
+                          : FlowSkillInstaller.projectAgentReferences).joined(separator: ", ")
+        return "  YOUR REFERENCE FILES (\(names)) are in \(dir) — read one when the "
+            + "guide points you at it, not before."
+    }
+
+    /// Escape a string for inclusion *inside* an already-open double-quoted shell
+    /// string (so, unlike `doubleQuoted`, it adds no quotes of its own).
+    private static func shellEscapedInDoubleQuotes(_ s: String) -> String {
+        var out = ""
+        for ch in s {
+            if ch == "\\" || ch == "\"" || ch == "$" || ch == "`" { out.append("\\") }
+            out.append(ch)
+        }
+        return out
+    }
+
+    /// Appended to every spawned chat's opening brief. It exists so the brief itself
+    /// can stay short: the coordinator names the piece and what done looks like, and
+    /// the context a chat *might* need is pointed at rather than retold. A chat that
+    /// needs the route to live reads the board; one that doesn't never pays for it.
+    ///
+    /// The cost rules travel with it because they're the ones that actually move the
+    /// bill: re-sent context dwarfs output, so what matters is how many turns a chat
+    /// takes, not how long each one is.
+    static func briefFooter(projectPath: String) -> String {
+        """
+        ---
+        Context, if you need it: `\(projectPath)/.idealize/project-board.md` holds the route \
+        to live, open threads, decisions and traps. Read it when your piece needs it — don't \
+        ask for it to be retold. `idealize board` shows where every piece currently stands.
+
+        Report progress with `idealize rung "<piece>" <rung> [--blocker <b>] [--note "…"]` \
+        rather than writing a paragraph: it records the state and tells the coordinator in \
+        one act. Rungs: \(Wire.rungs.joined(separator: " → ")).
+
+        Working rules — cost is dominated by re-sent context, so turn count is the bill:
+        - Batch independent calls into one turn.
+        - No turns that only announce intent. Never "I'll now check X" as its own turn — check it.
+        - Ask the cheapest blocking question before investigating, not after.
+        - Absolute paths and file tools, not `cd`/`cat`/`grep`.
+        """
+    }
+
+    static func childLaunch(initialPrompt: String?, model: String? = nil,
+                            projectPath: String? = nil) -> AgentLaunch {
         // Children start from the *global* default agent, never the coordinator's
         // own override: only the model is role-specific, so picking a cheap
         // coordinator never quietly downgrades the chats doing the building.
@@ -48,8 +107,15 @@ enum ProjectAgent {
         // The brief stays out of the command string — it's the user's prose, and
         // rewriting a command containing it corrupted briefs (see `AgentLaunch`).
         let turn = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return AgentLaunch(command: cmd,
-                           openingTurn: (turn?.isEmpty == false) ? turn : nil)
+        guard turn?.isEmpty == false, var opening = turn else {
+            return AgentLaunch(command: cmd, openingTurn: nil)
+        }
+        // A chat with no project folder has no board to point at, so the footer would
+        // only be noise.
+        if let projectPath, !projectPath.isEmpty {
+            opening += "\n\n" + briefFooter(projectPath: projectPath)
+        }
+        return AgentLaunch(command: cmd, openingTurn: opening)
     }
 
     /// The agent command a coordinator (or its children) starts from: the

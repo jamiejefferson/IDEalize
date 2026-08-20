@@ -38,6 +38,10 @@ struct SettingsView: View {
     /// Set when a reset was asked for but the copy is still on disk afterwards, so
     /// we say so instead of reporting a reset that didn't happen.
     @State private var guideResetFailed = false
+    /// Checkouts found on this machine, offered when no source folder is set. Searched
+    /// once when the pane appears rather than per redraw — it touches the filesystem.
+    @State private var foundSourceFolders: [String] = []
+    @State private var isSearchingForSource = false
 
     var body: some View {
         TabView {
@@ -96,11 +100,55 @@ struct SettingsView: View {
                     Label("This folder doesn't look like an IDEalize checkout.", systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
                 }
-                Text("The wrench-icon service hatch opens an agent session on IDEalize's own code. Point this at your IDEalize source folder so it knows where that code lives.")
+                // Offer what searching the machine turned up. Discovery adopts a lone
+                // match silently at launch, so a list here means it found several and
+                // won't guess between them — picking is the user's call.
+                if settings.serviceHatchRepoPath.isEmpty {
+                    if isSearchingForSource {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Looking for your IDEalize source…")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else if !foundSourceFolders.isEmpty {
+                        Text(foundSourceFolders.count == 1
+                             ? "Found a checkout:" : "Found more than one checkout — pick the one you work in:")
+                            .font(.caption).foregroundStyle(.secondary)
+                        ForEach(foundSourceFolders, id: \.self) { path in
+                            Button {
+                                settings.serviceHatchRepoPath = path
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "folder")
+                                    Text((path as NSString).abbreviatingWithTildeInPath)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .lineLimit(1).truncationMode(.head)
+                                }
+                            }
+                            .buttonStyle(.link)
+                        }
+                    }
+                }
+                Text("The wrench-icon service hatch opens an agent session on IDEalize's own code. IDEalize looks for that folder by itself; point it here if it can't find yours, or if you keep more than one checkout.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+        .onAppear(perform: searchForSourceFolders)
+    }
+
+    /// Look for IDEalize checkouts so the pane can offer them. Only when nothing is
+    /// configured — once the user has a source folder there's nothing to suggest.
+    private func searchForSourceFolders() {
+        guard settings.serviceHatchRepoPath.isEmpty, !isSearchingForSource else { return }
+        isSearchingForSource = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let hits = ServiceHatch.discover()
+            DispatchQueue.main.async {
+                foundSourceFolders = hits
+                isSearchingForSource = false
+            }
+        }
     }
 
     /// Agents offered in the default-agent picker: every registered adapter

@@ -631,10 +631,12 @@ struct EmptyState: View {
     @ObservedObject var workspace: Workspace
 
     @ObservedObject private var settings = AppSettings.shared
-    /// The empty slate is the terminal's own surface — warm paper (Linen) by
-    /// default — not the window chrome's, so the owl always sits on the same
-    /// ground the grid will fill when a session opens, whatever the app theme.
-    private var theme: Theme { settings.terminalTheme }
+    /// The empty slate is chrome, not terminal: nothing is running yet, and it
+    /// sits inside the rail and toolbar that frame it, so it takes the *app*
+    /// theme and follows its light/dark with them. A terminal theme (Ink,
+    /// Linen, Y2K) only colours the grid, once a session opens — otherwise
+    /// picking a vivid one repaints the whole launch screen with it.
+    private var theme: Theme { settings.theme }
 
     private var recents: [String] { Array(settings.recentFolders.prefix(3)) }
 

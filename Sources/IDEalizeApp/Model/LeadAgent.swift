@@ -38,7 +38,8 @@ enum LeadAgent {
     static func launch() -> AgentLaunch {
         var cmd = baseCommand(AppSettings.shared.leadAgentLaunchCommand)
         if TerminalSession.isClaudeCommand(cmd) {
-            cmd += " --append-system-prompt \"$(cat \(doubleQuoted(promptURL().path)))\""
+            cmd += " --append-system-prompt \"$(cat \(doubleQuoted(promptURL().path)))"
+                + ProjectAgent.referenceNote(forLead: true) + "\""
         }
         cmd = ProjectAgent.applyingModel(AppSettings.shared.leadAgentModel, to: cmd)
         return AgentLaunch(command: cmd, openingTurn: "/lead-agent")
