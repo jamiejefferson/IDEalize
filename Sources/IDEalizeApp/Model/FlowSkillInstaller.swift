@@ -36,12 +36,15 @@ enum FlowSkillInstaller {
     /// v13: verification-first spawns — attach the proving check at spawn
     ///      (`spawn --verify`), accept work only on an executed check with one
     ///      retry-then-escalate — and per-task model routing (`spawn --model`).
-    /// v14: leaner guides — both rewritten as an always-on core plus reference
+    /// v14: comms protocol consolidated — lead + project guides now mirror one
+    ///      canonical protocol (compress-on-the-way-up, the task-chat tier via
+    ///      `note --mine`, one interrupt) instead of two drifting copies.
+    /// v15: leaner guides — both rewritten as an always-on core plus reference
     ///      files read only at the stage that needs them; status travels by
     ///      `idealize rung` and is read back with `idealize board`; briefs point
     ///      at the board instead of retelling it; boards get a length budget and
     ///      an archive; the measured cost rules ship inside both guides.
-    static let version = 14
+    static let version = 15
 
     /// The companion files: bundle-relative source → `~/.claude`-relative dest.
     /// Add-only, and only for files the app owns: every entry here is *overwritten*

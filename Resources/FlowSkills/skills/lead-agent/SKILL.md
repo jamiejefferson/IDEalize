@@ -91,6 +91,10 @@ line disagree, you ask the project agent one question — you don't go digging.
 ## The wire — how status travels
 
 <!-- This section is duplicated verbatim in project-agent/SKILL.md. Edit both. -->
+The comms protocol is defined once, canonically, in the user's vault at
+`Projects/IDEalize/Agent-Comms-Protocol.md` — the shared vocabulary, message
+classes and line grammars all three tiers use. This section is its operative
+mirror; the vault doc wins if they ever disagree.
 
 All tiers share one vocabulary: the ladder rungs (*being-made → preview → saved
 → checked → combined → live → confirmed → closed*) plus four blocker states

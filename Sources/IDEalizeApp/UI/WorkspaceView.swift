@@ -331,6 +331,10 @@ private struct LeadAgentPromptSheet: View {
 private struct BottomToolbar: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject private var settings = AppSettings.shared
+    /// Supported way to present the Settings scene — used when the service hatch
+    /// has no source checkout to open (the private `showSettingsWindow:` selector
+    /// no-ops on recent macOS).
+    @Environment(\.openSettings) private var openSettings
 
     private var theme: Theme { settings.theme }
 
@@ -361,7 +365,7 @@ private struct BottomToolbar: View {
                 workspace.splitFocused(axis: .horizontal)
             }
             toggle("wrench.and.screwdriver", on: workspace.isServiceHatchOpen, help: "Service hatch — open an agent dev session on IDEalize's own code (click again to close)") {
-                workspace.toggleServiceHatch()
+                if workspace.toggleServiceHatch() == .needsSourcePath { openSettings() }
             }
             // Agent controls live in the session rail, next to the chats they
             // coordinate: each project's sparkles button for its agent, the
@@ -632,11 +636,13 @@ struct EmptyState: View {
 
     @ObservedObject private var settings = AppSettings.shared
     /// The empty slate is chrome, not terminal: nothing is running yet, and it
-    /// sits inside the rail and toolbar that frame it, so it takes the *app*
-    /// theme and follows its light/dark with them. A terminal theme (Ink,
-    /// Linen, Y2K) only colours the grid, once a session opens — otherwise
-    /// picking a vivid one repaints the whole launch screen with it.
-    private var theme: Theme { settings.theme }
+    /// sits inside the rail and toolbar that frame it, so it follows the *app*
+    /// theme's light/dark. A terminal theme (Ink, Linen, Y2K) only colours the
+    /// grid once a session opens — otherwise picking a vivid one repaints the
+    /// whole launch screen with it, and the owl's cream-and-rust palette is
+    /// designed for the two neutral IDEalize grounds, so the slate always sits
+    /// on one of those.
+    private var theme: Theme { settings.theme.isDark ? .idealizeDark : .idealizeLight }
 
     private var recents: [String] { Array(settings.recentFolders.prefix(3)) }
 

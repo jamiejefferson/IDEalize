@@ -132,6 +132,11 @@ for them.
 
 ## The wire — how status travels
 
+The comms protocol is defined once, canonically, in the user's vault at
+`Projects/IDEalize/Agent-Comms-Protocol.md` — the shared vocabulary, message
+classes and line grammars all three tiers use. This section is its operative
+mirror; the vault doc wins if they ever disagree.
+
 <!-- This section is duplicated verbatim in lead-agent/SKILL.md. Edit both. -->
 
 Report progress with **`idealize rung`**, never a paragraph:
