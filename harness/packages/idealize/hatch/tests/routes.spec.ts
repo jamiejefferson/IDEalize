@@ -220,6 +220,23 @@ describe('rolling back', () => {
     expect(readFileSync(join(home, 'cordis.patch.yml'), 'utf8')).toContain('first-row')
   })
 
+  it('keeps two snapshots taken in the same millisecond apart, so a rollback restores the older one', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-16T20:00:00.000Z'))
+    try {
+      const { home, call } = await mount({ homePatch: '- insert:\n    - id: first-row\n      name: "@demo/first"\n' })
+      await call('/idealize/hatch/home-patch', { method: 'POST', body: JSON.stringify({ content: PATCH }) })
+      await call('/idealize/hatch/home-patch', { method: 'POST', body: JSON.stringify({ content: '' }) })
+      const names = (await call('/idealize/hatch/snapshots')).json() as unknown as string[]
+      expect(names).toEqual(['2026-09-16T20-00-00-000Z_1.yml', '2026-09-16T20-00-00-000Z.yml'])
+      const rolled = await call('/idealize/hatch/rollback', { query: `?name=${names[1]!}` })
+      expect(rolled.json()).toMatchObject({ ok: true, restored: names[1] })
+      expect(readFileSync(join(home, 'cordis.patch.yml'), 'utf8')).toContain('first-row')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('refuses a name that is not a snapshot filename, and one that is not there', async () => {
     const { call } = await mount()
     expect((await call('/idealize/hatch/rollback')).status).toBe(400)

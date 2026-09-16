@@ -1,0 +1,50 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
+  },
+  "files": [
+    "src/appearance-settings.ts",
+    "src/colour.ts",
+    "src/css-modules.d.ts",
+    "src/presets.ts",
+    "src/surface-css.ts",
+    "src/terminal-themes.ts",
+    "src/client/AppearancePanel.tsx",
+    "src/client/dom-applier.ts",
+    "src/client/index.ts",
+    "src/client/locales.ts",
+    "src/client/store.ts"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../client/locale"
+    },
+    {
+      "path": "../../client/runtime"
+    },
+    {
+      "path": "../../client/ui-layout"
+    },
+    {
+      "path": "../../client/ui-settings"
+    },
+    {
+      "path": "../../client/ui-slots"
+    },
+    {
+      "path": "../../client/ui-theme"
+    },
+    {
+      "path": "../../client/web-react"
+    }
+  ]
+}

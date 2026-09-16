@@ -72,7 +72,7 @@
       "path": "../../runtime-diagnostics/invariants"
     },
     {
-      "path": "../appearance"
+      "path": "../appearance/tsconfig.client.json"
     },
     {
       "path": "../artefacts/tsconfig.client.json"

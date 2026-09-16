@@ -59,7 +59,7 @@ describe('CI workflow', () => {
     // Required PR job: Wine on ubuntu-latest, runs wine-windows-gates.sh.
     expect(windows['runs-on']).toBe('ubuntu-latest')
     expect(windows.name).toBe('windows node 24 / wine blocking')
-    expect(windows.if).toBe("github.event_name == 'pull_request'")
+    expect(windows.if).toBe("github.event_name == 'pull_request' || github.event_name == 'push'")
     expect(commandSteps.some(step => step.run.includes('wine-windows-gates.sh'))).toBe(true)
 
     // windows-native: non-blocking native job with failover, runs windows-complete.
@@ -69,9 +69,9 @@ describe('CI workflow', () => {
     expect(windowsNative['runs-on']).not.toContain('DSH_CI_FAILOVER_LINUX')
     expect(windowsNative['runs-on']).toContain('self-hosted')
     expect(windowsNative['runs-on']).toContain('dsh-win-ci')
-    expect(windowsNative['runs-on']).toContain('dsh-windows-2025-16core')
+    expect(windowsNative['runs-on']).toContain('windows-latest')
     expect(windowsNative.name).toBe('windows node 24 / native complete')
-    expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
+    expect(windowsNative.if).toBe("github.event_name == 'pull_request' || github.event_name == 'push'")
     expect(windowsNative.env).toMatchObject({
       DSH_COVERAGE_TEST_TIMEOUT_MS: '30000',
     })
@@ -159,7 +159,10 @@ describe('CI workflow', () => {
       })
       .map(([name]) => name)
       .sort()
-    expect(pushReachable).toEqual(['serial-linux-selfhosted', 'serial-windows', 'wine-apt-cache'])
+    expect(pushReachable).toEqual([
+      'all-checks-passed', 'node-24', 'node-24-consumers', 'node-24-coverage', 'node-compat', 'python-runtime', 'python-sdk',
+      'serial-linux-selfhosted', 'serial-windows', 'windows', 'windows-native', 'wine-apt-cache',
+    ])
 
     // Why workflow_dispatch must keep cancelling: each benchmark fans out to a
     // dozen larger runners at once, in this same group on master. If it stopped
@@ -192,7 +195,7 @@ describe('CI workflow', () => {
     }
 
     expect(pythonRuntime).toMatchObject({
-      if: "github.event_name == 'pull_request'",
+      if: "github.event_name == 'pull_request' || github.event_name == 'push'",
       name: 'python runtime / release-shaped Linux x64',
       uses: './.github/workflows/build-exe-for-python-sdk.yml',
       with: {

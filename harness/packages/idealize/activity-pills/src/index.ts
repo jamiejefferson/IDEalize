@@ -52,6 +52,7 @@
  * @module @idealize/activity-pills
  */
 
+import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, resolve } from 'node:path'
@@ -152,16 +153,44 @@ export interface TerminalCli {
   installed: boolean | null
 }
 
+/** The shells tried, in order, when SHELL names none that exists. */
+const FALLBACK_SHELLS = ['/bin/zsh', '/bin/bash', '/bin/sh']
+
 /**
- * Whether the user's login shell resolves `cli`, or null when no `/bin/zsh`
- * answers (Windows, or a shell that exits abnormally).
+ * The shell a CLI probe runs in: the login shell SHELL names when it exists,
+ * else the first of zsh, bash and sh present; null where nothing can probe
+ * (Windows, a bare image).
+ * @param shell - the SHELL variable's value.
+ * @param exists - whether a path exists; the file system by default.
+ * @returns an absolute shell path, or null.
+ */
+export function probeShell(shell = process.env.SHELL, exists: (path: string) => boolean = existsSync): string | null {
+  if (process.platform === 'win32') return null
+  if (shell !== undefined && shell !== '' && exists(shell)) return shell
+  return FALLBACK_SHELLS.find(exists) ?? null
+}
+
+/**
+ * The flags that run one command in `shell` as a login shell: interactive too
+ * for zsh and bash, whose rc files add to PATH; plain login for sh.
+ * @param shell - an absolute shell path.
+ * @returns the flag argument.
+ */
+export function probeFlags(shell: string): string {
+  return shell.endsWith('/sh') ? '-lc' : '-lic'
+}
+
+/**
+ * Whether the user's login shell resolves `cli`, or null when no shell can
+ * probe (Windows, no shell present, or a shell that exits abnormally).
  * @param cli - the executable name, a single path component.
  * @returns true/false from `command -v`, null when the probe itself failed.
  */
 export function cliInstalled(cli: string): Promise<boolean | null> {
-  if (process.platform === 'win32' || !/^[\w.-]+$/.test(cli)) return Promise.resolve(null)
+  const shell = probeShell()
+  if (shell === null || !/^[\w.-]+$/.test(cli)) return Promise.resolve(null)
   return new Promise((resolve) => {
-    execFile('/bin/zsh', ['-lic', `command -v ${cli}`], { timeout: 5_000 }, (error) => {
+    execFile(shell, [probeFlags(shell), `command -v ${cli}`], { timeout: 5_000 }, (error) => {
       if (error === null) { resolve(true); return }
       // `command -v` exits 1 when the name is unknown; anything else is the probe failing.
       resolve(typeof error.code === 'number' && error.code === 1 ? false : null)

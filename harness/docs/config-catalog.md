@@ -3082,7 +3082,7 @@ export interface ActivityModel {
 }
 ```
 
-Source: [`packages/idealize/activity-pills/src/index.ts:84`](../packages/idealize/activity-pills/src/index.ts)
+Source: [`packages/idealize/activity-pills/src/index.ts:85`](../packages/idealize/activity-pills/src/index.ts)
 
 <a id="idealizeaskbar"></a>
 
@@ -3256,7 +3256,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/idealize/hatch/src/index.ts:91`](../packages/idealize/hatch/src/index.ts)
+Source: [`packages/idealize/hatch/src/index.ts:97`](../packages/idealize/hatch/src/index.ts)
 
 <a id="idealizemodels"></a>
 

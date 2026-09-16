@@ -21,7 +21,7 @@
       "path": "../activity-pills"
     },
     {
-      "path": "../appearance"
+      "path": "../appearance/tsconfig.client.json"
     },
     {
       "path": "../../client/locale"

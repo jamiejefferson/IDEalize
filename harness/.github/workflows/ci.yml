@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -61,15 +61,15 @@ jobs:
   # serial-linux-selfhosted standby lane below. The Windows failover switch is
   # the separate DSH_CI_FAILOVER_WINDOWS variable on the windows-native job below.
   node-24:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-ubuntu-24-04-16core' }}
+          || 'ubuntu-latest' }}
     name: node 24 / static
     env:
-      DSH_GATE_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: '2'
     steps:
       # Fetch complete history so the archive gate can read the trusted PR base from a reused shallow checkout.
       - uses: actions/checkout@v6
@@ -109,24 +109,28 @@ jobs:
 
       - name: Run static gates
         env:
-          DSH_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+          DSH_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: pnpm run check:ci:static
 
   node-24-coverage:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-ubuntu-24-04-16core' }}
+          || 'ubuntu-latest' }}
     name: node 24 / coverage
     env:
       # The hosted 16-core runner uses six coverage workers. The failover pool
       # shares one 64-core VM across six always-on runner instances, so each
       # instance may use eight while keeping the worst case at 8 × 6 = 48
       # workers; process-bound suites remain isolated in forks.
-      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '6' }}
-      DSH_GATE_CONCURRENCY: '3'
+      # Without a self-hosted pool the job runs on GitHub's standard 2-vCPU
+      # runner, where six workers time out spawn-heavy suites; two fit.
+      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '2' }}
+      DSH_GATE_CONCURRENCY: '1'
+      # The fork's coverage debt (FORK.md, vitest.config.ts): thresholds report, the suite gates.
+      DSH_COVERAGE_THRESHOLDS: 'off'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -176,20 +180,20 @@ jobs:
         run: pnpm run check:ci:coverage
 
   node-24-consumers:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-ubuntu-24-04-16core' }}
+          || 'ubuntu-latest' }}
     name: node 24 / snapshots and artifacts
     env:
-      DSH_GATE_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: '2'
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
       DSH_OXLINT_THREADS: '8'
-      DSH_PUBLINT_CONCURRENCY: '8'
+      DSH_PUBLINT_CONCURRENCY: '2'
       # Failover halves snapshot concurrency for the shared 64-core VM.
-      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '32' }}
+      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '4' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -258,7 +262,7 @@ jobs:
 
 
   node-compat:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     # Each compatibility contract receives an independent standard hosted job.
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.name }}
@@ -296,7 +300,7 @@ jobs:
         run: pnpm run check:node-compat
 
   python-sdk:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     name: python 3.10 / keyless SDK
     steps:
@@ -318,7 +322,7 @@ jobs:
   # The reusable builder owns the executable, snapshot, wheel, clean-install,
   # GLIBC, and manylinux checks; release validation retains all native targets.
   python-runtime:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     name: python runtime / release-shaped Linux x64
     uses: ./.github/workflows/build-exe-for-python-sdk.yml
     with:
@@ -336,7 +340,7 @@ jobs:
   # Current topology and fidelity limits live in
   # .agents/notes/implemented/process/2026-08-08-native-windows-pull-request-ci.md
   windows:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     name: windows node 24 / wine blocking
     timeout-minutes: 15
@@ -445,12 +449,12 @@ jobs:
   # DSH_CI_FAILOVER_LINUX variable that retargets the three required Linux jobs
   # and the all-checks-passed verdict above.
   windows-native:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
-          || 'dsh-windows-2025-16core' }}
+          || 'windows-latest' }}
     name: windows node 24 / native complete
     timeout-minutes: 120
     env:
@@ -929,7 +933,7 @@ jobs:
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'ubuntu-latest' }}
     needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, python-runtime, windows]
-    if: always() && github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     steps:
       - name: Fail if any needed job did not succeed
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')

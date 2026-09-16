@@ -257,6 +257,9 @@ export const inject = [
  * and the welcome launcher.
  * @param ctx - client root context.
  */
+/** The one upstream onboarding entry the product keeps: the welcome notice. */
+const ONBOARDING_KEPT = 'welcome-notice'
+
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'idealize-bar: dictionaries')
 
@@ -518,14 +521,27 @@ export function apply(ctx: ClientContext): void {
     id: 'language',
     priority: -1,
   }, NoLanguageRow))
-  // The settings onboarding list's DeepSeek entry asks for an official
-  // DeepSeek key; the product's DeepSeek models come through OpenRouter (JJ,
-  // 16 Sep 2026), so the entry's seat is shadowed with nothing.
-  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
-    name: 'settings.onboarding',
-    id: 'deepseek-official',
-    priority: -1,
-  }, NoProviderDialog))
+  // Every upstream onboarding entry other than the welcome notice is a
+  // provider key dialog; the product's models come through OpenRouter and
+  // the keys file (JJ, 16 Sep 2026), so each such seat is shadowed with
+  // nothing as it appears. Ids come from the slot, never from this code.
+  ctx.slots.inject('settings.onboarding', () => {
+    const shadows = new Map<string, () => void>()
+    const sweep = () => {
+      for (const entry of ctx.slots.entries('settings.onboarding')) {
+        const id = entry.options.id
+        if (id === undefined || id === ONBOARDING_KEPT || entry.options.priority === -1 || shadows.has(id)) continue
+        shadows.set(id, ctx.slots.register({ name: 'settings.onboarding', id, priority: -1 }, NoProviderDialog))
+      }
+    }
+    sweep()
+    const unsubscribe = ctx.slots.subscribe('settings.onboarding', sweep)
+    return () => {
+      unsubscribe()
+      for (const dispose of shadows.values()) dispose()
+      shadows.clear()
+    }
+  })
 
   // ── Trajectory pane host ───────────────────────────────────────────────
   // The event ledger moved here from the conversation view ring: its plugin

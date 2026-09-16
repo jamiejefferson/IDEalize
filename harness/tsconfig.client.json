@@ -91,7 +91,7 @@
     { "path": "./packages/idealize/activity-pills" },
     { "path": "./packages/idealize/notify/tsconfig.client.json" },
     { "path": "./packages/idealize/telegram/tsconfig.client.json" },
-    { "path": "./packages/idealize/appearance" },
+    { "path": "./packages/idealize/appearance/tsconfig.client.json" },
     { "path": "./packages/idealize/onboarding/tsconfig.client.json" },
     { "path": "./packages/client/ui-message-feedback" },
     { "path": "./packages/client/ui-model-selection" },

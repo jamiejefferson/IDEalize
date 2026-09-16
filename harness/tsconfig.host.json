@@ -246,6 +246,7 @@
     { "path": "./packages/idealize/artefacts/tsconfig.host.json" },
     { "path": "./packages/idealize/ui-soundstage/tsconfig.host.json" },
     { "path": "./packages/idealize/ui-tasks/tsconfig.host.json" },
+    { "path": "./packages/idealize/appearance/tsconfig.host.json" },
     { "path": "./packages/idealize/skin" },
     { "path": "./packages/idealize/provider-pack" },
     { "path": "./packages/idealize/comm" },

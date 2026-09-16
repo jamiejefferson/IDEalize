@@ -1,0 +1,39 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo",
+    "types": [
+      "node"
+    ]
+  },
+  "files": [
+    "src/appearance-settings.ts",
+    "src/boot-appearance.ts",
+    "src/colour.ts",
+    "src/fonts.ts",
+    "src/index.ts",
+    "src/invariant.ts",
+    "src/presets.ts",
+    "src/surface-css.ts",
+    "src/terminal-themes.ts"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../host/webserver"
+    },
+    {
+      "path": "../../settings/settings"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    }
+  ]
+}

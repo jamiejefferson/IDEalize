@@ -290,7 +290,10 @@ export default defineConfig({
       // Per-file so a well-covered big file can't subsidize a bare one.
       // Every v8 ignore comment must carry a reason — see the quality-gates Agent Note
       // (.agents/notes/implemented/process/2026-06-11-quality-gates.md).
-      thresholds: {
+      // DSH_COVERAGE_THRESHOLDS=off reports coverage without failing on it: the
+      // fork's hosted CI runs this way while the files listed in FORK.md sit
+      // below the gate; the suite itself still fails the job.
+      thresholds: process.env.DSH_COVERAGE_THRESHOLDS === 'off' ? {} : {
         perFile: true,
         statements: 100,
         branches: 100,

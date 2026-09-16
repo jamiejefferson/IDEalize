@@ -1034,6 +1034,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'idealizeSkills',
+    summary: 'The service face: the folder\'s packages as they sit on disk, whether or not the registry accepted them.',
+    description: 'The service face: the folder\'s packages as they sit on disk, whether or not the registry accepted them.',
+    methods: [
+      {
+        signature: 'catalogue(): Promise<readonly CatalogueGroup[]>',
+        description: 'The catalogue: packages in the skills folder first, then each subfolder by name.',
+        parameters: [],
+        returns: 'the groups; empty when no folder is set or readable.',
+      },
+    ],
+  },
+  {
     key: 'idealizeStudio',
     summary: 'The Studio service: record, read and fold one project\'s coordination timeline.',
     description: 'The Studio service: record, read and fold one project\'s coordination timeline.',
@@ -3341,6 +3354,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CapabilityRequirement',
     declaration: 'export interface CapabilityRequirement {\n    operation: \'generate\';\n    artefact: GenArtefact;\n    inputModalities: readonly GenModality[];\n}',
+  },
+  {
+    name: 'CatalogueGroup',
+    declaration: 'export interface CatalogueGroup {\n    readonly folder: string;\n    readonly skills: readonly CatalogueSkill[];\n}',
+  },
+  {
+    name: 'CatalogueSkill',
+    declaration: 'export interface CatalogueSkill {\n    readonly package: string;\n    readonly name: string;\n    readonly description: string;\n    readonly manifest: boolean;\n}',
   },
   {
     name: 'ClientResponse',

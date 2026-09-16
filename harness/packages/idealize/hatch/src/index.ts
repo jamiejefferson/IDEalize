@@ -82,9 +82,15 @@ function validatePatchYaml(content: string): string | undefined {
   }
 }
 
-/** ISO stamp safe for a filename. */
-function snapshotName(): string {
-  return `${new Date().toISOString().replace(/[:.]/g, '-')}.yml`
+/**
+ * ISO stamp safe for a filename; a second snapshot in the same millisecond takes
+ * a numbered suffix, which sorts after the plain stamp so the list stays newest first.
+ */
+function snapshotName(dir: string): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  let name = `${stamp}.yml`
+  for (let n = 1; existsSync(join(dir, name)); n += 1) name = `${stamp}_${n}.yml`
+  return name
 }
 
 /** Plugin config. */
@@ -122,7 +128,7 @@ export function apply(ctx: Context, config: Config): void {
     const current = readHomePatch()
     if (current === '') return undefined
     mkdirSync(snapshotDir, { recursive: true })
-    const name = snapshotName()
+    const name = snapshotName(snapshotDir)
     writeFileSync(join(snapshotDir, name), current, 'utf8')
     return name
   }

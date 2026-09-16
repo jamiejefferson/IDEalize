@@ -43,7 +43,27 @@ describe('ui-bar apply', () => {
     ctx.locale.setLocale('zh')
     expect(ctx.locale.getLocale().active).toBe('en')
     expect(slots.entries('settings.general.item').map(entry => [entry.options.id, entry.options.priority])).toEqual([['language', -1]])
-    expect(slots.entries('settings.onboarding').map(entry => [entry.options.id, entry.options.priority])).toEqual([['deepseek-official', -1]])
+    expect(slots.entries('settings.onboarding')).toEqual([])
+  })
+
+  it('shadows every onboarding entry except the welcome notice, as each appears, and lifts the shadows with the plugin', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+    const Nothing = () => null
+    slots.register({ name: 'settings.onboarding', id: 'welcome-notice', order: -100 }, Nothing)
+    slots.register({ name: 'settings.onboarding', id: 'provider-dialog', order: 0 }, Nothing)
+
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const shadowed = () => slots.entries('settings.onboarding').filter(entry => entry.options.priority === -1).map(entry => entry.options.id)
+    expect(shadowed()).toEqual(['provider-dialog'])
+
+    slots.register({ name: 'settings.onboarding', id: 'another-dialog', order: 1 }, Nothing)
+    await new Promise<void>((resolve) => { queueMicrotask(resolve) })
+    expect(shadowed().sort()).toEqual(['another-dialog', 'provider-dialog'])
+
+    await fiber.dispose()
+    expect(shadowed()).toEqual([])
   })
 
   it('shows the Terminal entry once the terminal service reports an embedded shell, and drops it with the service', async () => {
