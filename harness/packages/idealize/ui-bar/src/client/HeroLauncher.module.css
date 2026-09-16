@@ -1,0 +1,471 @@
+/* The welcome card body inside the hero composer card (Paper page v2, boards
+   1 and 4): the project row over a hairline, then one of the two steps —
+   the five space tiles, or the chosen space's brains. */
+
+.root {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+/* Until a brain launches the chat the card is the two steps alone: the
+   composer's input and tools rows stay hidden. */
+.root[data-hero-undecided] {
+  padding-bottom: 10px;
+}
+
+:global([data-composer-card]):has(.root[data-hero-undecided]) :global([data-input-scroll]),
+:global([data-composer-card]):has(.root[data-hero-undecided]) :global([data-input-row]) {
+  display: none;
+}
+
+.projectRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  /* The chip's folder glyph lines up with the step's left edge. */
+  margin-left: -8px;
+}
+
+.divider {
+  height: 1px;
+  background: var(--dsw-alias-border-l1, #ecedef);
+}
+
+.step {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* ── the question line, shared by both steps ─────────────────────────────── */
+
+.question {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.questionText {
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.questionNote {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  white-space: nowrap;
+}
+
+.stepMark {
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary, #8b8f95);
+  white-space: nowrap;
+}
+
+/* ── step 1: the space tiles ─────────────────────────────────────────────── */
+
+/* Five tiles side by side down to roughly 700px of hero width, then two rows
+   rather than a horizontal scroll. NO TILE IS EVER DIMMED OR DISABLED: there
+   is deliberately no disabled or low-opacity rule anywhere in this block. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.tile {
+  font: inherit;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 13px 14px 14px;
+  text-align: left;
+  border-radius: 12px;
+  border: 1px solid var(--dsw-alias-border-l1, #ecedef);
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  color: var(--dsw-alias-label-primary, #24292f);
+  cursor: pointer;
+}
+
+.tile:hover,
+.tile:focus-visible {
+  border-color: var(--dsw-alias-brand-primary, #0969da);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(9, 105, 218, 0.06));
+  color: var(--dsw-alias-brand-primary, #0969da);
+}
+
+.tileHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.tile:hover .tileHead,
+.tile:focus-visible .tileHead {
+  color: inherit;
+}
+
+/* The arrow states what the press does, and appears on the tile under the
+   pointer only — a persistent row of arrows reads as five pending actions. */
+.tileGo {
+  display: inline-flex;
+  opacity: 0;
+}
+
+.tile:hover .tileGo,
+.tile:focus-visible .tileGo {
+  opacity: 1;
+}
+
+.tileName {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+.tileBlurb {
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.tile:hover .tileBlurb,
+.tile:focus-visible .tileBlurb {
+  color: inherit;
+}
+
+.tileCount {
+  font-size: 12px;
+  line-height: 16px;
+  margin-top: 4px;
+  color: var(--dsw-alias-label-tertiary, #8b8f95);
+}
+
+.tile:hover .tileCount,
+.tile:focus-visible .tileCount {
+  color: inherit;
+}
+
+/* ── step 2: the brains of one space ─────────────────────────────────────── */
+
+.stepHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.back {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  cursor: pointer;
+}
+
+.back:hover {
+  background: var(--dsw-alias-bg-layer-2, #ecedef);
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.spaceChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 700;
+  background: var(--dsw-alias-interactive-bg-hover-accent, rgba(9, 105, 218, 0.12));
+  color: var(--dsw-alias-brand-primary, #0969da);
+}
+
+.stepHead .stepMark {
+  margin-left: auto;
+}
+
+.brains {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.brain {
+  font: inherit;
+  display: grid;
+  grid-template-columns: minmax(120px, 190px) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  height: 46px;
+  padding: 0 12px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #24292f);
+  cursor: pointer;
+}
+
+.brain:hover,
+.brain:focus-visible {
+  border-color: var(--dsw-alias-brand-primary, #0969da);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(9, 105, 218, 0.06));
+}
+
+.brain[aria-busy='true'] {
+  cursor: progress;
+}
+
+.brainName {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brainModel {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brainBlocked {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-warn-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brainBadge {
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-brand-primary, #0969da);
+  color: var(--dsw-alias-brand-primary-invert, #fff);
+}
+
+.brainGo {
+  display: inline-flex;
+  width: 17px;
+  color: var(--dsw-alias-brand-primary, #0969da);
+  opacity: 0;
+}
+
+.brain:hover .brainGo,
+.brain:focus-visible .brainGo {
+  opacity: 1;
+}
+
+.addBrain {
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 12px;
+  margin-top: 2px;
+  text-align: left;
+  border: 1px dashed var(--dsw-alias-border-l2, #d6d8dc);
+  border-radius: 10px;
+  background: transparent;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  cursor: pointer;
+}
+
+.addBrain:hover {
+  border-color: var(--dsw-alias-brand-primary, #0969da);
+  color: var(--dsw-alias-brand-primary, #0969da);
+}
+
+/* ── step 2, the two states with no brains to list ───────────────────────── */
+
+.empty {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.addBrainPrimary {
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--dsw-alias-button-primary-fill, #0969da);
+  color: var(--dsw-alias-brand-primary-invert, #fff);
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.addBrainPrimary:hover {
+  background: var(--dsw-alias-button-primary-hover, #0757b4);
+}
+
+.addBrainLabel {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.emptyNote,
+.refusal {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.refusal {
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.refusalActions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.keyAction {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l2, #d6d8dc);
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  color: var(--dsw-alias-label-primary, #24292f);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.keyAction:hover {
+  border-color: var(--dsw-alias-border-l3, #b9bcc2);
+}
+
+.backLink {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary, #0969da);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ── no project open: recents + the two ways to get one ──────────────────── */
+
+.noProject {
+  display: grid;
+  gap: 10px;
+}
+
+.noProjectHeading {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.noProject > :global([data-recent-projects]) {
+  justify-content: flex-start;
+  margin: 0;
+  max-width: none;
+}
+
+.projectActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.projectAction {
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l2, #d6d8dc);
+  background: var(--dsw-alias-bg-layer-1, #f5f6f7);
+  color: var(--dsw-alias-label-primary, #24292f);
+  cursor: pointer;
+}
+
+.projectAction:hover {
+  border-color: var(--dsw-alias-border-l3, #b9bcc2);
+}
+
+.projectAction[data-project-action='new'] {
+  border-color: var(--dsw-alias-button-primary-fill);
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-brand-primary-invert);
+}
+
+.projectAction[data-project-action='new']:hover {
+  border-color: var(--dsw-alias-button-primary-hover);
+  background: var(--dsw-alias-button-primary-hover);
+}

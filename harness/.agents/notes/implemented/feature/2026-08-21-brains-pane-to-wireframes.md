@@ -1,0 +1,27 @@
+# Agent Note: Brains pane to the Paper wireframes
+
+Status: implemented
+
+## Problem
+
+The Models & usage drawer panel was a stack of re-hosted settings pages (default-model radios, weight sliders, the upstream provider page, the agent-preset roster, then the Roles rows). JJ's note of 2026-08-21: "models pane bears no relation to paper design". The Paper file's "models wires" frame draws a 420-wide pane titled Brains with three tabs (Usage, Budget, Models), an in-pane Edit Activity Agent sheet, provider sections split by how they are paid for, and a per-period budget table. None of that had a route behind it: no usage fold, no budget figure, no way to edit an activity agent's name, model or instructions.
+
+## Decision
+
+**`@idealize/ui-bar` renders `BrainsPanel` in the drawer column.** Header, tab strip, row heights and type sizes follow the frames; the drawer's own title row is reduced to the floated close button for this pane. Usage opens on Activities, JJ's one default preset roster of seven: the four activity agents (Coding, Design, Writing, Admin) each with an inline model picker over the LLM catalogue, then the three media presets (Images, Motion, Sound) with pickers filtered to the capability-compatible models `/idealize/brains/media` serves — see the [generation seam](2026-08-24-generation-capability-seam.md). A media preset with no compatible model renders the unavailable sentence with the add-key recovery, which opens the provider editor and refreshes the roster on close, so Motion picks up models the day a video route appears. Every other editable preset lists under Agent roles beneath it (Edit opens the sheet; Add agent role opens it empty), and the Roles rows from `@idealize/comm` assign which preset plays each role, because the frame's structure is a stack of titled lists. Models splits providers by the `auth` fact the state route now reports: OAuth routes under Subscriptions (the + and the row action open `/idealize/signin`), keyed routes under Token Use (the + and Manage open upstream's Models settings page inside an in-pane sheet), and the Free Token Use card carries the routing strategy and the auto-policy weights. Budget shows month-to-date and year-to-date tokens per category, overall or for one project, with the monthly budget field and fill bar.
+
+**`@idealize/models` folds session telemetry into the Budget figures.** `GET /idealize/models/usage?scope=` walks every top-level session (live agents, then persisted logs), sums each `assistant/message` event's billed tokens (input, output, cache read and write) into subscriptions / metered / free by the answering provider, and reports the workspace list for the scope selector. `monthlyTokenBudget` is a new validated `Config` field (natural, default 0 = none) in the same settings section as the weights, written by `POST /idealize/models/budget`; no budget setting existed anywhere before. The state route gains `auth` and `connected` per provider.
+
+**`@idealize/activity-pills` makes its `models` override a settings section and adds agent editing.** `GET /idealize/activity/agents` lists the editable presets with their persona text and two roster facts — `activity`, whether the preset is one of the pills, and `defaultRoster`, whether it belongs to the Activities list. The Free pill is an activity whose model the free-tokens route pins, so it is not a preset→model decision and lists under Agent roles; the route owns that judgement rather than the pane restating an id. `POST /idealize/activity/agent` writes the name to `preset.yml`, replaces the persona row (the same derivation seeding uses), and stores the model override in the `idealize-activity-pills` section, or creates a new preset from `source` when no id is given.
+
+**Routing strategy maps to the existing policy.** Balanced / Cheapest / Fastest / Smartest are named weight sets that also switch the mode to auto; Off (manual) switches it back; weights that match no set show as Custom. The frame's "Reliability" weight has no counterpart in the policy, so the card shows the three real weights (Cost, Speed, Intelligence).
+
+## Alternatives considered
+
+**Per-pill model overrides in cordis.yml only.** Rejected: the sheet's Model field would need a restart to take effect; the settings section keeps the composition default and lets the pane write over it.
+
+**Reading usage from the free-tokens engine's ledger.** Rejected as the sole source: it covers free-route calls only. The session log carries every call's provider and usage, so the fold covers subscriptions and metered routes too; the engine's per-project value page stays at `/idealize/spend`.
+
+## Consequences
+
+The Activities list is fixed at the seven default presets, so a preset created through Add agent role appears under Agent roles and never as an activity — adding an activity means adding an activity pill, which is a code change in `@idealize/activity-pills`. The upstream agent-preset roster (copy, delete, Creator draft) no longer renders in the drawer; the preset section service stays provided for any other surface. Shipped presets are not editable from the sheet (the route refuses them). The project scope matches a session by workspace membership or by its `cwd`; sessions in no workspace count under Overall only. The frame's closing note "Project totals come from that project's documentation" became "…from that project's chats", which is the source.

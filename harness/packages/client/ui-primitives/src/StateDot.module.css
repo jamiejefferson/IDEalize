@@ -1,0 +1,75 @@
+/* Ongoing blue has no alias token (state-business-primary is the 500 step,
+ * not this 450) — component-level var pinned to the static scale instead. */
+.dot,
+.gear {
+  --dsh-state-ongoing: var(--dsw-static-deepseek-450);
+}
+
+/* Solid states: same-color halo via a 0.10-opacity outer layer (::before)
+ * with a 6/10-scale solid core. Layer color rides currentColor set per state. */
+.dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+
+.dot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.1;
+}
+
+.dot::after {
+  content: '';
+  position: absolute;
+  inset: 20%;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dot[data-state='done'] {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.dot[data-state='warning'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.dot[data-state='error'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* The gear turns as a whole rather than animating its parts, so the motion
+ * stays legible at 10px and costs one composited transform. Eight teeth make
+ * a 45-degree turn indistinguishable from rest, so the cycle runs a full
+ * revolution. */
+.gear {
+  flex: none;
+  color: var(--dsh-state-ongoing);
+  transform-origin: 50% 50%;
+  animation: dsh-state-dot-turn 2.4s linear infinite;
+}
+
+.tooth {
+  fill: currentColor;
+}
+
+.hub {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+@keyframes dsh-state-dot-turn {
+  to { transform: rotate(360deg); }
+}
+
+/* A spinning glyph is the motion this setting exists to stop. */
+@media (prefers-reduced-motion: reduce) {
+  .gear {
+    animation: none;
+  }
+}

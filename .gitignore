@@ -1,11 +1,16 @@
-.build/
-dist/
-*.xcodeproj
 .DS_Store
-.swiftpm/
-Package.resolved
-.gstack/
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
 node_modules/
+*.tsbuildinfo
+.build/
 
-.idealize/
-supabase/.temp/
+dsh-plugin-desktop/dist/
+dsh-plugin-desktop/lib/
+dsh-community-market/lib/
+
+.env.yarn

@@ -1,0 +1,38 @@
+# Agent Note: JJ's 8 Sep review — one token list for every theme, an action colour the borders follow, and a Panels tab that says what it reaches
+
+Status: implemented
+
+JJ, 8 Sep 2026, on the landing-12 build: "Dark theme: lots of the text colours are not changing when this is selected; check accessibility on all stock themes"; "Themes fight with each other as some don't seem to change all variables"; "Appearance › Files tab: the font here seems to change all the sidebar type; it needs renaming"; "Action colour doesn't change all the action buttons (seems overridden by the theme)"; and "buttons don't match the opacity in appearance".
+
+## Problem
+
+IDEalize's CSS modules read 21 `--dsw-alias-*` names that no sheet defines (`text-1/2/3`, `label-link`, `label-error`, `label-warning`, `bg-raised`, `state-business-bg` and the rest), each with a light-scheme hex as its `var()` fallback, so in dark mode those rows painted `#57606a` on `#2A2F35`; `@idealize/ui-tasks` read `--dsw-alias-text-1/2/3` with no fallback at all and rendered in the browser's default black. Eight more rows carried bare literals (`#3566d6`, `#fff`, `#e0526e`, black-alpha shadows). The skin sheet set 30 alias tokens per scheme, `deriveTokens` set 34, and the IDEalize preset had no layer, so choosing Ink left `--dsw-specific-bubble`, `--dsw-alias-button-info-fill` and `--dsw-alias-state-business-primary` at design-platform's DeepSeek blue while IDEalize itself showed the blue bubble tint the skin never covered. `actionTokens` wrote the button fills at the chosen opacity but left `--dsw-alias-brand-primary` to the preset layer, so a pink action colour at 60% gave pink buttons under blue borders and icons, and the send button read `button-info-fill`, which no skin or preset defined. The drawer column carries `data-idealize-surface="files"`, so the Files tab's font reached Brains, Schedule, Trajectory and the Appearance panel itself.
+
+## Decision
+
+**One token list.** `PRESET_TOKEN_KEYS` (41 names) is what a theme owns; `deriveTokens` emits exactly that set for every palette, the IDEalize preset carries explicit palettes (`#FFFFFF`/`#1B1F24`/`#0969DA` with `crisp` since [the white default](2026-09-08-the-default-look-is-white.md), and `#2A2F35`/`#D5DDE3`/`#85C1B4`) and lays its layer like the others, and `@idealize/skin` renders `SKIN_CSS` from `deriveTokens` over those same seeds, so the served sheet and the panel's IDEalize layer are byte-equal in value. The list gains the send button's `button-info` pair, `state-business-primary` and `-tertiary` from the accent, and the three state text colours (`state-error-primary`, `state-warn-label`, `state-success-primary`) deepened along their hue from design-platform's seeds to 4.5:1 (error, warning carry text) or 3:1 (success marks dots). **Every undefined name is rewritten to the alias it stood for**, and the fallback literals go: `text-1/2/3` → `label-primary/secondary/tertiary`, `label-error`/`error`/`state-error`/`label-danger` → `state-error-primary`, `label-warning` → `state-warn-label`, `bg-warning` → `state-warn-tertiary`, `success`/`label-success` → `state-success-primary`, `bg-raised` → `bg-layer-1`, `bg-subtle` → `bg-layer-3`, `bg-hover` → `interactive-bg-hover`, `border-primary/secondary` → `border-l3/l2`, `label-secondary-foreground` → `label-secondary`, `state-business-bg` → `state-business-tertiary`, `accent` → `brand-primary`. `label-link` users split by role: text links take `brand-primary`, the New project button and the pressed plan icon take `button-primary-fill`/`-hover` with `brand-primary-invert` for their glyphs. Shadows take `--dsw-shadow-lv1/lv3`, scrims `--dsw-alias-bg-mask-1/3`, the heart `state-error-primary`, the terminal selection the page's `brand-primary` at 35% (`withAlpha`). The onboarding burst's conic rainbow and its mask stay literal: a rainbow has no token. **The action colour owns the accent.** `actionAccent(solid, opacity, ground)` composites the colour over the ground; when the composite reads at 3:1 the value is the colour at the person's alpha, otherwise the opaque shade deepened along its hue, and `deepened` is reported. `actionTokens` writes `brand-primary` and `state-business-primary` from it, `brand-primary-invert` from whichever of ink and ground reads better on the composite, and the panel readout uses the same call, so its "deepen it along its hue" sentence appears exactly when the borders were deepened. **The Files tab is "Panels"** ("The side panels: Files, Brains, Schedule and the rest."; zh "面板"), the stored key stays `files`, and the panel root carries `data-idealize-surface-exempt`: `surfaceCss` keeps its descendant rules off an exempt subtree with `:not()` and writes one rule handing the exempt root the base font, the reciprocal zoom, normal weight and tracking, and the layer's four ink tokens back.
+
+## Alternatives considered
+
+**Define the 21 names in the skin.** They were misspellings of existing aliases, one or two users each; a second name per role would leave two homes for one colour and no upstream component would ever read them.
+
+**Keep the IDEalize preset layerless and the skin hand-tuned.** Two sources drift: the hand-tuned sheet already disagreed with `deriveTokens` on `label-secondary` (`#66696D` against `#63666B`) and dark `bg-layer-1` (`#2F353C` against `#32373D`), and a custom accent over IDEalize swapped the whole page to the derived values mid-session.
+
+**Leave the state colours stock.** Amber-600 reads at 2.79:1 and green-500 at 2.28:1 on the white ground (2.56:1 and 2.09:1 on V0's `#F5F5F6`); the light fallbacks (`#9a6700`, `#1a7f37`) had been hiding that.
+
+**Keep `brand-primary` opaque under a custom action colour.** Opaque borders beside translucent buttons is the mismatch JJ named; the composite check keeps the alpha whenever it is honest.
+
+## Consequences
+
+Ratios the gate holds (`appearance/tests/contrast-gate.client.spec.ts`, layer over design-platform.css), ink on ground / layer 1 / sidebar, secondary on the same, accent, error, warning, success on the ground:
+
+| Preset | Scheme | Ground | Ink | Secondary | Accent | Error | Warning | Success |
+|---|---|---|---|---|---|---|---|---|
+| IDEalize | light | #FFFFFF | 16.56 / 16.56 / 15.59 | 7.04 / 7.04 / 6.63 | #0969DA 5.19 | #EA1313 4.56 | #AB661B 4.52 | #1DAB52 3.00 |
+| IDEalize | dark | #2A2F35 | 9.82 / 8.73 / 9.13 | 5.67 / 5.05 / 5.28 | #85C1B4 6.61 | #F36B6B 4.58 | #DD8629 4.83 | #22C55E 5.92 |
+| OG | light | #FFFFFF | 15.80 / 15.80 / 15.80 | 5.86 / 5.86 / 5.86 | #1F2328 15.80 | #EA1313 4.56 | #AB661B 4.52 | #1DAB52 3.00 |
+| OG | dark | #1B1D21 | 13.89 / 13.89 / 13.89 | 7.43 / 7.43 / 7.43 | #E8E9EB 13.89 | #F25A5A 5.13 | #DD8629 6.04 | #22C55E 7.41 |
+| Ink | dark | #17181A | 14.36 / 13.02 / 13.48 | 7.55 / 6.85 / 7.09 | #E8B84B 9.64 | #F25A5A 5.40 | #DD8629 6.36 | #22C55E 7.80 |
+| Linen | light | #F7F5F0 | 13.21 / 14.39 / 12.53 | 5.20 / 5.66 / 4.93 | #B67A12 3.33 | #E01212 4.52 | #A2601A 4.56 | #1CA24D 3.05 |
+
+No preset palette needed adjusting; Ink's light side and Linen's dark side are the paired palette. The skin's hand-tuned greys move to the derived values named above, and `@idealize/skin` now depends on `@idealize/appearance`. The appearance layer is laid at the defaults too, so `ctx.theme.getTheme().active.tokens` is never empty while the plugin runs. `--dsw-alias-state-warning-primary` in `ui-bar/StudioCard.module.css` and the GalleryView fallbacks are outside this change's files. Tests: `appearance/tests/{presets,surface-css,apply,panel,contrast-gate}.client.spec`, `skin/tests/skin-css.spec.ts`, `ui-terminal/tests/paint.client.spec.tsx`.

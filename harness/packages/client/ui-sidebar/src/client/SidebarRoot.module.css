@@ -1,0 +1,304 @@
+/* Sidebar column (figma 133:7629): vertical stack, padding 12/6, sidebar
+   fill + 1px right border painted by the layout column. Collapse is a
+   slide + crossfade, not a morph: the content holds its frozen expanded
+   layout (inline width set by the component) and fades in place (.fading)
+   while the sliding column (AppFrame grid tracks) clips it; the rail layout
+   (.collapsed) only applies after the fade settles, so nothing reflows
+   mid-slide. */
+
+.root {
+  --dsh-sidebar-inline-padding: 12px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* JJ's brand-row mock (Paper, 2026-08-20): 16 top / 18 bottom / 12 inline. */
+  padding: 16px var(--dsh-sidebar-inline-padding) 18px;
+  box-sizing: border-box;
+  background: var(--dsw-specific-sidebar-fill);
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  /* The sidebar is elevated above the conversation surface, so a revealed
+     scrollbar uses the l2 pair. .quietBars hides it without changing layout. */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* Rail geometry (figma rail spec): 36x36 control boxes centered in the rail,
+   12px vertical rhythm, 18px from the rail top to the whale's box (24px to
+   the 24-wide whale glyph itself). IDEalize fork (JJ, 13 Sep 2026): 6px side
+   padding, not 10, so the 108px column leaves the agent chips their own 96px
+   and the rail reads as the floating bar does. */
+.root.collapsed {
+  padding: 18px 6px 6px;
+}
+
+.collapsed .headerControls {
+  margin-right: 0;
+}
+
+/* Scrollbars in the column are a pointer affordance: the shell adds this
+   class whenever the pointer is not inside (SidebarRoot.tsx owns the linger),
+   and rebinding ui-theme's indirection pair to `transparent` takes the thumb
+   out of every scroll region nested under it — the workspace browser's
+   session list today. `transparent` rather than `display: none` on the bar:
+   the reservation (`scrollbar-gutter: stable` on the list) stays in force, so
+   revealing the thumb never reflows a row. Rebinding contract and the two
+   rendering paths it reaches: ui-theme's README. */
+.root.quietBars {
+  --dsh-scrollbar-thumb: transparent;
+  --dsh-scrollbar-thumb-hover: transparent;
+}
+
+/* Collapse phase 1: the whole frozen-width content fades out in place over
+   150ms; at settle the children unmount/snap to the rail layout. */
+.fading > * {
+  opacity: 0;
+  transition: opacity 150ms var(--ds-ease-in-out);
+}
+
+/* At the 150ms rail settle, the four upper controls enter from the former
+   rail right edge over the remaining 150ms of the AppFrame track transition.
+   The bottom-pinned settings seat shares their opacity timeline but stays
+   horizontally fixed. Only a live collapse gets .railIn; a cold collapsed
+   render stays static. */
+.railIn .iconButton,
+.railIn .newSession,
+.railIn .regionArea {
+  animation: rail-in 150ms var(--ds-ease-in-out) backwards;
+}
+
+.railIn .footArea {
+  animation: rail-fade-in 150ms var(--ds-ease-in-out) backwards;
+}
+
+@keyframes rail-in {
+  from {
+    opacity: 0;
+    transform: translateX(49px);
+  }
+}
+
+@keyframes rail-fade-in {
+  from { opacity: 0; }
+}
+
+/* Logo row (figma pad (4,8,4,8)): expanded keeps the panel toggle at the
+   right edge; the rail gives every control the same base left anchor before
+   the shared entry translation is applied. */
+.logoRow {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  height: 70px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* The square logo card is the asset itself (Paper "Projects rail" 1PM-0:
+   58px, no CSS chrome). The white card and its soft edge are painted in the
+   PNG inside a transparent margin, which a box shadow or radius would
+   outline. */
+.brandCard {
+  flex: none;
+  display: block;
+}
+
+/* Collapse toggle above New chat, hugging the right edge (Paper "Projects
+   rail" 1PF-0: glyphs 6px below the row top, 10px apart, flush with the
+   row's 4px inset). The 28px hit boxes overhang the inset by the 6px of
+   box around each 16px glyph so the glyphs land on those measurements. */
+.headerControls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-right: -6px;
+}
+
+.headerControls > * + * {
+  margin-top: -2px;
+}
+
+/* The header seat's controls and the collapse toggle share the top row. */
+.headerTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+/* Labelled New chat: the icon and its caption share the toggle's hit-box
+   height and right edge. */
+.iconButton.newChat {
+  width: auto;
+  gap: 6px;
+  padding: 0 6px;
+  border-radius: 14px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.newChat > svg {
+  flex: none;
+}
+
+.newChatLabel {
+  white-space: nowrap;
+}
+
+/* The rail's controls centre in the column. IDEalize fork (JJ, 13 Sep 2026):
+   the collapsed column is 108px wide because it carries the agent chips, and
+   a left-hugged icon over a centred chip column reads as two rails. */
+.collapsed .logoRow {
+  /* The 58px logo card, as the wide header shows it (JJ, 15 Sep 2026). */
+  height: 58px;
+  padding: 0;
+  margin-bottom: 12px;
+  justify-content: center;
+}
+
+
+
+.iconButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.iconButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.collapsed .iconButton {
+  width: 36px;
+  height: 36px;
+}
+
+/* Rail logo swap: collapsed, the toggle rests as the logo card (the same
+   58px asset as the wide header, its white card painted in the PNG so it
+   stays light in dark mode) and hovering reveals the panel icon — the expand
+   affordance (figma sidebar-hover flow). Expanded it is a plain panel icon. */
+.collapsed .toggle {
+  width: 58px;
+  height: 58px;
+}
+
+.collapsed .toggle .panelIcon {
+  display: none;
+}
+
+.collapsed .toggle:hover .panelIcon {
+  display: inline;
+}
+
+.railCard {
+  display: block;
+}
+
+.collapsed .toggle:hover .railCard {
+  display: none;
+}
+
+/* Rail icons ride the primary ink (figma rail spec); expanded keeps the
+   secondary icon-button ink. */
+.collapsed .iconButton {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Rail New chat: the collapsed column's plain icon control (expanded, the
+   header's .newChat icon under the toggle carries the action). */
+.newSession {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Centred with the rest of the rail (IDEalize fork, JJ, 13 Sep 2026). */
+  align-self: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  margin: 0 0 12px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.newSession:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+
+/* Region seat: always mounted so the foot never moves. Its trailing margin
+   cancels the wide shell inset so the nested scrollbar can sit at the sidebar
+   edge; the browser restores that inset inside its own rows. */
+.regionArea {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-left: -4px;
+  margin-right: calc(-1 * var(--dsh-sidebar-inline-padding));
+  padding-left: 4px;
+  overflow: hidden;
+}
+
+.collapsed .regionArea {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+}
+
+/* Footer seats: additive actions stack above Settings. Each occupant owns its
+   button geometry and hover chrome. */
+.footArea {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.settingsArea,
+.footerActions {
+  flex: none;
+  min-width: 0;
+  width: 100%;
+}
+
+.footerActions {
+  display: flex;
+}
+
+.collapsed .footArea {
+  align-items: center;
+}
+
+.collapsed .settingsArea,
+.collapsed .footerActions {
+  display: flex;
+  justify-content: center;
+  width: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fading > *,
+  .railIn .iconButton,
+  .railIn .newSession,
+  .railIn .footArea,
+  .railIn .regionArea {
+    transition: none;
+    animation: none;
+  }
+}

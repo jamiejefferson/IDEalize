@@ -1,0 +1,114 @@
+/* The app's shared control treatment, restated for this plugin's bundle: the
+   rail panes' controls.module.css (packages/idealize/ui-bar) carries the same
+   classes over the same alias tokens, and the client bundle purity gate
+   forbids importing another plugin's sheet. Capsule buttons come from
+   ui-primitives Button.module.css (radius = height/2, hence 999px; primary /
+   outline on the alias tokens), fields from ui-primitives Input.module.css
+   (1px border-l2, 8px radius, layer-1 fill, brand-primary focus), and the
+   keyboard focus ring is PermissionSelect's 0 0 0 2px border-l3. Both themes
+   come from the alias tokens; this sheet names no literal colour. */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+/* Button.module.css .md geometry. */
+.md {
+  height: 36px;
+  padding: 0 14px;
+}
+
+.primary {
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.outline {
+  border: 1px solid var(--dsw-alias-border-l2);
+}
+
+.outline:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Icon-only control: the circle the app's icon actions use (composer attach,
+   message icon actions). Width/height stay with the view. */
+.iconButton {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.iconButton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+/* Bordered icon button: the dialog-Cancel outline treatment on an icon-only
+   control (compose after iconButton). */
+.iconButtonOutline {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+/* Form field: input, select, or textarea. */
+.field {
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.field::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.field:focus,
+.field:focus-within {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.field:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}

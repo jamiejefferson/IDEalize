@@ -1,0 +1,437 @@
+/* Service hatch chat: the full transcript + composer filling the drawer
+   pane. Colours ride the dsw semantic aliases and type the --idealize-type-*
+   scale. The column layout holds from 320px (drawer floor) up: rows wrap,
+   nothing sets a fixed width. */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+/* The banner keeps only the title and the editable Source line, styled as an
+   assistant-side bubble (JJ, 2026-08-28); the movie quote lives in the
+   transcript as the chat's animated opening message (JJ, 2026-09-01). */
+.top {
+  display: grid;
+  gap: 3px;
+  justify-self: start;
+  max-width: 88%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border-top-left-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+}
+
+.bannerTitle {
+  margin: 0;
+  font-size: var(--idealize-type-section, 13px);
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+/* The quote arrives like a fresh assistant row: a typing indicator that
+   resolves into the italic line sliding up into place. */
+.quoteRow {
+  display: flex;
+}
+
+.quoteBubble {
+  margin: 0;
+  max-width: 88%;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border-top-left-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  font-size: var(--idealize-type-body, 12.5px);
+  font-style: italic;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  animation: service-quote-arrive 360ms ease-out both;
+}
+
+@keyframes service-quote-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.typingBubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border-top-left-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+}
+
+.typingDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-secondary, #66696d);
+  animation: service-typing-pulse 900ms ease-in-out infinite;
+}
+
+.typingDot:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.typingDot:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes service-typing-pulse {
+  0%,
+  100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quoteBubble,
+  .typingDot {
+    animation: none;
+  }
+}
+
+.invalid {
+  margin: 0;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-state-error-primary);
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.errorNotice {
+  margin: 0;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.path {
+  margin: 0;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathLabel {
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+/* Inline edit affordance on the Source line: link-weight, never a capsule,
+   so the path stays the line's subject. */
+.pathEdit {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-brand-primary);
+  cursor: pointer;
+}
+
+.pathEdit:hover {
+  text-decoration: underline;
+}
+
+.pathForm {
+  display: grid;
+  gap: 6px;
+}
+
+.pathInput {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1, #fafafa);
+  color: var(--dsw-alias-label-primary, #24292f);
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+.pathActions {
+  display: flex;
+  gap: 6px;
+}
+
+.transcript,
+.transcriptEmpty {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1, #fafafa);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+}
+
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.userBubble {
+  max-width: 88%;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-active, rgba(0, 0, 0, 0.06));
+  font-size: var(--idealize-type-body, 12.5px);
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assistantRow {
+  font-size: var(--idealize-type-body, 12.5px);
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.reasoning {
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.reasoningLabel {
+  cursor: pointer;
+  user-select: none;
+}
+
+.imageChip {
+  justify-self: start;
+  font-size: var(--idealize-type-small, 11.5px);
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.12));
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.toolCard {
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: var(--idealize-type-body, 12.5px);
+  min-width: 0;
+  background: var(--dsw-alias-bg-layer-2, #fff);
+}
+
+.toolHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+  min-width: 0;
+  list-style-position: outside;
+}
+
+.toolDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.toolDot[data-status='running'] {
+  background: var(--dsw-alias-state-business-primary, #4c7dff);
+  animation: service-tool-pulse 1.2s ease-in-out infinite;
+}
+
+.toolDot[data-status='error'] {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+@keyframes service-tool-pulse {
+  0%,
+  100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toolDot[data-status='running'] {
+    animation: none;
+  }
+}
+
+.toolName {
+  flex: none;
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.toolArgs {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.toolLabel {
+  margin-top: 6px;
+  font-size: var(--idealize-type-small, 11.5px);
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.toolPre {
+  margin: 6px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  /* The pre scrolls inside the elevated tool card: step the thumb to l2. */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: var(--idealize-type-small, 11.5px);
+  background: var(--dsw-alias-bg-layer-1, #fafafa);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.subCalls {
+  margin: 8px 0 2px 10px;
+  padding-left: 8px;
+  border-left: 2px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.08));
+  display: grid;
+  gap: 6px;
+}
+
+.commandRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+.commandLine {
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  background: var(--dsw-alias-interactive-bg-active, rgba(0, 0, 0, 0.06));
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
+.mutedLine {
+  margin: 0;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.workingRow {
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+  animation: service-tool-pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workingRow {
+    animation: none;
+  }
+}
+
+.composer {
+  flex: none;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inputRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.attach {
+  composes: iconButton iconButtonOutline from './controls.module.css';
+  flex: none;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+}
+
+.fileInput {
+  display: none;
+}
+
+.input {
+  composes: field from './controls.module.css';
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.composerActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.send {
+  composes: button md primary from './controls.module.css';
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+}
+
+.secondary {
+  composes: button md outline from './controls.module.css';
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.secondary:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.errorLine {
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}

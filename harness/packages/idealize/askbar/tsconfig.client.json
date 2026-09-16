@@ -1,0 +1,48 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
+  },
+  "files": [
+    "src/client/askbar-store.ts",
+    "src/client/AskbarRoot.tsx",
+    "src/client/capture.ts",
+    "src/client/css-modules.d.ts",
+    "src/client/Chip.tsx",
+    "src/client/index.ts",
+    "src/client/locales.ts",
+    "src/client/Panel.tsx",
+    "src/client/Rail.tsx",
+    "src/client/selection.ts",
+    "src/client/sidebar-order.ts",
+    "src/client/send.ts",
+    "src/client/SidebarRail.tsx",
+    "src/client/speech-notice.ts",
+    "src/client/studio-request.ts",
+    "src/portrait.ts",
+    "src/project-name.ts",
+    "src/types.ts"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../client/locale"
+    },
+    {
+      "path": "../../client/runtime"
+    },
+    {
+      "path": "../../client/ui-primitives"
+    },
+    {
+      "path": "../../client/ui-sidebar"
+    },
+    {
+      "path": "../../client/ui-slots"
+    }
+  ]
+}

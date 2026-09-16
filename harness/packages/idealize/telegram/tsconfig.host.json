@@ -1,0 +1,41 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo",
+    "types": [
+      "node"
+    ]
+  },
+  "files": [
+    "src/api.ts",
+    "src/format.ts",
+    "src/inbound.ts",
+    "src/index.ts",
+    "src/invariant.ts",
+    "src/loop.ts",
+    "src/messenger.ts",
+    "src/outbound.ts",
+    "src/pairing.ts",
+    "src/poller.ts",
+    "src/ports.ts",
+    "src/relay.ts",
+    "src/routes.ts",
+    "src/settings.ts",
+    "src/typing.ts"
+  ],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../credentials/credentials" },
+    { "path": "../../host/apiproxy" },
+    { "path": "../../host/webserver" },
+    { "path": "../../interaction/user-questions" },
+    { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../../settings/settings" },
+    { "path": "../comm" },
+    { "path": "../host-bridge" },
+    { "path": "../studio" }
+  ]
+}

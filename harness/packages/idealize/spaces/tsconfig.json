@@ -1,0 +1,21 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../preset/agent-presets" },
+    { "path": "../../core/agent-default-model" },
+    { "path": "../../host/webserver" },
+    { "path": "../../core/session" },
+    { "path": "../../session/session-projection" },
+    { "path": "../../settings/settings" },
+    { "path": "../generate" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

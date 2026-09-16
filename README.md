@@ -1,264 +1,160 @@
-# IDEalize
+<h1 align="center">IDEalize V1</h1>
 
-An AI-focused, multi-terminal macOS app — a leaner, Claude-Code-native take on
-Warp. IDEalize hosts many terminals in one window, lets the coding agents
-running inside them talk to each other (even across different projects), and
-gives those agents first-class ways to notify you and show you things.
+<p align="center">
+  <strong>The agent-directing desktop app for designers, for macOS.</strong><br>
+  Open a project folder, pick a space and a brain, and direct the work from one window.
+</p>
 
-No built-in AI, no cloud, no file search. It just makes `claude`, `pi`, and
-friends dramatically nicer to live in.
+<p align="center"><sub>A fork of <a href="https://github.com/anywhere-labs/deepseek-harness-desktop">DeepSeek Harness Desktop</a> over the <a href="https://github.com/jamiejefferson/IDEalize/tree/main/harness">IDEalize harness</a>. Not affiliated with DeepSeek.</sub></p>
 
-> **Platform:** macOS 14+ on Apple Silicon. Built with SwiftUI + AppKit and
-> [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm).
+<p align="center">
+  <a href="https://github.com/jamiejefferson/IDEalize/releases/latest"><img src="https://img.shields.io/github/v/release/jamiejefferson/IDEalize?style=flat&amp;label=release&amp;color=FF5436" alt="Latest release"></a>
+  <a href="https://github.com/jamiejefferson/IDEalize/releases"><img src="https://img.shields.io/github/downloads/jamiejefferson/IDEalize/total?style=flat&amp;label=downloads&amp;color=FF5436" alt="Total downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/macOS-4493F8?style=flat-square" alt="Supported platform: macOS">
+</p>
 
----
+IDEalize V1 packages the IDEalize harness (its plugin Host, web client and every `@idealize/*` plugin) into a native macOS application: the window, tray, Askbar, terminal, updates and work profiles come from this repository; the harness runs unchanged from vendored tarballs under `vendor/idealize/`.
 
-## Download & install
+<a id="run"></a>
 
-**Always-latest release:
-[github.com/jamiejefferson/IDEalize/releases/latest](https://github.com/jamiejefferson/IDEalize/releases/latest)**
+## Download and install
 
-### One-line install / update (recommended)
+Run this once in Terminal, and again any time to update:
 
-Open **Terminal** and paste:
-
-```bash
+```sh
 curl -fsSL https://raw.githubusercontent.com/jamiejefferson/IDEalize/main/install.sh | bash
 ```
 
-It downloads the latest release, replaces any existing copy in `/Applications`,
-clears the macOS quarantine flag, and launches it. **Run the same command again
-any time to update to the newest version** — it replaces the old app in place.
+Or download the DMG from the [latest release](https://github.com/jamiejefferson/IDEalize/releases/latest), drag `IDEalize V1.app` into Applications, then run this once so macOS opens it (the build is self-signed, not notarised):
 
-> The installer sends one anonymous ping recording the installed version, your
-> macOS version, and a one-way hash of your machine's hardware id (not
-> reversible, not personally identifying) — just so we can see which versions
-> are in use. Nothing else is collected. It's the `report_install` function in
-> [`install.sh`](install.sh) if you want to read or remove it.
+```sh
+xattr -dr com.apple.quarantine "/Applications/IDEalize V1.app"
+```
 
-### Manual install
+The app checks that release for updates itself. On Windows, download `IDEalize-V1-Setup.exe` from the same release and run it; the installer is unsigned, so SmartScreen shows "Windows protected your PC": choose **More info**, then **Run anyway**. The site is [idealize.projject.ai](https://idealize.projject.ai).
 
-1. Download the `.zip` from the
-   [latest release](https://github.com/jamiejefferson/IDEalize/releases/latest),
-   unzip it, and drag **IDEalize.app** into **Applications**.
-2. IDEalize is a small indie app, self-signed (not notarized), so the first time
-   you open it macOS says it "can't be verified." Clear that **once** with:
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/IDEalize.app
-   ```
-   or via **System Settings → Privacy & Security → Open Anyway**.
+### Keys
 
----
+Add API keys in the Brains pane (Anthropic, OpenRouter, fal.ai and the rest), or open a `.idealizekeys` file an organisation issued you: double-click it and the keys it carries are connected at once ([how it works](dsh-plugin-desktop/README.md#keys-file)).
+
+## Documentation
+
+Ordinary users can start with the [user guide](docs/user-guide.md); the developer documentation is only needed when extending or maintaining the application.
+
+### User documentation
+
+| Goal | Entry point |
+| --- | --- |
+| Install and use the application | [User guide](docs/user-guide.md) |
+| Check platforms, prerequisites, and product boundaries | [FAQ](docs/faq.md) |
+| Understand why the project exists | [Why IDEalize V1](docs/why-desktop.md) |
+| See the full documentation and README map | [Documentation index](docs/README.md) |
+
+### Developer and maintainer documentation
+
+| Goal | Entry point |
+| --- | --- |
+| Read the plugin ecosystem manifesto | [Plugin ecosystem manifesto](docs/plugin-ecosystem.md) |
+| Build ordinary or Desktop plugins | [Plugin development](docs/plugin-development.md) |
+| Join the unified plugin-contract discussion | [DSH Community Fabric Draft](dsh-community-fabric/README.md) |
+| See the research behind the unified plugin framework | [Framework and real-plugin research](dsh-community-fabric/docs/research/mature-plugin-frameworks.md) |
+| Read the plugin market product and safety design | [DSH Community Market](dsh-community-market/README.md) |
+| See what Desktop plugins can use | [Desktop plugin API](dsh-plugin-desktop/docs/plugin-services.md) |
+| Understand how the desktop works | [Architecture](docs/architecture.md) |
+| Read package-level build and release details | [`dsh-plugin-desktop/README.md`](dsh-plugin-desktop/README.md) |
 
 ## Features
 
-### Warp-style core
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Desktop</h3>
+      <p>Brings the IDEalize harness and its web client to a native desktop application. The app starts and manages the local harness service, integrates the system tray and desktop window, and requires no Node.js installation or command-line setup.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>Mobile Remote Control <img src="https://img.shields.io/badge/COMING_SOON-F59E0B?style=flat-square" alt="Coming Soon"></h3>
+      <p>Connect to Desktop from iOS and Android to start tasks, monitor Agent progress, and send follow-ups from your phone.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3><a href="dsh-community-market/README.md">Plugin Marketplace</a> <img src="https://img.shields.io/badge/BUILT_IN-2EA44F?style=flat-square" alt="Built in"></h3>
+      <p>DSH Community Market is complete and built in, with plugin discovery, details, installation, and management. The market openly connects to a wide range of plugin data sources: anyone can provide, integrate, and use a source that follows the public schemas, while existing APIs can join as cooperating sources through a reviewed adapter.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>Co-build the Plugin Ecosystem</h3>
+      <p>The DSH plugin ecosystem is built by the community. Official, desktop, and third-party plugins follow the same conventions, so they can be installed together and work together without interfering with each other. Join us — read the <a href="docs/plugin-ecosystem.md">DSH plugin ecosystem manifesto</a>.</p>
+    </td>
+  </tr>
+</table>
 
-| Feature | What you get |
-|---|---|
-| **Blocks** | Each command + its output is tracked as a block with **exit-status** (✓/✗), duration, and cwd — via shell integration. Browse them in the Blocks sidebar (⌘B). |
-| **Command palette** (⌘P) | Fuzzy launcher for actions, themes, workflows, recent commands, and open terminals. |
-| **Workflows** | Saved, parameterized commands (`{{param}}` prompts). Run from the palette; manage in Preferences. |
-| **Command composer** (⌘L) | A bottom input bar — type a command, ↩ to run, ↑/↓ to recall history. |
-| **History** | Every command is recorded per session; searchable in the palette, re-runnable from the sidebar. |
-| **Splits & tabs** | Recursive split panes (⌘D / ⇧⌘D) and tabs, each with live status. |
+## Plugin Ecosystem
 
-### IDEalize additions (on top of Warp)
+Plugins are extensions that add capabilities to IDEalize: models, tools, interfaces, and workflows can all be plugins, combined like building blocks.
 
-| Feature | What you get |
-|---|---|
-| **Cross-terminal / cross-project IPC** | Agents message each other via `idealize send`/`broadcast`/`inbox` — across tabs, panes, and projects. |
-| **Cross-terminal exec** | `idealize exec <session> <cmd>` runs a command in *another* terminal — agent orchestration. |
-| **Block inspection over IPC** | `idealize blocks` lets an agent read what ran and the exit codes. |
-| **Real text entry + mouse** | Full SwiftTerm input: selection, copy/paste, mouse reporting for TUIs. |
-| **Typography & theming** | Any monospaced font + size + color scheme in Preferences. |
-| **Tabs show process status** | Live status dot + foreground process (`claude`, `node`, `vim`). |
-| **Notifications from Claude Code** | `idealize notify "…"` → native macOS notification. |
-| **Default launch command** | Auto-run e.g. `claude --dangerously-skip-permissions` in every new terminal. |
-| **Inline visuals** | `idealize image foo.png` renders images inline (Kitty graphics, native). |
+IDEalize V1 is not a fixed, hardcoded shell. The IDEalize harness runs unchanged from its vendored tarballs; the desktop shell itself (the window, tray, terminal, updates, and work profiles) is a DSH plugin, composed into the same runtime through the standard plugin mechanism. From the core agent to the desktop shell, the whole product follows the same "everything is a plugin" rule: plugins from the DSH ecosystem work directly, and desktop capabilities are combined, replaced, and evolve the same way.
 
-### Agent chat & workflows (new in 0.5.0)
+We want the plugin ecosystem to work like a phone app store: every plugin is built against the same set of rules, so plugins can be installed together and work together without interfering with each other.
 
-| Feature | What you get |
-|---|---|
-| **Agent chat GUI** | A chat pane wrapped around the coding agent running in the terminal — works with **Claude Code** and **Kimi Code** out of the box, and any other agent can introduce itself once with `idealize agent-hello`. |
-| **Flows** | Build multi-step AI workflows by describing what you want in plain language — an interview turns the conversation into a runnable Flow, no nodes or code. |
-| **Project agent** | An optional per-project coordinating chat that watches your other chats, spots when their work might collide, and helps the project land cleanly. |
-| **Mini-mode** | One toggle docks IDEalize to a slim, mobile-style column (~⅕ of the screen) so it stays visible beside the app you're building; toggle it back to restore your window exactly. |
-| **Hardened IPC** | Mutating `idealize` commands require a per-instance capability token, transcript parsing runs off the main thread, and flow/workflow saves are atomic. |
+### For developers
 
----
+Unlike many other projects, this project itself is a DSH [plugin](docs/plugin-development.md): the desktop shell composes through the same official path as third-party plugins. Desktop plugin capabilities are now available. We provide Desktop services so plugin developers can integrate their plugins with desktop capabilities: for example, viewing and switching work profiles, or installing, updating, and removing plugins in the active profile. See the [Desktop plugin API](dsh-plugin-desktop/docs/plugin-services.md) for complete usage details. See [Why IDEalize V1](docs/why-desktop.md) and [Plugin development](docs/plugin-development.md) for the reasoning and the third-party boundary.
 
-## Build & run
+## Relationship to the upstream projects
 
-```bash
-# Build the app bundle (release) into ./dist/IDEalize.app
-./scripts/build-app.sh
+IDEalize V1 is a fork of [DeepSeek Harness Desktop](https://github.com/anywhere-labs/deepseek-harness-desktop), built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and the Cordis plugin model.
 
-# Build and launch immediately
-./scripts/build-app.sh --open
+The [IDEalize harness](https://github.com/jamiejefferson/IDEalize/tree/main/harness) provides the core agent capabilities, plugin system, and web UI. This repository primarily provides:
 
-# Debug build
-./scripts/build-app.sh --debug
+- Desktop application packaging
+- Starting, stopping, and recovering the local service
+- Desktop window and system tray integration
+- macOS and Windows installer builds and releases
+- An interface designed for desktop use
+
+To run the harness from the command line or contribute to its core functionality, start with the IDEalize harness repository.
+
+## Special Thanks
+
+Special thanks to the [original DeepSeek Harness repository](https://github.com/deepseek-ai/deepseek-harness) and the DeepSeek AI team. IDEalize V1 builds on a pinned upstream checkout, and its core agents, models, tools, sessions, web UI, and plugin ecosystem come from that project.
+
+We also thank [Cordis](https://github.com/cordiverse/cordis) for the plugin foundation that makes this composition possible. IDEalize V1 would not exist without these open-source projects.
+
+We are also grateful to the [Koishi.js](https://koishi.chat/) project and community for their long-standing work on plugin practices, tooling, and shared knowledge, and to everyone who contributes discussions, testing, feedback, and plugins.
+
+Also, and you.
+
+<a id="run-from-source"></a>
+
+## Development
+
+Desktop source lives in `dsh-plugin-desktop/`. The outer repository uses Yarn, while the pinned `deepseek-harness/` submodule keeps its own pnpm workspace. From the repository root:
+
+```sh
+git submodule update --init --recursive
+corepack yarn install --immutable
+corepack yarn dev
 ```
 
-Then move `dist/IDEalize.app` to `/Applications` (optional) and launch it.
+Use `corepack yarn check` for the headless gate. The [architecture](docs/architecture.md) and package [`README`](dsh-plugin-desktop/README.md) describe the full build, test, and release boundaries.
 
-For development you can also run straight from SwiftPM:
+### Landing a build
 
-```bash
-swift run IDEalize        # GUI app
-swift build               # everything
-swift test                # core unit tests
-```
+The app consumes the harness through the tarballs in `vendor/idealize/` (one per `@idealize/*` package plus the upstream packages the fork touches), pinned by the `resolutions` map in the root `package.json`. To land a harness change: in that package run `npx tsc -b tsconfig.json`, `pnpm run bundle` and `pnpm pack --pack-destination ../../../../idealize-desktop/vendor/idealize` (the emit comes first, because the bundle reads `lib/types`); check the tarball's `package/lib/*.js` carries the new code; then here run `corepack yarn install && corepack yarn build && corepack yarn package:dir`, which writes `dsh-plugin-desktop/dist/mac-arm64/IDEalize V1.app`. Quit the running app, replace `/Applications/IDEalize V1.app` with that bundle (`rm -rf` then `ditto`), and open it with `open`; the first launch of a replaced bundle can take half a minute before its window shows, later launches a few seconds. The project board in the harness (`.idealize/project-board.md`) records every landing.
 
-### The `idealize` CLI
+### What the shell adds
 
-Every terminal IDEalize spawns gets an `idealize` command on its `PATH`
-automatically (a shim is installed at
-`~/Library/Application Support/IDEalize/bin/idealize`). That shared shim belongs
-to the app installed in `/Applications`; a build run from anywhere else — a dev
-build, a probe, a release build under test — gets its own private shim dir under
-`IDEalize Dev/` instead, so it never repoints the CLI the installed app's chats
-rely on. To use the CLI from *outside* IDEalize too:
+- **The Askbar** — a slim always-on-top column at a screen edge, one chip per agent, that the main window collapses to and expands from: the sidebar's collapse button, the tray, or ⌃⌥A from anywhere (a global shortcut, so no IDEalize window needs focus). Rolling over a chip opens a panel to read the agent's latest exchanges and ask it something.
+- **Finder's "Idealize this"** — a Quick Action the app installs into `~/Library/Services` on each launch; right-click a folder in Finder to open it as a project.
+- **Keys files** — double-click a `.idealizekeys` file and the keys it carries are connected at once (see [Keys](#keys)). See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute.
 
-```bash
-ln -sf "/Applications/IDEalize.app/Contents/Helpers/idealize-cli" /usr/local/bin/idealize
-```
+## Community
 
----
-
-## `idealize` command reference
-
-```
-idealize notify <text> [--title T] [--sound]   show a system notification
-idealize send <session> <text>                 message another terminal's inbox
-idealize broadcast <text>                       message every other terminal
-idealize inbox [--wait] [--timeout S] [--json] read & clear my messages
-idealize peek  [--json]                          read my messages without clearing
-idealize list  [--json]                          list active terminals
-idealize blocks [session] [--json]               list recorded command blocks + exit codes
-idealize exec <session> <command>                run a command in another terminal
-idealize type <session> <text>                   type text into another terminal
-idealize image <path> [--width W] [--height H]  render an image inline
-idealize status <text>                           set this tab's status label
-idealize focus <session>                         bring a terminal to the front
-idealize whoami                                  print my session id
-idealize ping                                    check the app is reachable
-idealize agent-hello --name <n> --format <f>     introduce a non-built-in agent to the chat GUI (handshake)
-```
-
-A "session" can be referenced by its id (`t-a6a6`), its tab/label, or its
-project-directory name.
-
-### Inter-agent messaging example
-
-Two Claude Code instances in different projects:
-
-```bash
-# In project A's terminal (session t-a6a6):
-idealize list
-#   * t-a6a6  api        [claude]
-#     t-1f3d  frontend   [claude]
-
-idealize send frontend "the /users endpoint now returns `created_at`"
-
-# In project B's terminal (frontend), the agent checks its inbox:
-idealize inbox
-#   [11:26:27] api: the /users endpoint now returns created_at
-```
-
-`idealize inbox --wait` blocks until a message arrives — handy for an agent that
-should pause for input from a peer.
-
----
-
-## Claude Code integration
-
-IDEalize is designed to be driven by Claude Code hooks. See
-[`docs/claude-code-integration.md`](docs/claude-code-integration.md) for ready-to-paste
-hook configs that:
-
-- 🔔 notify you when Claude finishes or needs input,
-- 🤝 let two agents hand off work to each other,
-- 🖼️ show generated charts/screenshots inline.
-
-The short version — add to `~/.claude/settings.json`:
-
-```jsonc
-{
-  "hooks": {
-    "Stop": [
-      { "hooks": [ { "type": "command",
-        "command": "idealize notify \"Claude finished\" --title \"$(basename \"$PWD\")\" --sound" } ] }
-    ],
-    "Notification": [
-      { "hooks": [ { "type": "command",
-        "command": "idealize notify \"$CLAUDE_NOTIFICATION\" --title \"Claude needs you\" --sound" } ] }
-    ]
-  }
-}
-```
-
----
-
-## Keyboard shortcuts
-
-| Shortcut | Action |
-|---|---|
-| ⌘P | Command palette |
-| ⌘B | Toggle Blocks sidebar |
-| ⌘L | Toggle command composer |
-| ⌘T | New terminal tab |
-| ⌘O | New terminal in a chosen project folder |
-| ⌘D | Split right |
-| ⇧⌘D | Split down |
-| ⌘W | Close focused pane |
-| ⇧⌘] / ⇧⌘[ | Next / previous tab |
-| ⇧⌘C | Copy last command |
-| ⌃R | Re-run last command |
-| ⌘, | Preferences |
-
----
-
-## Architecture
-
-```
-Sources/
-  IDEalizeCore/     Shared IPC protocol, Unix-socket helpers, image encoders
-                    (used by both the app and the CLI)
-  idealizeCLI/      The `idealize` command (talks to the app over a socket)
-  IDEalizeApp/      The SwiftUI/AppKit app
-    Model/          Workspace (tabs + split tree), TerminalSession, settings,
-                    theme, process inspector, CLI shim installer
-    IPC/            IPCHub (socket server), NotificationManager
-    UI/             Tab bar, split panes, terminal host, settings
-scripts/build-app.sh   Builds & packages dist/IDEalize.app
-```
-
-**Blocks / shell integration.** SwiftTerm has no semantic-prompt support, so
-`IDEalizeTerminalView` subclasses `LocalProcessTerminalView` and taps the PTY
-byte stream in `dataReceived`. A generated shell-integration script (zsh via a
-redirected `ZDOTDIR`, bash via `--rcfile`) emits a custom `OSC 1771` marker at
-each command's start/end carrying the command text and exit code; the parser
-turns those into `CommandBlock`s. The bytes still flow to SwiftTerm unchanged
-(it ignores the unknown OSC), so rendering is unaffected.
-
-**IPC transport.** The app listens on a Unix domain socket at
-`~/Library/Application Support/IDEalize/ipc.sock`. Each spawned shell gets
-`IDEALIZE_SESSION_ID` (its identity), `IDEALIZE_SOCK`, and `IDEALIZE_TOKEN` in
-its environment. The `idealize` CLI connects, sends one JSON request, and
-reads one JSON response. Mutating commands (send/exec/inbox/…) require a valid
-`IDEALIZE_TOKEN` — a per-app-instance secret also stored at
-`~/Library/Application Support/IDEalize/ipc.token` (mode 0600) so a CLI
-symlinked outside the app keeps working. `ping` and `list` stay open.
-
-**Why a CLI shim.** macOS filesystems are case-insensitive, so the app binary
-`IDEalize` and a CLI named `idealize` cannot coexist in one directory. The CLI
-ships as `Contents/Helpers/idealize-cli` and is exposed under the name
-`idealize` via a symlink the app maintains on each terminal's `PATH`.
+Bug reports, feedback and questions about IDEalize V1, harness ones included, go through [GitHub Issues](https://github.com/jamiejefferson/IDEalize/issues); the harness is a fork of DeepSeek Harness.
 
 ## License
 
-[MIT](LICENSE) © 2026 Jamie Jefferson. Bundled third-party components (SwiftTerm,
-etc.) keep their own terms — see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+[MIT](LICENSE), for this fork and for DeepSeek Harness Desktop beneath it.
+
+> DeepSeek is a trademark of DeepSeek AI. IDEalize V1 is an independent project, not affiliated with or endorsed by DeepSeek or Anywhere Labs.

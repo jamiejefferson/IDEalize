@@ -1,0 +1,104 @@
+/* The showcase: a scrim with one spotlight cut out, a ring around it, and a
+   card parked beside it. Colours ride the dsw aliases so both themes apply. */
+.root {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  overflow: hidden;
+  z-index: 40;
+}
+
+/* The scrim, in panels around the spotlight (the dismiss surface). */
+.scrim {
+  position: absolute;
+  background: var(--dsw-alias-bg-mask-3);
+}
+
+.ring {
+  position: absolute;
+  border-radius: 10px;
+  border: 2px solid var(--dsw-alias-brand-primary, #4d6bfe);
+  pointer-events: none;
+  transition: left 0.34s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.34s cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 0.34s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.card {
+  position: absolute;
+  width: 330px;
+  box-sizing: border-box;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.08));
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary, #24292f);
+  transition: left 0.34s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.body {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  white-space: pre-line;
+  margin: 0 0 12px;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dots {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.15));
+}
+
+.dot[data-active] {
+  background: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+.back {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  cursor: pointer;
+  padding: 6px 8px;
+}
+
+.next {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-brand-primary-invert);
+  background: var(--dsw-alias-button-primary-fill);
+  cursor: pointer;
+}
+
+.next:hover {
+  background: var(--dsw-alias-button-primary-hover, var(--dsw-alias-brand-primary, #4d6bfe));
+}

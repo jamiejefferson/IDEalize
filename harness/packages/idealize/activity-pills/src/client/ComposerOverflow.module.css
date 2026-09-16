@@ -1,0 +1,79 @@
+/* The composer's overflow control: a three-dot trigger on the tool row and the
+   panel it opens above the composer card. Colours are alias tokens only, so
+   both themes follow the app. */
+
+.wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+/* The same 28px round seat as the tool row's other icon buttons. */
+.trigger {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.trigger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.trigger[aria-expanded="true"] {
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-primary);
+}
+
+.trigger:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Above the trigger, left-aligned to it: the composer sits at the foot of the
+   window, so a panel below it would open off-screen. Fixed, not absolute, and
+   portalled to the body — the tool row it is triggered from scrolls sideways,
+   which clips both axes (see the component's module note). The component
+   supplies `left` and `bottom` from the trigger's box. */
+.panel {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 220px;
+  padding: 12px;
+  /* `--dsw-alias-bg-elevated` and `--dsw-alias-border-secondary` are not
+     tokens the theme defines, so the panel painted with a transparent ground
+     and a zero-width border: it opened, and nobody could see it (JJ, 11 Sep
+     2026: "3-dot menu in the askbar not working"). Layer 2 over layer 1 is
+     the app's elevated surface, and every rule carries a literal fallback. */
+  border: 1px solid var(--dsw-alias-border-l3, rgba(31, 35, 40, 0.16));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2, #fff);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+/* Label above the control, the same reading order as the settings strip. */
+.item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.label {
+  font-size: 10px;
+  line-height: 12px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}

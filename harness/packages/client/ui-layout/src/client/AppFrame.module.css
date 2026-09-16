@@ -1,0 +1,206 @@
+.frame {
+  position: relative; /* anchors the drag handles, which straddle column borders */
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+  /* Collapse/expand animates the tracks on the deepsuite sider curve
+     (--ds-ease-in-out / --ds-transition-duration-slow, ui-theme base.css). */
+  transition: grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* Dragging writes widths at pointer cadence; easing them would detach the
+   column from the handle. */
+.frame[data-dragging] {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame {
+    transition: none;
+  }
+}
+
+.sidebarCol {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--dsw-specific-sidebar-fill);
+  border-right: 1px solid var(--dsw-alias-border-l1);
+}
+
+.centerCol {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.detailsCol {
+  grid-column: 3;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--dsw-alias-border-l2);
+}
+
+/* The details subtree stays mounted at zero width, so its border must not paint
+   a 1px seam. The collapsed sidebar instead retains a bordered compact rail. */
+.frame[data-details-collapsed] .detailsCol {
+  border-left: none;
+}
+
+.drawerCol {
+  grid-column: 7;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--dsw-alias-border-l2);
+}
+
+.frame[data-drawer-collapsed] .drawerCol {
+  border-left: none;
+}
+
+.deckCol {
+  grid-column: 5;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--dsw-alias-border-l2);
+}
+
+.frame[data-deck-collapsed] .deckCol {
+  border-left: none;
+}
+
+/* The aside: an auto track the occupant sizes (empty = no width), seated
+   immediately left of the rail, so a full-height panel there sits beside the
+   tool rail instead of covering conversation content. */
+.asideCol {
+  grid-column: 4;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The rail: an auto track the occupant sizes (empty = no width), seated
+   between the aside and the deck so it rides the inner edge of whichever
+   deck/drawer panes are open; with both closed it lands on the window edge. */
+.railCol {
+  grid-column: 6;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The banner spans every column, the rail track included, above them; empty
+   entries cost no height. */
+.bannerRow {
+  grid-row: 1;
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+/* The dock spans every column, the rail track included; content there owns its
+   ground, so nothing in the columns can sit underneath it. Empty entries cost
+   no height. */
+.dockRow {
+  grid-row: 3;
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+/* Drag handles are frame children (columns clip overflow): a 10px hit strip
+   centered on the column border via inline left, above column content, with
+   a col-resize cursor. The details/deck/drawer handles always show a 4x32
+   pill on the border so the edge reads as grabbable; hovering the strip or
+   dragging widens the pill and lights it in the accent colour, and the
+   strip itself tints across the full height. The sidebar keeps only the
+   hit strip. */
+.handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  margin-left: -5px;
+  cursor: col-resize;
+  z-index: 2;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Rides the same curve as the tracks so the pill stays on the moving
+     border during collapse/expand; paused while dragging (frame rule). */
+  transition:
+    left var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    background var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.frame[data-dragging] .handle {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .handle {
+    transition: none;
+  }
+}
+
+.handle[data-side='details']::after,
+.handle[data-side='deck']::after,
+.handle[data-side='drawer']::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 32px;
+  border-radius: 10px;
+  box-sizing: border-box;
+  background: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.18));
+  transition:
+    width var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    height var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    background var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.handle[data-side='details']:hover,
+.handle[data-side='deck']:hover,
+.handle[data-side='drawer']:hover,
+.handle[data-side='details'][data-dragging='true'],
+.handle[data-side='deck'][data-dragging='true'],
+.handle[data-side='drawer'][data-dragging='true'] {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary, #4d6bfe) 14%, transparent);
+}
+
+.handle[data-side='details']:hover::after,
+.handle[data-side='deck']:hover::after,
+.handle[data-side='drawer']:hover::after,
+.handle[data-side='details'][data-dragging='true']::after,
+.handle[data-side='deck'][data-dragging='true']::after,
+.handle[data-side='drawer'][data-dragging='true']::after {
+  width: 6px;
+  height: 48px;
+  background: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+.handle[data-side='drawer']:hover,
+.handle[data-side='drawer'][data-dragging='true'] {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary, #4d6bfe) 14%, transparent);
+}
+
+.overlayLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.overlayLayer > * {
+  pointer-events: auto;
+}

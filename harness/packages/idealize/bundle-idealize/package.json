@@ -1,0 +1,86 @@
+{
+  "name": "@idealize/bundle-idealize",
+  "description": "The IDEalize profile bundle: composition rows for the IDEalize product layered over dsh-base and dsh-web-app",
+  "version": "1.0.0-dev.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jamiejefferson/IDEalize.git",
+    "directory": "packages/idealize/bundle-idealize"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/invariant.js",
+    "cordis.patch.yml",
+    "lib/types/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-mcp-client": "workspace:^",
+    "@idealize/activity-pills": "workspace:^",
+    "@idealize/appearance": "workspace:^",
+    "@idealize/artefacts": "workspace:^",
+    "@idealize/askbar": "workspace:^",
+    "@idealize/comm": "workspace:^",
+    "@idealize/cron": "workspace:^",
+    "@idealize/doc-policy": "workspace:^",
+    "@idealize/feedback": "workspace:^",
+    "@idealize/freetokens": "workspace:^",
+    "@idealize/gen-tools": "workspace:^",
+    "@idealize/generate": "workspace:^",
+    "@idealize/hatch": "workspace:^",
+    "@idealize/host-bridge": "workspace:^",
+    "@idealize/models": "workspace:^",
+    "@idealize/notify": "workspace:^",
+    "@idealize/onboarding": "workspace:^",
+    "@idealize/provider-pack": "workspace:^",
+    "@idealize/services": "workspace:^",
+    "@idealize/setup": "workspace:^",
+    "@idealize/skills": "workspace:^",
+    "@idealize/skin": "workspace:^",
+    "@idealize/spaces": "workspace:^",
+    "@idealize/studio": "workspace:^",
+    "@idealize/telegram": "workspace:^",
+    "@idealize/transcribe": "workspace:^",
+    "@idealize/ui-bar": "workspace:^",
+    "@idealize/ui-gallery": "workspace:^",
+    "@idealize/ui-launch": "workspace:^",
+    "@idealize/ui-schedule": "workspace:^",
+    "@idealize/ui-soundstage": "workspace:^",
+    "@idealize/ui-studio": "workspace:^",
+    "@idealize/ui-tasks": "workspace:^",
+    "@idealize/ui-terminal": "workspace:^",
+    "@idealize/ui-tour": "workspace:^",
+    "@idealize/vault": "workspace:^",
+    "@idealize/web-search-openrouter": "workspace:^"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-invariants": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@types/js-yaml": "^4.0.9",
+    "js-yaml": "^4.1.0"
+  }
+}

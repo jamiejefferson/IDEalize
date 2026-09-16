@@ -1,0 +1,5 @@
+/* The per-step owl clip (720×544 source, scaled down). */
+.owl {
+  width: 180px;
+  height: auto;
+}

@@ -1,0 +1,100 @@
+{
+  "spaces": [
+    {
+      "id": "chat",
+      "brainCount": 5,
+      "brains": [
+        {
+          "id": "coding",
+          "name": "Coding",
+          "default": true
+        },
+        {
+          "id": "design",
+          "name": "Design"
+        },
+        {
+          "id": "writing",
+          "name": "Writing"
+        },
+        {
+          "id": "admin",
+          "name": "Admin"
+        },
+        {
+          "id": "free",
+          "name": "Free"
+        }
+      ],
+      "models": "none",
+      "reason": "no-model",
+      "recovery": "No model is connected yet. Add a provider API key in Settings, then come back."
+    },
+    {
+      "id": "terminal",
+      "brainCount": 5,
+      "brains": [
+        {
+          "id": "coding",
+          "name": "Coding",
+          "default": true
+        },
+        {
+          "id": "design",
+          "name": "Design"
+        },
+        {
+          "id": "writing",
+          "name": "Writing"
+        },
+        {
+          "id": "admin",
+          "name": "Admin"
+        },
+        {
+          "id": "free",
+          "name": "Free"
+        }
+      ],
+      "models": "none",
+      "reason": "desktop-only",
+      "recovery": "The terminal runs in the IDEalize desktop app. Open IDEalize there to use it."
+    },
+    {
+      "id": "gallery",
+      "brainCount": 1,
+      "brains": [
+        {
+          "id": "gallery",
+          "name": "Gallery",
+          "default": true
+        }
+      ],
+      "models": "none",
+      "reason": "no-backend",
+      "recovery": "No generation adapter is registered. Enable a generation adapter plugin, then reopen this panel."
+    },
+    {
+      "id": "soundstage",
+      "brainCount": 1,
+      "brains": [
+        {
+          "id": "soundstage",
+          "name": "Sound Stage",
+          "default": true
+        }
+      ],
+      "models": "none",
+      "reason": "no-backend",
+      "recovery": "No generation adapter is registered. Enable a generation adapter plugin, then reopen this panel."
+    },
+    {
+      "id": "motion",
+      "brainCount": 0,
+      "brains": [],
+      "models": "none",
+      "reason": "no-backend",
+      "recovery": "No generation adapter is registered. Enable a generation adapter plugin, then reopen this panel."
+    }
+  ]
+}

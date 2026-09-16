@@ -1,0 +1,29 @@
+/* Icon-only header utility: a 24px round control matching the header's other
+   icon buttons; the label rides the tooltip and aria-label. */
+.sessionLogButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.sessionLogButton:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sessionLogButton:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: wait;
+}
+
+.sessionLogButton svg {
+  flex: none;
+}

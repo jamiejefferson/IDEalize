@@ -1,0 +1,46 @@
+/* The finish step body: the first-project field, the progress line, and the
+   verbatim orientation refusals. */
+.body {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.12));
+  background: var(--dsw-alias-bg-layer-2, #f7f7f8);
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  margin: 0;
+}
+
+.error {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-state-error-primary);
+  margin: 0;
+}

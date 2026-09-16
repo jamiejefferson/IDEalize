@@ -1,0 +1,576 @@
+/* The Askbar's whole surface: the 108px floating dock column, the rail it
+ * shares with the collapsed sidebar (JJ, 8 Sep 2026: one rail, two homes),
+ * the Studio tile, chips with the six state treatments (design spec, 1 Sep
+ * 2026), the compact panel, and the hold / pending-send overlays. Every
+ * colour is a theme token (JJ, 8 Sep 2026: the bar matches the sidebar in
+ * both schemes); the sheet holds no literal colour, and
+ * tests/askbar-css.spec.ts keeps it that way. Reduced motion swaps every
+ * animation for its static fallback at the bottom. */
+
+/* The floating home: the window's whole surface, and its drag handle. */
+.bar {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* 108px, half again on the 72px the design spec drew: at 72 the portraits
+     were 40px under a 7px caption, and JJ could not tell one live agent from
+     another (JJ, 11 Sep 2026: "way too small ... the bar itself needs to be
+     made 50% wider and the content clearer"). The desktop window's
+     ASKBAR_WIDTH holds the same number. */
+  width: 108px;
+  height: 100vh;
+  /* The sidebar's brand row (SidebarRoot.module.css): 16px above the mark, 18px at the foot. */
+  padding: 16px 0 18px;
+  /* The sidebar fill over the app ground: an appearance surface that sets the fill
+     transparent shows the ground, the same way the main window's sidebar does. */
+  background-color: var(--dsw-alias-bg-base);
+  background-image: linear-gradient(var(--dsw-specific-sidebar-fill, transparent), var(--dsw-specific-sidebar-fill, transparent));
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  user-select: none;
+  /* The window has no frame: its background is the handle. */
+  -webkit-app-region: drag;
+}
+/* Every control opts out of the drag region, so a press on a chip is a press, not a move. */
+.bar button,
+.bar input,
+.bar [role='dialog'],
+.bar [role='status'] {
+  -webkit-app-region: no-drag;
+}
+.bar[data-edge='right'] { border-left: 1px solid var(--dsw-alias-border-l2); }
+.bar[data-edge='left'] { border-right: 1px solid var(--dsw-alias-border-l2); }
+
+/* In its own window the column holds its screen edge while the window grows
+   to make room for a panel (JJ, 13 Sep 2026: "the pop-outs are cropped").
+   Without this the column would sit at the document's left edge and slide
+   away from the screen edge the moment a panel opened. The rest of the
+   widened window is transparent, so only the column and its panel paint. */
+:global(body[data-dsh-desktop-mode='askbar']) {
+  /* The window is transparent (AskbarWindow): only the column and its panel paint. */
+  background: transparent;
+}
+:global(body[data-dsh-desktop-mode='askbar']) .bar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  height: auto;
+}
+:global(body[data-dsh-desktop-mode='askbar']) .bar[data-edge='right'] { right: 0; }
+:global(body[data-dsh-desktop-mode='askbar']) .bar[data-edge='left'] { left: 0; }
+
+/* The panel clears the column in the bar's own window; in the main window the
+   rail sits inside a wide surface and the 80px offsets below already clear it. */
+:global(body[data-dsh-desktop-mode='askbar']) .panel[data-edge='right'] { right: 116px; }
+:global(body[data-dsh-desktop-mode='askbar']) .panel[data-edge='left'] { left: 116px; }
+/* In its own window the panel runs the column's height, and the recent
+   exchanges take the room between the summary and the ask field (JJ, 14 Sep
+   2026: "do something useful with the large blank space"). In the main
+   window the rail sits beside the conversation, so the panel stays a card. */
+:global(body[data-dsh-desktop-mode='askbar']) .panel {
+  top: 16px;
+  bottom: 18px;
+}
+:global(body[data-dsh-desktop-mode='askbar']) .panelRecent { flex: 1 1 auto; max-height: none; }
+
+/* The rail both homes render: a centred column that fills its home's height.
+   The floating bar paints the ground and insets it; the sidebar home inherits
+   the collapsed column's fill and insets from SidebarRoot. */
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.projectCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  color: inherit;
+  cursor: pointer;
+}
+/* The brand mark at the sidebar's size (BrandMark 58, SidebarRoot's .brandCard);
+   the PNG paints its own card and soft edge inside a transparent margin. */
+.projectMark {
+  display: block;
+  width: 58px;
+  height: 58px;
+}
+/* The bar's New chat: the sidebar rail's control at the same 36px box, in a
+   column that is otherwise portraits (JJ, 13 Sep 2026). */
+.newChat {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.newChat:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.newChat:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.projectName {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The Studio entry, first as in the sidebar (its pinned card leads the list). */
+.studio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  color: inherit;
+  cursor: pointer;
+}
+.studio:focus-visible,
+.projectCell:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+.studioTile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* The same circle an agent chip carries: the Studio Coordinator heads a
+     column of agents and reads as one of them (JJ, 13 Sep 2026: "the owl —
+     studio agent — is smaller than the other ie hasn't been edited to
+     match"). */
+  width: 48px;
+  height: 48px;
+  /* The Studio sits at the head of a column of agent circles, so it is one
+     too (JJ, 10 Sep 2026). */
+  border-radius: 50%;
+  /* The owl's paper stays light in both schemes (JJ, 15 Sep 2026: "keep the
+     light background in the owl's circle ... when in dark mode"): the
+     static white, not the layer token, so the dark theme does not swallow
+     the owl's cream body. The logo card beside it is white the same way. */
+  background: var(--dsw-static-neutral-bluish-00);
+  border: 1px solid var(--dsw-alias-border-l2);
+  overflow: hidden;
+}
+/* The owl frame is 190×210; 40px tall keeps it inside the tile's 48px with room to breathe. */
+.studioOwl {
+  display: block;
+  height: 40px;
+  width: auto;
+}
+
+/* The rail's separator: under the Studio, and between one project's agents
+   and the next. It carries no title — the column is too narrow for one, and a
+   chip's own panel names its project. */
+.rule {
+  width: 24px;
+  height: 0;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  flex: none;
+}
+
+.chipList {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* 20px between agents (JJ, 3 Sep 2026: 12px read as cramped). */
+  gap: 20px;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 2px 0;
+  width: 100%;
+}
+
+.chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 96px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.chip:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+
+.avatarWrap { position: relative; width: 48px; height: 48px; }
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Border-box, so the avatar, its wrap, the working ring and the corner dot
+     share one 48px circle; content-box put the 1px border outside the wrap on
+     the right and bottom alone. */
+  box-sizing: border-box;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--dsw-alias-border-l2);
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  /* Bolder and darker faces (JJ, 2 Sep 2026): weight 700, at the wider bar's
+     13px (JJ, 11 Sep 2026). */
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.label {
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* The state under the name, at the caption's size: the ring and the badge
+   carry it too, but a word is what a reader takes in at a glance. */
+.stateLine {
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Badges sit on the bar's ground, so their ring is the ground colour. */
+.badge {
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base));
+  color: var(--dsw-alias-brand-primary-invert);
+  font-size: 9px;
+  font-weight: 700;
+}
+.presenceDot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base));
+  background: var(--dsw-alias-state-success-primary);
+}
+.unread {
+  position: absolute;
+  left: -6px;
+  top: -4px;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary-invert);
+  font-size: 8px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+}
+
+/* ── State treatments ──────────────────────────────────────────────────── */
+
+/* The working ring sits on the avatar's own edge and paints under the
+   corner dot, a later positioned sibling (JJ, 15 Sep 2026: at -6px the rail
+   clipped it and it ran over the dot and the name). */
+.stWorking .avatarWrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--dsw-alias-label-primary);
+  border-right-color: var(--dsw-alias-label-primary);
+  animation: askbar-orbit 1.2s linear infinite;
+}
+.stNeedsInput .badge { background: var(--dsw-alias-brand-primary); animation: askbar-blink 0.6s steps(1) 2; }
+.stWrong .badge { background: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-bg-layer-1); }
+.stWrong .avatarWrap { animation: askbar-shake 0.4s ease 1; }
+/* Idle keeps the face readable (JJ, 2 Sep 2026); the dashed ring and hollow dot carry the state. */
+.stIdle .avatarWrap { opacity: 0.8; }
+.stIdle .avatar { border-style: dashed; border-color: var(--dsw-alias-label-dimmed); }
+.stIdle .presenceDot { background: var(--dsw-alias-bg-layer-1); border-color: var(--dsw-alias-label-dimmed); border-width: 2px; }
+.stListening .avatar { border: 2px solid var(--dsw-alias-state-error-primary); }
+.stListening .avatarWrap::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dsw-alias-state-error-primary);
+  animation: askbar-pulse 1s ease-out infinite;
+}
+
+/* ── The sidebar home ──────────────────────────────────────────────────── */
+
+/* The collapsed column is the bar's width (SIDEBAR_COLLAPSED, 108px), so the
+   two homes render the same rail: the same portraits, names and states (JJ,
+   13 Sep 2026: "the two bars should both be the same"). This sheet holds no
+   per-home rule at all. What the sidebar home drops is the brand mark and the
+   New chat, which the sidebar's own header already carries, and that is
+   Rail's decision. */
+
+/* ── Compact panel ─────────────────────────────────────────────────────── */
+
+.panel {
+  position: fixed;
+  /* Border-box, so the window the bar asks for covers the panel it draws
+     rather than the panel plus its two borders (JJ, 13 Sep 2026). */
+  box-sizing: border-box;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px var(--dsw-alias-border-l4);
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  z-index: 10;
+  /* The panel arrives from its chip: a short slide out of the column with a
+     fade (JJ, 14 Sep 2026: "animate it"). */
+  animation: askbar-panel-in 160ms ease-out;
+}
+.panel[data-edge='right'] { right: 80px; --askbar-panel-from: 10px; }
+.panel[data-edge='left'] { left: 80px; --askbar-panel-from: -10px; }
+
+/* The chat's recent exchanges, newest last, scrolling inside the card. */
+.panelRecent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  max-height: 220px;
+  min-height: 0;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+.exchange { display: flex; flex-direction: column; gap: 4px; }
+.exchangeQuestion,
+.exchangeAnswer {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11.5px;
+  line-height: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.exchangeQuestion { color: var(--dsw-alias-label-secondary); }
+.exchangeAnswer { color: var(--dsw-alias-label-primary); }
+.exchangeAnswer[data-pending] { color: var(--dsw-alias-label-tertiary); font-style: italic; }
+.exchangeWho { font-size: 9px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dsw-alias-label-tertiary); }
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+.panelAvatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--dsw-alias-border-l2);
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.panelIdentity { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* JJ, 14 Sep 2026: the name and project read at a glance; 17px and 13px on the secondary label colour. */
+.panelName { font-size: 17px; line-height: 22px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panelProject { font-size: 13px; line-height: 17px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.panelBody { display: flex; flex-direction: column; gap: 5px; padding: 10px 14px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.panelEyebrow { font-size: 9px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dsw-alias-label-tertiary); }
+.panelTask { font-size: 12.5px; font-weight: 600; }
+.panelSummary { font-size: 11.5px; line-height: 16px; color: var(--dsw-alias-label-secondary); }
+
+.askRow { display: flex; align-items: center; gap: 6px; padding: 10px 14px; }
+.askField {
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+}
+.askField::placeholder { color: var(--dsw-alias-label-tertiary); }
+/* The same paint as the composer's send circle (InputBar.module.css): the
+   info fill pair the appearance panel's action colour writes, with white text
+   in both schemes (the static 00 neutral), so the two send buttons never
+   disagree (JJ, 14 Sep 2026). */
+.askSend {
+  border: none;
+  border-radius: 8px;
+  background: var(--dsw-alias-button-info-fill);
+  color: var(--dsw-static-neutral-bluish-00);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+.askSend:hover { background: var(--dsw-alias-button-info-hover); }
+
+.panelFoot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 14px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  background: none;
+  border-bottom: none;
+  border-left: none;
+  border-right: none;
+  color: var(--dsw-alias-brand-primary);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.panelNote { padding: 6px 14px 10px; font-size: 10px; color: var(--dsw-alias-label-tertiary); }
+
+/* ── Hold and pending-send ─────────────────────────────────────────────── */
+
+.holdCard {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 14px;
+}
+.holdTitle { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; }
+.holdDot { width: 8px; height: 8px; border-radius: 50%; background: var(--dsw-alias-state-error-primary); }
+.holdHint { font-size: 10px; color: var(--dsw-alias-label-tertiary); }
+
+/* The words as they will be sent, so they are read before the countdown ends. */
+.holdTranscript {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-primary);
+  max-height: 64px;
+  overflow-y: auto;
+}
+.holdAction {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 3px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.holdAction:hover { background: var(--dsw-alias-interactive-bg-active); }
+
+/* The dot pulses only while the microphone is open, so a still card never
+   reads as a live recording. */
+[data-hold-phase='listening'] .holdDot { animation: askbar-hold-pulse 1.1s ease-in-out infinite; }
+@keyframes askbar-hold-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.progressTrack { height: 4px; border-radius: 2px; background: var(--dsw-alias-border-l2); overflow: hidden; }
+.progressFill {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--dsw-alias-brand-primary);
+  transform-origin: left;
+  animation-name: askbar-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.error { font-size: 9px; color: var(--dsw-alias-state-error-primary); max-width: 64px; text-align: center; }
+.empty { font-size: 10px; color: var(--dsw-alias-label-tertiary); text-align: center; padding: 8px; }
+
+@keyframes askbar-panel-in {
+  from { opacity: 0; transform: translateX(var(--askbar-panel-from, 0)); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes askbar-orbit { to { transform: rotate(360deg); } }
+@keyframes askbar-pulse {
+  from { transform: scale(1); opacity: 0.7; }
+  to { transform: scale(1.45); opacity: 0; }
+}
+@keyframes askbar-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes askbar-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+@keyframes askbar-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* Static fallbacks: the badge and ring shapes already carry each state. */
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .stWorking .avatarWrap::before,
+  .stListening .avatarWrap::after,
+  .stNeedsInput .badge,
+  .stWrong .avatarWrap,
+  .progressFill {
+    animation: none;
+  }
+  .stListening .avatarWrap::after { opacity: 0.5; }
+  .progressFill { transform: scaleX(1); }
+}

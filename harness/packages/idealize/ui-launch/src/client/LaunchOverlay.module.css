@@ -1,0 +1,36 @@
+/* The launch layer: an opaque cover over the whole frame (its positioned
+   ancestor is AppFrame's overlayLayer), centred brand card, page ground so it
+   reads as the app, not a splash of its own. The parked layer keeps pointer
+   events (the frame beneath must not take input while covered); the leaving
+   layer lets them through so the fade never swallows a first click. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dsw-alias-bg-base, #f5f5f6);
+}
+
+.leaving {
+  composes: layer;
+  pointer-events: none;
+  animation: idealize-launch-logo-out 350ms var(--ds-ease-in-out, ease-in-out) forwards;
+}
+
+@keyframes idealize-launch-logo-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .leaving {
+    animation: none;
+  }
+}
+
+.mark {
+  width: 96px;
+  height: 96px;
+}

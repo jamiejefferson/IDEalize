@@ -1,0 +1,98 @@
+/* The per-step celebration layer: full-screen and click-through above the
+   wizard (z 50). Ring hues are intrinsically literal — a rainbow has no theme
+   token; the toast rides the dsw aliases so both themes apply. */
+.burst {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.visual {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  background: conic-gradient(#ff5f57, #febc2e, #28c840, #4d6bfe, #a855f7, #ff5f57);
+  /* Keep only the ring's rim: the conic sweep shows as an expanding circle. */
+  mask: radial-gradient(closest-side, transparent 58%, #000 62%);
+  opacity: 0;
+  animation: ring-expand 0.8s var(--ds-ease-in-out, ease-out) forwards;
+}
+
+.ringTwo {
+  animation-delay: 90ms;
+}
+
+.ringThree {
+  animation-delay: 180ms;
+}
+
+@keyframes ring-expand {
+  0% {
+    transform: translate(-50%, -50%) scale(0.3);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(3.4);
+    opacity: 0;
+  }
+}
+
+.flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(closest-side at 50% 50%, rgba(255, 255, 255, 0.55), transparent 72%);
+  opacity: 0;
+  animation: flash-fade 0.8s ease-out forwards;
+}
+
+@keyframes flash-fade {
+  0% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: a brief static tint instead of the rings. */
+.tint {
+  position: absolute;
+  inset: 0;
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+.toast {
+  position: relative;
+  margin: 0;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.08));
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary, #24292f);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Belt and braces: if the media query and the JS variant ever disagree, the
+   motion still yields to the user's reduced-motion setting. */
+@media (prefers-reduced-motion: reduce) {
+  .ring,
+  .flash {
+    animation: none;
+    opacity: 0;
+  }
+}

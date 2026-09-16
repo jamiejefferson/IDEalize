@@ -1,0 +1,8 @@
+/* The calendar's seat in the drawer column: fill the pane and let the
+   calendar's own 424px cap centre the content inside it. */
+
+.root {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}

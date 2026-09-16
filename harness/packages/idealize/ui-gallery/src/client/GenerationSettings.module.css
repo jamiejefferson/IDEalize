@@ -1,0 +1,137 @@
+/* The generation settings strip on the composer card's tool row: compact
+   selects, one per setting of the active space's model, that fit the row's 28px
+   height budget. Colours are alias tokens only, so both themes follow the app. */
+
+.row {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 10px;
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  /* The selects are native controls: the app theme, not the OS, decides
+     whether the browser paints their menus light or dark. */
+  color-scheme: light;
+}
+
+:global(body[data-ds-dark-theme]) .row {
+  color-scheme: dark;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Every setting reads label-above-control, at both row widths: the strip was
+   switching between two layouts as the window moved, so the same three
+   settings sat on one line at one width and stacked at another (JJ, 9 Sep
+   2026). Stacking always is also what fits: the words cost no width there. A
+   switch stays box-then-word. */
+.control:not([data-gen-setting-kind="boolean"]) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.label {
+  font-size: 10px;
+  line-height: 12px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* A narrow row closes the gaps rather than changing the layout. */
+.row[data-gen-settings-compact] {
+  gap: 8px;
+}
+
+/* Input and unit on one line, so a stacked control is two lines and not three. */
+.numberBox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* A number field: wide enough for three digits and the spinner, no more. */
+.number {
+  composes: field from './controls.module.css';
+  width: 4.5em;
+  height: 24px;
+  padding: 0 4px;
+  font: inherit;
+  font-size: 12px;
+}
+
+/* The unit after a duration input. */
+.unit {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The switches share one box after the other controls; a compact row stacks
+   them, two box-then-word lines in the width of one. */
+.switches {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.row[data-gen-settings-compact] .switches {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.row[data-gen-settings-compact] .switches .control {
+  gap: 4px;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+/* A switch reads as box then word, and keeps its word in a compact row: a
+   bare box says nothing about what it switches. */
+.switchLabel {
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+/* A boolean field: the app's brand colour on the tick, the row's 24px budget. */
+.checkbox {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--dsw-alias-brand-primary);
+  cursor: pointer;
+}
+
+/* One width floor across the selects: Aspect, Resolution and Count sat at
+   three different widths because each sized to its own longest option, and the
+   strip read as a pile rather than a set (JJ, 9 Sep 2026). */
+.select {
+  composes: field from './controls.module.css';
+  min-width: 4.75em;
+  height: 24px;
+  padding: 0 4px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.select:not(:disabled) {
+  cursor: pointer;
+}
+
+
+/* The chat-model seat goes on a media view. A media space's generation model
+   belongs to its brain and is set in the Brains pane; the seat beside this
+   strip names the CHAT model, which here only drives the tool, so the bar was
+   stating a model twice and one of them was not the one making the picture
+   (JJ, 13 Sep 2026). The seat's own wrapper carries an inline
+   `display: contents` from the slot framework, which no stylesheet rule can
+   outrank, so this hides what the seat renders rather than the seat. */
+:global([data-composer-card]):has(:global([data-gen-settings-space])) :global([data-slot='conversation.input.model']) > * {
+  display: none;
+}

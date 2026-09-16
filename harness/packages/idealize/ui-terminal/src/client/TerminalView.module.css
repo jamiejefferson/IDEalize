@@ -1,0 +1,76 @@
+/* The terminal fills the conversation's view area on the shell's own paper. */
+
+/* The terminal owns its whole column and carries its own input, so on a still
+   blank chat (the welcome card's Terminal launch) it retires the composer
+   seat. ui-conversation keeps that seat for every other blank non-chat view —
+   Gallery and Sound Stage take their prompts through it — and publishes the
+   active view id on `data-blank-view` so this rule can name only its own. */
+:global([data-phase='hero']):has(:global([data-blank-view='terminal'])) :global([data-composer-seat]) {
+  display: none;
+}
+
+.root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+  background: var(--dsw-alias-bg-layer-1, #1c1c1e);
+}
+
+/* The conversation scroller reserves a stable scrollbar gutter, so the view
+   area stops short of the rail. A chat hides that because it shares the page's
+   ground; the terminal paints its own, and the reserved strip read as a pale
+   margin down the right (JJ, 1 Sep 2026: "rogue margin to the right"). This
+   carries the same ground across the gutter. It is positioned, so it adds no
+   width and cannot raise a horizontal scrollbar, and `inherit` picks up the
+   appearance paint's inline background as readily as the token above. */
+.root::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: var(--idealize-terminal-bleed, 0px);
+  background: inherit;
+  pointer-events: none;
+}
+
+/* Right padding is the left minus xterm's 14px scrollbar term (see
+   gridPadding in TerminalView.tsx); the appearance paint overrides all four. */
+.grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px 2px 8px 16px;
+}
+
+.grid :global(.xterm) {
+  height: 100%;
+}
+
+.notice {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1, #fff) 95%, transparent);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-secondary, #777);
+  font-size: 12px;
+}
+
+.button {
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary, #5b8def);
+  color: var(--dsw-alias-brand-primary-invert, #fff);
+  font: inherit;
+  cursor: pointer;
+}

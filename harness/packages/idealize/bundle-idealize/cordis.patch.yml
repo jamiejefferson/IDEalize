@@ -1,0 +1,319 @@
+# The IDEalize bundle patch: applied after dsh-base and dsh-web-app in the
+# `idealize` profile. Sections S3–S10 contribute rows here as they land.
+
+# S3 — the brand skin: V0's identity over the dsw alias tokens.
+- insert:
+    - id: idealize-skin
+      name: '@idealize/skin'
+
+# S4 — the login-first auth substrate: persistent OAuth store + sign-in
+# surface (/idealize/signin). The fork's llm-pi-ai adapter builds its Models
+# collections over this store when the service is composed.
+- insert:
+    - id: idealize-provider-pack
+      name: '@idealize/provider-pack'
+
+# S1 — the artefact engine: durable artefact records + per-project bytes,
+# artefact session events with the chat node, the raw route, and the
+# artefacts_get tool. Every mode commits generated results here (MOD-03).
+- insert:
+    - id: idealize-artefacts
+      name: '@idealize/artefacts'
+
+# S10 — the canonical documentation policy: the pinned ajjent-vault ruleset,
+# the folder scan + findings history, the FTS5 docs index behind docs_search,
+# and the session-start documentation context. The folder comes from the
+# settings document's `idealize-docs:` section (documentationFolder).
+- insert:
+    - id: idealize-doc-policy
+      name: '@idealize/doc-policy'
+
+# S6 — the vault: session-close commit evidence + reconcile over doc-policy's
+# canonical structure. The projects root comes from the settings document's
+# `idealize-vault:` section (projectsRoot).
+- insert:
+    - id: idealize-vault
+      name: '@idealize/vault'
+
+# The person's skills folder (JJ, 15 Sep 2026): `.skill` packages, unpacked
+# under the harness home and read from there, captured as the `skills` alias
+# in setup and the Files pane's Skills tab. The folder comes from the settings document's `idealize-skills:`
+# section (skillsFolder); its skills join the host skill registry's global
+# layer, which every agent's catalogue and `skill.list` read.
+- insert:
+    - id: idealize-skills
+      name: '@idealize/skills'
+
+# No DeepSeek subscription is needed (JJ, 16 Sep 2026: "the deepseek models
+# will need to come through openrouter"): a fresh install's default model is
+# DeepSeek through the OpenRouter route, web search runs through OpenRouter's
+# web plugin on the same key, and the DeepSeek search provider stays out of the
+# composition. A person with their own DeepSeek key can still add that route.
+- id: agent-default-model
+  config:
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash
+- id: web
+  config:
+    searchProvider: openrouter
+- id: web-search-deepseek
+  disabled: true
+- insert:
+    - id: idealize-web-search-openrouter
+      name: '@idealize/web-search-openrouter'
+
+# S4 — pre-seeded login-first route: ChatGPT subscription via Codex OAuth.
+# A catalog route naming no apiKeyEnv defers to the provider's own auth,
+# which resolves from the stored OAuth credential. The settings document's
+# `llm-pi-ai:` section still overrides this composition default.
+- id: llm-pi-ai
+  config:
+    providers:
+      openai-codex:
+        displayName: OpenAI (ChatGPT)
+
+# IDEalize voice: the agent explains engineering plainly to a designer
+# directing the work.
+- id: system-prompt
+  config:
+    persona: >-
+      You are an IDEalize agent powered by the {{model}} model. Your working
+      directory is {{cwd}}. Explain engineering plainly and without jargon;
+      your user directs the work and learns from how you narrate it.
+
+# S7 — the person's one calendar: durable scheduled agent runs and reminders.
+# The host half owns the task document, the /idealize/cron routes, the
+# calendar_add / calendar_list / calendar_remove tools every agent gets, the
+# fire-time desktop notification, and the `idealize:calendar` prompt section;
+# the calendar that shows them is ui-schedule. dsh-schedule's session-local
+# schedule_* tools are not composed here (JJ, 8 Sep 2026: a reminder set from
+# chat neither reached the calendar nor fired).
+- insert:
+    - id: idealize-cron
+      name: '@idealize/cron'
+
+# ui-schedule — the Schedule calendar: a tool-rail drawer pane carrying the
+# Week calendar, the task editor and Create-with-chat over @idealize/cron's
+# routes, re-hosted by ui-bar through the `scheduleSection` service.
+# Browser-only: it owns no task data.
+- insert:
+    - id: idealize-ui-schedule
+      name: '@idealize/ui-schedule'
+
+# Phase 3.1 — the `idealize` command surface: POST /idealize/comm + CLI shim.
+- insert:
+    - id: idealize-comm
+      name: '@idealize/comm'
+
+# Paper — the Paper design app's MCP server (https://paper.design/docs/mcp),
+# bridged as native tools for every brain under `mcp__paper__*`. Paper serves
+# it on loopback while a file is open, with no key; the plugin starts without
+# it and keeps trying every minute, so the tools appear once Paper is opened
+# (JJ, 8 Sep 2026: "bake in the ability for any agent to use the paper mcp").
+- insert:
+    - id: idealize-mcp-paper
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: paper
+        transport: streamable-http
+        url: http://127.0.0.1:29979/mcp
+        failOnStartupError: false
+        reconnect:
+          enabled: true
+          initialDelayMs: 2000
+          maxDelayMs: 60000
+          maxAttempts: 100000
+
+
+# S1 — spaces: the declared Chat / Terminal / Gallery / Sound Stage / Motion
+# table, the durable `idealize/space` and `idealize/brain` records with their
+# projections, and POST /idealize/spaces/select. Chats made before spaces
+# existed derive their space; nothing is written into an existing log.
+- insert:
+    - id: idealize-spaces
+      name: '@idealize/spaces'
+
+# S9 — the host bridge: the notification feed (SSE + recent-events JSON)
+# shells surface as toasts and badges.
+- insert:
+    - id: idealize-host-bridge
+      name: '@idealize/host-bridge'
+
+# C7/A2 — the Studio event contract: the durable per-project coordination
+# timeline (stable ids, deterministic order, duplicate suppression on a
+# logical message id), the task-state fold, and its loopback routes.
+- insert:
+    - id: idealize-studio
+      name: '@idealize/studio'
+
+# A3 — the Studio view: the conversation ring's `studio` entry over every
+# project's folded state and timeline (the Studio chat, opened from ui-bar's
+# pinned card), the composer's `@` agents source, and the `studioSection`
+# service the card reads. Browser-only: it owns no coordination data.
+- insert:
+    - id: idealize-ui-studio
+      name: '@idealize/ui-studio'
+
+# C7/A1 — the Askbar prototype: the roster route the screen-edge dock
+# renders from (comm listing + project board + Studio fold), the transform
+# route into the desktop shell, and the bar renderer seated in the desktop
+# Askbar window's askbar.root slot.
+- insert:
+    - id: idealize-askbar
+      name: '@idealize/askbar'
+
+# A5 — the transcription seam and the on-device whisper provider the Askbar's
+# hold gesture speaks through. The model is fetched on first use, not at boot.
+- insert:
+    - id: idealize-transcribe
+      name: '@idealize/transcribe'
+
+# S10 — feedback + announcements over a Supabase project named by the
+# environment (IDEALIZE_FEEDBACK_ENDPOINT / IDEALIZE_FEEDBACK_KEY); nothing
+# ships in the code or this profile.
+- insert:
+    - id: idealize-feedback
+      name: '@idealize/feedback'
+
+# Phase 4 — the announcement banner (version-gated, dismiss-by-id), the done
+# chime + native notification over the host bridge's feed, and the Studio's
+# alerts: the attention ledger, the MVP policy table and the notification that
+# opens its exact Studio event.
+- insert:
+    - id: idealize-notify
+      name: '@idealize/notify'
+
+# The Telegram remote: a bot the person creates, polled from inside the app
+# while it is open (no server, no public URL). The paired chat posts to the
+# Studio, answers approvals and questions over the API proxy's mux stream,
+# reads status and stops agents; coordinator posts, task endings and alerts
+# are sent back. Idle until a token is pasted in General settings.
+- insert:
+    - id: idealize-telegram
+      name: '@idealize/telegram'
+
+# S5 — the free-tokens sidecar: FreeLLMAPI detection + provider adoption.
+- insert:
+    - id: idealize-freetokens
+      name: '@idealize/freetokens'
+
+# S8 — the hatch: composition inspector + home-patch editing with snapshots.
+- insert:
+    - id: idealize-hatch
+      name: '@idealize/hatch'
+
+# Model management: default model, auto-selection preferences, spend link.
+- insert:
+    - id: idealize-models
+      name: '@idealize/models'
+
+# The toggle bar (V0's icon bar rebuilt): files panel, model/calendar/hatch/
+# feedback panels, theme cycle, desktop terminal, plus the composer heart.
+- insert:
+    - id: idealize-ui-bar
+      name: '@idealize/ui-bar'
+
+# First-run tour + the ⌘/ shortcuts sheet (V0's showcase and ShortcutCatalog).
+- insert:
+    - id: idealize-ui-tour
+      name: '@idealize/ui-tour'
+# The opening sequence: a centred logo layer bridging the boot splash, then
+# the sidebar / centre / rail slide-in beats — once per launch, parked while
+# another shell.overlay occupant (onboarding, tour, shortcuts sheet) is up.
+- insert:
+    - id: idealize-ui-launch
+      name: '@idealize/ui-launch'
+# The Terminal space: a `terminal` entry in the conversation view ring (⌘J
+# flips a started desktop chat between Chat and Terminal) over a live shell in
+# the chat's folder; the welcome card's Terminal tile launches into the same
+# view through the terminalMode service, and a brain switch restarts it.
+# Desktop only: the host half probes the shell's desktopTerminals service and
+# browsers never see the toggle.
+- insert:
+    - id: idealize-ui-terminal
+      name: '@idealize/ui-terminal'
+# S6 — the Sound Stage: a `soundstage` entry in the conversation view ring
+# listing THIS CHAT's sounds as rows with a player and a Keep / Archive
+# verdict, above the generations still running and the ones that failed (the
+# adapter's provider cause plus Retry). The rows come from @idealize/ui-gallery's
+# per-chat Definition and @idealize/artefacts serves the bytes, so this row's
+# host face registers nothing (JJ, 4 Sep 2026: the galleries for sound, image
+# and video are all chat-specific).
+- insert:
+    - id: idealize-ui-soundstage
+      name: '@idealize/ui-soundstage'
+# The task column: the agent's current task list as a full-height column
+# immediately left of the tool rail, filling the frame's shell.aside seat. The
+# list is the `todos` projection @deepseek-ai/dsh-tool-todo computes from
+# todo_write, so this row's host face registers nothing; an empty list renders
+# nothing and the column takes no width (JJ, 24 Aug 2026).
+- insert:
+    - id: idealize-ui-tasks
+      name: '@idealize/ui-tasks'
+# Activity brains: the one-time seeding of the Coding / Design / Writing /
+# Admin / Free presets into the user preset root and their model and
+# availability routes (host); the composer's brain switcher (client).
+- insert:
+    - id: idealize-activity-pills
+      name: '@idealize/activity-pills'
+# The appearance panel (V0's Appearance inspector): mode, presets, the user's
+# own ground and accent, interface font/size, chat density. Persists in the
+# settings document's `idealize-appearance:` section; `ctx.appearance.open()`
+# is the bar's seam.
+- insert:
+    - id: idealize-appearance
+      name: '@idealize/appearance'
+# S2 — the generation capability seam: `ctx.generation` (backend registry,
+# compatibility matching, GenerationError), the Images / Motion / Sound media
+# presets, and the /idealize/brains/media preset↔model routes (choices persist
+# in the idealize-activity-pills settings section's `models` map).
+- insert:
+    - id: idealize-generate
+      name: '@idealize/generate'
+# The Services list and the media backends it registers (JJ, 4 Sep 2026): one
+# place to connect a service, asking for a name and a key and never for an
+# endpoint. Every media service in @idealize/services' directory gets a
+# generation backend here — fal.ai through the queue adapter, OpenRouter
+# through the images adapter — so a service the directory gains needs no row
+# of its own. Keys are pasted under Brains and resolved per operation through
+# the credentials seam; each service's catalogue is fetched live and cached
+# under the harness home, so nothing about a service's models is compiled in.
+- insert:
+    - id: idealize-services
+      name: '@idealize/services'
+# S4 — the media agent presets: Gallery and Sound Stage seeded into the user
+# preset root, each composing ONLY the generation toolset (the
+# @idealize/gen-tools/tools row registers generate_image / generate_video /
+# generate_audio from the preset composition, so ordinary chats never see
+# them).
+- insert:
+    - id: idealize-gen-tools
+      name: '@idealize/gen-tools'
+
+# S5 — the Gallery: a `gallery` tab in the conversation view ring showing one
+# tile per generation task, with thumbnails served by @idealize/artefacts' raw
+# route, a pending tile while a task runs, the provider's own cause plus a
+# Retry on a failure (MOD-05), and the aspect / image-count controls on the
+# composer's own row. Browser-only: it reads the session log the generation
+# tools already write and adds no session event of its own.
+- insert:
+    - id: idealize-ui-gallery
+      name: '@idealize/ui-gallery'
+
+# S8 — first-run folder seam (host only): the ctx.workspaceAliases seam the
+# Files tabs read, the folder probes (stat + read/write, plain-language
+# failures), the orientation flow, and the /idealize/setup routes that the
+# onboarding wizard's folder and finish steps call. The browser overlay
+# retired with @idealize/onboarding's wizard, which runs ahead of the tour.
+- insert:
+    - id: idealize-setup
+      name: '@idealize/setup'
+
+# First-run onboarding: the five-step wizard (agents, tools, projects folder,
+# documentation folder, finish) with per-step skip + skip-all and the
+# rainbow-burst celebration per completed step. Gated by the
+# idealize-onboarding settings section; runs ahead of the showcase tour
+# through ctx.tour.holdFirstRun().
+- insert:
+    - id: idealize-onboarding
+      name: '@idealize/onboarding'

@@ -1,0 +1,52 @@
+/* Recent-project launch cards under the hero's workspace row. */
+
+.root {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  max-width: var(--dsh-composer-card-max-width, 720px);
+  margin: 4px auto 0;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 200px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+}
+
+.card:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.04));
+  border-color: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.14));
+}
+
+.title {
+  max-width: 100%;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.path {
+  max-width: 100%;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Keep the informative tail (the folder name) visible when the path clips. */
+  direction: rtl;
+  text-align: left;
+}

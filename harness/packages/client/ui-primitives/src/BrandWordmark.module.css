@@ -1,0 +1,22 @@
+/* IDEalize wordmark row: monogram + DM Mono name, sized from --brand-size. */
+
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--brand-size, 24px) * 0.32);
+  height: var(--brand-size, 24px);
+  color: inherit;
+}
+
+.mark {
+  flex: none;
+}
+
+.name {
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-weight: 600;
+  font-size: calc(var(--brand-size, 24px) * 0.66);
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: inherit;
+}

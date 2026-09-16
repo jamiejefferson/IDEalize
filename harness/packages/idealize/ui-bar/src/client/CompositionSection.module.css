@@ -1,0 +1,14 @@
+/* Composition tab: the hatch page iframe fills the drawer pane. */
+
+.root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+}

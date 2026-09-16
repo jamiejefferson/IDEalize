@@ -180,6 +180,14 @@
   footer nav a:hover { color: var(--ink); }
   footer .fine { font-size: 12px; color: var(--ter); line-height: 1.8; text-align: right; }
 
+  /* ===== install block ===== */
+  .install { margin-top: 28px; text-align: left; max-width: 720px; margin-left: auto; margin-right: auto; }
+  .install-copy { color: var(--sub); font-size: 15px; margin: 18px 0 8px; }
+  .install-cmd { background: var(--win); border: 1px solid var(--winhair); border-radius: 12px; padding: 14px 16px; overflow-x: auto; margin: 0; }
+  .install-cmd code { font-family: var(--mono); font-size: 13px; color: var(--ink); white-space: pre; }
+  .pill-btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--hair); }
+  .pill-btn.ghost:hover { border-color: var(--ink); }
+
   /* ===== download gate modal ===== */
   .gate { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 22px;
           background: rgba(0,0,0,0.66); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
@@ -233,7 +241,7 @@
 
   <header class="nav">
     <div class="in">
-      <a class="dl js-gate" href="#download" aria-label="Download for macOS">
+      <a class="dl" href="#download" aria-label="Download for macOS">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 21h14"/></svg>
       </a>
     </div>
@@ -300,11 +308,17 @@
     <div class="wrap reveal">
       <div class="eyebrow">Price</div>
       <h2>Free, for now.</h2>
-      <p class="lead">macOS · v0.1 beta. No card, no catch. Use it properly, then tell us what to fix.</p>
+      <p class="lead">macOS · V1. Open source, MIT. No card, no catch. Use it properly, then tell us what to fix.</p>
       <div class="actions">
-        <a class="pill-btn js-gate" href="#">Download for macOS</a>
+        <a class="pill-btn" href="https://github.com/jamiejefferson/IDEalize/releases/latest/download/IDEalize-V1-mac.dmg">Download for macOS</a>
+        <a class="pill-btn ghost" href="https://github.com/jamiejefferson/IDEalize">Source on GitHub</a>
       </div>
-      <p class="sha" id="dl-sha" hidden>SHA-256: <code id="dl-sha-hash"></code></p>
+      <div class="install">
+        <p class="install-copy">Or install and update from Terminal in one line:</p>
+        <pre class="install-cmd"><code>curl -fsSL https://raw.githubusercontent.com/jamiejefferson/IDEalize/main/install.sh | bash</code></pre>
+        <p class="install-copy">Downloaded the disk image instead? Drag IDEalize V1 into Applications, then run this once so macOS opens it:</p>
+        <pre class="install-cmd"><code>xattr -dr com.apple.quarantine "/Applications/IDEalize V1.app"</code></pre>
+      </div>
     </div>
   </section>
 
@@ -319,7 +333,7 @@
       <form class="gate-form" id="gate-form-email" novalidate>
         <p class="gate-copy">IDEalize is in private beta for the Equator team. Enter your work email and we’ll send a 6-digit code.</p>
         <input class="gate-input" id="gate-email" type="email" inputmode="email" autocomplete="email"
-               placeholder="you@eqtr.com" aria-label="Work email address" />
+               placeholder="you@example.com" aria-label="Work email address" />
         <div class="gate-err" id="gate-err-email" role="alert"></div>
         <button class="pill-btn" type="submit" id="gate-send">Send code</button>
       </form>
@@ -334,7 +348,7 @@
         <button type="button" class="gate-link" id="gate-back">Use a different email</button>
       </form>
 
-      <div class="gate-fine">macOS · v0.1 beta. Available to @eqtr.com addresses.</div>
+      <div class="gate-fine">macOS · v0.1 beta. Available to @example.com addresses.</div>
     </div>
   </div>
 
@@ -343,7 +357,7 @@
       <div class="top">
         <img class="flogo" src="assets/idealize-mark-clean.svg" alt="IDEalize" />
         <div class="fine">
-          Built for macOS · v0.1 beta. Free, for now.<br/>
+          Built for macOS · V1. Free, for now. <a href="https://github.com/jamiejefferson/IDEalize">Open source on GitHub</a>.<br/>
           Copyright © 2026 Projject.AI
         </div>
       </div>
@@ -395,7 +409,7 @@
   // scanners. The publishable key below is safe to ship publicly.
   var FN     = "https://xlswtyprnmiymfjdbaez.supabase.co/functions/v1";
   var SB_KEY = "sb_publishable_ISmJRrzDN3Z6OEdEEZe2Cw_5YvSDGkt";
-  var DOMAIN = "eqtr.com";
+  var DOMAIN = "example.com";
   var EMAIL_RE = new RegExp("^[^\\s@]+@" + DOMAIN.replace(/\./g, "\\.") + "$", "i");
 
   // Paste the release zip's SHA-256 here after each build; shown under the

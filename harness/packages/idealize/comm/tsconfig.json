@@ -1,0 +1,75 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/agent-default-model"
+    },
+    {
+      "path": "../../util/home-paths"
+    },
+    {
+      "path": "../../host/webserver"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session/session-persistence"
+    },
+    {
+      "path": "../../session/session-title"
+    },
+    {
+      "path": "../../shell/shell-env"
+    },
+    {
+      "path": "../../workspace/workspace"
+    },
+    {
+      "path": "../artefacts/tsconfig.host.json"
+    },
+    {
+      "path": "../host-bridge"
+    },
+    {
+      "path": "../../preset/agent-presets"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../settings/settings"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../studio"
+    },
+    {
+      "path": "../spaces"
+    },
+    {
+      "path": "../../session/session-projection-cache"
+    }
+  ]
+}

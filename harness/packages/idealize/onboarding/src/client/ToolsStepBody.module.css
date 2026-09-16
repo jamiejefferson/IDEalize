@@ -1,0 +1,102 @@
+/* The tools step's six choices, grouped by the spaces they configure. */
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+}
+
+.group {
+  display: grid;
+  gap: 6px;
+}
+
+.groupTitle {
+  margin: 0 2px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.groupRows {
+  display: grid;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.08));
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  flex-wrap: wrap;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+  width: 64px;
+  flex-shrink: 0;
+}
+
+.tick {
+  color: var(--dsw-alias-state-success-primary);
+  flex-shrink: 0;
+}
+
+.select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.12));
+  background: var(--dsw-alias-bg-layer-2, #f7f7f8);
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.hint {
+  flex: 1 1 240px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.recoveryAction {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2, #f7f7f8);
+  color: var(--dsw-alias-label-primary, #24292f);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.recoveryAction:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.error {
+  flex-basis: 100%;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-state-error-primary);
+  margin: 2px 0 0;
+}
+
+.note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  text-align: center;
+}

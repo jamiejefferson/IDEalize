@@ -1,0 +1,8 @@
+/* The pane fills whatever flex box seats it (the drawer's body); the grid's
+   own root takes the full height from there. */
+.root {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}

@@ -1,0 +1,93 @@
+/* The app's shared control treatment, as the rail panes draw it
+   (packages/idealize/ui-bar/src/client/controls.module.css): capsule buttons
+   with r999, bordered 8px fields on layer-1, and the 2px border-l3 keyboard
+   focus ring. Restated here because a CSS module cannot be composed across a
+   plugin bundle boundary; every value rides the same dsw alias tokens, so both
+   themes follow the appearance panel without a second rule.
+
+   Every colour, background, and geometry a composing class needs is a modifier
+   HERE rather than an override at the call site: CSS Modules leaves the order
+   of cross-file `composes` undefined, so a property must have exactly one
+   definition per composed class. */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+/* Button.module.css .sm geometry, and the tighter segment size beneath it. */
+.sm {
+  height: 28px;
+  padding: 0 10px;
+}
+
+.xs {
+  height: 24px;
+  padding: 0 10px;
+}
+
+.outline {
+  border: 1px solid var(--dsw-alias-border-l2);
+}
+
+.outline:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.ghost:active:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+/* Quieter ink for a secondary control (Refresh, an unselected segment). */
+.quiet {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The chosen segment of a segmented control: raised off its track. */
+.selected {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+/* Form field: input, select, or textarea. */
+.field {
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.field:focus,
+.field:focus-within {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.field:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}

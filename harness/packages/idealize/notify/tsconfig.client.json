@@ -1,0 +1,35 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo",
+    "types": [
+      "node"
+    ]
+  },
+  "files": [
+    "src/announcement.ts",
+    "src/chime-gate.ts",
+    "src/client/AnnouncementBanner.tsx",
+    "src/client/ChimeRow.tsx",
+    "src/client/index.ts",
+    "src/client/locales.ts",
+    "src/client/notifier.ts",
+    "src/css-modules.d.ts",
+    "src/settings.ts"
+  ],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../client/locale" },
+    { "path": "../../client/runtime" },
+    { "path": "../../client/ui-layout" },
+    { "path": "../../client/ui-primitives" },
+    { "path": "../../client/ui-settings" },
+    { "path": "../../client/ui-slots" },
+    { "path": "../../client/web-react" },
+    { "path": "../../settings/settings" },
+    { "path": "../askbar/tsconfig.client.json" }
+  ]
+}

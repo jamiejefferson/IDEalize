@@ -1,0 +1,30 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo",
+    "types": [
+      "node"
+    ]
+  },
+  "files": [
+    "src/announcement.ts",
+    "src/attention.ts",
+    "src/attention-store.ts",
+    "src/chime-gate.ts",
+    "src/index.ts",
+    "src/invariant.ts",
+    "src/settings.ts"
+  ],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../host/webserver" },
+    { "path": "../../settings/settings" },
+    { "path": "../../util/home-paths" },
+    { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../host-bridge" },
+    { "path": "../studio" }
+  ]
+}

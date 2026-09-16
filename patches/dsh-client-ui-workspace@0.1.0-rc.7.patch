@@ -1,0 +1,10 @@
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -2014,6 +2014,7 @@
+ 			};
+ 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 				className: clsx(WorkspaceBrowser_module_css_default.root, !wide && WorkspaceBrowser_module_css_default.rail),
++				"data-dsh-workspace-drop-target": "",
+ 				children: [
+ 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 						className: WorkspaceBrowser_module_css_default.sectionHeader,

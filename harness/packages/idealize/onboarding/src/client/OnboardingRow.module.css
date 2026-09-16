@@ -1,0 +1,41 @@
+/* The General-section re-run row. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.action {
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.12));
+  background: none;
+  color: var(--dsw-alias-label-primary, #24292f);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.armed {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  white-space: nowrap;
+}

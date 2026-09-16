@@ -1,0 +1,108 @@
+/* The pinned Studio card reads as one more chat row (JJ, 8 Sep 2026: "it
+   should have the same look as other chats but with a subtle rule between it
+   and the projects"): ui-workspace's named session row measurements (44px,
+   radius 8, an 18px glyph lane, a 13px title over an 11px eyebrow), no fill
+   until hover, the rows' selected fill while the Studio chat is current, and
+   a hairline under the card's own wrapper before the project list. */
+
+.wrap {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.card:hover,
+.card[data-current] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* The glyph lane: the rows' space lane, at label weight, primary on hover
+   and while current. */
+.glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 20px;
+  margin-right: 4px;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0 6px 0 4px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subtitle {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 14px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attention {
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--dsw-alias-state-warn-primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.unread {
+  composes: attention;
+  background: var(--dsw-alias-brand-primary);
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.dot[data-studio-card-presence='reachable'] {
+  background: var(--dsw-alias-state-success-primary);
+}

@@ -1,0 +1,939 @@
+/** Electron implementation of the launcher-provided desktop runtime capability. */
+
+import {
+  app,
+  dialog,
+  nativeTheme,
+  net,
+  Notification,
+  shell,
+} from 'electron'
+import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-terminal.ts'
+import { desktopInstallRecoveryStatePath } from './install-recovery.ts'
+import { packagedDependencyPath } from './packaged-runtime-path.ts'
+import { ElectronShellGeneration } from './electron-shell-generation.ts'
+import { AskbarWindow, ASKBAR_TRANSFORM_MS, type AskbarSide } from './askbar-window.ts'
+import { electronPlatformStrategy, type ElectronPlatformStrategy } from './electron-platform.ts'
+import {
+  desktopViewStatePath,
+  readDesktopViewState,
+  writeDesktopViewState,
+  type DesktopViewState,
+} from './view-state.ts'
+import type {
+  DesktopNotification,
+  DesktopLocale,
+  DesktopPlatform,
+  DesktopRuntime,
+  DesktopShellSpec,
+  DesktopTerminalSpec,
+  DesktopThemeSource,
+  DesktopTrayItem,
+  DesktopTrayItemGroup,
+  DesktopTrayItemRegistration,
+  DesktopUpdateAdapter,
+} from './runtime.ts'
+import type { RendererBootReport } from './renderer-boot-contract.ts'
+import type { DesktopLogger } from './desktop-logger.ts'
+import { exportDesktopDiagnostics } from './diagnostic-export.ts'
+import {
+  desktopDiagnosticsPrivacyCopy,
+  desktopLocaleFromLanguageTag,
+  desktopTrayLabel,
+} from './tray-locale.ts'
+import {
+  desktopUpdateFilename,
+  downloadDesktopUpdate,
+  pendingDesktopUpdateArtifact,
+  recordDesktopUpdateArtifact,
+  resolveDesktopUpdateArtifact,
+  type DesktopUpdateArtifact,
+} from './update-download.ts'
+import type { UpdateCheckResult } from './update-checker.ts'
+import {
+  evaluateWindowsWorkspaceVolume,
+  formatWindowsVolumeConcern,
+  type WindowsVolumeQuery,
+} from './windows-volume-diagnostics.ts'
+
+/** Return the presentation mode following the active one in the tray cycle. */
+export function nextDesktopShellMode(mode: DesktopShellSpec['mode']): DesktopShellSpec['mode'] {
+  return mode === 'compatibility' ? 'advanced' : 'compatibility'
+}
+
+/** Return the tray command describing the mode that will be activated. */
+export function modeToggleLabel(mode: DesktopShellSpec['mode'], locale: DesktopLocale = 'en'): string {
+  return mode === 'compatibility'
+    ? desktopTrayLabel(locale, 'switchToAdvanced')
+    : desktopTrayLabel(locale, 'switchToCompatibility')
+}
+
+/**
+ * Read the desktop package version instead of Electron's development-app version.
+ * @param moduleUrl - module below the package's `src` or `lib` directory.
+ * @returns validated desktop product version.
+ */
+export function desktopProductVersion(moduleUrl: string = import.meta.url): string {
+  const value: unknown = JSON.parse(readFileSync(new URL('../package.json', moduleUrl), 'utf8'))
+  if (value === null || typeof value !== 'object' || typeof (value as { version?: unknown }).version !== 'string') {
+    throw new Error('dsh-plugin-desktop: package.json has no product version')
+  }
+  return (value as { version: string }).version
+}
+
+/** Resolve the CommonJS preload emitted beside the Electron runtime bundle. */
+export function desktopPreloadPath(moduleUrl: string = import.meta.url): string {
+  return fileURLToPath(new URL('./preload.cjs', moduleUrl))
+}
+
+const PRODUCT_VERSION = desktopProductVersion()
+
+/** Main-process deadline for one Renderer generation to settle its client Loader. */
+export const RENDERER_BOOT_TIMEOUT_MS = 30_000
+
+/** Failure class used by startup recovery to distinguish a hung Renderer. */
+export type RendererBootFailureReason = 'renderer-failed' | 'renderer-timeout'
+
+/** Native adapter used by the IDEalize launcher and owned by its Cordis shell plugin. */
+export class ElectronDesktopRuntime implements DesktopRuntime {
+  readonly platform: DesktopPlatform
+  private readonly platformStrategy: ElectronPlatformStrategy
+  readonly updates: DesktopUpdateAdapter
+
+  private generation: ElectronShellGeneration | undefined
+  private askbar: AskbarWindow | undefined
+  private currentLocale: DesktopLocale = 'en'
+  private scheduled: DesktopShellSpec | undefined
+  private mountTask: Promise<void> | undefined
+  private quitting = false
+  private readonly trayItems = new Map<symbol, DesktopTrayItem>()
+  private terminalSpec: DesktopTerminalSpec | undefined
+  private diagnosticExport: Promise<void> | undefined
+  private directoryPickTask: Promise<string | null> | undefined
+  private updateCleanupTask: Promise<void> | undefined
+  private rendererBootReported = false
+  private rendererBootMonitoring = false
+  private rendererBootTimer: NodeJS.Timeout | undefined
+  private bootFailureReason: RendererBootFailureReason | undefined
+
+  constructor(
+    private readonly restart: () => Promise<void>,
+    private readonly onRendererBoot: (report: RendererBootReport) => boolean | void = () => {},
+    private readonly logger: DesktopLogger | undefined = undefined,
+    private readonly workspaceVolumeQuery: WindowsVolumeQuery | undefined = undefined,
+  ) {
+    this.platformStrategy = electronPlatformStrategy()
+    this.platform = this.platformStrategy.platform
+    const platformStrategy = this.platformStrategy
+    this.updates = {
+      get isPackaged() { return app.isPackaged },
+      get canDownload() { return app.isPackaged && platformStrategy.updateDownloadPlatform !== undefined },
+      get currentVersion() { return PRODUCT_VERSION },
+      get statePath() { return join(app.getPath('userData'), 'updates', 'state.json') },
+      request: (url, init) => net.fetch(url, init),
+      confirmDownload: version => this.confirmUpdateDownload(version),
+      showManualCheckResult: result => this.showManualUpdateCheckResult(result),
+      downloadAndOpen: (version, signal) => this.downloadAndOpenUpdate(version, signal),
+      notify: notification => { this.showNotification(notification) },
+    }
+  }
+
+  /** Log an Electron-scope error to the sink, falling back to stderr without a logger. */
+  private logError(message: string): void {
+    if (this.logger !== undefined) this.logger.error(message)
+    else process.stderr.write(`${message}\n`)
+  }
+
+  /** @inheritdoc */
+  get locale(): DesktopLocale {
+    return this.currentLocale
+  }
+
+  /** Terminal failure class for the first Renderer boot report, when it failed. */
+  get rendererBootFailureReason(): RendererBootFailureReason | undefined {
+    return this.bootFailureReason
+  }
+
+  /** Arm one main-process deadline immediately before the native shell starts loading. */
+  beginRendererBootMonitoring(timeoutMs: number = RENDERER_BOOT_TIMEOUT_MS): void {
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+      throw new Error('dsh-plugin-desktop: renderer boot timeout must be a positive integer')
+    }
+    if (this.rendererBootReported || this.rendererBootMonitoring) {
+      throw new Error('dsh-plugin-desktop: renderer boot monitoring already started')
+    }
+    this.rendererBootMonitoring = true
+    this.rendererBootTimer = setTimeout(() => {
+      this.failRendererBoot(
+        'renderer-timeout',
+        `The Renderer did not report boot health within ${String(timeoutMs)}ms.`,
+      )
+    }, timeoutMs)
+    this.rendererBootTimer.unref()
+  }
+
+  /** Stop a pending deadline while startup is being torn down for another failure. */
+  stopRendererBootMonitoring(): void {
+    this.rendererBootMonitoring = false
+    if (this.rendererBootTimer !== undefined) clearTimeout(this.rendererBootTimer)
+    this.rendererBootTimer = undefined
+  }
+
+  /** @inheritdoc */
+  schedule(spec: DesktopShellSpec): () => Promise<void> {
+    if (this.scheduled !== undefined || this.mountTask !== undefined) {
+      throw new Error('dsh-plugin-desktop: a native shell generation is already registered')
+    }
+    const previousThemeSource = nativeTheme.themeSource
+    this.scheduled = spec
+    let disposed = false
+    return async () => {
+      if (disposed) return
+      disposed = true
+      try {
+        await this.mountTask
+      } finally {
+        try {
+          this.askbar?.release()
+          this.askbar = undefined
+          await this.generation?.release()
+        } finally {
+          this.generation = undefined
+          this.mountTask = undefined
+          if (this.scheduled === spec) {
+            if (spec.mode === 'advanced') nativeTheme.themeSource = previousThemeSource
+            this.scheduled = undefined
+          }
+        }
+      }
+    }
+  }
+
+  /** @inheritdoc */
+  mountScheduled(beforeInteractive?: () => void): Promise<void> {
+    const spec = this.scheduled
+    if (spec === undefined) {
+      return Promise.reject(new Error('dsh-plugin-desktop: the Cordis shell plugin did not register a window'))
+    }
+    if (this.mountTask === undefined) {
+      this.setLocalePreference(spec.readLocalePreference())
+      const generation = new ElectronShellGeneration({
+        platform: this.platformStrategy,
+        spec,
+        preloadPath: desktopPreloadPath(),
+        isQuitting: () => this.quitting,
+        buildTrayTemplate: () => this.buildTrayTemplate(spec),
+        stopRendererBootMonitoring: () => { this.stopRendererBootMonitoring() },
+        failRendererBoot: error => { this.failRendererBoot('renderer-failed', error) },
+        logError: message => { this.logError(message) },
+      })
+      this.generation = generation
+      this.mountTask = generation.mount(beforeInteractive).then(() => {
+        this.mountAskbar(spec)
+        void this.offerUpdateArtifactCleanup().catch((cause: unknown) => {
+          this.logError(`dsh-plugin-desktop: failed to resolve update installer cleanup: ${cause instanceof Error ? cause.message : String(cause)}`)
+        })
+      }).catch((cause: unknown) => {
+        if (this.generation === generation) this.generation = undefined
+        throw cause
+      })
+    }
+    return this.mountTask
+  }
+
+  /** @inheritdoc */
+  show(): void {
+    this.generation?.show()
+  }
+
+  /**
+   * Mount the app-lifetime Askbar window beside the main one (Askbar plan,
+   * slice A1), hidden until the user collapses to it. A failure never blocks
+   * the main shell: the bar is an extra projection, so the app must boot
+   * without it.
+   */
+  private mountAskbar(spec: DesktopShellSpec): void {
+    if (this.askbar !== undefined) return
+    const askbar = new AskbarWindow({
+      url: spec.askbarUrl,
+      iconPath: spec.iconPath,
+      preloadPath: desktopPreloadPath(),
+      readSide: () => spec.readAskbarSide(),
+      readPosition: () => spec.readAskbarPosition(),
+      savePosition: position => spec.requestAskbarPosition(position),
+      isQuitting: () => this.quitting,
+      logError: message => { this.logError(message) },
+    })
+    try {
+      askbar.mount()
+      this.askbar = askbar
+    } catch (cause) {
+      this.logError(`dsh-plugin-desktop: the Askbar window failed to mount: ${cause instanceof Error ? cause.message : String(cause)}`)
+      askbar.release()
+    }
+  }
+
+  /** Collapse to the Askbar: the bar shows, the main window glides to it and hides. */
+  collapseToBar(): void {
+    this.askbar?.show()
+    this.generation?.collapseToward(this.askbar?.bounds(), ASKBAR_TRANSFORM_MS, () => this.askbar?.yieldActivation())
+    this.rebuildTrayMenu()
+  }
+
+  /** Expand from the Askbar: the main window returns on its remembered frame and the bar hides. */
+  expandFromBar(): void {
+    this.generation?.expandRestored()
+    this.askbar?.hide()
+    this.rebuildTrayMenu()
+  }
+
+  /**
+   * Hold the Askbar window at a width so a panel beside its column is not cut
+   * off at the window edge; the column keeps its screen edge.
+   * @param width - the window width to hold; the column's own width gives the room back.
+   */
+  setBarWidth(width: number): void {
+    this.askbar?.widen(width)
+  }
+
+  /**
+   * Give the Askbar window the keyboard for its panel, or hand it back.
+   * @param focus - true to take the keyboard, false to give it back.
+   */
+  focusBar(focus: boolean): void {
+    this.askbar?.focus(focus)
+  }
+
+  /** The global shortcut's answer: collapse a visible main window, expand a hidden one. */
+  toggleAskbarTransform(): void {
+    if (this.generation === undefined) return
+    if (this.generation.isWindowVisible()) this.collapseToBar()
+    else this.expandFromBar()
+  }
+
+  /** @inheritdoc */
+  refreshAskbar(): void {
+    this.askbar?.place()
+    this.rebuildTrayMenu()
+  }
+
+  /** @inheritdoc */
+  async pickDirectory(): Promise<string | null> {
+    if (!this.platformStrategy.canPickDirectory) {
+      throw new Error(`dsh-plugin-desktop: native workspace picker is unavailable on ${this.platform}`)
+    }
+    if (this.directoryPickTask !== undefined) return await this.directoryPickTask
+    const task = this.showDirectoryPicker()
+    this.directoryPickTask = task
+    try {
+      return await task
+    } finally {
+      if (this.directoryPickTask === task) this.directoryPickTask = undefined
+    }
+  }
+
+  private async showDirectoryPicker(): Promise<string | null> {
+    const options: Electron.OpenDialogOptions = {
+      title: this.currentLocale === 'zh' ? '选择工作区目录' : 'Select Workspace Directory',
+      properties: ['openDirectory', 'dontAddToRecent'],
+    }
+    const result = this.generation === undefined
+      ? await dialog.showOpenDialog(options)
+      : await this.generation.showOpenDialog(options)
+    return result.canceled ? null : result.filePaths[0] ?? null
+  }
+
+  /** @inheritdoc */
+  async validateDirectory(path: string): Promise<boolean> {
+    const decision = evaluateWindowsWorkspaceVolume(this.platform, path, this.workspaceVolumeQuery)
+    if (decision.action === 'allow') return true
+
+    this.logError(`dsh-plugin-desktop: unsafe workspace volume: ${formatWindowsVolumeConcern(decision.concern)}`)
+    const zh = this.currentLocale === 'zh'
+    if (decision.action === 'confirm') {
+      const result = await dialog.showMessageBox({
+        type: 'warning',
+        title: zh ? '外接工作区' : 'Removable Workspace',
+        message: zh
+          ? '这个工作区位于可移除的 NTFS/ReFS 磁盘上。'
+          : 'This workspace is on a removable NTFS/ReFS drive.',
+        detail: zh
+          ? `使用过程中拔出磁盘会导致命令或插件操作失败。请保持磁盘连接。\n\n${path}`
+          : `Disconnecting the drive while IDEalize is running can break commands or plugin operations. Keep it connected.\n\n${path}`,
+        buttons: zh ? ['使用此文件夹', '选择其他文件夹'] : ['Use This Folder', 'Choose Another Folder'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      })
+      const accepted = result.response === 0
+      this.logError(`dsh-plugin-desktop: workspace volume decision=${accepted ? 'confirmed' : 'cancelled'} path=${path}`)
+      return accepted
+    }
+
+    await dialog.showMessageBox({
+      type: 'error',
+      title: zh ? '不支持的工作区存储' : 'Unsupported Workspace Storage',
+      message: zh
+        ? `${decision.concern.fileSystem ?? '当前文件系统'} 不能安全用作 IDEalize 工作区。`
+        : `${decision.concern.fileSystem ?? 'This filesystem'} cannot safely host a IDEalize workspace.`,
+      detail: zh
+        ? `请选择本地 NTFS 或 ReFS 磁盘上的文件夹。exFAT、FAT32、网络盘和无法检测的磁盘不会被保存为工作区。\n\n${path}`
+        : `Choose a folder on a local NTFS or ReFS volume. exFAT, FAT32, network drives, and uninspectable volumes are not persisted as workspaces.\n\n${path}`,
+      buttons: [zh ? '选择其他文件夹' : 'Choose Another Folder'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    })
+    this.logError(`dsh-plugin-desktop: workspace volume decision=blocked path=${path}`)
+    return false
+  }
+
+  /** @inheritdoc */
+  registerTrayItem(item: DesktopTrayItem): DesktopTrayItemRegistration {
+    const key = Symbol()
+    this.trayItems.set(key, item)
+    this.rebuildTrayMenu()
+    let active = true
+    return {
+      refresh: () => {
+        if (active) this.rebuildTrayMenu()
+      },
+      dispose: () => {
+        if (!active) return
+        active = false
+        this.trayItems.delete(key)
+        this.rebuildTrayMenu()
+      },
+    }
+  }
+
+  /**
+   * Fix the profile identity before Cordis plugins can contribute terminal commands.
+   * @param spec - launcher-resolved desktop profile and Harness home.
+   */
+  configureTerminal(spec: DesktopTerminalSpec): void {
+    if (this.terminalSpec !== undefined) {
+      throw new Error('dsh-plugin-desktop: terminal profile is already configured')
+    }
+    this.terminalSpec = { ...spec }
+  }
+
+  /** @inheritdoc */
+  openTerminal(): void {
+    try {
+      const spec = this.terminalSpec
+      if (spec === undefined) {
+        throw new Error('dsh-plugin-desktop: terminal profile is not configured')
+      }
+      const electronVersion = process.versions.electron
+      if (electronVersion === undefined) {
+        throw new Error('dsh-plugin-desktop: terminal requires the Electron runtime version')
+      }
+      openDesktopTerminal({
+        platform: this.platform,
+        appExecutable: process.execPath,
+        dshBootstrapPath: fileURLToPath(new URL('./desktop-cli.js', import.meta.url)),
+        pnpmBinPath: packagedDependencyPath(import.meta.url, 'pnpm/bin/pnpm.mjs'),
+        electronVersion,
+        profileName: spec.profileName,
+        productVersion: PRODUCT_VERSION,
+        profileDir: spec.profileDir,
+        homeDir: spec.homeDir,
+        installRecoveryStatePath: desktopInstallRecoveryStatePath(app.getPath('userData')),
+        stateDir: desktopTerminalStateDirectory(app.getPath('userData'), spec.profileName),
+        spawn,
+        onLaunchError: cause => { this.reportTerminalLaunchError(cause) },
+      })
+    } catch (cause) {
+      this.reportTerminalLaunchError(cause)
+    }
+  }
+
+  /** @inheritdoc */
+  exportDiagnostics(): Promise<void> {
+    if (this.diagnosticExport !== undefined) return this.diagnosticExport
+    const operation = this.performDiagnosticExport().finally(() => {
+      if (this.diagnosticExport === operation) this.diagnosticExport = undefined
+    })
+    this.diagnosticExport = operation
+    return operation
+  }
+
+  private async performDiagnosticExport(): Promise<void> {
+    const copy = desktopDiagnosticsPrivacyCopy(this.locale)
+    try {
+      const confirmation = await dialog.showMessageBox({
+        type: 'warning',
+        title: copy.title,
+        message: copy.message,
+        detail: copy.detail,
+        buttons: [copy.confirm, copy.cancel],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      })
+      if (confirmation.response !== 0) return
+      const path = await exportDesktopDiagnostics(app.getPath('userData'), {
+        appVersion: PRODUCT_VERSION,
+        crashDumpsDir: app.getPath('crashDumps'),
+      })
+      shell.showItemInFolder(path)
+    } catch (cause) {
+      this.reportDiagnosticExportError(cause)
+    }
+  }
+
+  /** @inheritdoc */
+  reportRendererBoot(report: RendererBootReport): void {
+    if (this.rendererBootReported) return
+    this.rendererBootReported = true
+    this.stopRendererBootMonitoring()
+    if (report.status === 'failed') this.bootFailureReason ??= 'renderer-failed'
+    if (report.status === 'failed') {
+      const plugins = report.plugins.length === 0 ? 'Unknown client plugin' : report.plugins.join(', ')
+      const error = report.error === undefined ? 'The client Loader did not provide an error message.' : report.error
+      this.logError(`dsh-plugin-desktop: renderer boot failed (plugins: ${plugins}): ${error}`)
+    }
+    let handled = false
+    try {
+      handled = this.onRendererBoot(report) === true
+    } catch (cause) {
+      this.logError(`dsh-plugin-desktop: failed to persist renderer boot health: ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
+    if (report.status === 'failed' && !handled) {
+      void this.showRendererBootRecovery(report).catch((cause: unknown) => {
+        this.logError(`dsh-plugin-desktop: failed to show plugin recovery: ${cause instanceof Error ? cause.message : String(cause)}`)
+      })
+    }
+  }
+
+  /** @inheritdoc */
+  setLocalePreference(preference: DesktopLocale | undefined): void {
+    const locale = preference ?? desktopLocaleFromLanguageTag(app.getLocale())
+    if (locale === this.currentLocale) return
+    this.currentLocale = locale
+    this.rebuildTrayMenu()
+  }
+
+  /** @inheritdoc */
+  setThemeSource(source: DesktopThemeSource): void {
+    if (this.scheduled?.mode === 'advanced' && this.generation !== undefined) {
+      nativeTheme.themeSource = source
+      // Windows can retain the preceding DWM Mica palette until the window is
+      // recomposed (for example after minimize/restore). Reapplying the active
+      // material invalidates the backdrop immediately after a live theme change.
+      this.generation.refreshThemeMaterial()
+    }
+  }
+
+  /** @inheritdoc */
+  async requestRestart(): Promise<void> {
+    await this.restart()
+  }
+
+  /** @inheritdoc */
+  readViewState(): DesktopViewState | undefined {
+    return readDesktopViewState(desktopViewStatePath(app.getPath('userData')))
+  }
+
+  /** @inheritdoc */
+  writeViewState(state: DesktopViewState): void {
+    writeDesktopViewState(desktopViewStatePath(app.getPath('userData')), state)
+  }
+
+  /** @inheritdoc */
+  async confirmDiscardTerminals(count: number): Promise<boolean> {
+    const zh = this.currentLocale === 'zh'
+    const options: Electron.MessageBoxOptions = {
+      type: 'warning',
+      title: zh ? '切换布局' : 'Switch Layout',
+      message: zh
+        ? count === 1 ? '切换布局将结束正在运行的终端。' : `切换布局将结束 ${String(count)} 个正在运行的终端。`
+        : count === 1
+          ? 'Switching layout will end the running terminal.'
+          : `Switching layout will end ${String(count)} running terminals.`,
+      detail: zh
+        ? '切换布局会重启 IDEalize：内嵌终端的 shell 和其中运行的程序都会结束。聊天内容会保留。'
+        : 'Switching layout restarts IDEalize: embedded terminal shells and anything running in them will end. Chats are kept.',
+      buttons: zh ? ['仍然切换', '取消'] : ['Switch Anyway', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    }
+    const result = this.generation === undefined
+      ? await dialog.showMessageBox(options)
+      : await this.generation.showMessageBox(options)
+    return result.response === 0
+  }
+
+  /** @inheritdoc */
+  prepareToQuit(): void {
+    this.quitting = true
+    this.stopRendererBootMonitoring()
+  }
+
+  private failRendererBoot(reason: RendererBootFailureReason, error: string): void {
+    if (!this.rendererBootMonitoring || this.rendererBootReported) return
+    this.bootFailureReason = reason
+    this.reportRendererBoot({ status: 'failed', plugins: [], error })
+  }
+
+  private async showRendererBootRecovery(report: Extract<RendererBootReport, { status: 'failed' }>): Promise<void> {
+    const plugins = report.plugins.length === 0
+      ? 'Unknown client plugin'
+      : report.plugins.map(plugin => `- ${plugin}`).join('\n')
+    const error = report.error === undefined ? 'The client Loader did not provide an error message.' : report.error
+    const result = await dialog.showMessageBox({
+      type: 'error',
+      title: 'Plugin Recovery',
+      message: 'IDEalize could not load all plugins.',
+      detail: `Failed plugins:\n${plugins}\n\n${error}\n\nOpen IDEalize Terminal to update or remove the failing third-party plugin, then restart IDEalize.`,
+      buttons: ['Open IDEalize Terminal', 'Restart IDEalize', 'Dismiss'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    })
+    if (result.response === 0) this.openTerminal()
+    else if (result.response === 1) await this.requestRestart()
+  }
+
+  private contributedTrayItems(group: DesktopTrayItemGroup): Electron.MenuItemConstructorOptions[] {
+    return [...this.trayItems.values()]
+      .filter(item => item.group === group)
+      .sort((left, right) => left.order - right.order)
+      .map((item): Electron.MenuItemConstructorOptions => {
+        const common = {
+          label: item.label(),
+          enabled: item.enabled?.() ?? true,
+        }
+        if (item.submenu !== undefined) {
+          return {
+            ...common,
+            submenu: item.submenu().map(command => ({
+              label: command.label(),
+              enabled: command.enabled?.() ?? true,
+              ...(command.type === undefined ? {} : { type: command.type }),
+              ...(command.checked === undefined ? {} : { checked: command.checked() }),
+              click: this.trayCommand(() => command.invoke()),
+            })),
+          }
+        }
+        return {
+          ...common,
+          click: this.trayCommand(() => item.invoke()),
+        }
+      })
+  }
+
+  /** Contain asynchronous contribution failures outside Electron menu callbacks. */
+  private trayCommand(invoke: () => void | Promise<void>): () => void {
+    return () => {
+      void Promise.resolve().then(invoke).catch((cause: unknown) => {
+        this.logError(`dsh-plugin-desktop: tray command failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+      })
+    }
+  }
+
+  private showNotification(notification: DesktopNotification): void {
+    if (!Notification.isSupported()) return
+    const nativeNotification = new Notification({
+      title: notification.title,
+      body: notification.body,
+    })
+    nativeNotification.show()
+  }
+
+  /** Ask before making the fixed download endpoint's counted request. */
+  private async confirmUpdateDownload(version: string): Promise<boolean> {
+    const result = await dialog.showMessageBox({
+      type: 'info',
+      title: 'IDEalize Update Available',
+      message: `IDEalize ${version} is available.`,
+      detail: 'Download this update now?',
+      buttons: ['Download', 'Later'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    })
+    return result.response === 0
+  }
+
+  /** Report one user-triggered check without exposing network or response details. */
+  private async showManualUpdateCheckResult(result: UpdateCheckResult | null): Promise<void> {
+    if (result === null) {
+      await dialog.showMessageBox({
+        type: 'warning',
+        title: 'Unable to Check for Updates',
+        message: 'IDEalize could not check for updates.',
+        detail: 'Please try again later.',
+        buttons: ['OK'],
+        defaultId: 0,
+        noLink: true,
+      })
+      return
+    }
+
+    if (result.status === 'up-to-date') {
+      await dialog.showMessageBox({
+        type: 'info',
+        title: 'IDEalize Is Up to Date',
+        message: 'No newer version of IDEalize is available.',
+        detail: `Installed version: ${result.currentVersion}`,
+        buttons: ['OK'],
+        defaultId: 0,
+        noLink: true,
+      })
+      return
+    }
+
+    await dialog.showMessageBox({
+      type: 'info',
+      title: 'IDEalize Update Available',
+      message: `IDEalize ${result.latestVersion} is available.`,
+      detail: 'Installer downloads are unavailable in this build.',
+      buttons: ['OK'],
+      defaultId: 0,
+      noLink: true,
+    })
+  }
+
+  /** Download a confirmed installer and hand it to the native installation flow. */
+  private async downloadAndOpenUpdate(version: string, signal: AbortSignal): Promise<void> {
+    const platform = this.platformStrategy.updateDownloadPlatform
+    if (platform === undefined) {
+      throw new Error(`dsh-plugin-desktop: updates are unavailable on ${this.platform}`)
+    }
+    const destinationPath = await this.chooseUpdateDestination(version)
+    if (destinationPath === undefined) return
+    signal.throwIfAborted()
+    const artifactPath = await downloadDesktopUpdate({
+      platform,
+      version,
+      destinationPath,
+      request: (url, init) => net.fetch(url, init),
+      signal,
+    })
+    signal.throwIfAborted()
+    const artifact: DesktopUpdateArtifact = { platform, version, path: artifactPath }
+    try {
+      await recordDesktopUpdateArtifact(app.getPath('userData'), artifact)
+    } catch (cause) {
+      this.logError(`dsh-plugin-desktop: failed to remember update installer for cleanup: ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
+
+    if (platform === 'darwin') {
+      const openError = await shell.openPath(artifactPath)
+      if (openError !== '') throw new Error(`dsh-plugin-desktop: failed to open update disk image: ${openError}`)
+      signal.throwIfAborted()
+      await dialog.showMessageBox({
+        type: 'info',
+        title: 'IDEalize Update Downloaded',
+        message: `IDEalize ${version} is ready to install.`,
+        detail: 'The disk image has opened. Replace IDEalize in Applications, then reopen it.',
+        buttons: ['OK'],
+        defaultId: 0,
+        noLink: true,
+      })
+      return
+    }
+
+    const result = await dialog.showMessageBox({
+      type: 'info',
+      title: 'IDEalize Update Downloaded',
+      message: `IDEalize ${version} is ready to install.`,
+      detail: 'Restart IDEalize and run the installer now?',
+      buttons: ['Restart and Install', 'Later'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    })
+    if (result.response !== 0) return
+
+    const spec = this.scheduled
+    if (spec === undefined) throw new Error('dsh-plugin-desktop: no active shell can exit for update installation')
+    signal.throwIfAborted()
+    await this.launchWindowsUpdateInstaller(artifactPath)
+    this.quitting = true
+    spec.requestQuit(0)
+  }
+
+  private async chooseUpdateDestination(version: string): Promise<string | undefined> {
+    if (this.platform !== 'darwin' && this.platform !== 'win32') return undefined
+    const zh = this.currentLocale === 'zh'
+    const filename = desktopUpdateFilename(this.platform, version)
+    const extension = this.platform === 'darwin' ? 'dmg' : 'exe'
+    const result = await dialog.showSaveDialog({
+      title: zh ? '保存更新安装包' : 'Save Update Installer',
+      defaultPath: join(app.getPath('downloads'), filename),
+      buttonLabel: zh ? '保存并下载' : 'Save and Download',
+      filters: [{
+        name: this.platform === 'darwin'
+          ? zh ? '磁盘映像' : 'Disk Image'
+          : zh ? 'Windows 安装程序' : 'Windows Installer',
+        extensions: [extension],
+      }],
+      properties: ['createDirectory', 'showOverwriteConfirmation', 'dontAddToRecent'],
+    })
+    return result.canceled ? undefined : result.filePath
+  }
+
+  private offerUpdateArtifactCleanup(): Promise<void> {
+    if (this.updateCleanupTask !== undefined) return this.updateCleanupTask
+    const task = this.performUpdateArtifactCleanup().finally(() => {
+      if (this.updateCleanupTask === task) this.updateCleanupTask = undefined
+    })
+    this.updateCleanupTask = task
+    return task
+  }
+
+  private async performUpdateArtifactCleanup(): Promise<void> {
+    if (this.platform !== 'darwin' && this.platform !== 'win32') return
+    const userDataPath = app.getPath('userData')
+    const artifact = await pendingDesktopUpdateArtifact(userDataPath, PRODUCT_VERSION, this.platform)
+    if (artifact === undefined) return
+    const zh = this.currentLocale === 'zh'
+    const result = await dialog.showMessageBox({
+      type: 'question',
+      title: zh ? '删除更新安装包' : 'Remove Update Installer',
+      message: zh
+        ? `IDEalize ${artifact.version} 已安装。`
+        : `IDEalize ${artifact.version} has been installed.`,
+      detail: zh
+        ? `是否删除下载的安装包以释放磁盘空间？\n\n${artifact.path}`
+        : `Delete the downloaded installer to free disk space?\n\n${artifact.path}`,
+      buttons: zh ? ['删除安装包', '保留安装包'] : ['Delete Installer', 'Keep Installer'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    })
+    await resolveDesktopUpdateArtifact(userDataPath, artifact, result.response === 0)
+  }
+
+  /** Start the downloaded NSIS installer before releasing the current process. */
+  private async launchWindowsUpdateInstaller(installerPath: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      let child: ReturnType<typeof spawn>
+      try {
+        child = spawn(installerPath, ['--updated', '--force-run'], {
+          detached: true,
+          stdio: 'ignore',
+          shell: false,
+          windowsHide: false,
+        })
+      } catch (cause) {
+        reject(cause)
+        return
+      }
+      const fail = (cause: Error): void => { reject(cause) }
+      child.once('error', fail)
+      child.once('spawn', () => {
+        child.off('error', fail)
+        child.once('error', cause => {
+          this.logError(`dsh-plugin-desktop: update installer failed after launch: ${cause.message}`)
+        })
+        child.unref()
+        resolve()
+      })
+    })
+  }
+
+  /** Keep native-terminal launch failures visible in a packaged GUI process. */
+  private reportTerminalLaunchError(cause: unknown): void {
+    const error = cause instanceof Error ? cause : new Error(String(cause))
+    this.logError(`dsh-plugin-desktop: failed to open terminal: ${error.message}`)
+    try {
+      dialog.showErrorBox('Unable to Open IDEalize Terminal', error.message)
+    } catch (dialogCause) {
+      this.logError(`dsh-plugin-desktop: failed to show terminal error: ${dialogCause instanceof Error ? dialogCause.message : String(dialogCause)}`)
+    }
+  }
+
+  /** Keep diagnostic export failures visible in a packaged GUI process. */
+  private reportDiagnosticExportError(cause: unknown): void {
+    const error = cause instanceof Error ? cause : new Error(String(cause))
+    this.logError(`dsh-plugin-desktop: failed to export diagnostics: ${error.message}`)
+    try {
+      dialog.showErrorBox('Unable to Export Diagnostics', error.message)
+    } catch (dialogCause) {
+      this.logError(`dsh-plugin-desktop: failed to show diagnostics error: ${dialogCause instanceof Error ? dialogCause.message : String(dialogCause)}`)
+    }
+  }
+
+  private buildTrayTemplate(spec: DesktopShellSpec): Electron.MenuItemConstructorOptions[] {
+    const show = (): void => { this.show() }
+    const tools = this.contributedTrayItems('tools')
+    const profiles = this.contributedTrayItems('profiles')
+    const status = this.contributedTrayItems('status')
+    const template: Electron.MenuItemConstructorOptions[] = [
+      { label: desktopTrayLabel(this.locale, 'openDesktop', spec.productName), click: show },
+    ]
+    if (tools.length > 0) template.push({ type: 'separator' }, ...tools)
+    if (profiles.length > 0) template.push({ type: 'separator' }, ...profiles)
+    if (status.length > 0) template.push({ type: 'separator' }, ...status)
+    const selectMode = (mode: DesktopShellSpec['mode']): void => {
+      if (mode === spec.mode) return
+      void spec.requestModeChange(mode).catch((cause: unknown) => {
+        this.logError(`dsh-plugin-desktop: failed to change shell mode: ${cause instanceof Error ? cause.message : String(cause)}`)
+      })
+    }
+    const modeItems: Electron.MenuItemConstructorOptions[] = [
+      {
+        label: desktopTrayLabel(this.locale, 'modeCompatibility'),
+        type: 'radio',
+        checked: spec.mode === 'compatibility',
+        click: () => { selectMode('compatibility') },
+      },
+      {
+        label: desktopTrayLabel(this.locale, 'modeAdvanced'),
+        type: 'radio',
+        checked: spec.mode === 'advanced',
+        enabled: this.platformStrategy.canToggleShellMode,
+        click: () => { selectMode('advanced') },
+      },
+    ]
+    const askbarSide = spec.readAskbarSide()
+    const selectAskbarSide = (side: AskbarSide): void => {
+      if (side === askbarSide) return
+      void spec.requestAskbarSide(side).catch((cause: unknown) => {
+        this.logError(`dsh-plugin-desktop: failed to change the Askbar edge: ${cause instanceof Error ? cause.message : String(cause)}`)
+      })
+    }
+    const askbarEdgeItems: Electron.MenuItemConstructorOptions[] = [
+      {
+        label: desktopTrayLabel(this.locale, 'askbarEdgeLeft'),
+        type: 'radio',
+        checked: askbarSide === 'left',
+        click: () => { selectAskbarSide('left') },
+      },
+      {
+        label: desktopTrayLabel(this.locale, 'askbarEdgeRight'),
+        type: 'radio',
+        checked: askbarSide === 'right',
+        click: () => { selectAskbarSide('right') },
+      },
+    ]
+    const collapsed = this.askbar?.isShown() === true
+    template.push(
+      { type: 'separator' },
+      {
+        label: desktopTrayLabel(this.locale, collapsed ? 'expandFromAskbar' : 'collapseToAskbar'),
+        click: () => { this.toggleAskbarTransform() },
+      },
+      { label: desktopTrayLabel(this.locale, 'askbarEdge'), submenu: askbarEdgeItems },
+      { label: desktopTrayLabel(this.locale, 'shellMode'), submenu: modeItems },
+      { type: 'separator' },
+      { label: desktopTrayLabel(this.locale, 'quit'), click: () => { spec.requestQuit(0) } },
+    )
+    return template
+  }
+
+  private rebuildTrayMenu(): void {
+    const spec = this.scheduled
+    if (spec === undefined) return
+    this.generation?.refreshTrayMenu()
+  }
+}

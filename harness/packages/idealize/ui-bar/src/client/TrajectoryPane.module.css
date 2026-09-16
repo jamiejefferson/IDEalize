@@ -1,0 +1,24 @@
+/* The ledger's seat in the drawer column.
+
+   The ledger was built for the conversation canvas, where ConversationRoot
+   floats the composer over it and publishes the composer's live height as
+   --dsh-composer-height; the ledger reserves that height at the foot of its
+   scrollers so the last rows stay reachable. No composer floats over a drawer
+   pane, so the published height is zero here and the reserve collapses to the
+   ledger's own 16px — without this the pane ends in 168px of dead space. */
+
+.root {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+
+  --dsh-composer-height: 0px;
+}
+
+.empty {
+  margin: 0;
+  padding: 14px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  font-size: var(--idealize-type-body, 12.5px);
+}

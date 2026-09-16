@@ -1,0 +1,10 @@
+/* The served outline file as a mask over currentColor: the icon takes the
+   colour of the text beside it (label on a tile, brand blue in the chip and
+   on hover) instead of the file's own. */
+.icon {
+  display: inline-block;
+  flex: none;
+  background-color: currentColor;
+  -webkit-mask: var(--space-icon) center / contain no-repeat;
+  mask: var(--space-icon) center / contain no-repeat;
+}

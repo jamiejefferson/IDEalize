@@ -1,0 +1,78 @@
+# Keyless assembled composition for the generation-tools snapshot: one real
+# agent turn calls `generate_image`, the fixture backend serves the bytes, and
+# the artefact store commits them to the run's project folder. The replay
+# adapter scripts both model calls, so the scenario needs no key and no
+# network. `@idealize/gen-tools/tools` mounts at the root here rather than from
+# a media agent preset — the assembled preset roster is the Gallery UI slice's
+# coverage; this scenario pins the tool's transcript output.
+
+- id: storage
+  name: '@deepseek-ai/dsh-storage'
+
+- id: storage-json
+  name: '@deepseek-ai/dsh-storage-json'
+  config:
+    root: './.storage'
+
+- id: storage-domain
+  name: '@deepseek-ai/dsh-storage-domain'
+  config:
+    backend: json
+
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: none
+
+- id: workspace
+  name: '@deepseek-ai/dsh-workspace'
+
+- id: replay
+  name: '@deepseek-ai/dsh-llm-replay'
+  config:
+    file: !!js process.env.DSH_SNAPSHOT_FILE
+    overrideFile: !!js process.env.DSH_SNAPSHOT_OVERRIDE
+    providers:
+      - id: generation-replay
+        name: Generation replay
+        models:
+          - id: replay-model
+            contextWindow: 128000
+
+# The generation seam, the artefact store, and the keyless fixture backend.
+# One image model only, so the routing choice this scenario pins is the
+# first-compatible one.
+- id: generation
+  name: '@idealize/generate'
+
+- id: artefacts
+  name: '@idealize/artefacts'
+
+- id: gen-fixture
+  name: '@idealize/gen-fixture'
+  config:
+    models:
+      - id: fixture-still
+        artefact: image
+
+- id: generation-tools
+  name: '@idealize/gen-tools/tools'
+
+- id: agent
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    agents:
+      - id: main
+        provider: generation-replay
+        model: replay-model
+        cwd: !!js process.cwd()
+    workspaceContext: false
+    skills:
+      enabled: false
+    toolBash: false
+    toolJobs: false
+    goals: false
+    persona: |
+      You are the IDEalize Gallery agent. Create images with the generate_image
+      tool and report the artefact id you were given.

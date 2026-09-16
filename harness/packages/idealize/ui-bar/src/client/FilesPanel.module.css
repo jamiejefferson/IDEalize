@@ -1,0 +1,400 @@
+/* Workspace file tree: the three-alias tab header and creation toolbar over
+   the two stacked tree windows, hover actions on every row. */
+
+/* Tab header: the drawer's own tab treatment (DrawerPanel.module.css), so
+   the Files tabs and the Service hatch tabs read as one control. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06));
+  flex-shrink: 0;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.24));
+}
+
+.tab[aria-selected='true'] {
+  color: var(--dsw-alias-label-primary, #24292f);
+  border-bottom-color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+/* The dot marking a tab whose folder no longer answers. */
+.tabDead {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-error-primary, #c4432b);
+}
+
+/* The dead-alias card the tree area shows in place of a tree. */
+.reconnect {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 18px 16px;
+}
+
+.reconnectReason {
+  margin: 0;
+  font-size: var(--idealize-type-body, 12.5px);
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.reconnectButton {
+  composes: button sm outline from './controls.module.css';
+}
+
+.tree {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 0;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+/* A lone root's contents, rendered without a root row: the container fills
+   the window so the background takes root drops and root right-clicks. */
+.flatRoot {
+  min-height: 100%;
+}
+
+.flatRoot[data-drop-target] {
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-brand-primary, #0969da);
+  background: var(--dsw-alias-interactive-bg-hover-accent, rgba(9, 105, 218, 0.08));
+}
+
+.rootName {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* One tree row: the main button fills, the hover actions ride the right edge. */
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+}
+
+/* The row a Reveal landed on: lit until the next click, or four seconds. */
+.row[data-revealed] {
+  background: var(--dsw-alias-interactive-bg-hover-accent, rgba(9, 105, 218, 0.12));
+  box-shadow: inset 2px 0 0 var(--dsw-alias-brand-primary, #0969da);
+}
+
+/* A folder row under a dragged entry: the accent ring says "drop here". */
+.row[data-drop-target] {
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-brand-primary, #0969da);
+  background: var(--dsw-alias-interactive-bg-hover-accent, rgba(9, 105, 218, 0.08));
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  flex: none;
+  opacity: 0;
+}
+
+.row:hover .rowActions,
+.row:focus-within .rowActions {
+  opacity: 1;
+}
+
+.rowAction {
+  composes: iconButton from './controls.module.css';
+  width: 20px;
+  height: 20px;
+}
+
+.dir {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dir[data-selected] {
+  color: var(--dsw-alias-state-business-primary, #0b76d1);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* File rows are buttons: they open the viewer. */
+.file {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 10px 3px 28px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row:hover .file {
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+.error {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+/* Creation toolbar: target directory name + the two new-entry buttons. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06));
+  flex-shrink: 0;
+}
+
+.toolbarTarget {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--idealize-type-small, 11.5px);
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.toolButton {
+  composes: iconButton from './controls.module.css';
+  width: 24px;
+  height: 24px;
+}
+
+/* The browse toggle lights while its pane is open. */
+.toolButton[data-active] {
+  color: var(--dsw-alias-state-business-primary, #0b76d1);
+}
+
+/* Right-click context menu (add to chat / reveal / copy path). */
+.menuOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.menu {
+  position: fixed;
+  min-width: 170px;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.menuRule {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06));
+}
+
+.menuItem[data-danger] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.menuItem[data-armed] {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #24292f);
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+}
+
+/* The name sheet (V0's create sheet, docked under the toolbar). */
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06));
+  flex-shrink: 0;
+}
+
+.sheetTitle {
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.sheetTarget {
+  font-weight: 400;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.nameInput {
+  composes: field from './controls.module.css';
+  padding: 5px 8px;
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+.sheetError {
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-state-error-primary, #c4432b);
+}
+
+.sheetActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.sheetButton {
+  composes: button sm ghost from './controls.module.css';
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.sheetButton:hover {
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.sheetPrimary {
+  composes: button sm primary from './controls.module.css';
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+/* Action outcome line (reveal/add-to-chat feedback; errors persist). */
+.status {
+  padding: 5px 10px;
+  font-size: var(--idealize-type-small, 11.5px);
+  border-top: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06));
+  color: var(--dsw-alias-label-secondary, #66696d);
+  flex-shrink: 0;
+}
+
+.status[data-level='error'] {
+  color: var(--dsw-alias-state-error-primary, #c4432b);
+}
+
+/* Two stacked windows: project tree above, the browse pane beneath. */
+.split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.browseSection {
+  flex-shrink: 0;
+  border-top: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.browseSection[data-open] {
+  flex: 0 1 45%;
+}
+
+.browseHeader {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.browseHeader:hover {
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.browseTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browseTree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 8px;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-primary, #24292f);
+}

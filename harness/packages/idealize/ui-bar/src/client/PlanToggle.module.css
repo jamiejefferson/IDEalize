@@ -1,0 +1,53 @@
+/* Plan-mode icon in the composer tool row: the dock's 28px icon treatment
+   (Paper 18M-0 "Composer controls": 28×28, radius 9, layer fill, 14px
+   stroke glyph). Pressed = accent fill, white glyph. */
+
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 9px;
+  background: var(--dsw-specific-selector, #f0f1f3);
+  color: var(--dsw-alias-label-secondary, #555960);
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid, #e4e6ea);
+  color: var(--dsw-alias-label-primary, #000);
+}
+
+.button[aria-pressed='true'] {
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-brand-primary-invert);
+}
+
+.button[aria-pressed='true']:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+  color: var(--dsw-alias-brand-primary-invert);
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary, #d33);
+  font-size: 12px;
+  line-height: 18px;
+}

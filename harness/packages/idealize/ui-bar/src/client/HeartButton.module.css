@@ -1,0 +1,23 @@
+/* One-tap thank-you heart beside the send button. */
+
+.heart {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  cursor: pointer;
+}
+
+.heart:hover:not(:disabled) {
+  color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+}
+
+.heart:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

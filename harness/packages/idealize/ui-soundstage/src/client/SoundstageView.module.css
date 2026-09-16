@@ -1,0 +1,245 @@
+/* The Sound Stage list: a scrolling column of sound rows, each a badge, its
+   body and its verdict. Every colour rides a dsw alias token, so the
+   appearance panel's light and dark grounds both carry it with no second
+   rule. */
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  /* The row players are native controls: the app theme, not the OS, decides
+     whether the browser paints them light or dark. */
+  color-scheme: light;
+}
+
+:global(body[data-ds-dark-theme]) .stage {
+  color-scheme: dark;
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 12px 20px 24px;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  /* Three columns: the badge, the sound, and the verdict held at the right
+     edge. A two-column row would wrap the verdict under the badge. */
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: start;
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+/* Reveal and the verdict show on hover or focus, like the Images grid's
+   corner controls, so a settled list reads as sounds rather than as buttons.
+   Hidden means hidden: `visibility` and `pointer-events` go with the opacity,
+   so an invisible button never takes a click. */
+.actions {
+  display: flex;
+  gap: 6px;
+  align-self: center;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease, visibility 0s linear 120ms;
+}
+
+.row:hover .actions,
+.row:focus-within .actions {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+/* No pointer to hover with: the controls stay on. */
+@media (hover: none) {
+  .actions {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+
+.verdict {
+  composes: button sm outline from './controls.module.css';
+  font-size: 11px;
+}
+
+/* The archived fold under the list: the same rows, a quieter frame. */
+.archivedFold {
+  flex: none;
+  padding: 0 20px 16px;
+}
+
+.archivedSummary {
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.archivedFold .list {
+  flex: none;
+  overflow: visible;
+  padding: 0;
+}
+
+.archivedFold .row {
+  opacity: 0.75;
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.badge {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  /* Elevated surface: the thumb pair takes the l2 elevation tokens. Declared
+     on the surface rather than a scrolling child so the elevation choice sits
+     with the surface and inherits to whichever descendant scrolls; `.list`
+     itself scrolls against `.stage`'s base ground and keeps the l1 default
+     (ui-theme styles/scrollbar.css). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.badgeFailed {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-state-error-primary);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.cause {
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}
+
+/* What the model said when it made nothing: wrapped, scrolling past nine
+   lines, never clipped without a way to read it. */
+.reply {
+  margin: 0;
+  max-height: 9em;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The provider's refusal, in the failure colour: a turn nobody answered is a
+   fault to act on, not a quiet outcome. */
+.replyFailed {
+  composes: reply;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.player {
+  width: 100%;
+  max-width: 520px;
+  height: 34px;
+}
+
+.retry {
+  composes: button sm outline from './controls.module.css';
+  align-self: flex-start;
+  font-size: 12px;
+}
+
+/* The in-flight bar: a two-second sweep, stilled for reduced-motion users. */
+.progress {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-width: 520px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.progress::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary);
+  animation: sweep 2s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress::after {
+    animation: none;
+  }
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.emptyTitle {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.emptyBody {
+  font-size: 12px;
+  max-width: 34ch;
+  color: var(--dsw-alias-label-secondary);
+}

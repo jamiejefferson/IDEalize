@@ -1,0 +1,776 @@
+/* Brains pane: measurements from the Paper "models wires" frames (420 wide,
+   24px gutters, 48px tab strip, 54px agent rows, 68px provider rows, 60px
+   budget rows), controls normalised to the app's own control styling
+   (controls.module.css). Colours ride the dsw aliases and type rides the
+   --idealize-type-* scale, so the skin, theme, and the Appearance panel's
+   interface font and size all apply. */
+
+.root {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  background: var(--dsw-alias-bg-base, #f5f5f6);
+  color: var(--dsw-alias-label-primary, #24292f);
+  font-size: var(--idealize-type-body, 12.5px);
+  line-height: 1.45;
+}
+
+.header {
+  padding: 20px 24px 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--idealize-type-title, 14px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  height: 48px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #c9c9c6);
+}
+
+.tab {
+  width: 96px;
+  height: 48px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: var(--idealize-type-section, 13px);
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary, #70706c);
+  cursor: pointer;
+}
+
+.tab[aria-selected='true'] {
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #20201e);
+  border-bottom-color: var(--dsw-alias-label-primary, #3f3f3c);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 24px 24px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 22px 0 10px;
+}
+
+.sectionTitle {
+  font-size: var(--idealize-type-section, 13px);
+  font-weight: 600;
+}
+
+.sectionDetail {
+  margin-top: 4px;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #70706c);
+}
+
+.plusButton {
+  composes: iconButton iconButtonOutline from './controls.module.css';
+  width: 28px;
+  height: 28px;
+  color: inherit;
+  font: inherit;
+  font-size: var(--idealize-type-section, 13px);
+  text-decoration: none;
+}
+
+/* ── Lists ─────────────────────────────────────────────────────────────── */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+}
+
+.row,
+.providerRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 54px;
+  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+}
+
+.row:first-child,
+.providerRow:first-child {
+  border-top: 0;
+}
+
+.cellKey {
+  flex: 0 1 auto;
+  min-width: 95px;
+  max-width: 160px;
+  padding: 0 14px;
+  font-size: var(--idealize-type-small, 11.5px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cellValue {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cellAction {
+  flex: 0 0 auto;
+  padding: 0 14px;
+}
+
+.chip {
+  composes: button outline from './controls.module.css';
+  height: 26px;
+  padding: 0 9px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: var(--idealize-type-small, 11.5px);
+  font-weight: 500;
+}
+
+.rowSelect {
+  composes: field from './controls.module.css';
+  flex: 1;
+  min-width: 0;
+  margin: 0 14px 0 10px;
+  height: 28px;
+  padding: 0 8px;
+  color: inherit;
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+/* The unavailable media preset's one-line reason, in the value column. */
+/* A brain's access, on its own line under the picker so neither is squeezed. */
+.rowAccess {
+  flex: 0 0 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 10px;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-state-warn-label);
+  /* The terminal note is a sentence: it wraps inside the row instead of running past the pane. */
+  flex-wrap: wrap;
+  white-space: normal;
+  min-width: 0;
+}
+
+.rowNote {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.addRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 46px;
+  margin: -1px;
+  border: 1px dashed var(--dsw-alias-label-tertiary, #aeb0b3);
+  background: var(--dsw-alias-bg-base, #f5f5f6);
+  color: var(--dsw-alias-label-secondary, #66696d);
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.plusBox {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--dsw-alias-label-tertiary, #8b8d91);
+  border-radius: 6px;
+  font-size: var(--idealize-type-section, 13px);
+}
+
+.emptyRow {
+  padding: 16px 14px;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+/* ── Providers (Models tab) ────────────────────────────────────────────── */
+
+.providerRow {
+  min-height: 68px;
+}
+
+.providerName {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 0 14px;
+}
+
+.providerName strong {
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.providerName small {
+  font-size: var(--idealize-type-caption, 10px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.badge {
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  border-radius: 999px;
+  font-size: var(--idealize-type-caption, 10px);
+  white-space: nowrap;
+}
+
+.rowLink {
+  flex: 0 0 82px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--idealize-type-small, 11.5px);
+  text-align: right;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.rowLink:hover {
+  text-decoration: underline;
+}
+
+/*
+ * A group label inside the add list. It is a label, not a row: no border, no
+ * press target, and it never appears in the connected list where two headings
+ * over a handful of rows would be noise.
+ */
+.groupRow {
+  padding: 12px 14px 4px;
+  font-size: var(--idealize-type-caption, 10px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  background: var(--dsw-alias-bg-layer-1, #fff);
+}
+
+.groupRow + .providerRow {
+  border-top: 0;
+}
+
+/*
+ * The key panel takes a line of its own under the service's name: sharing the
+ * row leaves the field a sliver between the name and its buttons, and a field
+ * you cannot see is not one you trust with a secret. `.providerRow` already
+ * wraps, so a full-basis child breaks the line.
+ */
+.keyPanel {
+  flex: 1 0 100%;
+  display: grid;
+  gap: 6px;
+  padding: 0 14px 12px;
+}
+
+/*
+ * The field takes the full width and the buttons sit beneath it, right
+ * aligned. Side by side they overflow the drawer at its narrowest and clip
+ * Cancel, and a press target you cannot fully see is one you cannot trust.
+ */
+.keyRow {
+  display: grid;
+  gap: 6px;
+  justify-items: stretch;
+}
+
+.keyRow input {
+  min-width: 0;
+  width: 100%;
+}
+
+.keyActions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/*
+ * The link to a service's key page. It sits under the key field rather than
+ * beside the row, because the person reading it is the one who has just
+ * discovered they do not have a key yet.
+ */
+.rowHint {
+  display: block;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.rowHint:hover {
+  text-decoration: underline;
+}
+
+/* ── Free Token Use card ───────────────────────────────────────────────── */
+
+.card {
+  border: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  padding-bottom: 6px;
+}
+
+.cardRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+}
+
+.cardLabel {
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+}
+
+.cardSelect {
+  composes: field from './controls.module.css';
+  width: 132px;
+  height: 28px;
+  padding: 0 8px;
+  color: inherit;
+  font: inherit;
+  font-size: var(--idealize-type-small, 11.5px);
+  font-weight: 500;
+}
+
+.weightRow {
+  display: flex;
+  align-items: center;
+  height: 27px;
+  padding: 0 12px;
+}
+
+.weightLabel {
+  flex: 0 0 78px;
+  font-size: var(--idealize-type-small, 11.5px);
+}
+
+.weightInput {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  margin: 0;
+  accent-color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.weightValue {
+  flex: 0 0 34px;
+  text-align: right;
+  font-family: var(--ds-font-family-code, 'DM Mono', ui-monospace, monospace);
+  font-size: var(--idealize-type-caption, 10px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+/* ── Budget tab ────────────────────────────────────────────────────────── */
+
+.field {
+  display: grid;
+  gap: 5px;
+  padding-bottom: 12px;
+}
+
+.fieldLabel {
+  font-size: var(--idealize-type-caption, 10px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+/* The add sheet's stated space: a value the sheet reports rather than a
+   control, because the welcome card already chose it. */
+.fieldValue {
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+/* The edit sheet's "works in" row: one checkbox per declared space, wrapping
+   at the pane's narrowest width rather than scrolling sideways. */
+.fieldChoices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+/* The instructions field's standing note: what happens to what is typed. */
+.fieldHint {
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+/* One field pattern for the budget controls; composes splits the selector
+   list because a composing rule needs a single class. */
+.fieldControl {
+  composes: field from './controls.module.css';
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  color: inherit;
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+.fieldSelect {
+  composes: fieldControl;
+}
+
+.fieldInput {
+  composes: fieldControl;
+}
+
+.fieldArea {
+  composes: fieldControl;
+  padding: 9px 10px;
+  resize: vertical;
+}
+
+.table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.tableHead,
+.tableRow,
+.tableTotal {
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+}
+
+.tableHead {
+  border-top: 0;
+  min-height: 32px;
+  background: var(--dsw-alias-bg-base, #f5f5f6);
+  font-size: var(--idealize-type-caption, 10px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.tableRow {
+  min-height: 60px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+}
+
+.tableTotal {
+  min-height: 60px;
+  background: var(--dsw-alias-bg-base, #f5f5f6);
+  font-weight: 600;
+}
+
+.colCategory {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 12px;
+}
+
+.colCategory strong {
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+}
+
+.colCategory small {
+  font-size: var(--idealize-type-small, 11.5px);
+  font-weight: 400;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.colPeriod {
+  flex: 0 0 92px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-left: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  font-family: var(--ds-font-family-code, 'DM Mono', ui-monospace, monospace);
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+.tableHead .colPeriod {
+  font-family: inherit;
+  font-size: var(--idealize-type-caption, 10px);
+}
+
+/* The per-model table's cost column: a cost or a dash, with its price action beneath. */
+.colCost {
+  flex: 0 0 112px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 10px;
+  border-left: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  font-family: var(--ds-font-family-code, 'DM Mono', ui-monospace, monospace);
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+.tableHead .colCost {
+  font-family: inherit;
+  font-size: var(--idealize-type-caption, 10px);
+}
+
+.colCost small {
+  font-family: inherit;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.priceLink {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  font: inherit;
+  font-family: var(--ds-font-family, inherit);
+  font-size: var(--idealize-type-small, 11.5px);
+  cursor: pointer;
+}
+
+.priceLink:hover {
+  text-decoration: underline;
+}
+
+/* The inline price editor under a model row: fields, the source line, actions. */
+.priceEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  background: var(--dsw-alias-bg-base, #f5f5f6);
+}
+
+.priceFields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.priceField {
+  display: flex;
+  flex: 1 1 120px;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* A priced period cell: the cost leads, the token count reads beneath it. */
+.cellCost {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cellCost strong {
+  font-weight: 600;
+}
+
+.cellCost small {
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.budgetRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 14px;
+}
+
+.budgetValue {
+  composes: field from './controls.module.css';
+  color: inherit;
+  font: inherit;
+  font-family: var(--ds-font-family-code, 'DM Mono', ui-monospace, monospace);
+  font-size: var(--idealize-type-body, 12.5px);
+  height: 28px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.budgetEdit {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+}
+
+.budgetInput {
+  composes: fieldControl;
+  min-height: 28px;
+  flex: 1;
+}
+
+.track {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--dsw-alias-border-l2, #e4e5e7);
+}
+
+.fill {
+  height: 100%;
+  background: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.note,
+.status {
+  margin: 9px 2px 0;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+/* ── Sheets (edit agent, provider editor) ──────────────────────────────── */
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--dsw-alias-bg-mask-1);
+}
+
+/* Dialog treatment from ui-primitives Modal (r24 card). */
+.sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 372px;
+  max-height: 100%;
+  overflow-y: auto;
+  border: 1px solid var(--dsw-alias-border-l2, #c9cbce);
+  border-radius: 24px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  box-shadow: var(--dsw-shadow-lv2);
+  padding: 0 16px 14px;
+  box-sizing: border-box;
+}
+
+.sheetHead {
+  margin: 0 -16px 14px;
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+}
+
+.sheetTitle {
+  font-size: var(--idealize-type-title, 14px);
+  font-weight: 600;
+}
+
+.sheetDetail {
+  margin-top: 4px;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.sheetActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 -16px;
+  padding: 12px 16px 0;
+  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+}
+
+.primary {
+  composes: button md primary from './controls.module.css';
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+}
+
+.secondary {
+  composes: button md outline from './controls.module.css';
+  font: inherit;
+  font-size: var(--idealize-type-body, 12.5px);
+  color: inherit;
+  font-weight: 500;
+}
+
+/* The upstream provider page was built for the modal's wide column; let its layout wrap. */
+.hosted {
+  min-width: 0;
+  padding-bottom: 12px;
+}

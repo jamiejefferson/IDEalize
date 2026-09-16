@@ -1,0 +1,24 @@
+/* Matches the sidebar header's 28px icon buttons (SidebarRoot .iconButton),
+   which are hashed and so cannot be composed from here. */
+.button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.button:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.button[data-active] {
+  color: var(--dsw-alias-brand-primary, #5b8def);
+}

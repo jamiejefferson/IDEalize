@@ -1,0 +1,128 @@
+/** `idealize-askbar` namespace dictionaries: the rail in both homes, its chips and states, the hold flow, and the compact panel. */
+
+import type { LocaleNamespaceMap } from '@deepseek-ai/dsh-client-ui-slots'
+
+/** Simplified Chinese dictionary (the key-set source of truth). */
+export const zh = {
+  'project.expand': '{project} — 展开到主窗口',
+  'project.expandSidebar': '{project} — 展开侧栏',
+  'studio.title': '工作室',
+  'newChat.label': '新对话 — 在主窗口中开始',
+  'studio.open': '工作室 — 在主窗口中打开',
+  'studio.openHere': '工作室 — 打开',
+  'agents.label': '智能体',
+  'keys.nextAgent': '下一个智能体',
+  'keys.previousAgent': '上一个智能体',
+  'empty.noProject': '尚未打开项目',
+  'empty.noAgents': '此项目还没有智能体',
+  'error.unreachable': '无法连接主机',
+  'state.listening': '正在聆听',
+  'state.working': '工作中',
+  'state.needsInput': '需要输入',
+  'state.wrong': '出了问题',
+  'state.ready': '就绪',
+  'state.idle': '空闲',
+  'chip.label': '{name} — {state}',
+  'hold.listening': '正在聆听 · {name}',
+  'hold.hint': '松开结束 · Esc 放弃',
+  'hold.cancel': 'Esc 取消',
+  'hold.noticeTitle': '按住即可说话',
+  'hold.noticeBody': '录音在本机转写，音频不会离开这台电脑，也不会写入磁盘。',
+  'hold.noticeAccept': '知道了',
+  'hold.transcribing': '正在转写…',
+  'hold.preparing': '正在准备语音模型 · {percent}%',
+  'hold.preparingBody': '首次使用需要下载模型，之后不再下载。',
+  'hold.sendingTo': '即将发送给 {name}',
+  'hold.onItsWay': '正在发送给 {name}…',
+  'hold.refused': '没有发送',
+  'hold.dismiss': '关闭',
+  'hold.noAudio': '这次录音没有声音。',
+  'hold.hostGone': '无法连接主机。',
+  'panel.label': '{name} 面板',
+  'panel.identity': '{project} · {state}',
+  'panel.latestTask': '最新任务',
+  'panel.noTask': '尚未记录任务',
+  'panel.noStatus': '这个智能体还没有更新。',
+  'panel.checkTranscript': '请先检查这段转写，再发送。',
+  'panel.nothingHeard': '没有听清 — 请直接输入你的请求。',
+  'panel.ask': '询问 {name}',
+  'panel.send': '发送',
+  'panel.sending': '…',
+  'panel.sent': '已发送',
+  'panel.retry': '重试',
+  'panel.openStudio': '打开工作室 ↗',
+  'panel.recent': '最近',
+  'panel.noRecent': '这个聊天里还没有说过话。',
+  'panel.you': '你',
+  'panel.working': '正在处理…',
+  'panel.noAnswer': '尚未回答。',
+}
+
+/** Dictionary keys of the `idealize-askbar` namespace. */
+export type AskbarKey = keyof typeof zh
+
+/** English dictionary. */
+export const en = {
+  'project.expand': '{project} — expand to the main window',
+  'project.expandSidebar': '{project} — expand the sidebar',
+  'studio.title': 'Studio',
+  'newChat.label': 'New chat — start one in the main window',
+  'studio.open': 'Studio — open it in the main window',
+  'studio.openHere': 'Studio — open it',
+  'agents.label': 'Agents',
+  'keys.nextAgent': 'Next agent',
+  'keys.previousAgent': 'Previous agent',
+  'empty.noProject': 'No project open yet',
+  'empty.noAgents': 'No agents in this project yet',
+  'error.unreachable': 'Host unreachable',
+  'state.listening': 'Listening',
+  'state.working': 'Working',
+  'state.needsInput': 'Needs input',
+  'state.wrong': 'Something’s wrong',
+  'state.ready': 'Ready',
+  'state.idle': 'Idle',
+  'chip.label': '{name} — {state}',
+  'hold.listening': 'Listening · {name}',
+  'hold.hint': 'Release to finish · Esc discards',
+  'hold.cancel': 'Esc cancels',
+  'hold.noticeTitle': 'Hold a chip to speak',
+  'hold.noticeBody': 'Your recording is transcribed on this Mac. The audio reaches no network and is never written to disk.',
+  'hold.noticeAccept': 'Got it',
+  'hold.transcribing': 'Transcribing…',
+  'hold.preparing': 'Preparing the speech model · {percent}%',
+  'hold.preparingBody': 'The model downloads once, then stays on this Mac.',
+  'hold.sendingTo': 'Sending to {name}',
+  'hold.onItsWay': 'On its way to {name}…',
+  'hold.refused': 'Nothing was sent',
+  'hold.dismiss': 'Dismiss',
+  'hold.noAudio': 'That recording carried no audio.',
+  'hold.hostGone': 'The host could not be reached.',
+  'panel.label': '{name} panel',
+  'panel.identity': '{project} · {state}',
+  'panel.latestTask': 'Latest task',
+  'panel.noTask': 'No task recorded yet',
+  'panel.noStatus': 'No update from this agent yet.',
+  'panel.checkTranscript': 'Read this back before you send it.',
+  'panel.nothingHeard': 'Nothing was heard — type your ask instead.',
+  'panel.ask': 'Ask {name}',
+  'panel.send': 'Send',
+  'panel.sending': '…',
+  'panel.sent': 'Sent',
+  'panel.retry': 'Retry',
+  'panel.openStudio': 'Open the Studio ↗',
+  'panel.recent': 'Recent',
+  'panel.noRecent': 'Nothing said in this chat yet.',
+  'panel.you': 'You',
+  'panel.working': 'Working on it…',
+  'panel.noAnswer': 'No answer yet.',
+} satisfies Record<AskbarKey, string>
+
+/** The dictionary namespace this package registers. */
+export const NS = 'idealize-askbar' satisfies keyof LocaleNamespaceMap
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The Askbar's copy. */
+    'idealize-askbar': AskbarKey
+  }
+}

@@ -1,16 +1,29 @@
-# IDEalize
+# IDEalize V1 repository rules
 
-Native macOS multi-terminal app (SwiftUI + AppKit + SwiftTerm), a Codex-native take on Warp, with cross-terminal IPC for coding agents.
+This repository owns IDEalize V1, the desktop product around the IDEalize harness (a DeepSeek Harness fork).
 
-## Coordination lives in the vault
+## Prerequisites and setup
 
-Status, thinking and next actions for this project live in your Obsidian vault:
-`<your-obsidian-vault>/Projects/IDEalize/_index.md`
+- Use Node.js `^22.19.0` or `>=24.0.0` and the root Yarn `4.18.0` release through Corepack.
+- Initialize the pinned upstream checkout with `git submodule update --init --recursive`.
+- Install root dependencies with `corepack yarn install --immutable`.
 
-Read `<your-obsidian-vault>/VAULT-INDEX.md` for the writing and frontmatter conventions. Update that `_index.md` (Status, Open threads, Next actions, `last_touched`) on session close. This repo is the source of truth for code; the vault is the source of truth for status and thinking.
+## Build, run, and verify
 
-Note: `Feedback Inbox.md` lives in the vault folder (it is an app-synced note, not code).
+- Start the desktop development workflow with `corepack yarn dev`.
+- Build the desktop package with `corepack yarn build`.
+- Run unit tests with `corepack yarn test`.
+- Run type checking with `corepack yarn typecheck`.
+- Run the complete headless gate with `corepack yarn check`.
+- Run upstream operations through the root scripts, such as `corepack yarn upstream:build`.
 
-## Infra state (Supabase + Vercel)
-
-The live website retired the Supabase email-code download gate (website repo PR #3); distribution is GitHub Releases + `install.sh`. Remaining infra work: deploy `website/vercel.json` security headers (after merging the website repo's `origin/main` — the local website checkout is 9 commits behind), and decide whether to tear down the now-unused Supabase gate functions. The hardened gate code in `supabase/` is undeployed and only needed if the gate returns. Full runbook: [`docs/deploy-web.md`](docs/deploy-web.md). Note: `website/` is its own git repo.
+- `deepseek-harness/` is a pinned upstream Git submodule. Never edit files inside it from a desktop feature branch.
+- `dsh-plugin-desktop/` owns the Cordis Host and Client faces, Electron bootstrap, packaging, and release tests.
+- `dsh-community-fabric/` owns the community interoperability RFC. Until schemas and a reviewed reference adapter exist, it remains a private documentation scaffold and must not declare loadable DSH or package entry points.
+- `dsh-community-market/` owns the community-market shell. Until its runtime is implemented, it remains a private documentation scaffold and must not declare loadable DSH or package entry points.
+- The outer repository and all owned packages use the root Yarn release with `nodeLinker: node-modules`.
+- The upstream submodule keeps its own pnpm workspace. Run upstream commands through the root `upstream:*` scripts, whose Yarn portable-shell commands enter the submodule before invoking Corepack.
+- Compatibility mode must run the upstream default client without overrides. Advanced presentation belongs to desktop-owned client plugins and may replace documented slots or services through profile composition.
+- Keep graphical application launch explicit. Builds, typechecks, unit tests, and Loader smokes must remain headless-safe.
+- Commit before major changes of direction and keep the submodule pin update separate from desktop behavior changes.
+- Keep the repository topology and package-manager split consistent with the [owning Agent Note](.agents/notes/implemented/process/2026-08-15-pinned-upstream-and-isolated-yarn-workspace.md).

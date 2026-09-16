@@ -1,0 +1,43 @@
+# @idealize/appearance
+
+The appearance panel: light, dark or system mode, four app presets (IDEalize, OG, Ink, Linen), the interface font and size, the chat density scalars, the terminal theme, and the user's own ground and action colours under the deepen-along-hue readability rule. Every preset lays the same token list (`PRESET_TOKEN_KEYS`), and `@idealize/skin` renders its sheet from the same derivation, so the first paint, the IDEalize preset and every other preset agree on which tokens a theme owns. The `idealize-appearance` row of the `idealize` profile bundle mounts both halves: the host registers the durable settings section and serves the font inventory; the browser half projects the section onto the app and renders the panel, which `@idealize/ui-bar` seats as a pane of the docked drawer.
+
+## Host half
+
+The host registers the `idealize-appearance` settings section (`AppearanceSettingsSchema`) when `settings` is composed, so every value below persists in the user settings document and survives a restart. When `webServer` is composed it taps the served index to inject the stored interface font and size before the client bundle loads, so the first paint is already at the user's size, and it serves one loopback-only route:
+
+- `GET /idealize/appearance/fonts` → `{ families: string[], monospaced: string[] }`, the font families installed on the host, scanned once per process from the platform font directories (`fontDirectories`). Requests from any host other than loopback receive 403.
+
+## Settings section (`idealize-appearance`)
+
+| Field | Meaning |
+|---|---|
+| `preset` | One of the `PRESET_LIST` ids; a ground, ink and accent per scheme that `deriveTokens` turns into the full `PRESET_TOKEN_KEYS` layer. IDEalize light seeds a white `#FFFFFF` ground, `#1B1F24` ink and the `#0969DA` accent with `crisp` set, which raises each `--dsw-alias-border-l*` alpha by `CRISP_BORDER_STEP` (0.04) and blends the secondary label `CRISP_SECONDARY_BLEND` (0.26) toward the ground in place of V0's 0.30; IDEalize dark keeps V0's `#2A2F35` / `#D5DDE3` / `#85C1B4`. On a white ground layer 3 takes the surface fraction (0.055), because layer 1 cannot lift above the ground there. |
+| `uiFont`, `uiSize` | Interface font family and base size; `uiScale` derives the root zoom from the size. |
+| `groundHex` | The user's own ground colour, empty for the preset's. |
+| `action` | The action (accent) colour: solid or gradient, angle, opacity, gradient type and stops. `actionTokens` paints the button fills (primary and the send button's info pair) at the chosen opacity and derives `brand-primary` and the business highlight through `actionAccent`: the colour at its opacity when the composite reads at 3:1 on the ground, otherwise the opaque shade deepened along its hue; the panel's readout says which. |
+| `terminal` | The embedded terminal's theme id, background, font, size, line spacing and margin (`TERMINAL_DEFAULTS`). |
+| `surfaces` | Per-surface typography and background overrides keyed by `SurfaceId` (sessions, files, doc, chat). The `files` surface is the whole drawer column, so its tab reads "Panels" and names the panes it reaches. A surface's text colour and background belong to one scheme, recorded in `scheme` when a colour is edited (the scheme on screen at the time) and read off the colours themselves for a record written before the field existed (`surfaceScheme`: a dark ground or a light ink means dark); they paint only in that scheme, so switching Light to Dark shows the dark theme's own colours until some are chosen over it, and the Theme tab and each surface tab say which panels hold colours for which mode. Typography paints in both. JJ, 15 Sep 2026: light chat colours persisting under the dark theme left the composer's black text on a dark card. |
+| `chatInputOpacity` and the chat panel scalars | Density values the chat stylesheet reads. |
+
+`resolveAppearance` turns the section into tokens for both colour schemes (`deriveTokens`), and `deepenAlongHue` keeps text at `TEXT_CONTRAST` and controls at `UI_CONTRAST` against whatever ground the user picks, so a chosen colour never produces illegible text. The same rule deepens design-platform's error, warning and success seeds per scheme, because stock amber-600 reads at 2.6:1 and green-500 at 2.1:1 on the light grounds. `tests/contrast-gate.client.spec.ts` resolves every stock preset over the base palette and holds the ink steps at 4.5:1 on the ground, layer 1 and the sidebar, and the accent and state colours at their floors.
+
+## Browser half
+
+The client owns the settings scope for the section and applies it three ways (writes are mirrored optimistically, and the accepted document is adopted only once every in-flight write has settled, so a slider drag never repaints an older value under the thumb; the interface size commits on release, because a per-move commit rescales the panel under the pointer): the preset, ground, action colour and interface font as a `ctx.theme` override layer for both schemes, the interface size as a root zoom, and the per-surface typography, backgrounds and chat-panel scalars as one injected stylesheet over the frame's `data-idealize-surface` hooks (`surfaceCss`, `chatPanelCss`). An element carrying `data-idealize-surface-exempt` (`SURFACE_EXEMPT_ATTRIBUTE`) takes the surface's font, zoom, weight, tracking and ink back for itself and its subtree; the panel's root carries it, so editing the drawer's type never garbles the editor. A surface with a background of its own paints it on the surface root and sets `--dsw-alias-bg-base: transparent` so nothing inside covers it, which also takes away what the conversation's sticky composer seat fades its transcript out against: the chat surface therefore gets one more rule, a 14px blurred backdrop on the seat coming in over the same 36px band the seat's own fade uses, so the transcript is masked over any ground rather than staying legible under the card and colliding with the stats line (JJ, 10 Sep 2026). Light, dark and system stay `ui-theme`'s preference, written through `ctx.theme.setTheme`. The Theme tab's Reset returns the preset, ground, action colour, interface font and size, the mode, and every surface's colours (`clearSurfaceColours`; typography stays); a surface tab's Reset clears that surface alone, and the Terminal tab's keeps its theme choice.
+
+`ctx.appearance` is the cross-plugin face: `open()` and `toggle()` flip the store's `open` flag, and `Component`, `face()` and `store` let a host seat the panel and follow that flag. ⌘⌥A (Ctrl+Alt+A elsewhere) toggles it.
+
+## Model Experience
+
+None, as the package changes only browser presentation and a settings section no model-facing plugin reads.
+
+#### KV Cache effect
+
+Independent: nothing here touches a model request, so no prefix changes and no reuse is invalidated.
+
+## Known Limitations and Deferred Work
+
+- **The font pickers filter by substring only.** The type-to-find field matches a family name containing the typed text, case-insensitively; there is no fuzzy or initials matching, and Enter picks the first match in inventory order.
+- **The font inventory is scanned once per process.** A font installed while the app runs does not appear in the pickers until restart; the scan reads the platform directories from `fontDirectories` and has no watcher.
+- **Per-surface overrides depend on upstream hooks.** The stylesheet targets `data-idealize-surface` attributes on the frame columns and the `data-message-text` hook on bubble text; both are fork touches recorded in `FORK.md`, so an upstream merge that drops a hook silently disables that surface's styling rather than failing loud.
