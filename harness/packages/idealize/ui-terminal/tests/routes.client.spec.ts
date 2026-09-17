@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { mkdtemp, realpath } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir, homedir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -17,9 +17,12 @@ import {
   type EmbeddedTerminalEvent,
   fencedDirectory,
   gridDimension,
+  KNOWLEDGE_PREAMBLE,
   LAUNCHES_PATH,
   launchCommandFor,
   scheduleLaunch,
+  promptChannel,
+  withKnowledge,
 } from '../src/index.ts'
 
 type Handler = (req: FakeRequest, res: FakeResponse) => Promise<void> | void
@@ -362,6 +365,102 @@ describe('auto-launch', () => {
     shell.emit({ kind: 'exit', exitCode: 1 })
     await vi.advanceTimersByTimeAsync(3000)
     expect(shell.written).toEqual([])
+  })
+})
+
+describe('standing rules for a terminal agent', () => {
+  const dshHome = process.env.DSH_HOME
+  let home: string | undefined
+
+  afterEach(async () => {
+    if (dshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = dshHome
+    if (home !== undefined) await rm(home, { recursive: true, force: true })
+    home = undefined
+  })
+
+  /** Mount with a scratch harness home and a docPolicy-shaped provider. */
+  async function mountWithRules(config: Config, rules: (cwd: string) => Promise<string | undefined>) {
+    home = await realpath(await mkdtemp(join(tmpdir(), 'idealize-terminal-knowledge-')))
+    process.env.DSH_HOME = home
+    const mounted = await mount({ desktop: true, config })
+    mounted.ctx.provide('docPolicy', { terminalKnowledge: rules })
+    return mounted
+  }
+
+  it('appends the rules to a Claude Code launch, reports the configured command, and clears the file when the shell ends', async () => {
+    const seen: string[] = []
+    const { call, terminals } = await mountWithRules(
+      { launchCommand: 'claude --dangerously-skip-permissions' },
+      (cwd) => { seen.push(cwd); return Promise.resolve('Write every piece of project documentation in /vault.') },
+    )
+    const opened = await call('/idealize/terminal/open', { method: 'POST', body: { key: 's1' } })
+    // A brain switch compares the configured command, so that is what the route reports.
+    expect((opened.res.json() as { launch?: string }).launch).toBe('claude --dangerously-skip-permissions')
+    expect(seen).toEqual([homedir()])
+    const shell = terminals.terminals[0]!
+    const file = join(home!, 'idealize', 'terminal-knowledge', `${shell.id}.md`)
+    expect(await readFile(file, 'utf8')).toBe(`${KNOWLEDGE_PREAMBLE}\n\nWrite every piece of project documentation in /vault.\n`)
+    shell.emit({ kind: 'data', data: '$ ' })
+    await vi.waitFor(() => { expect(shell.written).toHaveLength(1) }, { timeout: 2_000 })
+    expect(shell.written[0]).toBe(`\u0015claude --dangerously-skip-permissions --append-system-prompt "$(cat '${file}')"\r`)
+    shell.emit({ kind: 'exit', exitCode: 0 })
+    await vi.waitFor(async () => { await expect(readFile(file, 'utf8')).rejects.toThrow() })
+  })
+
+  it('types another CLI, a switched-off setting, and a provider with nothing to say as configured', async () => {
+    const rules = (): Promise<string | undefined> => Promise.resolve('rules')
+    for (const [config, provider] of [
+      [{ launchCommand: 'kimi' }, rules],
+      [{ launchCommand: 'claude', appendKnowledge: false }, rules],
+      [{ launchCommand: 'claude' }, () => Promise.resolve(undefined)],
+      [{ launchCommand: 'claude' }, () => Promise.reject(new Error('folder unreadable'))],
+    ] as const) {
+      const { call, terminals } = await mountWithRules(config, provider)
+      await call('/idealize/terminal/open', { method: 'POST', body: { key: 's1' } })
+      const shell = terminals.terminals[0]!
+      shell.emit({ kind: 'data', data: '$ ' })
+      await vi.waitFor(() => { expect(shell.written).toHaveLength(1) }, { timeout: 2_000 })
+      expect(shell.written[0]).toBe(`\u0015${config.launchCommand}\r`)
+      await rm(home!, { recursive: true, force: true })
+    }
+  })
+
+  it('types a Pi launch with the same option and a Codex launch with its config override after the executable', async () => {
+    for (const [launchCommand, typed] of [
+      ['pi', (file: string) => `pi --append-system-prompt "$(cat '${file}')"`],
+      ['codex --yolo', (file: string) => `codex -c developer_instructions="$(cat '${file}')" --yolo`],
+    ] as const) {
+      const { call, terminals } = await mountWithRules({ launchCommand }, () => Promise.resolve('rules'))
+      await call('/idealize/terminal/open', { method: 'POST', body: { key: 's1' } })
+      const shell = terminals.terminals[0]!
+      const file = join(home!, 'idealize', 'terminal-knowledge', `${shell.id}.md`)
+      shell.emit({ kind: 'data', data: '$ ' })
+      await vi.waitFor(() => { expect(shell.written).toHaveLength(1) }, { timeout: 2_000 })
+      expect(shell.written[0]).toBe(`\u0015${typed(file)}\r`)
+      await rm(home!, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves a launch that sets its own instructions alone, and recognises a CLI by its executable', () => {
+    expect(promptChannel('claude --dangerously-skip-permissions')).toBeDefined()
+    expect(promptChannel(' /opt/homebrew/bin/claude ')).toBeDefined()
+    expect(promptChannel('pi')).toBeDefined()
+    expect(promptChannel('codex --yolo')).toBeDefined()
+    expect(promptChannel('claude --append-system-prompt "mine"')).toBeUndefined()
+    expect(promptChannel('claude --system-prompt-file=./p.md')).toBeUndefined()
+    expect(promptChannel('pi --system-prompt "mine"')).toBeUndefined()
+    expect(promptChannel('codex -c developer_instructions="mine"')).toBeUndefined()
+    expect(promptChannel('claude-squad')).toBeUndefined()
+    expect(promptChannel('kimi')).toBeUndefined()
+    expect(promptChannel('constructor')).toBeUndefined()
+    expect(promptChannel('')).toBeUndefined()
+  })
+
+  it('quotes a harness home holding a space and an apostrophe, and gives another CLI nothing', () => {
+    expect(withKnowledge('claude', '/Users/j/Application Support/JJ\'s app/k.md'))
+      .toBe('claude --append-system-prompt "$(cat \'/Users/j/Application Support/JJ\'\\\'\'s app/k.md\')"')
+    expect(withKnowledge('kimi', '/k.md')).toBeUndefined()
   })
 })
 

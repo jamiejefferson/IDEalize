@@ -14,7 +14,10 @@
  *   (symlinks resolved). A FRESH shell gets the launch command for the named
  *   activity typed at its first prompt (V0's TerminalSession.start()); a
  *   reattach — the replay buffer already holds output — never does. `launch`
- *   reports the command a fresh open scheduled. `plain: true` opens a bare
+ *   reports the command a fresh open scheduled. A Claude Code, Pi or Codex launch
+ *   is typed with IDEalize's standing rules passed on its command line (see
+ *   `knowledge.ts`); `launch` still reports the configured command, which is
+ *   what a brain switch compares. `plain: true` opens a bare
  *   shell for the tool rail's Terminal pane: no launch command, and no chat
  *   recorded for the activity watcher, because the key is not a chat.
  * - `GET  /idealize/terminal/stream?id=` — SSE: a `replay` event carrying
@@ -28,20 +31,24 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { realpath } from 'node:fs/promises'
+import { realpath, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { sep } from 'node:path'
+import { join, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { cliInstalled } from '@idealize/activity-pills'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { gatherKnowledge, promptChannel, withKnowledge, writeKnowledgeFile } from './knowledge.ts'
 import { LAUNCHES_PATH, launchCommandFor, type TerminalCliOption, type TerminalLaunches } from './launches.ts'
 import { TerminalActivity } from './activity.ts'
 
 export { LAUNCHES_PATH, launchCommandFor } from './launches.ts'
 export type { TerminalCliOption, TerminalLaunches } from './launches.ts'
+export { gatherKnowledge, KNOWLEDGE_PREAMBLE, KNOWLEDGE_SERVICES, PROMPT_CHANNELS, promptChannel, withKnowledge } from './knowledge.ts'
+export type { PromptChannel } from './knowledge.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'idealize-ui-terminal'
@@ -61,6 +68,12 @@ export interface Config {
    */
   launchByActivity?: Record<string, string>
   /**
+   * Whether a Claude Code, Pi or Codex launch carries IDEalize's standing rules
+   * (where documentation goes, and whatever else a composed service offers) on
+   * its command line. On by default; off types the command as written.
+   */
+  appendKnowledge?: boolean
+  /**
    * The command-line agents the Brains pane offers as launch choices, in
    * order. `command` `''` is a plain shell. The route probes each command's
    * executable through the login shell and serves the verdict alongside.
@@ -79,6 +92,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   launchCommand: z.string().default('claude --dangerously-skip-permissions'),
   launchByActivity: z.dict(z.string()).default({}),
+  appendKnowledge: z.boolean().default(true),
   clis: z.array(z.object({
     id: z.string().required(),
     label: z.string().required(),
@@ -322,6 +336,30 @@ export function apply(ctx: Context, config?: Config): void {
   const launchFor = (activity: string | undefined): string => launchCommandFor(activity, launches())
   /** Shells already given their launch, so a racing reopen cannot type twice. */
   const autoLaunched = new Set<string>()
+  /**
+   * The command as the shell types it: a Claude Code, Pi or Codex launch gains the standing
+   * rules the composed services hold for a terminal agent. Anything else, a
+   * deployment with no rules to give, or a failed write types the command as
+   * configured, because guidance must never cost the user their launch.
+   */
+  const typedLaunch = async (terminal: DesktopTerminalLike, command: string, cwd: string): Promise<string> => {
+    if (current().appendKnowledge === false || promptChannel(command) === undefined) return command
+    try {
+      const probe = (name: string): unknown => (ctx as unknown as { get(name: string): unknown }).get(name)
+      const text = await gatherKnowledge(probe, cwd, (message) => { ctx.logger.warn(message) })
+      if (text === undefined) return command
+      const file = await writeKnowledgeFile(join(resolveDshHome(), 'idealize', 'terminal-knowledge'), terminal.id, text)
+      const off = terminal.subscribe((event) => {
+        if (event.kind !== 'exit') return
+        off()
+        rm(file, { force: true }).catch(() => {})
+      })
+      return withKnowledge(command, file) ?? command
+    } catch (error) {
+      ctx.logger.warn(`idealize-ui-terminal: the launch goes without its standing rules: ${String(error)}`)
+      return command
+    }
+  }
 
   // What a terminal agent is doing, from the only signal a shell gives. A
   // harness agent reports itself through `agent/status`; the CLIs a Terminal
@@ -520,7 +558,7 @@ export function apply(ctx: Context, config?: Config): void {
       const fresh = terminal.exit === undefined && terminal.replay() === '' && !autoLaunched.has(terminal.id)
       if (fresh && command !== '') {
         autoLaunched.add(terminal.id)
-        scheduleLaunch(terminal, command)
+        scheduleLaunch(terminal, await typedLaunch(terminal, command, cwd))
       }
       // The chat this shell belongs to, and the project it runs in, so a run
       // that ends can name them. The key is the chat's session id; a plain

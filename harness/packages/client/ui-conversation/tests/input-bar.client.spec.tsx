@@ -266,7 +266,9 @@ describe('attach control', () => {
 })
 
 describe('image draft rail', () => {
-  it('collects clipboard files while preserving text from a mixed paste', () => {
+  it('keeps the text and leaves the picture when a paste carries both', () => {
+    // A copied Figma layer or spreadsheet range brings a rendering of its
+    // text along; attaching it sent the model an image of the words.
     const addImages = vi.fn(() => null)
     const { textarea, shell } = bench({ addImages })
     const image = new File([Uint8Array.of(1, 2, 3)], 'pixel.png', { type: 'image/png' })
@@ -279,8 +281,30 @@ describe('image draft rail', () => {
         getData: () => '同时粘贴的文字',
       },
     })
-    expect(addImages).toHaveBeenCalledWith([image])
+    expect(addImages).not.toHaveBeenCalled()
     expect(shell.snapshot.draft).toBe('同时粘贴的文字')
+  })
+
+  it('attaches a copied image file whose only text is its name (a Finder copy)', () => {
+    const addImages = vi.fn(() => null)
+    const { textarea, shell } = bench({ addImages })
+    const image = new File([Uint8Array.of(1, 2, 3)], 'pixel.png', { type: 'image/png' })
+    const paste = (text: string) => fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [
+          { kind: 'string', type: 'text/plain', getAsFile: () => null },
+          { kind: 'file', type: 'image/png', getAsFile: () => image },
+        ],
+        getData: () => text,
+      },
+    })
+    paste('pixel.png')
+    expect(addImages).toHaveBeenCalledWith([image])
+    expect(shell.snapshot.draft).toBe('')
+    addImages.mockClear()
+    paste('/Users/jj/Desktop/pixel.png\n')
+    expect(addImages).toHaveBeenCalledWith([image])
+    expect(shell.snapshot.draft).toBe('')
   })
 
   it('accepts a drop anywhere on the page under the full-page overlay', () => {

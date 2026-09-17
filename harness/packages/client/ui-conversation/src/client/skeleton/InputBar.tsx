@@ -443,6 +443,13 @@ export function InputBar({
     void slice
   }
 
+  /** True when every non-empty line of the pasted text is one of the pasted files' names or a path ending in one. */
+  const pasteNamesOnlyFiles = (pasted: string, pastedFiles: readonly File[]): boolean => {
+    const lines = pasted.split(/\r?\n/).map(line => line.trim()).filter(line => line !== '')
+    return lines.length > 0
+      && lines.every(line => pastedFiles.some(file => line === file.name || line.endsWith(`/${file.name}`)))
+  }
+
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     if (keyboard === undefined) return // absent machine: no draft can accept a paste
     if (machineBusy || locked) return
@@ -450,12 +457,18 @@ export function InputBar({
       .filter(item => item.kind === 'file')
       .map(item => item.getAsFile())
       .filter((file): file is File => file !== null)
-    if (files.length > 0) intakeImages(files)
     const text = e.clipboardData.getData('text/plain')
-    if (text === '') {
-      if (files.length > 0) e.preventDefault()
+    // Copied text often travels with a rendered picture of itself (a Figma or
+    // Sketch layer, a spreadsheet range), and that picture used to attach
+    // beside the words, so the model read an image of the text. Files take a
+    // paste only when it carries no text, or when the text is just the files'
+    // own names — the shape of a file copied in Finder.
+    if (files.length > 0 && (text === '' || pasteNamesOnlyFiles(text, files))) {
+      intakeImages(files)
+      e.preventDefault()
       return
     }
+    if (text === '') return
     e.preventDefault()
     const el = e.currentTarget
     const sel = selectionOf(el)

@@ -9,6 +9,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { readdir, readFile, realpath } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parseFrontmatter } from './frontmatter.ts'
 
@@ -79,6 +80,29 @@ export async function projectNotes(folder: string): Promise<ProjectNote[]> {
 }
 
 /**
+ * The checkout paths a hand-written `repo:` pointer names. People annotate the
+ * field (`/dev/app (V1); V0 frozen at /old/app`), and an annotated pointer read
+ * as one path matches no repository, so the project silently loses its
+ * documentation context. Each `;`-separated part yields the text from its first
+ * `/` or `~/`, as written and with a trailing parenthetical removed.
+ * @param pointer - the raw `repo:` value.
+ * @returns candidate absolute paths, most literal first.
+ */
+export function repoPaths(pointer: string): string[] {
+  const paths: string[] = []
+  for (const part of pointer.split(';')) {
+    const start = part.search(/~\/|\//)
+    if (start === -1) continue
+    const written = part.slice(start).trim()
+    for (const candidate of [written, written.replace(/\s+\([^)]*\)$/, '')]) {
+      const path = candidate.startsWith('~/') ? join(homedir(), candidate.slice(2)) : candidate
+      if (path !== '' && !paths.includes(path)) paths.push(path)
+    }
+  }
+  return paths
+}
+
+/**
  * The note whose `repo:` names this repository, resolved through realpath.
  * @param folder - absolute path of the documentation folder.
  * @param repoToplevel - realpath'd repository toplevel.
@@ -86,10 +110,12 @@ export async function projectNotes(folder: string): Promise<ProjectNote[]> {
  */
 export async function noteForRepo(folder: string, repoToplevel: string): Promise<ProjectNote | undefined> {
   for (const note of await projectNotes(folder)) {
-    try {
-      if (await realpath(note.repo) === repoToplevel) return note
-    } catch {
-      // A note pointing at a moved/deleted repo cannot match a live cwd.
+    for (const path of repoPaths(note.repo)) {
+      try {
+        if (await realpath(path) === repoToplevel) return note
+      } catch {
+        // A pointer at a moved/deleted repo cannot match a live cwd.
+      }
     }
   }
   return undefined

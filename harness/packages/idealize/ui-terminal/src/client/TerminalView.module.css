@@ -49,6 +49,13 @@
   height: 100%;
 }
 
+/* xterm's stock sheet paints the scroll viewport black. The grid is rarely a
+   whole number of rows tall, and the remainder showed as a black strip under
+   the last row (JJ, 17 Sep 2026). The root already paints the ground. */
+.grid :global(.xterm) :global(.xterm-viewport) {
+  background-color: transparent;
+}
+
 .notice {
   position: absolute;
   right: 16px;

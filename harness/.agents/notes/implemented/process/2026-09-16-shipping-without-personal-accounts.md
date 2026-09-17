@@ -21,3 +21,7 @@ A build with no feedback environment keeps feedback locally and shows no announc
 ## Evidence
 
 `packages/idealize/feedback/tests/routes.spec.ts` (configured, environment and unconfigured cases), `packages/idealize/ui-bar/tests/apply.client.spec.ts` ("pins the locale to English and empties the Language row"), desktop `tests/keys-file.spec.ts` and `tests/idealize-this.spec.ts`, `node scripts/verify-layout.mjs`.
+
+## Amendment, 17 Sep 2026: the feedback pair ships again
+
+JJ, one day on: "everyone's feedback should go to the supabase database that we were using for v0". The `idealize` profile (`packages/idealize/bundle-idealize/cordis.patch.yml`) now sets `endpoint` and `publishableKey` on `idealize-feedback` to V0's project. The key is the publishable one V0 already ships in its public repository and `install.sh`; checked on 17 Sep, it inserts into `idealize_feedback` (HTTP 201) and reads back nothing from that table (`[]`). The plugin code is unchanged and still holds no project or key; a `settings.yaml` `idealize-feedback:` section overrides the profile. The rest of this note stands: no other key or platform access ships.

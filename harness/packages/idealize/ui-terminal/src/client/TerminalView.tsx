@@ -231,6 +231,47 @@ export function reservedGutter(from: HTMLElement): number {
   return 0
 }
 
+/**
+ * The zoom that returns the terminal to 1 under whatever its ancestors apply.
+ *
+ * The appearance panel sizes a surface with CSS `zoom` (the chat surface at 20pt
+ * is `zoom: 1.25`, the interface size zooms `#root`). xterm maps a pointer to a
+ * cell by dividing a zoomed distance by an unzoomed cell height, so under 1.25
+ * a press 800px down the grid selects the row 200px below it, and the fit
+ * addon's row count overruns the host, which shows as a black strip along the
+ * bottom (JJ, 17 Sep 2026). Nested zoom multiplies, so the reciprocal undoes it.
+ *
+ * An ancestor with no box (`display: contents`) reports a zoom of 1 whatever it
+ * inherits. The chat view wraps the root in one, which left the packaged app
+ * uncorrected, so the nearest ancestor that renders a box is the one measured.
+ * @param start - the terminal root's parent, whose effective zoom is undone.
+ * @returns the CSS zoom for the terminal root, '' when no ancestor zooms.
+ */
+export function counterZoom(start: Element | null): string {
+  let parent = start
+  while (parent !== null && getComputedStyle(parent).display === 'contents') parent = parent.parentElement
+  if (parent === null) return ''
+  const measured = (parent as Element & { currentCSSZoom?: number }).currentCSSZoom
+  const zoom = typeof measured === 'number' && measured > 0
+    ? measured
+    : parent instanceof HTMLElement && parent.offsetWidth > 0
+      ? parent.getBoundingClientRect().width / parent.offsetWidth
+      : 1
+  return Math.abs(zoom - 1) < 0.001 ? '' : String(Math.round((1 / zoom) * 10000) / 10000)
+}
+
+/**
+ * The appearance package's `SURFACE_EXEMPT_ATTRIBUTE`, spelled here because the
+ * client bundle imports that package for types only. A surface's font rule
+ * (`[surface] :not(…) { font-family: inherit }`) ties xterm's own rule on
+ * `.xterm-rows` and comes later, so the chat surface's face, weight and tracking
+ * reached the rows while xterm kept mapping the pointer on the monospace grid
+ * it measured: the glyphs drifted left of their cells, about 100px by the end
+ * of a long line (JJ, 17 Sep 2026). The attribute takes the subtree out of
+ * those rules.
+ */
+export const SURFACE_EXEMPT = 'data-idealize-surface-exempt'
+
 let paint: TerminalPaint | undefined
 const paintListeners = new Set<() => void>()
 
@@ -438,6 +479,9 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
     if (root === null) return
     const measure = (): void => {
       root.style.setProperty('--idealize-terminal-bleed', `${String(reservedGutter(root))}px`)
+      // A surface resize is also how a changed appearance zoom reaches us.
+      const zoom = counterZoom(root.parentElement)
+      if (root.style.zoom !== zoom) root.style.zoom = zoom
     }
     measure()
     const observer = new ResizeObserver(measure)
@@ -504,7 +548,7 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
   }
 
   return (
-    <div ref={rootRef} className={css.root} data-testid="idealize-terminal" style={paint === undefined ? undefined : { background: paint.background }}>
+    <div ref={rootRef} className={css.root} data-testid="idealize-terminal" {...{ [SURFACE_EXEMPT]: '' }} style={paint === undefined ? undefined : { background: paint.background }}>
       <div ref={hostRef} className={css.grid} style={paint === undefined ? undefined : { padding: gridPadding(paint.margin) }} />
       {error !== undefined && (
         <div className={css.notice} role="alert">

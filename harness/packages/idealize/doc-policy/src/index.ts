@@ -15,8 +15,12 @@
  *   `idealize_docs` storage domain when the storage-domain form is composed;
  * - rebuilds an in-memory FTS5 index from every scan and serves it through
  *   the `docs_search` tool;
+ * - contributes the standing `idealize:documentation` system-prompt section:
+ *   where documentation goes, the folder's layout, and how to find a note,
+ *   for every chat (it says so when no folder is set);
  * - injects the canonical conventions and the matching project's `_index.md`
- *   as model-facing context on `agent/session-start`;
+ *   as model-facing context on `agent/session-start`, or the way to create
+ *   that note when the repository has none;
  * - serves `GET /idealize/docs/state` (loopback only): folder + scan state
  *   for the settings surface (DOC-08).
  *
@@ -33,6 +37,8 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+// Type-only: the prompt registry's Context merge (ctx.systemPrompt).
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Domain, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { RULESET_VERSION } from './policy/ruleset.ts'
@@ -42,6 +48,7 @@ import { scanFolder } from './scan.ts'
 import { DocsIndex } from './search.ts'
 import type { DocsSearchHit } from './search.ts'
 import { gitToplevel, noteForRepo } from './notes-lookup.ts'
+import { DOCUMENTATION_SECTION_NAME, DOCUMENTATION_SECTION_ORDER, documentationGuidance, missingNoteNotice, terminalDocumentationGuidance } from './guidance.ts'
 import { SCAN_HISTORY_CAP, docPolicyDomainSpec } from './spec.ts'
 import type { DocScanRecord } from './spec.ts'
 
@@ -69,7 +76,8 @@ export type { IndexedDoc, ScanResult } from './scan.ts'
 export { DocsIndex } from './search.ts'
 export type { DocsSearchHit } from './search.ts'
 export { agentsText, conventionsText, projectNoteFor, scaffoldVault } from './scaffold.ts'
-export { gitToplevel, noteForRepo, parseNotePointers, projectNotes } from './notes-lookup.ts'
+export { gitToplevel, noteForRepo, parseNotePointers, projectNotes, repoPaths } from './notes-lookup.ts'
+export { DOCUMENTATION_SECTION_NAME, DOCUMENTATION_SECTION_ORDER, documentationGuidance, missingNoteNotice, terminalDocumentationGuidance } from './guidance.ts'
 export type { ProjectNote } from './notes-lookup.ts'
 export { SCAN_HISTORY_CAP, docPolicyDomainSpec, docScanRecordSchema } from './spec.ts'
 export type { DocScanRecord } from './spec.ts'
@@ -165,6 +173,23 @@ export class DocPolicy extends Service {
    */
   conventions(): string {
     return conventionsText()
+  }
+
+  /**
+   * The documentation rule for a command-line agent the built-in terminal
+   * launches in `cwd`. `@idealize/ui-terminal` probes for this method and
+   * appends the text to the agent's prompt, because such an agent reads no
+   * harness prompt and no session-start notice.
+   * @param cwd - the shell's working directory.
+   * @returns the guidance, naming the project's note when the folder holds one.
+   */
+  async terminalKnowledge(cwd: string): Promise<string> {
+    const folder = this.folder()
+    if (folder === undefined) return terminalDocumentationGuidance(undefined)
+    const repoToplevel = await gitToplevel(cwd)
+    if (repoToplevel === undefined) return terminalDocumentationGuidance(folder)
+    const note = await noteForRepo(folder, repoToplevel)
+    return terminalDocumentationGuidance(folder, { repoToplevel, notePath: note?.path })
   }
 
   /**
@@ -382,6 +407,16 @@ export function apply(ctx: Context, config: DocPolicyConfig): void {
     )
   })
 
+  // The standing rule in every agent's prompt: where documentation goes and
+  // how the folder is laid out. The text follows the folder setting in force.
+  ctx.inject(['docPolicy', 'systemPrompt'], (promptCtx) => {
+    promptCtx.effect(() => promptCtx.systemPrompt.section({
+      name: DOCUMENTATION_SECTION_NAME,
+      order: DOCUMENTATION_SECTION_ORDER,
+      text: () => documentationGuidance(promptCtx.docPolicy.folder()),
+    }), 'idealize-doc-policy: prompt section')
+  })
+
   ctx.inject(['docPolicy'], (policyCtx) => {
     // Canonical conventions + the project note as model-facing context.
     policyCtx.on('agent/session-start', ({ agent }) => {
@@ -393,16 +428,21 @@ export function apply(ctx: Context, config: DocPolicyConfig): void {
         const toplevel = await gitToplevel(cwd)
         if (toplevel === undefined) return
         const note = await noteForRepo(folder, toplevel)
-        if (note === undefined) return
-        const parts = [
-          clip(service.conventions(), 2_000),
-          clip(await readFile(note.path, 'utf8'), 6_000),
-        ]
-        const text = 'Documentation context for this project (the canonical conventions, then '
-          + `the project's _index note at ${note.path} — update it as work lands):\n\n${parts.join('\n\n---\n\n')}`
+        // A repository with no note yet: say how to create one, or no chat
+        // ever does and the project stays outside the folder for good.
+        const text = note === undefined
+          ? `${missingNoteNotice(folder, toplevel)}\n\n---\n\n${clip(service.conventions(), 2_000)}`
+          : 'Documentation context for this project (the canonical conventions, then '
+            + `the project's _index note at ${note.path} — update it as work lands):\n\n`
+            + [clip(service.conventions(), 2_000), clip(await readFile(note.path, 'utf8'), 6_000)].join('\n\n---\n\n')
         agent.inject(createUserMessage({
           content: [{ type: 'text', text }],
-          source: { kind: 'plugin', plugin: 'idealize-doc-policy', form: 'notice', summary: 'Documentation context injected' },
+          source: {
+            kind: 'plugin',
+            plugin: 'idealize-doc-policy',
+            form: 'notice',
+            summary: note === undefined ? 'Documentation folder has no note for this project' : 'Documentation context injected',
+          },
         }))
       }
       inject().catch((error: unknown) => {

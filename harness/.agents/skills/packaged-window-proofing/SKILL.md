@@ -22,5 +22,10 @@ Round 2 passed ten headless checks; JJ then hit real faults on the packaged wind
 ## Isolation rules (each violated once, at real cost)
 
 - `DSH_HOME` alone is not enough — verify the booted host actually bound your scratch home before the run touches sessions/settings (one proof run edited JJ's live appearance settings; another wrote real feedback rows).
+- A scratch **copy of the live data** restores its terminal chats: each relaunches `claude --dangerously-skip-permissions`, resumes the real session and is sent "continue" (17 Sep 2026: two ran for two minutes and drove the same CDP port as the proof). Launch with `env -i HOME=<scratch home> PATH=/usr/bin:/bin:/usr/sbin:/sbin` so `claude` stops at its login screen, kill that child to leave a plain shell, and check `ps` for `claude` under the instance after the run.
+- A terminal proof must run in the **chat view's** terminal: the drawer pane sits outside the zoomed chat surface and passed while the chat view failed.
+- The scratch instance opens a **real window that looks like JJ's app**. JJ typed a message into one (17 Sep 2026): the turn ran on the copied credentials and exists only in the scratch copy, and the clicks broke two proof runs. Tell JJ before launching, keep it up for minutes, delete the scratch data afterwards.
+- A selection proof compares the **copied text** with the glyphs dragged over (a synthetic `copy` event with a `DataTransfer` on `.xterm`). The highlight always meets the pointer, so a check on the highlight passed while text sat 100px off its cells.
+- One CDP client per run: a second client that sets device metrics refits the grid mid-measurement. `pgrep -f claude` matches a scratchpad path under `/private/tmp/claude-…`; match `dangerously-skip`.
 - `screencapture` from a worker shell returns black without screen-recording permission; capture the renderer headlessly instead.
 - Full `pnpm run lint`/typecheck results are unreliable while any concurrent build rewrites `lib/types` — a "22 pre-existing errors" report on a loaded machine is usually this; re-run on a quiet tree before believing it.

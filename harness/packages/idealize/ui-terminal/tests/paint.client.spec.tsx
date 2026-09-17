@@ -6,7 +6,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TerminalPaint } from '@idealize/appearance/client'
-import { apply, applyTerminalPaint, currentTerminalPaint, reservedGutter, withAlpha, xtermTheme } from '../src/client/index.ts'
+import { apply, applyTerminalPaint, counterZoom, currentTerminalPaint, reservedGutter, withAlpha, xtermTheme } from '../src/client/index.ts'
 
 const PAINT: TerminalPaint = {
   background: '#F7F5F0',
@@ -130,5 +130,42 @@ describe('reservedGutter', () => {
     document.body.append(outer)
     expect(reservedGutter(root)).toBe(0)
     outer.remove()
+  })
+})
+
+describe('counterZoom', () => {
+  const zoomed = (zoom: number): HTMLElement => {
+    const parent = document.createElement('div')
+    Object.defineProperty(parent, 'currentCSSZoom', { value: zoom })
+    return parent
+  }
+
+  it('undoes the chat surface at 20pt, whose zoom of 1.25 put a selection 200px below the pointer', () => {
+    expect(counterZoom(zoomed(1.25))).toBe('0.8')
+  })
+
+  it('multiplies out nested zooms, which the browser reports as one effective value', () => {
+    expect(counterZoom(zoomed(1.25 * 1.154))).toBe('0.6932')
+  })
+
+  it('leaves the root unzoomed when no ancestor zooms, or there is no parent', () => {
+    expect(counterZoom(zoomed(1))).toBe('')
+    expect(counterZoom(null)).toBe('')
+  })
+
+  it('measures past a box-less wrapper, which reports 1 under any zoom (the chat view wraps the root in one)', () => {
+    const surface = zoomed(1.25)
+    const wrapper = document.createElement('div')
+    wrapper.style.display = 'contents'
+    Object.defineProperty(wrapper, 'currentCSSZoom', { value: 1 })
+    surface.append(wrapper)
+    expect(counterZoom(wrapper)).toBe('0.8')
+  })
+
+  it('falls back to the rendered-over-layout width where the browser has no currentCSSZoom', () => {
+    const parent = document.createElement('div')
+    Object.defineProperty(parent, 'offsetWidth', { value: 400 })
+    parent.getBoundingClientRect = () => ({ width: 500 }) as DOMRect
+    expect(counterZoom(parent)).toBe('0.8')
   })
 })

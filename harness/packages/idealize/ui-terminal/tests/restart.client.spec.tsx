@@ -9,8 +9,9 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import {
-  closeTerminal, disposeTerminals, restartTerminal, TerminalView, type StreamEvent, type TerminalTransport,
+  closeTerminal, disposeTerminals, restartTerminal, SURFACE_EXEMPT, TerminalView, type StreamEvent, type TerminalTransport,
 } from '../src/client/TerminalView.tsx'
+import { SURFACE_EXEMPT_ATTRIBUTE } from '@idealize/appearance/src/surface-css.ts'
 
 // jsdom paints nothing, so xterm's renderer has no dimensions and its fit
 // addon throws on the first measure. The grid itself is not under test here —
@@ -107,6 +108,18 @@ describe('restartTerminal', () => {
       render(<TerminalView sessionId="s3" cwd="/tmp" activity="coding" transport={transport} t={t as never} />)
     })
     expect(opens).toEqual([{ key: 's3', activity: 'design' }])
+  })
+})
+
+describe('surface exemption', () => {
+  it('keeps the hosting surface\'s face, weight and tracking off the grid, which put a selection 100px from the pointer', async () => {
+    const { transport } = recorder()
+    let container!: HTMLElement
+    await act(async () => {
+      ({ container } = render(<TerminalView sessionId="s1" cwd="/tmp" activity="coding" transport={transport} t={t as never} />))
+    })
+    expect(SURFACE_EXEMPT).toBe(SURFACE_EXEMPT_ATTRIBUTE)
+    expect(container.querySelector('[data-testid="idealize-terminal"]')?.hasAttribute(SURFACE_EXEMPT_ATTRIBUTE)).toBe(true)
   })
 })
 

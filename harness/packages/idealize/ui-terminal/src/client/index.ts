@@ -36,7 +36,8 @@ import { createTerminalPane, type TerminalPaneProps } from './TerminalPane.tsx'
 
 export { ModeShortcut, isToggleShortcut, toggledView } from './ModeShortcut.tsx'
 export {
-  applyTerminalPaint, currentTerminalPaint, httpTransport, reservedGutter, restartTerminal, TerminalView, withAlpha, xtermTheme,
+  applyTerminalPaint, counterZoom, currentTerminalPaint, httpTransport, reservedGutter, restartTerminal, SURFACE_EXEMPT, TerminalView,
+  withAlpha, xtermTheme,
 } from './TerminalView.tsx'
 export type { TerminalTransport, StreamEvent } from './TerminalView.tsx'
 export type { TerminalKey } from './locales.ts'

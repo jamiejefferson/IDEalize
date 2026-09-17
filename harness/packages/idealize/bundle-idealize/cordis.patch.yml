@@ -168,12 +168,18 @@
     - id: idealize-transcribe
       name: '@idealize/transcribe'
 
-# S10 — feedback + announcements over a Supabase project named by the
-# environment (IDEALIZE_FEEDBACK_ENDPOINT / IDEALIZE_FEEDBACK_KEY); nothing
-# ships in the code or this profile.
+# S10 — feedback + announcements. Everyone's feedback goes to the Supabase
+# project V0 uses (JJ, 17 Sep 2026, reversing the 16 Sep no-key rule for this
+# one pair). The key is the publishable one V0 already ships in its public
+# repo and install.sh; row-level security limits it to feedback inserts and
+# announcement reads. A settings.yaml `idealize-feedback:` section still
+# overrides it.
 - insert:
     - id: idealize-feedback
       name: '@idealize/feedback'
+      config:
+        endpoint: https://xlswtyprnmiymfjdbaez.supabase.co/rest/v1
+        publishableKey: sb_publishable_ISmJRrzDN3Z6OEdEEZe2Cw_5YvSDGkt
 
 # Phase 4 — the announcement banner (version-gated, dismiss-by-id), the done
 # chime + native notification over the host bridge's feed, and the Studio's
