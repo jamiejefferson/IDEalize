@@ -123,6 +123,7 @@
     "dist:mac-public": "node scripts/package-mac.ts --public",
     "dist:win": "node scripts/package-win.ts",
     "dist:win-portable": "node scripts/package-win-portable.ts",
+    "pack:pc": "node scripts/make-pc-build-pack.ts",
     "prepack": "yarn run check"
   },
   "dependencies": {

@@ -67,7 +67,7 @@ run gitleaks detect --no-git --source "$DESKTOP" --redact --exit-code 0 --report
 run gitleaks detect --no-git --source "$HARNESS" --redact --exit-code 0 --report-path "$EXPORT/leaks-harness.json"
 if [ "$GO" = 1 ]; then echo "gitleaks findings (known: test fixtures, the website download gate, a placeholder):"; python3 -c "import json,sys; [print(' ', f['File'], f['RuleID']) for p in sys.argv[1:] for f in json.load(open(p))]" "$EXPORT/leaks-desktop.json" "$EXPORT/leaks-harness.json"; fi
 if [ "$GO" = 1 ]; then
-  [ -n "$(git -C "$DESKTOP" status --porcelain)" ] && { echo "desktop tree is dirty"; exit 1; }
+  [ -n "$(git -C "$DESKTOP" status --porcelain --untracked-files=no)" ] && { echo "desktop tree is dirty"; exit 1; }
   [ -n "$(git -C "$HARNESS" status --porcelain | grep -v 'tool-cordis/src/api-catalog.ts')" ] && { echo "harness tree is dirty"; exit 1; }
 fi
 

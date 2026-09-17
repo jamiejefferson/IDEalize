@@ -219,6 +219,10 @@ Python and Visual Studio C++ Build Tools are not required. The Windows command u
 
 This local command deliberately strips Windows certificate variables and sets `signExecutable=false`. Its output is installable for testing but has no Authenticode publisher, so Windows can display an Unknown publisher or SmartScreen warning. A signed Windows release, certificate verification, installer upgrade/uninstall testing, and native UI/sandbox smoke remain separate release gates.
 
+#### PC build pack
+
+`yarn pack:pc` (`scripts/make-pc-build-pack.ts`) writes `dist/pc-build-pack/IDEalize-PC-build-pack-<version>-<commit>.zip`: the committed tree from `git archive HEAD` minus `.idealize/`, the three files in `pc-build-pack/` (`Build-IDEalize.cmd`, `build.ps1`, `README.txt`, written with CRLF line endings), and a `PACK.json` naming the version, commit, and expected outputs. It exists for a colleague with a Windows PC and no project knowledge: they unzip it, double-click the launcher, and send back the `OUTPUT` folder. The launcher runs exactly what the release workflow's Windows job runs (`corepack yarn install --immutable`, `dist:win`, `dist:win-portable`), refuses a non-x64 PC or a Node release outside 22.19+/24.x with install instructions, sets `COREPACK_ENABLE_DOWNLOAD_PROMPT=0` so Corepack fetches Yarn without asking, and collects the versioned installer, its `IDEalize-V1-Setup.exe` copy, the portable zip, `SHA256SUMS-windows.txt` in `sha256sum` format, and `build-log.txt`. The pack needs no git, GitHub access, Python, or Visual Studio on the PC; it does need network for the registry, the Electron binary, and electron-builder's NSIS toolchain. The generator warns about uncommitted changes and packs the commit regardless; `assertPackContents` refuses a pack missing `yarn.lock`, `vendor/freellmapi/server.mjs`, or the other entries the build reads, or one still carrying `.idealize/`.
+
 ### Windows x64 portable ZIP
 
 Use `yarn dist:win-portable` on a native Windows x64 machine to create an unsigned portable ZIP:
@@ -227,7 +231,7 @@ Use `yarn dist:win-portable` on a native Windows x64 machine to create an unsign
 corepack.cmd yarn dist:win-portable
 ```
 
-The output is `dsh-plugin-desktop\\dist\\IDEalize-1.0.0-x64-Portable.zip`. Extract it to any writable directory and launch `IDEalize V1.exe` without an installer, administrator access, Start Menu registration, or uninstall step. The application still keeps its profiles, logs, and caches in the normal Windows user-data directory, so this is portable distribution rather than a self-contained data sandbox. Portable archives are not handed to the NSIS updater and must be replaced manually when a new version is released. Local builds are unsigned and may trigger an Unknown publisher or SmartScreen warning; signed portable artifacts remain a release gate.
+The output is `dsh-plugin-desktop\\dist\\IDEalize-<version>-x64-Portable.zip`. Extract it to any writable directory and launch `IDEalize V1.exe` without an installer, administrator access, Start Menu registration, or uninstall step. The application still keeps its profiles, logs, and caches in the normal Windows user-data directory, so this is portable distribution rather than a self-contained data sandbox. Portable archives are not handed to the NSIS updater and must be replaced manually when a new version is released. Local builds are unsigned and may trigger an Unknown publisher or SmartScreen warning; signed portable artifacts remain a release gate.
 
 ### macOS DMG smoke
 

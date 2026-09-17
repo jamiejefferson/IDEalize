@@ -54,10 +54,12 @@ fi
 # (~/Library/Application Support/IDEalize) is left in place.
 V0_APP="/Applications/IDEalize.app"
 if [ -d "$V0_APP" ]; then
-  if pgrep -x IDEalize >/dev/null 2>&1; then
+  if pgrep -f "${V0_APP}/Contents/MacOS/" >/dev/null 2>&1; then
     echo "==> Quitting the original IDEalize…"
     osascript -e 'quit app "IDEalize"' 2>/dev/null || true
     sleep 2
+    pgrep -f "${V0_APP}/Contents/MacOS/" >/dev/null 2>&1 && pkill -TERM -f "${V0_APP}/Contents/MacOS/" 2>/dev/null || true
+    sleep 1
   fi
   echo "==> Removing the original IDEalize app (its data stays in ~/Library/Application Support/IDEalize)…"
   rm -rf "$V0_APP" 2>/dev/null || sudo rm -rf "$V0_APP"
