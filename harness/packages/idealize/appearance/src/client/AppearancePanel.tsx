@@ -14,9 +14,9 @@ import {
   type SurfaceAppearance, type SurfaceId, type TerminalAppearanceSettings,
 } from '../appearance-settings.ts'
 import { TERMINAL_THEMES, terminalTheme } from '../terminal-themes.ts'
-import { blend, parseHex, requireHex, toHex, UI_CONTRAST } from '../colour.ts'
-import { presetPalette, resolveAppearance, surfaceHex, type Palette } from '../presets.ts'
-import { actionAccent, gradientCss, seedStops, SURFACE_EXEMPT_ATTRIBUTE, type PanelScalars } from '../surface-css.ts'
+import { blend, parseHex, requireHex, TEXT_CONTRAST, toHex, UI_CONTRAST } from '../colour.ts'
+import { presetPalette, resolveAppearance, surfaceHex, type Palette, type Tokens } from '../presets.ts'
+import { actionAccent, gradientCss, seedStops, SURFACE_EXEMPT_ATTRIBUTE, surfaceGrounds, surfaceInk, type PanelScalars } from '../surface-css.ts'
 import { SECTIONS, type AppearanceStore, type ModeId, type SectionId } from './store.ts'
 import type { AppearanceKey } from './locales.ts'
 import css from './AppearancePanel.module.css'
@@ -538,6 +538,8 @@ interface TabContext {
   settings: AppearanceSettings
   palette: Palette
   surfaceHex: string
+  /** The scheme's resolved layer: the ink a surface without a text colour inherits. */
+  tokens: Tokens
   fonts: string[] | undefined
   face: Omit<AppearancePanelComponentProps, 'useAppearance' | 't'>
 }
@@ -658,8 +660,12 @@ function TerminalTab({ t, settings, fonts, monospaced, face }: TabContext & { mo
 
 type SurfaceTabProps = TabContext & { id: SurfaceId; scheme: 'light' | 'dark' }
 
-function SurfaceTab({ t, settings, palette, surfaceHex, fonts, face, id, scheme }: SurfaceTabProps) {
+function SurfaceTab({ t, settings, palette, surfaceHex, tokens, fonts, face, id, scheme }: SurfaceTabProps) {
   const surface = settings.surfaces[id]
+  // The same floors surfaceCss applies, so the readout names what the surface paints.
+  const grounds = surfaceGrounds(surface, { ground: palette.ground, surface: surfaceHex, tokens, scheme })
+  const ink = grounds === undefined ? undefined : surfaceInk(surface, { ground: palette.ground, tokens }, grounds)
+  const text = ink?.['--dsw-alias-label-primary']
   const set = (patch: Partial<SurfaceAppearance>): void => { face.setSurface(id, patch) }
   // The schema bounds the weight index to 0–9.
   const weight = requireWeight(surface.fontWeight)
@@ -706,6 +712,14 @@ function SurfaceTab({ t, settings, palette, surfaceHex, fonts, face, id, scheme 
         {surface.bgMode !== 'inherit' && (
           <SliderRow label={t('opacity.label')} min={0} max={1} step={0.02} value={surface.bgOpacity} display={v => `${Math.round(v * 100)}%`} onChange={(next) => { set({ bgOpacity: next }) }} />
         )}
+        {ink !== undefined && text !== undefined && (
+          <span className={css.hint}>
+            {t('surface.readsAt', { ratio: text.ratio.toFixed(1) })}
+            {text.painted < TEXT_CONTRAST
+              ? ` ${t('surface.unreachable', { target: TEXT_CONTRAST.toFixed(1), ratio: text.painted.toFixed(1) })}`
+              : Object.values(ink).some(token => token.deepened) && ` ${t('surface.deepened', { text: TEXT_CONTRAST.toFixed(1), icon: UI_CONTRAST.toFixed(1) })}`}
+          </span>
+        )}
       </section>
 
       {id === 'doc' && (
@@ -744,7 +758,7 @@ export function AppearancePanel(props: AppearancePanelComponentProps) {
   const layerHex = surfaceHex(side)
   const groundLocked = resolved.forcedScheme !== undefined && parseHex(settings.groundHex) !== undefined
   const themeName = t(PRESET_LABEL[settings.preset])
-  const shared: TabContext = { t, settings, palette, surfaceHex: layerHex, fonts, face }
+  const shared: TabContext = { t, settings, palette, surfaceHex: layerHex, tokens: side.tokens, fonts, face }
 
   // The panel sits inside the drawer surface it edits; the exempt hook keeps
   // that surface's typography and ink off the panel so it stays legible.

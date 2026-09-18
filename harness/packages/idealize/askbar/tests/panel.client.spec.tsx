@@ -70,6 +70,11 @@ describe('Panel', () => {
     expect(view.getByRole('dialog').textContent).toContain('/ · Ready')
   })
 
+  it('says a finished agent is safe to close', () => {
+    const view = render(<Panel chip={{ ...CHIP, state: 'finished' }} project='/work/demo' edge='right' fromHold={false} initialDraft='' onClose={vi.fn()} onExpand={vi.fn()} t={t} />)
+    expect(view.getByRole('dialog').textContent).toContain('demo · Finished, safe to close')
+  })
+
   it('sends nothing while the draft is empty', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

@@ -13,6 +13,7 @@ const PAINT: TerminalPaint = {
   foreground: '#2A2A27',
   cursor: '#B67A12',
   selection: '#E7E0D1',
+  selectionForeground: '#2A2A27',
   ansi: [
     '#000000', '#110000', '#001100', '#111100', '#000011', '#110011', '#001111', '#111111',
     '#220000', '#330000', '#003300', '#333300', '#000033', '#330033', '#003333', '#333333',
@@ -45,6 +46,7 @@ describe('xtermTheme', () => {
     expect(theme.foreground).toBe('#2A2A27')
     expect(theme.cursor).toBe('#B67A12')
     expect(theme.selectionBackground).toBe('#E7E0D1')
+    expect(theme.selectionForeground).toBe('#2A2A27')
     expect(theme.black).toBe('#000000')
     expect(theme.white).toBe('#111111')
     expect(theme.brightBlack).toBe('#220000')

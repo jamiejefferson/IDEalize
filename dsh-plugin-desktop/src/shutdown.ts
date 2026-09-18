@@ -1,7 +1,57 @@
 /** Application-level quit sources that must remain active before any window mounts. */
 
+import type { SpawnOptions } from 'node:child_process'
+
 /** Maximum grace allowed for the Cordis tree to dispose before native exit. */
 export const DESKTOP_SHUTDOWN_TIMEOUT_MS = 5_000
+
+/**
+ * Seconds the native exit may take before the exit watchdog kills the process.
+ * Electron's exit frees the Node environment on the main thread, and that
+ * cleanup waits without a deadline for every libuv handle to close (a 79 s
+ * hang on 18 Sep 2026; see the owning Agent Note).
+ */
+export const DESKTOP_EXIT_WATCHDOG_SECONDS = 10
+
+/** Child-process surface the exit watchdog needs. */
+export type DesktopWatchdogSpawn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => { unref(): void }
+
+/**
+ * Start a detached process that kills this one if the native exit stalls.
+ * A timer inside the process cannot do this: once Electron starts freeing the
+ * Node environment no JavaScript runs. The watchdog outlives the parent, so a
+ * clean exit leaves it to kill a process id that no longer exists.
+ * @param pid - process id of the application being shut down.
+ * @param platform - Node platform name; Windows is skipped (no `/bin/sh`).
+ * @param spawn - child-process launcher.
+ * @param graceSeconds - seconds the native exit may take.
+ * @returns whether a watchdog was started.
+ */
+export function armDesktopExitWatchdog(
+  pid: number,
+  platform: NodeJS.Platform,
+  spawn: DesktopWatchdogSpawn,
+  graceSeconds: number = DESKTOP_EXIT_WATCHDOG_SECONDS,
+): boolean {
+  if (platform === 'win32') return false
+  if (!Number.isSafeInteger(pid) || pid <= 1) return false
+  try {
+    spawn(
+      '/bin/sh',
+      ['-c', `sleep ${String(graceSeconds)}; kill -9 ${String(pid)} 2>/dev/null`],
+      { detached: true, stdio: 'ignore' },
+    ).unref()
+    return true
+  } catch {
+    // Spawn failure (process table full, missing shell) leaves the ordinary
+    // exit path unchanged; the watchdog only ever shortens a stalled exit.
+    return false
+  }
+}
 
 /** Bounded, escalating shutdown controller for the Electron application. */
 export interface DesktopShutdown {
@@ -17,6 +67,8 @@ export interface DesktopNativeExit {
   relaunch(): void
   /** End the current Electron process without another quit event. */
   exit(code: number): void
+  /** Bound the native exit from outside the process; absent in tests and on Windows. */
+  armExitWatchdog?(): void
 }
 
 /** Final-exit state shared by ordinary quits and mode-change relaunches. */
@@ -46,6 +98,7 @@ export function createDesktopExitCoordinator(
       beforeExit()
       native.prepareToQuit()
       if (relaunchRequested && code === 0) native.relaunch()
+      native.armExitWatchdog?.()
       native.exit(code)
     },
   }

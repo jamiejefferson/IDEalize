@@ -44,10 +44,11 @@ import type { Domain, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { RULESET_VERSION } from './policy/ruleset.ts'
 import type { RulesetVersion } from './policy/ruleset.ts'
 import { conventionsText, scaffoldVault } from './scaffold.ts'
-import { scanFolder } from './scan.ts'
+import { fingerprintFolder, scanFolder } from './scan.ts'
 import { DocsIndex } from './search.ts'
 import type { DocsSearchHit } from './search.ts'
-import { gitToplevel, noteForRepo } from './notes-lookup.ts'
+import { gitToplevel, noteForRepo, projectDocsFolder } from './notes-lookup.ts'
+import type { ProjectDocsFolder } from './notes-lookup.ts'
 import { DOCUMENTATION_SECTION_NAME, DOCUMENTATION_SECTION_ORDER, documentationGuidance, missingNoteNotice, terminalDocumentationGuidance } from './guidance.ts'
 import { SCAN_HISTORY_CAP, docPolicyDomainSpec } from './spec.ts'
 import type { DocScanRecord } from './spec.ts'
@@ -71,12 +72,12 @@ export { parseFrontmatter } from './frontmatter.ts'
 export type { Frontmatter } from './frontmatter.ts'
 export { classifyPath, validateDoc } from './classify.ts'
 export type { DocKind, Finding } from './classify.ts'
-export { scanFolder } from './scan.ts'
+export { fingerprintFolder, scanFolder } from './scan.ts'
 export type { IndexedDoc, ScanResult } from './scan.ts'
 export { DocsIndex } from './search.ts'
 export type { DocsSearchHit } from './search.ts'
 export { agentsText, conventionsText, projectNoteFor, scaffoldVault } from './scaffold.ts'
-export { gitToplevel, noteForRepo, parseNotePointers, projectNotes, repoPaths } from './notes-lookup.ts'
+export { gitToplevel, noteForRepo, parseNotePointers, projectDocsFolder, projectNotes, repoPaths } from './notes-lookup.ts'
 export { DOCUMENTATION_SECTION_NAME, DOCUMENTATION_SECTION_ORDER, documentationGuidance, missingNoteNotice, terminalDocumentationGuidance } from './guidance.ts'
 export type { ProjectNote } from './notes-lookup.ts'
 export { SCAN_HISTORY_CAP, docPolicyDomainSpec, docScanRecordSchema } from './spec.ts'
@@ -131,6 +132,8 @@ export class DocPolicy extends Service {
   private last: DocScanRecord | undefined
   private lastRecorded = false
   private scanCounter = 0
+  /** Folder and fingerprint the last completed scan covered. */
+  private lastScanned: { folder: string; fingerprint: string } | undefined
 
   constructor(ctx: Context, config: DocPolicyConfig) {
     super(ctx, 'docPolicy')
@@ -193,9 +196,25 @@ export class DocPolicy extends Service {
   }
 
   /**
+   * The folder holding one project's documentation inside the configured
+   * documentation folder: the folder of the note whose `repo:` names the
+   * project, else `Projects/<project folder name>` when it exists.
+   * @param projectPath - absolute path of the project's own folder.
+   * @returns the folder and how it was found, or `undefined` with no documentation folder or no match.
+   */
+  async projectFolder(projectPath: string): Promise<ProjectDocsFolder | undefined> {
+    const folder = this.folder()
+    return folder === undefined ? undefined : projectDocsFolder(folder, projectPath)
+  }
+
+  /**
    * Scaffold and scan the configured folder, rebuild the retrieval index,
    * and record the scan to the storage domain when attached (DOC-04/06/07).
-   * Serialized: concurrent calls run one at a time in order.
+   * Serialized: concurrent calls run one at a time in order. A call that
+   * finds the folder's {@link fingerprintFolder} unchanged since the last
+   * scan returns that scan's record and neither re-reads, re-indexes nor
+   * records: sessions flush every few seconds, and the index rebuild runs
+   * synchronously on the Host thread.
    * @returns the scan record, or `undefined` when no folder is configured.
    */
   scan(): Promise<DocScanRecord | undefined> {
@@ -203,6 +222,7 @@ export class DocPolicy extends Service {
       const folder = this.folder()
       if (folder === undefined) {
         this.last = undefined
+        this.lastScanned = undefined
         await this.index.replaceAll([])
         return undefined
       }
@@ -210,6 +230,12 @@ export class DocPolicy extends Service {
       if (created.length > 0) {
         this.ctx.logger.info(`idealize-doc-policy: scaffolded ${created.join(', ')} in ${folder}`)
       }
+      const fingerprint = await fingerprintFolder(folder)
+      if (
+        this.last !== undefined
+        && this.lastScanned?.folder === folder
+        && this.lastScanned.fingerprint === fingerprint
+      ) return this.last
       const result = await scanFolder(folder)
       await this.index.replaceAll(result.docs)
       const record: DocScanRecord = {
@@ -219,6 +245,9 @@ export class DocPolicy extends Service {
         findings: result.findings,
       }
       this.last = record
+      // The fingerprint predates the scan: an edit that lands during the scan
+      // makes the next fingerprint differ, so that edit is scanned then.
+      this.lastScanned = { folder, fingerprint }
       this.lastRecorded = false
       await this.record(record)
       return record

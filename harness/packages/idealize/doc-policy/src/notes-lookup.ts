@@ -8,9 +8,9 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { readdir, readFile, realpath } from 'node:fs/promises'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { parseFrontmatter } from './frontmatter.ts'
 
 const run = promisify(execFile)
@@ -119,4 +119,46 @@ export async function noteForRepo(folder: string, repoToplevel: string): Promise
     }
   }
   return undefined
+}
+
+/** Where a project's documentation folder was found. */
+export interface ProjectDocsFolder {
+  /** Absolute path of the project's folder inside the documentation folder. */
+  path: string
+  /** `note`: its `_index.md` names the project in `repo:`; `name`: `Projects/<name>` matches the project folder's name. */
+  source: 'note' | 'name'
+}
+
+/**
+ * The folder holding one project's documentation. The project note's `repo:`
+ * pointer decides first, because a note can sit under any name; a project
+ * with no note falls back to the `Projects/` entry whose name equals the
+ * project folder's, compared without case.
+ * @param folder - absolute path of the documentation folder.
+ * @param projectPath - absolute path of the project's own folder.
+ * @returns the project's documentation folder, or `undefined` when the documentation folder holds none.
+ */
+export async function projectDocsFolder(folder: string, projectPath: string): Promise<ProjectDocsFolder | undefined> {
+  let resolved: string
+  try {
+    resolved = await realpath(projectPath)
+  } catch {
+    // A project folder that has gone matches no note and no name.
+    return undefined
+  }
+  const note = await noteForRepo(folder, await gitToplevel(resolved) ?? resolved)
+  if (note !== undefined) return { path: dirname(note.path), source: 'note' }
+  const projectsDir = join(folder, 'Projects')
+  let entries: string[]
+  try {
+    entries = await readdir(projectsDir)
+  } catch {
+    // No Projects/ folder: nothing to match by name.
+    return undefined
+  }
+  const wanted = basename(resolved).toLowerCase()
+  const match = entries.find(entry => entry.toLowerCase() === wanted)
+  if (match === undefined) return undefined
+  const path = join(projectsDir, match)
+  return (await stat(path)).isDirectory() ? { path, source: 'name' } : undefined
 }

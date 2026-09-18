@@ -86,6 +86,36 @@ describe('doc-policy real composition', () => {
     expect(state.lastScan?.policyVersion).toBe(RULESET_VERSION.id)
   }, 30_000)
 
+  it('keeps the last scan while the folder is unchanged, and rescans after an edit', async () => {
+    root = await mkdtemp(join(tmpdir(), 'idealize-doc-policy-skip-'))
+    const vault = join(root, 'vault')
+    await mkdir(vault, { recursive: true })
+    const ctx = new Context()
+    context = ctx
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(Storage)
+    await ctx.plugin(StorageJson, { root: join(root, 'storages') })
+    await ctx.plugin(StorageDomain, { backend: 'json' })
+    await ctx.plugin(docPolicy, { documentationFolder: vault })
+
+    const first = await ctx.docPolicy.scan()
+    const scans = ctx.storageDomain.get('idealize_docs')!.table('scans')
+    const recordedAfterFirst = scans.size
+
+    // Unchanged folder: the same record object comes back and no history row is added.
+    expect(await ctx.docPolicy.scan()).toBe(first)
+    expect(await ctx.docPolicy.scan()).toBe(first)
+    expect(scans.size).toBe(recordedAfterFirst)
+
+    await writeFile(join(vault, 'Reference', 'verdigris.md'), '# Verdigris\n\nA copper patina.\n')
+    const second = await ctx.docPolicy.scan()
+    expect(second).not.toBe(first)
+    expect(second?.docCount).toBe((first?.docCount ?? 0) + 1)
+    expect(scans.size).toBe(recordedAfterFirst + 1)
+    expect((await ctx.docPolicy.search('copper patina', 5)).map(hit => hit.path)).toEqual(['Reference/verdigris.md'])
+  }, 30_000)
+
   it('lets a session flush return before its rescan finishes, and settles the rescan at disposal', async () => {
     root = await mkdtemp(join(tmpdir(), 'idealize-doc-policy-flush-'))
     const vault = join(root, 'vault')

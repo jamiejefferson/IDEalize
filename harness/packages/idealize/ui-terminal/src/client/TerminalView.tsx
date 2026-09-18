@@ -7,6 +7,15 @@
  * paint (theme, font, line height, margins) arrives through
  * {@link applyTerminalPaint} and restyles every cached and future grid;
  * without it the grid sits on the page's alias tokens.
+ *
+ * Grid size has one route in and one route out. In: every cause that changes
+ * the host's box or the cell (the window, a column drag, the paint's font,
+ * line height or margin, a surface zoom, a late web font, a hidden view coming
+ * back) ends in {@link scheduleRefit}, one fit per frame. Out: the PTY hears
+ * every change of cols/rows from xterm's own `onResize`, so no caller can
+ * resize the grid and forget the shell. The host's height comes from its
+ * column alone (`contain: size` in the stylesheet), so the rows xterm has
+ * already drawn never hold the box open against a shrinking window.
  */
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
@@ -102,8 +111,10 @@ interface Attachment {
   /** Bytes the server already replayed; a reconnect skips that prefix. */
   replayed: number
   listeners: Set<() => void>
-  /** The transport that opened the PTY (a paint-driven refit resizes through it). */
+  /** The transport that opened the PTY (a restart or an archive closes through it). */
   transport: TerminalTransport | undefined
+  /** The pending refit's animation frame; undefined when none is queued. */
+  frame: number | undefined
 }
 
 const attachments = new Map<string, Attachment>()
@@ -124,10 +135,7 @@ const restartListeners = new Set<(sessionId: string) => void>()
 
 /** Forget every cached grid (plugin unload). */
 export function disposeTerminals(): void {
-  for (const attachment of attachments.values()) {
-    attachment.detach?.()
-    attachment.terminal.dispose()
-  }
+  for (const attachment of attachments.values()) discard(attachment)
   attachments.clear()
   restartBrains.clear()
 }
@@ -150,8 +158,7 @@ export async function restartTerminal(sessionId: string, brainId: string): Promi
   const attachment = attachments.get(sessionId)
   if (attachment !== undefined) {
     attachments.delete(sessionId)
-    attachment.detach?.()
-    attachment.terminal.dispose()
+    discard(attachment)
     const { id, transport } = attachment
     if (id !== undefined) await (transport ?? httpTransport).close(id)
   }
@@ -170,10 +177,64 @@ export async function closeTerminal(sessionId: string): Promise<void> {
   if (attachment === undefined) return
   attachments.delete(sessionId)
   restartBrains.delete(sessionId)
-  attachment.detach?.()
-  attachment.terminal.dispose()
+  discard(attachment)
   const { id, transport } = attachment
   if (id !== undefined) await (transport ?? httpTransport).close(id)
+}
+
+/** End one grid: its queued refit, its stream and keys, and the xterm instance. */
+function discard(attachment: Attachment): void {
+  if (attachment.frame !== undefined) cancelAnimationFrame(attachment.frame)
+  attachment.frame = undefined
+  attachment.detach?.()
+  attachment.terminal.dispose()
+}
+
+/**
+ * Fit one grid to its host now. A host without a box (a hidden view, a column
+ * dragged shut) is left alone: the fit addon would count one row for it, and
+ * the agent in the shell would redraw its whole screen for a one-row terminal.
+ * The grid keeps its size and is fitted when the box returns.
+ * @param attachment - the grid to fit.
+ */
+function refit(attachment: Attachment): void {
+  const host = attachment.terminal.element?.parentElement
+  if (host === null || host === undefined) return
+  if (host.clientWidth === 0 || host.clientHeight === 0) return
+  attachment.fit.fit()
+}
+
+/**
+ * Queue one fit for the next frame. A window drag reports a size per frame and
+ * a paint change lands as several writes (options now, the margin's padding on
+ * the render after), so callers ask as often as they like and the grid is
+ * fitted once, against the layout the frame settles on.
+ * @param attachment - the grid to fit.
+ */
+function scheduleRefit(attachment: Attachment): void {
+  if (attachment.frame !== undefined) return
+  attachment.frame = requestAnimationFrame(() => {
+    attachment.frame = undefined
+    refit(attachment)
+  })
+}
+
+/**
+ * Measure every grid's cell again and refit. xterm measures its cell when the
+ * font options change and never when the face behind them arrives: a web font
+ * that finishes loading after the grid opened leaves the cell sized for the
+ * fallback face. xterm has no public call for it, so the family is set to an
+ * equivalent stack and back, which runs the measurement on the loaded face.
+ */
+function remeasureTerminals(): void {
+  for (const attachment of attachments.values()) {
+    const { terminal } = attachment
+    if (terminal.element === undefined) continue
+    const family = terminal.options.fontFamily ?? 'monospace'
+    terminal.options.fontFamily = `${family}, monospace`
+    terminal.options.fontFamily = family
+    scheduleRefit(attachment)
+  }
 }
 
 function notify(attachment: Attachment): void {
@@ -194,7 +255,17 @@ function createAttachment(): Attachment {
   })
   const fit = new FitAddon()
   terminal.loadAddon(fit)
-  return { terminal, fit, id: undefined, detach: undefined, exited: undefined, replayed: 0, listeners: new Set(), transport: undefined }
+  return {
+    terminal,
+    fit,
+    id: undefined,
+    detach: undefined,
+    exited: undefined,
+    replayed: 0,
+    listeners: new Set(),
+    transport: undefined,
+    frame: undefined,
+  }
 }
 
 // ── appearance paint ─────────────────────────────────────────────────────
@@ -298,6 +369,7 @@ export function xtermTheme(next: TerminalPaint): ITheme {
     foreground: next.foreground,
     cursor: next.cursor,
     selectionBackground: next.selection,
+    selectionForeground: next.selectionForeground,
     black: slot(0),
     red: slot(1),
     green: slot(2),
@@ -331,20 +403,16 @@ function styleTerminal(terminal: Terminal): void {
 
 /**
  * Apply the appearance panel's terminal paint to every cached grid and every
- * grid created after; a font change refits the grid and pushes the new
- * cols/rows to its PTY. Undefined returns to the page-token fallback.
+ * grid created after. A mounted grid is refitted on the next frame, after the
+ * view has rendered the paint's margin, and the PTY hears the new cols/rows
+ * through the grid's `onResize`. Undefined returns to the page-token fallback.
  * @param next - the resolved paint, or undefined to clear.
  */
 export function applyTerminalPaint(next: TerminalPaint | undefined): void {
   paint = next
   for (const attachment of attachments.values()) {
     styleTerminal(attachment.terminal)
-    if (attachment.terminal.element !== undefined) {
-      attachment.fit.fit()
-      if (attachment.id !== undefined && attachment.exited === undefined) {
-        attachment.transport?.resize(attachment.id, attachment.terminal.cols, attachment.terminal.rows)
-      }
-    }
+    if (attachment.terminal.element !== undefined) scheduleRefit(attachment)
     notify(attachment)
   }
   for (const listener of paintListeners) listener()
@@ -407,6 +475,11 @@ async function connect(
   attachment.exited = undefined
   transport.resize(id, terminal.cols, terminal.rows)
   const keys = terminal.onData((data) => { transport.input(id, data) })
+  // The one route a grid size takes to the shell: whatever refitted the grid,
+  // the PTY is told, and an agent's full-screen UI redraws for the new size.
+  const sizes = terminal.onResize(({ cols, rows }) => {
+    if (attachment.exited === undefined) transport.resize(id, cols, rows)
+  })
   const detachStream = transport.stream(id, (event) => {
     if (event.kind === 'replay') {
       // A reconnect replays what this grid already holds; write only the tail.
@@ -427,6 +500,7 @@ async function connect(
   })
   attachment.detach = () => {
     keys.dispose()
+    sizes.dispose()
     detachStream()
     attachment.detach = undefined
   }
@@ -471,6 +545,14 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
     return () => { paintListeners.delete(rerender) }
   }, [])
 
+  // A web font that lands after the grid opened changes the cell under it.
+  useEffect(() => {
+    const fonts = document.fonts as FontFaceSet | undefined
+    if (fonts === undefined) return
+    fonts.addEventListener('loadingdone', remeasureTerminals)
+    return () => { fonts.removeEventListener('loadingdone', remeasureTerminals) }
+  }, [])
+
   // The ground's reach across the scroller's reserved gutter. Measured rather
   // than assumed: the width is the platform's, and the gutter disappears
   // entirely in a shell whose view area does not scroll.
@@ -512,7 +594,8 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
     // xterm ignores a second open(); a cached grid moves its element by hand.
     if (current.terminal.element !== undefined) host.append(current.terminal.element)
     else current.terminal.open(host)
-    current.fit.fit()
+    // Now, not next frame: the open below reports this size to the host.
+    refit(current)
     current.terminal.focus()
     if (current.id === undefined) {
       // The switched-to brain wins over the chat's preset: a started chat keeps
@@ -520,12 +603,9 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
       const launchAs = restartBrains.get(sessionId) ?? activity
       void connect(current, transport, { key: sessionId, cwd, activity: launchAs, plain }, setError)
     }
-    const observer = new ResizeObserver(() => {
-      current.fit.fit()
-      if (current.id !== undefined && current.exited === undefined) {
-        transport.resize(current.id, current.terminal.cols, current.terminal.rows)
-      }
-    })
+    // The host's content box moves with the window, a column drag, the paint's
+    // margin, a surface zoom, and the view coming back from `display: none`.
+    const observer = new ResizeObserver(() => { scheduleRefit(current) })
     observer.observe(host)
     return () => {
       observer.disconnect()
@@ -540,8 +620,7 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
 
   const restart = (): void => {
     const stale = attachments.get(sessionId)
-    stale?.detach?.()
-    stale?.terminal.dispose()
+    if (stale !== undefined) discard(stale)
     attachments.delete(sessionId)
     setError(undefined)
     bump(n => n + 1)

@@ -10,6 +10,8 @@ A dead alias made this sharper: when the captured folder moves or its drive unmo
 
 ## Decision
 
+The single row of tabs this note describes became two rows on 18 Sep 2026: [project files and documentation](2026-09-18-files-pane-project-files-and-documentation.md) owns the arrangement; the route, the fence and the dead-alias card below are unchanged.
+
 **One route reports the tabs; one fence serves all three.** `GET /idealize/bar/aliases` returns the tabs in header order — `project` (the registered workspaces), `projectsRoot` and `documentation` (the two aliases) — each with its roots and the alias's live probe verdict, so the panel never has to ask `@idealize/setup` a second question to decide what to render. Listings still go through `/idealize/bar/files`, so each tab is a `LazyTree` over the same endpoint with different roots.
 
 **The fence widens to the captured folders and to nothing else.** Both existing helpers gain the alias roots: `fencedPath` (workspace roots) and `viewFencedPath` (home + workspace roots, used by the viewer, raw, reveal and create routes). One `aliasRoots()` helper resolves each stored alias through `realpath` before it joins the root list, so an alias reached by symlink fences its real location; an unset alias, a folder that has vanished, and a composition without `@idealize/setup` all contribute no root. The prefix check moved into a shared `insideRoots`, so the two fences cannot drift.

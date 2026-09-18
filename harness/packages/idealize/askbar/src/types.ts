@@ -6,12 +6,14 @@
  */
 
 /**
- * The six visual chip states: the design spec's set with `idle` in place of
+ * The seven visual chip states: the design spec's set with `idle` in place of
  * `disconnected` (a quiet chat is idle; only the host can be unreachable, and
- * that is the bar's error state). `listening` is client-local (a held
- * capture) and never appears in a roster payload.
+ * that is the bar's error state), plus `finished` for an agent whose Studio
+ * task is done and who has no further work, which tells the person the chat
+ * is safe to close. `listening` is client-local (a held capture) and never
+ * appears in a roster payload.
  */
-export type ChipState = 'listening' | 'working' | 'needs-input' | 'wrong' | 'ready' | 'idle'
+export type ChipState = 'listening' | 'working' | 'needs-input' | 'wrong' | 'finished' | 'ready' | 'idle'
 
 /** The screen edge the bar docks to. */
 export type AskbarEdge = 'left' | 'right'
@@ -46,7 +48,7 @@ export interface AskbarChip {
   unread: number
   /** The folded visual state (never `listening`, which is client-local). */
   state: Exclude<ChipState, 'listening'>
-  /** The displayed task's goal, when the Studio fold names one. */
+  /** The goal of the displayed task, else of the finished one, when the Studio fold names either. */
   task: string | null
   /** The agent's most recent free-text status label, when one is set. */
   status: string | null

@@ -195,3 +195,31 @@ export function deepenAlongHue(colour: Rgb, ground: Rgb, target: number): Rgb {
   }
   return fromHsl({ h: hsl.h, s: hsl.s, l: towardWhite ? 1 : 0 })
 }
+
+/**
+ * {@link deepenAlongHue} for a colour read against several grounds at once: a
+ * gradient's stops, or a ground plus the cards that sit on it. The colour
+ * stands when it clears `target` against every ground. Otherwise its HSL
+ * lightness walks outward in 0.005 steps in both directions, hue and
+ * saturation fixed, and the nearest step that clears every ground wins, so the
+ * colour moves as little as it can. When no lightness clears them all, the
+ * result is black or white of that hue, whichever keeps the higher worst-case
+ * ratio.
+ * @param colour - the colour to keep readable.
+ * @param grounds - every ground it is read against; at least one.
+ * @param target - minimum contrast ratio against each.
+ * @returns a colour of the same hue, clearing the target where reachable.
+ */
+export function deepenAgainstAll(colour: Rgb, grounds: readonly Rgb[], target: number): Rgb {
+  const worst = (candidate: Rgb): number => Math.min(...grounds.map(ground => contrast(candidate, ground)))
+  if (worst(colour) >= target) return colour
+  const hsl = toHsl(colour)
+  const at = (l: number): Rgb => fromHsl({ h: hsl.h, s: hsl.s, l: Math.max(0, Math.min(1, l)) })
+  for (let step = 1; step <= 200; step += 1) {
+    for (const candidate of [at(hsl.l - step * 0.005), at(hsl.l + step * 0.005)]) {
+      if (worst(candidate) >= target) return candidate
+    }
+  }
+  const [black, white] = [at(0), at(1)]
+  return worst(black) >= worst(white) ? black : white
+}

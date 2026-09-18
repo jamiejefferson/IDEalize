@@ -19,6 +19,9 @@
  *   projectName?}`: probe, persist, seed, scan, and create the first project.
  * - `POST /idealize/setup/alias` — `{name, path}`: the later Reconnect flow's
  *   alias mutation; re-probes and re-seeds the dependent section.
+ * - `POST /idealize/setup/project-docs` — `{project, path}`: choose one
+ *   project's documentation folder; an empty `path` returns the project to
+ *   the folder the documentation vault resolves for it.
  *
  * @module @idealize/setup
  */
@@ -76,6 +79,12 @@ export interface SetupSettings {
     /** The skills folder: one subfolder per skill, each holding a SKILL.md. */
     skills?: string
   }
+  /**
+   * Documentation folders chosen per project, keyed by the project folder's
+   * absolute path. An absent or empty entry means the project uses the folder
+   * `@idealize/doc-policy` resolves for it inside the documentation vault.
+   */
+  projectDocs?: Record<string, string>
 }
 
 /** Runtime schema for {@link SetupSettings}. */
@@ -88,6 +97,7 @@ export const SetupSettingsSchema: z<SetupSettings> = z.object({
     documentation: z.string(),
     skills: z.string(),
   }),
+  projectDocs: z.dict(z.string()),
 })
 
 /**
@@ -123,13 +133,13 @@ export interface WorkspaceAlias {
  */
 export class AliasProbeError extends Error {
   /**
-   * @param alias - the alias being written.
+   * @param alias - the alias being written; `projectDocumentation` for one project's documentation folder.
    * @param path - the refused path.
    * @param accessState - the probe verdict (never `ok`).
    * @param reason - the plain-language explanation, used as the message.
    */
   constructor(
-    readonly alias: WorkspaceAliasName,
+    readonly alias: WorkspaceAliasName | 'projectDocumentation',
     readonly path: string,
     readonly accessState: AliasAccessState,
     reason: string,
@@ -137,6 +147,22 @@ export class AliasProbeError extends Error {
     super(reason)
     this.name = 'AliasProbeError'
   }
+}
+
+/**
+ * One project's documentation folder with its live-probed access state.
+ * `chosen` is a folder the user picked for the project; `note` and `name`
+ * are the two ways `@idealize/doc-policy` finds it inside the vault.
+ */
+export interface ProjectDocumentation {
+  /** The folder's absolute path. */
+  path: string
+  /** How the folder was decided. */
+  source: 'chosen' | 'note' | 'name'
+  /** Live probe verdict for the folder. */
+  accessState: AliasAccessState
+  /** Plain-language failure explanation; absent when `accessState` is `ok`. */
+  reason?: string
 }
 
 /** What `POST /idealize/setup/orientation` carries (SET-02 + the first project). */
@@ -276,6 +302,56 @@ export class WorkspaceAliases extends Service {
     await this.requireScope().update({ aliases: { [aliasName]: path } })
     await this.seed(aliasName, path)
     return { name: aliasName, path, accessState: 'ok' }
+  }
+
+  /**
+   * One project's documentation folder: the folder chosen for it, else the
+   * one `@idealize/doc-policy` resolves inside the documentation vault. A
+   * chosen folder that has died is still returned, with its failing
+   * `accessState`, so the caller can say which folder was lost.
+   * @param projectPath - absolute path of the project's own folder.
+   * @returns the folder with its probe verdict, or `undefined` when none is chosen and the vault holds none.
+   */
+  async projectDocumentation(projectPath: string): Promise<ProjectDocumentation | undefined> {
+    const chosen = this.section().projectDocs?.[projectPath]
+    const found = chosen !== undefined && chosen !== ''
+      ? { path: chosen, source: 'chosen' as const }
+      : await this.ctx.get('docPolicy')?.projectFolder(projectPath)
+    if (found === undefined) return undefined
+    const probe = await probeFolder(found.path)
+    return {
+      path: found.path,
+      source: found.source,
+      accessState: probe.state,
+      ...probe.reason === undefined ? {} : { reason: probe.reason },
+    }
+  }
+
+  /**
+   * The documentation folders chosen per project, as stored.
+   * @returns project folder path to chosen documentation folder; cleared entries omitted.
+   */
+  chosenProjectDocumentation(): Record<string, string> {
+    return Object.fromEntries(Object.entries(this.section().projectDocs ?? {}).filter(([, path]) => path !== ''))
+  }
+
+  /**
+   * Choose one project's documentation folder, or clear the choice.
+   * @param projectPath - absolute path of the project's own folder.
+   * @param path - absolute folder path; the empty string clears the choice.
+   * @returns the project's documentation folder after the write.
+   * @throws {AliasProbeError} when the folder fails its probe; nothing is stored.
+   */
+  async setProjectDocumentation(projectPath: string, path: string): Promise<ProjectDocumentation | undefined> {
+    if (path !== '') {
+      const probe = await probeFolder(path)
+      if (probe.state !== 'ok') {
+        throw new AliasProbeError('projectDocumentation', path, probe.state, probe.reason ?? 'The folder failed its access check.')
+      }
+    }
+    // The settings write merges, so a cleared choice is stored as the empty string.
+    await this.requireScope().update({ projectDocs: { [projectPath]: path } })
+    return this.projectDocumentation(projectPath)
   }
 
   /**
@@ -539,5 +615,41 @@ export function apply(ctx: Context): void {
         }
       },
     }), 'idealize-setup: alias route')
+
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/idealize/setup/project-docs',
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { 'content-type': 'text/plain', allow: 'POST' }).end('POST only')
+          return
+        }
+        if (refuse(req, res, true)) return
+        const body = parseObjectBody(await readBody(req))
+        if (!body.ok) {
+          sendJson(res, 400, { ok: false, error: body.error })
+          return
+        }
+        const { project, path } = body.value
+        if (typeof project !== 'string' || project === '') {
+          sendJson(res, 400, { ok: false, error: 'project must be a non-empty string' })
+          return
+        }
+        if (typeof path !== 'string') {
+          sendJson(res, 400, { ok: false, error: 'path must be a string; empty clears the choice' })
+          return
+        }
+        try {
+          const documentation = await aliases.setProjectDocumentation(project, path)
+          sendJson(res, 200, { ok: true, ...documentation === undefined ? {} : { documentation } })
+        } catch (error) {
+          if (error instanceof AliasProbeError) {
+            sendJson(res, 400, { ok: false, failure: { accessState: error.accessState, reason: error.message } })
+            return
+          }
+          sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    }), 'idealize-setup: project documentation route')
   })
 }

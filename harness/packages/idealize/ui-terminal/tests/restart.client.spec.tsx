@@ -28,6 +28,7 @@ vi.mock('@xterm/xterm', () => ({
     write(): void {}
     dispose(): void {}
     onData(): { dispose: () => void } { return { dispose: () => {} } }
+    onResize(): { dispose: () => void } { return { dispose: () => {} } }
   },
 }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit(): void {} } }))

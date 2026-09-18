@@ -91,6 +91,29 @@ describe('foldStudioState', () => {
     expect(closed.agents['agent-a']).toMatchObject({ displayed: 't2', queued: ['t2', 't3'] })
   })
 
+  it('names an agent finished once its latest task is done and nothing is active or queued', () => {
+    const done = [assign('t1', 'agent-a', 'first'), update('t1', 'working'), update('t1', 'done')]
+    expect(foldStudioState(done).agents['agent-a']).toMatchObject({ finished: 't1', queued: [] })
+    expect(foldStudioState(done).agents['agent-a']?.displayed).toBeUndefined()
+    // Acknowledging the completion changes nothing about whether the chat can be closed.
+    const acknowledged = [...done, event({ kind: 'system', subtype: 'acknowledge-delivery', taskId: 't1', author: 'user' })]
+    expect(foldStudioState(acknowledged).agents['agent-a']?.finished).toBe('t1')
+    // New work ends it, queued or working; finishing that work names the newer task.
+    const again = [...done, assign('t2', 'agent-a', 'second')]
+    expect(foldStudioState(again).agents['agent-a']).toMatchObject({ displayed: 't2' })
+    expect(foldStudioState(again).agents['agent-a']?.finished).toBeUndefined()
+    expect(foldStudioState([...again, update('t2', 'working')]).agents['agent-a']?.finished).toBeUndefined()
+    expect(foldStudioState([...again, update('t2', 'done')]).agents['agent-a']?.finished).toBe('t2')
+  })
+
+  it('reads past a cancelled task to the work before it, and never calls a failed agent finished', () => {
+    const cancelled = [assign('t1', 'agent-a', 'first'), update('t1', 'done'), assign('t2', 'agent-a', 'second'), update('t2', 'cancelled')]
+    expect(foldStudioState(cancelled).agents['agent-a']?.finished).toBe('t1')
+    const failed = [assign('t1', 'agent-a', 'first'), update('t1', 'done'), assign('t2', 'agent-a', 'second'), update('t2', 'failed')]
+    expect(foldStudioState(failed).agents['agent-a']?.finished).toBeUndefined()
+    expect(foldStudioState([assign('t1', 'agent-a', 'only'), update('t1', 'cancelled')]).agents['agent-a']?.finished).toBeUndefined()
+  })
+
   it('reassigns ownership without recreating the task', () => {
     const events = [assign('t1', 'agent-a', 'g'), event({ kind: 'assignment', subtype: 'reassign', taskId: 't1', target: 'agent-b', author: 'user' })]
     const state = foldStudioState(events)

@@ -144,8 +144,8 @@ export function clearSurfaceColours(surface: SurfaceAppearance): SurfaceAppearan
   }
 }
 
-/** Terminal theme ids in V0's panel order (`Theme.terminalThemes`); the colour tables live in `terminal-themes.ts`. */
-export const TERMINAL_THEME_IDS = ['linen', 'ink', 'y2k', 'idealize-dark', 'idealize-light', 'solarized-dark'] as const
+/** Terminal theme ids in V0's panel order (`Theme.terminalThemes`), then V1's Classic pair; the colours live in `terminal-themes.ts`. */
+export const TERMINAL_THEME_IDS = ['linen', 'ink', 'y2k', 'idealize-dark', 'idealize-light', 'solarized-dark', 'classic-dark', 'classic-light'] as const
 
 /** One of {@link TERMINAL_THEME_IDS}. */
 export type TerminalThemeId = typeof TERMINAL_THEME_IDS[number]

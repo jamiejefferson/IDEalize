@@ -267,6 +267,28 @@ describe('AppearancePanel', () => {
     expect(screen.queryByText(/were chosen in/)).toBeNull()
   })
 
+  it('reads out how the text sits on a panel\'s own background, and says when it was deepened', () => {
+    // Feedback cb68f5d5: a background chosen alone left the inherited ink and icons unchecked.
+    const withChat = (chat: Partial<typeof EMPTY_SURFACE>) => (draft: AppearanceState): void => {
+      draft.section = 'chat'
+      draft.settings = { ...APPEARANCE_DEFAULTS, surfaces: { ...APPEARANCE_DEFAULTS.surfaces, chat: { ...EMPTY_SURFACE, ...chat } } }
+    }
+    const { store } = mount(withChat({}))
+    // No background of its own: the theme's ground and ink stand, and nothing is read out.
+    expect(screen.queryByText(/Text reads at/)).toBeNull()
+    // The theme's dark ink on a dark ground picked in Light mode: deepened, and said so.
+    act(() => { store.update(withChat({ bgMode: 'solid', bgColorHex: '#14233B', scheme: 'light' })) })
+    expect(screen.getByText('Text reads at 1.1:1 on this background. Text and icons deepen along their own hue to stay readable: text to 4.5:1, icons to 3.0:1.')).toBeDefined()
+    // A text colour that reads with every token clear of its floor is reported alone.
+    act(() => { store.update(withChat({ bgMode: 'solid', bgColorHex: '#FFFFFF', textColorHex: '#000000', scheme: 'light' })) })
+    expect(screen.getByText(/^Text reads at 21\.0:1 on this background\./)).toBeDefined()
+    // A gradient through black, grey and white leaves no shade that reads across it.
+    const stops = [{ colorHex: '#000000', location: 0 }, { colorHex: '#777777', location: 0.5 }, { colorHex: '#FFFFFF', location: 1 }]
+    act(() => { store.update(withChat({ bgMode: 'gradient', bgGradientStops: stops, scheme: 'light' })) })
+    expect(screen.getByText(/No shade of this text colour reaches 4\.5:1 across the whole background\. It reads at \d\.\d:1\.$/))
+      .toBeDefined()
+  })
+
   it('the Chat tab adds the chat panel card', () => {
     const { face } = mount((draft) => { draft.section = 'chat' })
     fireEvent.change(screen.getByLabelText('Input opacity'), { target: { value: '0.5' } })
@@ -296,7 +318,7 @@ describe('AppearancePanel', () => {
     })
     expect(screen.getByText('Default terminal settings')).toBeDefined()
     // V0's terminal theme rows, in Theme.terminalThemes order, Linen selected.
-    const themes = ['Linen', 'Ink', 'Y2K', 'IDEalize Dark', 'IDEalize Light', 'Solarized Dark']
+    const themes = ['Linen', 'Ink', 'Y2K', 'IDEalize Dark', 'IDEalize Light', 'Solarized Dark', 'Classic Dark', 'Classic Light']
     for (const name of themes) expect(screen.getByRole('button', { name: new RegExp(`^${name}`) })).toBeDefined()
     expect(pressed(/^Linen/)).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: /^Ink/ }))

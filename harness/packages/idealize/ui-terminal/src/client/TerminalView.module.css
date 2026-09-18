@@ -38,11 +38,22 @@
 }
 
 /* Right padding is the left minus xterm's 14px scrollbar term (see
-   gridPadding in TerminalView.tsx); the appearance paint overrides all four. */
+   gridPadding in TerminalView.tsx); the appearance paint overrides all four.
+
+   The host's size comes from its column and never from the rows inside it
+   (`contain: size`). xterm gives its screen an explicit pixel height, rows
+   times cell, and a conversation's view area grows to its content and never
+   shrinks under it. Without containment the drawn rows became the column's
+   floor: a shorter window or a larger font left the host as tall as the old
+   grid, the fit addon measured that height and kept every row, and the rows
+   under the fold took the agent's input box with them (JJ, 18 Sep 2026). The
+   clip keeps the one frame between a resize and its refit inside the box. */
 .grid {
   flex: 1 1 auto;
   min-height: 0;
   padding: 12px 2px 8px 16px;
+  contain: size;
+  overflow: hidden;
 }
 
 .grid :global(.xterm) {

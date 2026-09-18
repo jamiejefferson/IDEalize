@@ -112,6 +112,8 @@ const HATCH_TABS: readonly { id: HatchTab; label: BarKey }[] = [
 interface Capabilities {
   reveal: boolean
   trash: boolean
+  /** Absent on a host that predates the default-application route. */
+  openExternal?: boolean
 }
 
 /**
@@ -140,6 +142,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
   const currentSession = useSessions(state => state.current)
   const [canReveal, setCanReveal] = useState(false)
   const [canTrash, setCanTrash] = useState(false)
+  const [canOpenExternal, setCanOpenExternal] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -149,6 +152,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
         if (cancelled) return
         setCanReveal(body.reveal)
         setCanTrash(body.trash)
+        setCanOpenExternal(body.openExternal === true)
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -202,6 +206,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
           <FilesPanel
             canReveal={canReveal}
             canTrash={canTrash}
+            canOpenExternal={canOpenExternal}
             currentCwd={currentCwd()}
             pickDirectory={pickDirectory}
             onOpenFile={openFile}

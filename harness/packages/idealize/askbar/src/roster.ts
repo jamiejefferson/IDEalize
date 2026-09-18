@@ -80,8 +80,11 @@ export function assembleChips(
     .map((row) => {
       const blockers = board.filter(rung => rung.session === row.id).map(rung => rung.blocker)
       const running = row.running || workingTerminals.has(row.id)
-      const displayedId = studio?.agents[row.id]?.displayed
-      const task = displayedId === undefined ? undefined : studio?.tasks.find(candidate => candidate.id === displayedId)
+      // The displayed task is never closed, so a done task reaches the chip
+      // only through the fold's `finished`, which a new assignment clears.
+      const view = studio?.agents[row.id]
+      const taskId = view?.displayed ?? view?.finished
+      const task = taskId === undefined ? undefined : studio?.tasks.find(candidate => candidate.id === taskId)
       return {
         id: row.id,
         name: row.name ?? row.title,

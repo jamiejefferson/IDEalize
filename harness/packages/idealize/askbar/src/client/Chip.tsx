@@ -26,6 +26,7 @@ export const STATE_LABEL_KEYS: Record<ChipState, AskbarKey> = {
   'working': 'state.working',
   'needs-input': 'state.needsInput',
   'wrong': 'state.wrong',
+  'finished': 'state.finished',
   'ready': 'state.ready',
   'idle': 'state.idle',
 }
@@ -35,8 +36,20 @@ const STATE_CLASSES: Record<ChipState, string | undefined> = {
   'working': styles['stWorking'],
   'needs-input': styles['stNeedsInput'],
   'wrong': styles['stWrong'],
+  'finished': styles['stFinished'],
   'ready': styles['stReady'],
   'idle': styles['stIdle'],
+}
+
+/**
+ * A state's words where there is room for a sentence (the panel's head, the
+ * chip's accessible name): `finished` adds that the chat is safe to close,
+ * which the chip's one-word caption cannot hold.
+ * @param state - the visual state.
+ * @returns the dictionary key of the state's longer wording.
+ */
+export function stateDetailKey(state: ChipState): AskbarKey {
+  return state === 'finished' ? 'state.finishedDetail' : STATE_LABEL_KEYS[state]
 }
 
 /** Chip props: the roster row, the bar's locale seat, and the root's gesture callbacks. */
@@ -94,7 +107,8 @@ export function Chip(props: ChipProps): React.JSX.Element {
     <button
       type='button'
       className={[styles['chip'], STATE_CLASSES[state]].join(' ')}
-      aria-label={t('chip.label', { name: chip.name, state: stateLabel })}
+      aria-label={t('chip.label', { name: chip.name, state: t(stateDetailKey(state)) })}
+      data-chip-state={state}
       data-chip-id={chip.id}
       onPointerDown={(event) => {
         event.preventDefault()
@@ -123,6 +137,13 @@ export function Chip(props: ChipProps): React.JSX.Element {
         </span>
         {state === 'needs-input' && <span className={styles['badge']}>!</span>}
         {state === 'wrong' && <span className={styles['badge']}>×</span>}
+        {state === 'finished' && (
+          <span className={styles['badge']}>
+            <svg width='9' height='9' viewBox='0 0 16 16' fill='none' aria-hidden='true'>
+              <path d='M3 8.5 6.5 12 13 4.5' stroke='currentColor' strokeWidth='2.4' strokeLinecap='round' strokeLinejoin='round' />
+            </svg>
+          </span>
+        )}
         {(state === 'ready' || state === 'working' || state === 'idle') && <span className={styles['presenceDot']} />}
         {chip.unread > 0 && <span className={styles['unread']}>{chip.unread}</span>}
       </span>

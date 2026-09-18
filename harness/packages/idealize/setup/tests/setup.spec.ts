@@ -3,7 +3,7 @@
 // vault, orientation probes both folders, creates and registers the first
 // project under the projects root, persists the aliases + seeds, and kicks
 // the documentation scan; the alias routes serve the later Reconnect flow.
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -182,6 +182,79 @@ describe('the workspace-alias seam', () => {
     expect((rejection as AliasProbeError).accessState).toBe('missing')
     expect((rejection as AliasProbeError).message).toContain(gone)
     expect(ctx.docPolicy.folder()).toBe(docs)
+  }, 30_000)
+})
+
+describe("a project's documentation folder", () => {
+  it('resolves through the vault, takes a chosen folder over it, and returns to the vault when cleared', async () => {
+    const { ctx, projects, docs } = await boot()
+    await ctx.workspaceAliases.orient({ projectsFolder: projects, documentationFolder: docs })
+    const project = join(projects, 'Alpha')
+    await mkdir(project, { recursive: true })
+    expect(await ctx.workspaceAliases.projectDocumentation(project)).toBeUndefined()
+
+    await mkdir(join(docs, 'Projects', 'alpha'), { recursive: true })
+    expect(await ctx.workspaceAliases.projectDocumentation(project))
+      .toEqual({ path: join(docs, 'Projects', 'alpha'), source: 'name', accessState: 'ok' })
+
+    await mkdir(join(docs, 'Projects', 'Alpha notes'), { recursive: true })
+    await writeFile(join(docs, 'Projects', 'Alpha notes', '_index.md'), `---\nrepo: ${project}\n---\n`)
+    expect(await ctx.workspaceAliases.projectDocumentation(project)).toMatchObject({ source: 'note' })
+
+    const elsewhere = join(root!, 'alpha-docs')
+    await mkdir(elsewhere, { recursive: true })
+    expect(await ctx.workspaceAliases.setProjectDocumentation(project, elsewhere))
+      .toEqual({ path: elsewhere, source: 'chosen', accessState: 'ok' })
+    expect(ctx.workspaceAliases.chosenProjectDocumentation()).toEqual({ [project]: elsewhere })
+    // The sibling aliases survived the merge write.
+    expect(await ctx.workspaceAliases.resolve('documentation')).toMatchObject({ path: docs })
+
+    // A chosen folder that dies is still named, so the pane can say what was lost.
+    await rm(elsewhere, { recursive: true, force: true })
+    expect(await ctx.workspaceAliases.projectDocumentation(project))
+      .toMatchObject({ path: elsewhere, source: 'chosen', accessState: 'missing' })
+
+    expect(await ctx.workspaceAliases.setProjectDocumentation(project, '')).toMatchObject({ source: 'note' })
+    expect(ctx.workspaceAliases.chosenProjectDocumentation()).toEqual({})
+  }, 30_000)
+
+  it('refuses a failing folder and stores nothing', async () => {
+    const { ctx, projects, docs } = await boot()
+    await ctx.workspaceAliases.orient({ projectsFolder: projects, documentationFolder: docs })
+    const rejection = await ctx.workspaceAliases
+      .setProjectDocumentation(join(projects, 'Alpha'), join(root!, 'gone')).catch((error: unknown) => error)
+    expect(rejection).toBeInstanceOf(AliasProbeError)
+    expect((rejection as AliasProbeError).alias).toBe('projectDocumentation')
+    expect(ctx.workspaceAliases.chosenProjectDocumentation()).toEqual({})
+  }, 30_000)
+
+  it('is written over HTTP behind the auth header', async () => {
+    const { ctx, projects, docs } = await boot(true)
+    await ctx.workspaceAliases.orient({ projectsFolder: projects, documentationFolder: docs })
+    const origin = `http://127.0.0.1:${ctx.webServer.port}`
+    const project = join(projects, 'Alpha')
+    const chosen = join(root!, 'alpha-docs')
+    await mkdir(chosen, { recursive: true })
+    const body = JSON.stringify({ project, path: chosen })
+
+    const unheaded = await fetch(`${origin}/idealize/setup/project-docs`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body,
+    })
+    expect(unheaded.status).toBe(403)
+
+    const headers = { 'x-idealize-auth': '1', 'content-type': 'application/json' }
+    const written = await fetch(`${origin}/idealize/setup/project-docs`, { method: 'POST', headers, body })
+    expect(written.status).toBe(200)
+    expect(await written.json()).toEqual({ ok: true, documentation: { path: chosen, source: 'chosen', accessState: 'ok' } })
+
+    const refused = await fetch(`${origin}/idealize/setup/project-docs`, {
+      method: 'POST', headers, body: JSON.stringify({ project, path: join(root!, 'gone') }),
+    })
+    expect(refused.status).toBe(400)
+    expect(((await refused.json()) as { failure: { reason: string } }).failure.reason).toContain('There is no folder at')
+
+    const bad = await fetch(`${origin}/idealize/setup/project-docs`, { method: 'POST', headers, body: JSON.stringify({ path: chosen }) })
+    expect(bad.status).toBe(400)
   }, 30_000)
 })
 

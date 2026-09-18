@@ -8,10 +8,11 @@
  *   path the workspace roots, with one the entries of a directory FENCED to
  *   the registered workspace roots PLUS the captured workspace-alias folders
  *   (realpath prefix check).
- * - `GET  /idealize/bar/aliases` — the Files pane's three tabs: the current
- *   project (workspace roots), the projects root, and the documentation
- *   vault, each with its live access state so a dead alias keeps its tab and
- *   offers Reconnect.
+ * - `GET  /idealize/bar/aliases` — the Files pane's folders: the current
+ *   project (workspace roots), the projects root, the documentation vault
+ *   and the skills folder, each with its live access state so a dead alias
+ *   keeps its tab and offers Reconnect, plus every project's own
+ *   documentation folder (`projectDocs`).
  * - `GET  /idealize/bar/browse[?path=]` — the second file window's listing:
  *   the home root without a path, a directory's entries with one, FENCED to
  *   home plus the workspace roots plus the alias folders.
@@ -22,6 +23,8 @@
  * - `POST /idealize/bar/terminal` — open the desktop shell's terminal when
  *   its action service is composed (desktop app only).
  * - `POST /idealize/bar/reveal` — reveal a fenced path in the macOS Finder.
+ * - `POST /idealize/bar/open` — open a fenced file in its default macOS
+ *   application; a file the system would run instead of open is refused.
  * - `POST /idealize/bar/write` — overwrite a fenced text file (409 when its size moved).
  * - `POST /idealize/bar/rename`, `/duplicate`, `/move`, `/trash` — the Files
  *   pane's entry operations, every path checked against the viewer fence.
@@ -43,7 +46,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-workspace'
 // Type-only: the `workspaceAliases` Context merge @idealize/setup declares.
 import type {} from '@idealize/setup'
-import type { WorkspaceAlias, WorkspaceAliasName } from '@idealize/setup'
+import type { ProjectDocumentation, WorkspaceAlias, WorkspaceAliasName } from '@idealize/setup'
 import { SKILLS_PROVIDER_NAME, type IdealizeSkillsService } from '@idealize/skills'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 
@@ -145,12 +148,56 @@ interface AliasTab {
   reason?: string
 }
 
+/**
+ * One project's documentation folder, as `GET /idealize/bar/aliases` reports
+ * it under `projectDocs`. `state` is `'unset'` while no folder is chosen and
+ * the documentation vault holds none for the project; a chosen folder that
+ * has died keeps its `folder` and carries the probe's `reason`.
+ */
+interface ProjectDocsEntry {
+  /** The project: its workspace title and its own folder. */
+  project: RootEntry
+  /** The documentation folder; absent while `state` is `'unset'`. */
+  folder?: string
+  /** How the folder was decided; absent while `state` is `'unset'`. */
+  source?: ProjectDocumentation['source']
+  /** Live access verdict, or `'unset'` when there is no folder. */
+  state: WorkspaceAlias['accessState'] | 'unset'
+  /** Plain-language explanation; present exactly when `state` is a failure. */
+  reason?: string
+}
+
+/**
+ * Extensions macOS runs when asked to open them. The open route refuses
+ * them, so a click in the Files pane never executes a script.
+ */
+const RUNS_WHEN_OPENED = new Set(['.command', '.tool', '.app', '.workflow', '.action', '.terminal', '.scpt', '.scptd', '.applescript', '.pkg', '.mpkg'])
+
 /** Extensions that are binary but not images: no text preview attempted. */
 const BINARY_EXT = new Set([
   '.zip', '.gz', '.tar', '.tgz', '.dmg', '.app', '.pdf', '.mp3', '.mp4', '.mov', '.wav', '.aac',
   '.woff', '.woff2', '.ttf', '.otf', '.eot', '.wasm', '.node', '.dylib', '.so', '.a', '.o',
   '.class', '.jar', '.exe', '.dll', '.bin', '.iso', '.sqlite', '.db', '.heic', '.psd', '.ai',
 ])
+
+/**
+ * The macOS launcher behind `POST /idealize/bar/open`, held as an object so
+ * the route suite replaces `open` and no test starts an application.
+ */
+export const defaultApplication = {
+  /**
+   * Hand one file to its default application through `/usr/bin/open`.
+   * @param target - absolute path of a regular file.
+   * @returns the launcher's exit code: non-zero when no application claims the file type.
+   */
+  open(target: string): Promise<number | null> {
+    return new Promise((resolve, reject) => {
+      const child = spawn('/usr/bin/open', [target], { stdio: 'ignore' })
+      child.on('error', reject)
+      child.on('exit', resolve)
+    })
+  },
+}
 
 export function apply(ctx: Context): void {
   ctx.inject(['webServer', 'workspaceRegistry', 'settings'], (webCtx) => {
@@ -168,11 +215,15 @@ export function apply(ctx: Context): void {
       const aliases = webCtx.get('workspaceAliases')
       if (aliases === undefined) return []
       const resolved = await Promise.all(ALIAS_TABS.map(name => aliases.resolve(name)))
+      // A project's chosen documentation folder can sit outside the vault.
+      const folders = [
+        ...resolved.flatMap(alias => alias === undefined ? [] : [alias.path]),
+        ...Object.values(aliases.chosenProjectDocumentation()),
+      ]
       const roots: string[] = []
-      for (const alias of resolved) {
-        if (alias === undefined) continue
+      for (const folder of folders) {
         try {
-          roots.push(await realpath(alias.path))
+          roots.push(await realpath(folder))
         } catch {
           // Only a vanished or unreadable alias folder lands here; it fences
           // nothing, and its tab already shows Reconnect from the probe.
@@ -266,6 +317,7 @@ export function apply(ctx: Context): void {
       sendJson(res, 200, {
         terminal: desktopActions() !== undefined,
         reveal: process.platform === 'darwin',
+        openExternal: process.platform === 'darwin',
         trash: typeof desktopActions()?.trashItem === 'function' || process.platform === 'darwin',
         shellMode: shellMode() ?? null,
       })
@@ -308,6 +360,34 @@ export function apply(ctx: Context): void {
         return
       }
       spawn('/usr/bin/open', ['-R', target], { stdio: 'ignore', detached: true }).unref()
+      sendJson(res, 200, { ok: true })
+    })
+
+    register('/idealize/bar/open', true, async (req, res) => {
+      if (process.platform !== 'darwin') {
+        sendJson(res, 409, { error: 'opening in the default application is macOS only' })
+        return
+      }
+      const body = JSON.parse(await readBody(req)) as { path?: string }
+      const target = typeof body.path === 'string' ? await viewFencedPath(body.path) : undefined
+      if (target === undefined) {
+        sendJson(res, 403, { error: 'path outside home and workspace roots' })
+        return
+      }
+      const info = await stat(target)
+      // LaunchServices runs a script bundle, and an extension-less executable
+      // opens in Terminal and runs; both stay with the in-app viewer.
+      const ext = extname(target).toLowerCase()
+      if (!info.isFile() || RUNS_WHEN_OPENED.has(ext) || (ext === '' && (info.mode & 0o111) !== 0)) {
+        sendJson(res, 422, { error: 'not a file the default application can safely open' })
+        return
+      }
+      const code = await defaultApplication.open(target)
+      // `open` exits non-zero when no application claims the file type.
+      if (code !== 0) {
+        sendJson(res, 422, { error: 'no application opens this file' })
+        return
+      }
       sendJson(res, 200, { ok: true })
     })
 
@@ -549,6 +629,24 @@ export function apply(ctx: Context): void {
       const resolved = aliases === undefined
         ? ALIAS_TABS.map(() => undefined)
         : await Promise.all(ALIAS_TABS.map(name => aliases.resolve(name)))
+      const documentation = resolved[ALIAS_TABS.indexOf('documentation')]
+      const projectDocs = await Promise.all(workspaceRoots.map(async (project): Promise<ProjectDocsEntry> => {
+        const found = await aliases?.projectDocumentation(project.path)
+        if (found === undefined) return { project, state: 'unset' }
+        return {
+          project,
+          folder: found.path,
+          source: found.source,
+          state: found.accessState,
+          ...found.reason === undefined ? {} : { reason: found.reason },
+        }
+      }))
+      // "All documentation" is the vault plus every chosen folder outside it.
+      const outsideVault = projectDocs.flatMap((entry): RootEntry[] => {
+        if (entry.folder === undefined || entry.state !== 'ok' || entry.source !== 'chosen') return []
+        if (documentation !== undefined && insideRoots(entry.folder, [documentation.path])) return []
+        return [{ name: `${entry.project.name} · ${basename(entry.folder)}`, path: entry.folder }]
+      })
       const tabs: AliasTab[] = [
         {
           id: 'project',
@@ -563,13 +661,15 @@ export function apply(ctx: Context): void {
             alias: name,
             // A failed alias keeps its path out of the tree: the tab shows
             // Reconnect instead of a root that cannot be listed.
-            roots: alias.accessState === 'ok' ? [{ name: basename(alias.path), path: alias.path }] : [],
+            roots: alias.accessState === 'ok'
+              ? [{ name: basename(alias.path), path: alias.path }, ...name === 'documentation' ? outsideVault : []]
+              : [],
             state: alias.accessState,
             ...alias.reason === undefined ? {} : { reason: alias.reason },
           }
         }),
       ]
-      sendJson(res, 200, { tabs })
+      sendJson(res, 200, { tabs, projectDocs })
     })
 
     register('/idealize/bar/files', false, async (req, res) => {

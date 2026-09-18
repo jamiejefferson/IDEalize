@@ -6,7 +6,8 @@
  * agent-proposed edits and the settings surface.
  */
 
-import { readdir, readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { classifyPath, validateDoc } from './classify.ts'
 import type { DocKind, Finding } from './classify.ts'
@@ -59,6 +60,46 @@ async function collectMarkdown(folder: string, relDir: string, into: string[]): 
     if (entry.directory) await collectMarkdown(folder, rel, into)
     else if (entry.name.endsWith('.md')) into.push(rel)
   }
+}
+
+/**
+ * Fingerprint of everything {@link scanFolder} reads: the root listing, every
+ * directory and Markdown file under the canonical directories with its size
+ * and modification time, and the local date (the stale-note rule compares
+ * `last_touched` with today). Two equal fingerprints mean a scan would return
+ * the same findings and documents, so the caller may keep its last result.
+ * One `stat` per file replaces reading and indexing every document.
+ * @param folder - absolute path of the configured documentation folder.
+ * @returns a hex digest; it differs after any add, remove, rename or edit.
+ */
+export async function fingerprintFolder(folder: string): Promise<string> {
+  const hash = createHash('sha256')
+  const now = new Date()
+  hash.update(`${String(now.getFullYear())}-${String(now.getMonth())}-${String(now.getDate())}\0`)
+  const visit = async (relDir: string, recurse: boolean): Promise<void> => {
+    for (const entry of await entriesOf(join(folder, relDir))) {
+      const rel = relDir === '' ? entry.name : `${relDir}/${entry.name}`
+      if (entry.directory) {
+        hash.update(`d\0${rel}\0`)
+        if (recurse || (CANONICAL_DIRS as readonly string[]).includes(rel)) await visit(rel, true)
+        continue
+      }
+      if (!entry.name.endsWith('.md')) continue
+      let stamp = 'gone'
+      try {
+        const info = await stat(join(folder, rel))
+        stamp = `${String(info.size)}\0${String(info.mtimeMs)}`
+      /* v8 ignore start -- only a deletion between the listing and the stat lands here. */
+      } catch {
+        // Listed a moment ago and gone now: the placeholder changes the
+        // digest, which is the signal the caller needs.
+      }
+      /* v8 ignore stop */
+      hash.update(`f\0${rel}\0${stamp}\0`)
+    }
+  }
+  await visit('', false)
+  return hash.digest('hex')
 }
 
 function titleOf(relPath: string, text: string): string {

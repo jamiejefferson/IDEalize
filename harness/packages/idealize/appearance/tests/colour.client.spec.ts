@@ -1,7 +1,8 @@
 /** Colour arithmetic and the deepen-along-hue readability rule. */
 import { describe, expect, it } from 'vitest'
 import {
-  blend, contrast, deepenAlongHue, fromHsl, isDark, parseHex, requireHex, TEXT_CONTRAST, toHex, toHsl, toRgba, UI_CONTRAST,
+  blend, contrast, deepenAgainstAll, deepenAlongHue, fromHsl, isDark, parseHex, requireHex, TEXT_CONTRAST, toHex, toHsl, toRgba,
+  UI_CONTRAST,
 } from '../src/colour.ts'
 
 describe('hex parsing', () => {
@@ -105,5 +106,33 @@ describe('deepenAlongHue at the limit', () => {
     const grey = { r: 128, g: 128, b: 128 }
     expect(deepenAlongHue(grey, grey, 22)).toEqual({ r: 0, g: 0, b: 0 })
     expect(deepenAlongHue(grey, { r: 0, g: 0, b: 0 }, 22)).toEqual({ r: 255, g: 255, b: 255 })
+  })
+})
+
+describe('deepenAgainstAll', () => {
+  const white = { r: 255, g: 255, b: 255 }
+  const black = { r: 0, g: 0, b: 0 }
+
+  it('returns a colour that already reads on every ground unchanged', () => {
+    const ink = requireHex('#1B1F24')
+    expect(deepenAgainstAll(ink, [white, requireHex('#F5F5F6')], TEXT_CONTRAST)).toBe(ink)
+  })
+
+  it('moves the lightness the least it can, in whichever direction clears every ground, and keeps the hue', () => {
+    const blue = requireHex('#6FA0E0')
+    const onLight = deepenAgainstAll(blue, [white, requireHex('#E8E8E8')], TEXT_CONTRAST)
+    expect(toHsl(onLight).l).toBeLessThan(toHsl(blue).l)
+    expect(Math.abs(toHsl(onLight).h - toHsl(blue).h)).toBeLessThan(2)
+    for (const ground of [white, requireHex('#E8E8E8')]) expect(contrast(onLight, ground)).toBeGreaterThanOrEqual(TEXT_CONTRAST)
+    const onDark = deepenAgainstAll(requireHex('#3A5F93'), [black, requireHex('#14233B')], TEXT_CONTRAST)
+    expect(toHsl(onDark).l).toBeGreaterThan(toHsl(requireHex('#3A5F93')).l)
+    expect(contrast(onDark, requireHex('#14233B'))).toBeGreaterThanOrEqual(TEXT_CONTRAST)
+  })
+
+  it('ends on black or white, whichever keeps the higher worst-case ratio, when nothing clears them all', () => {
+    const mid = requireHex('#808080')
+    // No colour reaches 25:1, so the end further from both grounds wins.
+    expect(toHex(deepenAgainstAll(mid, [white, requireHex('#C0C0C0')], 25))).toBe('#000000')
+    expect(toHex(deepenAgainstAll(mid, [black, requireHex('#404040')], 25))).toBe('#FFFFFF')
   })
 })

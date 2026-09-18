@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-// The files panel's tools: the four alias tabs — each opening on its
-// folder's contents with no root row to click — and the Reconnect flow behind
+// The files panel's tools: the two rows of tabs (whose files, then project
+// files or documentation) — each view opening on its folder's contents with
+// no root row to click — a project's own documentation folder, files leaving
+// for their default application, and the Reconnect flow behind
 // a dead one, creation through the fenced route with the name sheet's
 // climbing-name refusal, add-to-chat feedback, surfaced reveal failures, and
 // the bar's reveal request opening the way down to one file.
@@ -10,7 +12,9 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { en } from '../src/client/locales.ts'
-import { currentProjectRoots, FilesPanel, isValidEntryName, revealAncestors } from '../src/client/FilesPanel.tsx'
+import {
+  currentProjectDocs, currentProjectRoots, FilesPanel, isValidEntryName, opensInApp, projectDocsRoots, revealAncestors, viewOf,
+} from '../src/client/FilesPanel.tsx'
 // Type-only: the locale-namespace merge the props type reads.
 import type {} from '../src/client/index.ts'
 
@@ -36,6 +40,10 @@ interface Routes {
   alias: (body: { name: string; path: string }) => Response
   /** The entry operations: rename, duplicate, move, trash. */
   operate: (route: string, body: Record<string, string>) => Response
+  /** The default-application launch, POST /idealize/bar/open. */
+  open: (body: { path: string }) => Response | Promise<Response>
+  /** A project's documentation folder choice, POST /idealize/setup/project-docs. */
+  projectDocs: (body: { project: string; path: string }) => Response
 }
 
 /** The four tabs as the host reports them, with every alias healthy. */
@@ -46,6 +54,7 @@ const healthyTabs = {
     { id: 'documentation', alias: 'documentation', roots: [{ name: 'vault', path: '/v' }], state: 'ok' },
     { id: 'skills', alias: 'skills', roots: [{ name: 'skills', path: '/s' }], state: 'ok' },
   ],
+  projectDocs: [{ project: { name: 'proj', path: '/w/proj' }, folder: '/v/Projects/proj', source: 'note', state: 'ok' }],
 }
 
 /** The same four with the documentation folder gone (FIL-07). */
@@ -62,6 +71,7 @@ const deadDocsTabs = {
     },
     healthyTabs.tabs[3],
   ],
+  projectDocs: [],
 }
 
 const fetchCalls: { url: string; body?: unknown }[] = []
@@ -83,6 +93,10 @@ function stubFetch(routes: Routes): void {
       return Promise.resolve(routes.create(body as { parent: string; name: string; kind: string }))
     }
     if (url === '/idealize/bar/reveal') return Promise.resolve(routes.reveal())
+    if (url === '/idealize/bar/open') return Promise.resolve(routes.open(body as { path: string }))
+    if (url === '/idealize/setup/project-docs') {
+      return Promise.resolve(routes.projectDocs(body as { project: string; path: string }))
+    }
     if (url === '/idealize/setup/alias') return Promise.resolve(routes.alias(body as { name: string; path: string }))
     const operation = /^\/idealize\/bar\/(rename|duplicate|move|trash)$/.exec(url)
     if (operation !== null) return Promise.resolve(routes.operate(operation[1]!, body as Record<string, string>))
@@ -100,6 +114,14 @@ const defaultRoutes: Routes = {
   reveal: () => jsonResponse({ ok: true }),
   alias: () => jsonResponse({ ok: true, alias: { name: 'documentation', path: '/v2', accessState: 'ok' } }),
   operate: () => jsonResponse({ ok: true }),
+  open: () => jsonResponse({ ok: true }),
+  projectDocs: () => jsonResponse({ ok: true }),
+}
+
+/** Open All projects, then its documentation view: the vault. */
+async function openAllDocumentation(view: ReturnType<typeof render>): Promise<void> {
+  fireEvent.click(await view.findByRole('tab', { name: /^All projects/ }))
+  fireEvent.click(view.getByRole('tab', { name: /^All documentation/ }))
 }
 
 /** A drag payload as the browser hands it to the handlers. */
@@ -119,6 +141,7 @@ function mount(overrides: Partial<Props> = {}, routes: Partial<Routes> = {}) {
   const props: Props = {
     canReveal: true,
     canTrash: true,
+    canOpenExternal: false,
     currentCwd: undefined,
     pickDirectory: vi.fn(() => Promise.resolve(null)),
     onOpenFile: vi.fn(),
@@ -280,10 +303,21 @@ describe('a reveal request', () => {
     expect(onRevealDone).not.toHaveBeenCalled()
   })
 
-  it('picks the documentation tab for a file under the vault', async () => {
+  it('picks All documentation for a file under the vault', async () => {
     const { view } = mount({ reveal: { path: '/v/guide.md', nonce: 1 } }, { listing })
     const row = await view.findByText('guide.md')
     expect(row.closest('[data-path]')!.hasAttribute('data-revealed')).toBe(true)
+    expect(view.getByRole('tab', { name: 'All projects' }).getAttribute('aria-selected')).toBe('true')
+    expect(view.getByRole('tab', { name: 'All documentation' }).getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('picks the project\'s own documentation before the vault that holds it', async () => {
+    const { view } = mount({ reveal: { path: '/v/Projects/proj/plan.md', nonce: 1 } }, {
+      listing: path => jsonResponse({ path, entries: path === '/v/Projects/proj' ? [{ name: 'plan.md', kind: 'file' }] : [] }),
+    })
+    const row = await view.findByText('plan.md')
+    expect(row.closest('[data-path]')!.hasAttribute('data-revealed')).toBe(true)
+    expect(view.getByRole('tab', { name: 'This project' }).getAttribute('aria-selected')).toBe('true')
     expect(view.getByRole('tab', { name: 'Documentation' }).getAttribute('aria-selected')).toBe('true')
   })
 
@@ -309,30 +343,43 @@ describe('currentProjectRoots', () => {
   })
 })
 
-describe('the four alias tabs', () => {
-  it('opens on the project with its contents listed, and lists each alias tab on entry', async () => {
+describe('the two rows of tabs', () => {
+  it('opens on the project with its contents listed, and lists each view on entry', async () => {
     const { view } = mount()
     const tabs = await view.findAllByRole('tab')
-    expect(tabs.map(tab => tab.textContent)).toEqual(['This project', 'All projects', 'Documentation', 'Skills'])
+    expect(tabs.map(tab => tab.textContent)).toEqual(['This project', 'All projects', 'Skills', 'Project files', 'Documentation'])
     expect(tabs[0]!.getAttribute('aria-selected')).toBe('true')
+    expect(tabs[3]!.getAttribute('aria-selected')).toBe('true')
     // The selected folder's contents show with no click; the toolbar names the
     // folder, so no root row repeats it.
     await view.findByText('notes.md')
     expect(view.queryByRole('button', { name: /proj/ })).toBeNull()
     expect(view.getByText('proj')).toBeTruthy()
 
-    fireEvent.click(tabs[2]!)
-    expect(tabs[2]!.getAttribute('aria-selected')).toBe('true')
-    await waitFor(() => {
-      expect(fetchCalls.some(call => call.url === `/idealize/bar/files?path=${encodeURIComponent('/v')}`)).toBe(true)
-    })
-    expect(view.queryByRole('button', { name: /vault/ })).toBeNull()
-
+    // All projects keeps the second row, relabelled, and lists the projects root.
     fireEvent.click(tabs[1]!)
     await waitFor(() => {
       expect(fetchCalls.some(call => call.url === `/idealize/bar/files?path=${encodeURIComponent('/w')}`)).toBe(true)
     })
     expect(view.queryByRole('button', { name: /Projects/ })).toBeNull()
+    expect(view.getAllByRole('tab').slice(3).map(tab => tab.textContent)).toEqual(['All project files', 'All documentation'])
+
+    fireEvent.click(view.getByRole('tab', { name: 'All documentation' }))
+    await waitFor(() => {
+      expect(fetchCalls.some(call => call.url === `/idealize/bar/files?path=${encodeURIComponent('/v')}`)).toBe(true)
+    })
+    expect(view.queryByRole('button', { name: /vault/ })).toBeNull()
+
+    // The choice of documentation rides along to the other scope.
+    fireEvent.click(tabs[0]!)
+    expect(view.getByRole('tab', { name: 'Documentation' }).getAttribute('aria-selected')).toBe('true')
+    await waitFor(() => {
+      expect(fetchCalls.some(call => call.url === `/idealize/bar/files?path=${encodeURIComponent('/v/Projects/proj')}`)).toBe(true)
+    })
+
+    // The skills folder has one view, so the second row goes.
+    fireEvent.click(tabs[2]!)
+    expect(view.getAllByRole('tab')).toHaveLength(3)
   })
 
   it('shows only the current project on the project tab', async () => {
@@ -384,6 +431,170 @@ describe('the four alias tabs', () => {
   })
 })
 
+describe('viewOf, opensInApp and the documentation roots', () => {
+  it('maps a scope and a kind to one view, the skills folder having one', () => {
+    expect(viewOf('project', 'files')).toBe('project')
+    expect(viewOf('project', 'docs')).toBe('projectDocs')
+    expect(viewOf('all', 'files')).toBe('projectsRoot')
+    expect(viewOf('all', 'docs')).toBe('documentation')
+    expect(viewOf('skills', 'docs')).toBe('skills')
+  })
+
+  it('keeps Markdown and images in the viewer and nothing else', () => {
+    for (const name of ['notes.md', '/w/proj/README.MD', 'a.markdown', 'shot.png', 'photo.JPEG', 'mark.svg', 'anim.gif']) {
+      expect(opensInApp(name), name).toBe(true)
+    }
+    for (const name of ['brief.pdf', 'deck.pptx', 'sheet.xlsx', 'index.ts', 'data.json', 'LICENSE', '.gitignore', '/w/my.md/file', 'clip.mp4']) {
+      expect(opensInApp(name), name).toBe(false)
+    }
+  })
+
+  it('narrows the documentation folders to the current project and names several by project', () => {
+    const alpha = { project: { name: 'Alpha', path: '/w/a' }, folder: '/v/Projects/Alpha', source: 'note' as const, state: 'ok' as const }
+    const beta = { project: { name: 'Beta', path: '/w/b' }, folder: '/elsewhere/docs', source: 'chosen' as const, state: 'ok' as const }
+    const gamma = { project: { name: 'Gamma', path: '/w/c' }, state: 'unset' as const }
+    const dead = { project: { name: 'Delta', path: '/w/d' }, folder: '/gone', source: 'chosen' as const, state: 'missing' as const }
+    expect(currentProjectDocs([alpha, beta, gamma], [{ name: 'Beta', path: '/w/b' }])).toEqual([beta])
+    expect(projectDocsRoots([alpha])).toEqual([{ name: 'Alpha', path: '/v/Projects/Alpha' }])
+    expect(projectDocsRoots([beta])).toEqual([{ name: 'docs', path: '/elsewhere/docs' }])
+    expect(projectDocsRoots([alpha, beta, gamma, dead])).toEqual([
+      { name: 'Alpha', path: '/v/Projects/Alpha' },
+      { name: 'Beta', path: '/elsewhere/docs' },
+    ])
+  })
+})
+
+describe("a project's documentation folder", () => {
+  it('lists the resolved folder, names it, and changes it through the picker', async () => {
+    let served = healthyTabs as unknown
+    const pickDirectory = vi.fn(() => Promise.resolve('/elsewhere/docs'))
+    const { view } = mount({ pickDirectory, currentCwd: '/w/proj' }, { aliases: () => jsonResponse(served) })
+    fireEvent.click(await view.findByRole('tab', { name: 'Documentation' }))
+    await waitFor(() => {
+      expect(fetchCalls.some(call => call.url === `/idealize/bar/files?path=${encodeURIComponent('/v/Projects/proj')}`)).toBe(true)
+    })
+    expect(view.getByText('/v/Projects/proj')).toBeTruthy()
+    // A folder found in the vault is the default already.
+    expect(view.queryByRole('button', { name: 'Use the default folder' })).toBeNull()
+
+    served = {
+      ...healthyTabs,
+      projectDocs: [{ project: { name: 'proj', path: '/w/proj' }, folder: '/elsewhere/docs', source: 'chosen', state: 'ok' }],
+    }
+    fireEvent.click(view.getByRole('button', { name: 'Change folder' }))
+    expect(await view.findByText('Documentation folder set')).toBeTruthy()
+    expect(fetchCalls.find(call => call.url === '/idealize/setup/project-docs')?.body)
+      .toEqual({ project: '/w/proj', path: '/elsewhere/docs' })
+    await waitFor(() => {
+      expect(fetchCalls.some(call => call.url === `/idealize/bar/files?path=${encodeURIComponent('/elsewhere/docs')}`)).toBe(true)
+    })
+
+    // A chosen folder can go back to the vault's: the write carries an empty path and no picker.
+    served = healthyTabs
+    fireEvent.click(view.getByRole('button', { name: 'Use the default folder' }))
+    expect(await view.findByText('Back to the default documentation folder')).toBeTruthy()
+    expect(fetchCalls.filter(call => call.url === '/idealize/setup/project-docs').at(-1)?.body)
+      .toEqual({ project: '/w/proj', path: '' })
+    expect(pickDirectory).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers Choose folder for a project with none, and shows a refusal verbatim', async () => {
+    const { view } = mount({ pickDirectory: vi.fn(() => Promise.resolve('/nope')) }, {
+      aliases: () => jsonResponse({ ...healthyTabs, projectDocs: [{ project: { name: 'proj', path: '/w/proj' }, state: 'unset' }] }),
+      projectDocs: () => jsonResponse({ ok: false, failure: { accessState: 'unwritable', reason: 'IDEalize cannot save files inside /nope.' } }, 400),
+    })
+    fireEvent.click(await view.findByRole('tab', { name: 'Documentation' }))
+    expect(await view.findByText(/This project has no documentation folder yet/)).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: 'Choose folder' }))
+    expect(await view.findByText('IDEalize cannot save files inside /nope.')).toBeTruthy()
+  })
+
+  it('says which chosen folder died and offers both ways out', async () => {
+    const { view } = mount({}, {
+      aliases: () => jsonResponse({
+        ...healthyTabs,
+        projectDocs: [{
+          project: { name: 'proj', path: '/w/proj' }, folder: '/gone', source: 'chosen', state: 'missing',
+          reason: 'There is no folder at /gone. Check the location still exists.',
+        }],
+      }),
+    })
+    fireEvent.click(await view.findByRole('tab', { name: 'Documentation' }))
+    expect(await view.findByText(/There is no folder at \/gone/)).toBeTruthy()
+    expect(view.getByRole('button', { name: 'Choose folder' })).toBeTruthy()
+    expect(view.getByRole('button', { name: 'Use the default folder' })).toBeTruthy()
+  })
+
+  it('lists every project\'s folder and offers no choice while several projects show', async () => {
+    const { view } = mount({}, {
+      aliases: () => jsonResponse({
+        tabs: [
+          { id: 'project', roots: [{ name: 'Alpha', path: '/w/a' }, { name: 'Beta', path: '/w/b' }], state: 'ok' },
+          ...healthyTabs.tabs.slice(1),
+        ],
+        projectDocs: [
+          { project: { name: 'Alpha', path: '/w/a' }, folder: '/v/Projects/Alpha', source: 'note', state: 'ok' },
+          { project: { name: 'Beta', path: '/w/b' }, state: 'unset' },
+        ],
+      }),
+    })
+    fireEvent.click(await view.findByRole('tab', { name: 'Documentation' }))
+    await waitFor(() => {
+      expect(fetchCalls.some(call => call.url === `/idealize/bar/files?path=${encodeURIComponent('/v/Projects/Alpha')}`)).toBe(true)
+    })
+    expect(view.queryByRole('button', { name: 'Change folder' })).toBeNull()
+  })
+})
+
+describe('opening a file', () => {
+  const listing = (path: string): Response => jsonResponse({
+    path,
+    entries: [{ name: 'brief.pdf', kind: 'file' }, { name: 'notes.md', kind: 'file' }, { name: 'shot.png', kind: 'file' }],
+  })
+
+  it('keeps Markdown and images in the viewer and hands the rest to the default application', async () => {
+    const { view, props } = mount({ canOpenExternal: true }, { listing })
+    fireEvent.click(await view.findByText('notes.md'))
+    fireEvent.click(view.getByText('shot.png'))
+    expect(props.onOpenFile).toHaveBeenCalledTimes(2)
+    expect(fetchCalls.some(call => call.url === '/idealize/bar/open')).toBe(false)
+
+    fireEvent.click(view.getByText('brief.pdf'))
+    expect(await view.findByText('Opened in its default app')).toBeTruthy()
+    expect(fetchCalls.find(call => call.url === '/idealize/bar/open')?.body).toEqual({ path: '/w/proj/brief.pdf' })
+    expect(props.onOpenFile).toHaveBeenCalledTimes(2)
+  })
+
+  it('opens every file in the viewer where the host has no default-application launch', async () => {
+    const { view, props } = mount({ canOpenExternal: false }, { listing })
+    fireEvent.click(await view.findByText('brief.pdf'))
+    expect(props.onOpenFile).toHaveBeenCalledWith('/w/proj/brief.pdf')
+    expect(fetchCalls.some(call => call.url === '/idealize/bar/open')).toBe(false)
+  })
+
+  it('falls back to the viewer when the host refuses the file or cannot be reached', async () => {
+    const refused = mount({ canOpenExternal: true }, { listing, open: () => jsonResponse({ error: 'no application opens this file' }, 422) })
+    fireEvent.click(await refused.view.findByText('brief.pdf'))
+    await waitFor(() => { expect(refused.props.onOpenFile).toHaveBeenCalledWith('/w/proj/brief.pdf') })
+    cleanup()
+
+    const unreachable = mount({ canOpenExternal: true }, { listing, open: () => Promise.reject(new Error('offline')) })
+    fireEvent.click(await unreachable.view.findByText('brief.pdf'))
+    await waitFor(() => { expect(unreachable.props.onOpenFile).toHaveBeenCalledWith('/w/proj/brief.pdf') })
+  })
+
+  it('offers Open in IDEalize on the menu of a file that would leave', async () => {
+    const { view, props } = mount({ canOpenExternal: true }, { listing })
+    fireEvent.contextMenu(await view.findByText('notes.md'))
+    expect(view.queryByRole('menuitem', { name: 'Open in IDEalize' })).toBeNull()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.contextMenu(view.getByText('brief.pdf'))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Open in IDEalize' }))
+    expect(props.onOpenFile).toHaveBeenCalledWith('/w/proj/brief.pdf')
+    expect(fetchCalls.some(call => call.url === '/idealize/bar/open')).toBe(false)
+  })
+})
+
 describe('a dead alias (FIL-07 / AC-27)', () => {
   it('keeps its tab, explains the failure, and reconnects through the picker', async () => {
     let served = deadDocsTabs as unknown
@@ -391,12 +602,15 @@ describe('a dead alias (FIL-07 / AC-27)', () => {
     const { view } = mount({ pickDirectory }, { aliases: () => jsonResponse(served) })
 
     const tabs = await view.findAllByRole('tab')
-    expect(view.getByLabelText('This folder can’t be reached')).toBeTruthy()
-    fireEvent.click(tabs[2]!)
+    expect(tabs).toHaveLength(5)
+    // The dot rides the scope that holds the dead folder.
+    expect(view.getByRole('tab', { name: /^All projects/ }).querySelector('[role="img"]')).not.toBeNull()
+    await openAllDocumentation(view)
 
     expect(await view.findByText(/There is no folder at \/v/)).toBeTruthy()
     served = {
       tabs: [healthyTabs.tabs[0], healthyTabs.tabs[1], { ...healthyTabs.tabs[2], roots: [{ name: 'vault', path: '/v2' }] }, healthyTabs.tabs[3]],
+      projectDocs: [],
     }
     fireEvent.click(view.getByRole('button', { name: 'Choose the folder again' }))
 
@@ -418,7 +632,7 @@ describe('a dead alias (FIL-07 / AC-27)', () => {
       aliases: () => jsonResponse(deadDocsTabs),
       alias: () => jsonResponse({ ok: false, failure: { accessState: 'unwritable', reason: 'IDEalize cannot save files inside /nope.' } }, 400),
     })
-    fireEvent.click((await view.findAllByRole('tab'))[2]!)
+    await openAllDocumentation(view)
     fireEvent.click(await view.findByRole('button', { name: 'Choose the folder again' }))
     expect(await view.findByText('IDEalize cannot save files inside /nope.')).toBeTruthy()
   })
@@ -427,7 +641,7 @@ describe('a dead alias (FIL-07 / AC-27)', () => {
     const { view } = mount({ pickDirectory: vi.fn(() => Promise.reject(new Error('no picker'))) }, {
       aliases: () => jsonResponse(deadDocsTabs),
     })
-    fireEvent.click((await view.findAllByRole('tab'))[2]!)
+    await openAllDocumentation(view)
     fireEvent.click(await view.findByRole('button', { name: 'Choose the folder again' }))
     expect(await view.findByText('Couldn’t reconnect that folder')).toBeTruthy()
     expect(fetchCalls.some(call => call.url === '/idealize/setup/alias')).toBe(false)

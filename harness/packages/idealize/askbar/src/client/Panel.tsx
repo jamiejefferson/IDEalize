@@ -14,7 +14,7 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { portraitOf } from '../portrait.ts'
 import type { AskbarChip, AskbarEdge } from '../types.ts'
 import styles from './Askbar.module.css'
-import { STATE_LABEL_KEYS } from './Chip.tsx'
+import { stateDetailKey } from './Chip.tsx'
 
 /** Panel props: the chip it details, the bar's locale seat, and the root's callbacks. */
 export type PanelProps = PropsLocale<'idealize-askbar'> & {
@@ -154,7 +154,7 @@ export function Panel(props: PanelProps): React.JSX.Element {
         </span>
         <span className={styles['panelIdentity']}>
           <span className={styles['panelName']}>{chip.name}</span>
-          <span className={styles['panelProject']}>{t('panel.identity', { project: projectLabel(project), state: t(STATE_LABEL_KEYS[chip.state]) })}</span>
+          <span className={styles['panelProject']}>{t('panel.identity', { project: projectLabel(project), state: t(stateDetailKey(chip.state)) })}</span>
         </span>
       </div>
       <div className={styles['panelBody']}>

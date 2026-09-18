@@ -1,8 +1,16 @@
 /**
  * The chip-state fold: one pure function from what the host knows about an
  * agent to the design spec's visual state. Precedence: wrong, then
- * needs-input, then working (a turn is running), then ready (the agent is
- * loaded and waiting), then idle (the chat is cold).
+ * needs-input, then working (a turn is running), then finished (the agent's
+ * Studio task is done and no other work is active or queued), then ready (the
+ * agent is loaded and waiting), then idle (the chat is cold).
+ *
+ * `finished` answers "which chats are safe to close" (JJ: "trigger a 'Done'
+ * status on the task agents so the user knows they're safe to close"). The
+ * roster passes a `done` execution only from the fold's `finished` task, so
+ * the state ends when the agent is assigned new work, and it holds whether or
+ * not the agent is still loaded and whether or not the completion has been
+ * acknowledged: neither changes whether the chat can be closed.
  *
  * Attention outranks the rest (JJ, 8 Sep 2026): a chat whose task failed or
  * waits on the user owes that answer whether or not its agent is loaded, and
@@ -39,9 +47,9 @@ export interface ChipStateInput {
   live: boolean
   /** The agent's rung blockers across the project's pieces (comm board rows). */
   blockers: readonly ChipBlocker[]
-  /** The Studio fold's active-task execution state, when a Studio timeline names one. */
+  /** The execution state of the agent's displayed task, else of its finished one, when a Studio timeline names either. */
   execution?: ChipExecution | undefined
-  /** The Studio fold's active-task attention state, when one exists. */
+  /** That same task's attention state. */
   attention?: ChipAttention | undefined
 }
 
@@ -60,6 +68,7 @@ export function chipStateOf(input: ChipStateInput): Exclude<ChipState, 'listenin
     || input.blockers.includes('waiting-on-user')
   ) return 'needs-input'
   if (input.running) return 'working'
+  if (input.execution === 'done') return 'finished'
   if (!input.live) return 'idle'
   return input.execution === 'working' ? 'working' : 'ready'
 }

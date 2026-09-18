@@ -40,6 +40,82 @@
   border-bottom-color: var(--dsw-alias-brand-primary, #4d6bfe);
 }
 
+/* The second row: which of the scope's two folders shows. */
+.kinds {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06));
+  flex-shrink: 0;
+}
+
+.kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  cursor: pointer;
+}
+
+.kind:hover {
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.kind:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.24));
+}
+
+.kind[aria-selected='true'] {
+  color: var(--dsw-alias-label-primary, #24292f);
+  background: var(--dsw-alias-bg-layer-2, rgba(0, 0, 0, 0.06));
+}
+
+/* The line naming a project's documentation folder, with the way to change it. */
+.docsSource {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06));
+  font-size: var(--idealize-type-body, 12.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+  flex-shrink: 0;
+}
+
+.docsSourcePath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* A long path keeps its end, where the project's name is. */
+  direction: rtl;
+  text-align: left;
+}
+
+.docsSourceAction {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--dsw-alias-label-primary, #24292f);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.docsSourceAction:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* The dot marking a tab whose folder no longer answers. */
 .tabDead {
   width: 6px;

@@ -11,10 +11,14 @@
  * `secondaryTextColor`). Background: the surface root paints the fill and
  * its own ground tokens go transparent so nothing inside covers it. Both
  * colours paint only in the scheme they were chosen in (`surfaceScheme`);
- * the other scheme keeps the theme's own.
+ * the other scheme keeps the theme's own. On a fill of its own, the surface's
+ * ink tokens are held to a contrast floor against it ({@link surfaceInk}).
  */
 
-import { blend, contrast, deepenAlongHue, parseHex, toHex, toRgba, UI_CONTRAST, type Rgb } from './colour.ts'
+import {
+  blend, contrast, deepenAgainstAll, deepenAlongHue, fromHsl, parseHex, requireHex, TEXT_CONTRAST, toHex, toHsl, toRgba, UI_CONTRAST,
+  type Rgb,
+} from './colour.ts'
 import {
   type ActionAppearance, type GradientStop, type GradientType, type SurfaceAppearance, type SurfaceId, fontStack,
   FONT_WEIGHTS, SURFACES, surfaceScheme,
@@ -197,6 +201,126 @@ function requireInk(tokens: Tokens, name: typeof INK_TOKENS[number]): string {
 }
 
 /**
+ * The contrast each ink token holds against a surface's own ground: primary
+ * carries running text; secondary, tertiary and caption carry icons, chip
+ * labels, placeholders and small notes. {@link surfaceInk} lowers a floor to
+ * what the theme's own token holds on the theme's own ground where that is
+ * less (IDEalize Light's 45% tertiary sits at 2.8:1 on white), so a surface's
+ * ground never makes ink fainter than the theme has it, and a theme's faint
+ * ink is not second-guessed.
+ */
+export const INK_FLOORS: Readonly<Record<typeof INK_TOKENS[number], number>> = Object.freeze({
+  '--dsw-alias-label-primary': TEXT_CONTRAST,
+  '--dsw-alias-label-secondary': UI_CONTRAST,
+  '--dsw-alias-label-tertiary': UI_CONTRAST,
+  '--dsw-alias-label-caption': UI_CONTRAST,
+})
+
+/** The opacity a surface text colour takes in each ink token (V0 `secondaryTextColor` is the 55%). */
+const INK_ALPHAS: Readonly<Record<typeof INK_TOKENS[number], number>> = Object.freeze({
+  '--dsw-alias-label-primary': 1,
+  '--dsw-alias-label-secondary': 0.55,
+  '--dsw-alias-label-tertiary': 0.45,
+  '--dsw-alias-label-caption': 0.55,
+})
+
+/** A layer token as colour and opacity: `#RRGGBB` or the `rgba()` form {@link toRgba} writes. */
+function parseToken(value: string): { rgb: Rgb; alpha: number } | undefined {
+  const hex = parseHex(value)
+  if (hex !== undefined) return { rgb: hex, alpha: 1 }
+  const match = /^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/.exec(value)
+  if (match === null) return undefined
+  const [r, g, b, alpha] = match.slice(1).map(Number) as [number, number, number, number]
+  return { rgb: { r, g, b }, alpha }
+}
+
+/**
+ * The opaque colours a surface's own background paints, each composited over
+ * the theme ground at the background's opacity: one for a solid fill, one per
+ * stop for a gradient.
+ * @param surface - override.
+ * @param defaults - theme fallbacks.
+ * @returns the grounds, or undefined when the surface paints none in this scheme.
+ */
+export function surfaceGrounds(surface: SurfaceAppearance, defaults: SurfaceDefaults): Rgb[] | undefined {
+  if (surfaceScheme(surface) !== defaults.scheme || surface.bgMode === 'inherit') return undefined
+  const under = parseHex(defaults.ground)
+  if (under === undefined) return undefined
+  const gradient = surface.bgGradientStops.length > 0 ? surface.bgGradientStops : seedStops(defaults.ground, defaults.surface)
+  const stops = surface.bgMode === 'solid' ? [surface.bgColorHex] : gradient.map(stop => stop.colorHex)
+  return stops.map(hex => blend(under, parseHex(hex) ?? under, surface.bgOpacity))
+}
+
+/** One ink token held to its floor. */
+export interface FlooredInk {
+  /** CSS value: the source value when it already reads, otherwise the opaque deepened colour. */
+  value: string
+  /** Lowest contrast of the source colour across the grounds. */
+  ratio: number
+  /** Lowest contrast of {@link value} across the grounds; below the floor only when no shade of the hue reaches it. */
+  painted: number
+  /** Whether the value was deepened along its hue. */
+  deepened: boolean
+}
+
+/**
+ * Hold a surface's ink tokens to {@link INK_FLOORS} against a set of grounds,
+ * each floor capped at the ratio the theme's own token holds on the theme
+ * ground. The source of each token is the surface's text colour at the token's
+ * opacity, or the theme's own token when the surface sets no text colour. A
+ * source that reads on every ground stands; one that does not restarts from
+ * the lightness it shows at over the ground it reads worst on, in its own hue
+ * and saturation, and is deepened ({@link deepenAgainstAll}) until it does. Nothing is desaturated or swapped.
+ * The stylesheet and the panel's readout share this.
+ * @param surface - override.
+ * @param theme - the scheme's ground and resolved layer.
+ * @param grounds - the opaque grounds the ink is read against.
+ * @returns each ink token floored.
+ */
+export function surfaceInk(surface: SurfaceAppearance, theme: Pick<SurfaceDefaults, 'ground' | 'tokens'>, grounds: readonly Rgb[]): Record<typeof INK_TOKENS[number], FlooredInk> {
+  const own = parseHex(surface.textColorHex)
+  const themeGround = requireHex(theme.ground)
+  const floored = INK_TOKENS.map((name): [typeof INK_TOKENS[number], FlooredInk] => {
+    const token = requireInk(theme.tokens, name)
+    const themed = parseToken(token)
+    if (themed === undefined) throw new Error(`${name} is neither #RRGGBB nor rgba(): ${JSON.stringify(token)}`)
+    const floor = Math.min(INK_FLOORS[name], contrast(blend(themeGround, themed.rgb, themed.alpha), themeGround))
+    const source = own === undefined ? themed : { rgb: own, alpha: INK_ALPHAS[name] }
+    const seen = grounds.map(ground => ({ ground, colour: blend(ground, source.rgb, source.alpha) }))
+    const worst = seen.reduce((a, b) => (contrast(b.colour, b.ground) < contrast(a.colour, a.ground) ? b : a))
+    const ratio = contrast(worst.colour, worst.ground)
+    const written = own === undefined ? token : paint(own, source.alpha)
+    if (ratio >= floor) return [name, { value: written, ratio, painted: ratio, deepened: false }]
+    // The walk starts at the lightness the faded ink shows at, in the ink's own hue and saturation: the composite's
+    // hue is part ground, and the opaque ink's lightness would flatten a 45% token into the primary.
+    const deepened = deepenAgainstAll(fromHsl({ ...toHsl(source.rgb), l: toHsl(worst.colour).l }), grounds, floor)
+    const painted = Math.min(...grounds.map(ground => contrast(deepened, ground)))
+    return [name, { value: toHex(deepened), ratio, painted, deepened: true }]
+  })
+  return Object.fromEntries(floored) as Record<typeof INK_TOKENS[number], FlooredInk>
+}
+
+/**
+ * The rule that keeps the composer card's text and icons readable when the
+ * chat surface writes its ink. The card paints the theme's own
+ * `--dsw-specific-input-major`, so ink chosen or deepened for the surface's
+ * ground can vanish on it: a pale ink over a dark chat ground left the
+ * card's right-hand icons invisible on a light card (feedback cb68f5d5). Inside
+ * the card the ink tokens are held to the same floors against the card's fill.
+ * @param root - the chat surface's doubled selector.
+ * @param surface - override.
+ * @param theme - the scheme's ground and resolved layer.
+ * @returns the card rule, or an empty string when the card fill is not a plain colour.
+ */
+function composerInkRule(root: string, surface: SurfaceAppearance, theme: Pick<SurfaceDefaults, 'ground' | 'tokens'>): string {
+  const card = parseHex(theme.tokens['--dsw-specific-input-major'] ?? '')
+  if (card === undefined) return ''
+  const floored = surfaceInk(surface, theme, [card])
+  const rules = INK_TOKENS.map(name => `${name}: ${floored[name].value}`)
+  return `${root} [${COMPOSER_ATTRIBUTE}] { ${rules.join('; ')}; color: ${floored['--dsw-alias-label-primary'].value}; }`
+}
+
+/**
  * The stylesheet for one surface's override.
  * @param id - surface.
  * @param surface - override.
@@ -239,14 +363,20 @@ export function surfaceCss(id: SurfaceId, surface: SurfaceAppearance, defaults: 
   // Colours chosen over the other scheme stay out of this one's sheet.
   const coloursApply = surfaceScheme(surface) === defaults.scheme
   const ink = coloursApply ? parseHex(surface.textColorHex) : undefined
-  if (ink !== undefined) {
-    rootRules.push(
-      `--dsw-alias-label-primary: ${surface.textColorHex.toUpperCase()}`,
-      `--dsw-alias-label-secondary: ${toRgba(ink, 0.55)}`,
-      `--dsw-alias-label-tertiary: ${toRgba(ink, 0.45)}`,
-      `--dsw-alias-label-caption: ${toRgba(ink, 0.55)}`,
-      `color: ${surface.textColorHex.toUpperCase()}`,
-    )
+  const grounds = surfaceGrounds(surface, defaults)
+  // On a ground of its own the ink is held to the floors, whoever chose it; a
+  // text colour over the theme's ground is written as chosen.
+  const floored = grounds === undefined ? undefined : surfaceInk(surface, defaults, grounds)
+  // A surface with no text colour writes only the tokens it had to deepen; the rest stay the theme's.
+  const written: [typeof INK_TOKENS[number], string][] = floored !== undefined
+    ? INK_TOKENS.filter(name => ink !== undefined || floored[name].deepened).map(name => [name, floored[name].value])
+    : ink !== undefined
+      ? INK_TOKENS.map(name => [name, paint(ink, INK_ALPHAS[name])])
+      : []
+  if (written.length > 0) {
+    rootRules.push(...written.map(([name, value]) => `${name}: ${value}`))
+    const primary = written.find(([name]) => name === '--dsw-alias-label-primary')
+    if (primary !== undefined) rootRules.push(`color: ${primary[1]}`)
     exemptRules.push(...INK_TOKENS.map(name => `${name}: ${requireInk(defaults.tokens, name)}`), 'color: var(--dsw-alias-label-primary)')
   }
   let paintsOwnGround = false
@@ -270,6 +400,7 @@ export function surfaceCss(id: SurfaceId, surface: SurfaceAppearance, defaults: 
   // The chat surface is the only one holding a composer, so it is the only one
   // whose transcript can run under one.
   if (paintsOwnGround && id === 'chat') textRules.push(seatBlurRule(root))
+  if (written.length > 0 && id === 'chat') textRules.push(composerInkRule(root, surface, defaults))
   if (rootRules.length === 0 && textRules.length === 0) return ''
   if (exemptRules.length > 0) textRules.push(`${root} [${SURFACE_EXEMPT_ATTRIBUTE}] { ${exemptRules.join('; ')}; }`)
   const rootBlock = rootRules.length === 0 ? '' : `${root} { ${rootRules.join('; ')}; }\n`

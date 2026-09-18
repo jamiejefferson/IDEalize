@@ -3146,7 +3146,7 @@ export interface DocPolicyConfig {
 }
 ```
 
-Source: [`packages/idealize/doc-policy/src/index.ts:82`](../packages/idealize/doc-policy/src/index.ts)
+Source: [`packages/idealize/doc-policy/src/index.ts:91`](../packages/idealize/doc-policy/src/index.ts)
 
 <a id="idealizefeedback"></a>
 
@@ -3476,6 +3476,12 @@ export interface Config {
    */
   launchByActivity?: Record<string, string>
   /**
+   * Whether a Claude Code, Pi or Codex launch carries IDEalize's standing rules
+   * (where documentation goes, and whatever else a composed service offers) on
+   * its command line. On by default; off types the command as written.
+   */
+  appendKnowledge?: boolean
+  /**
    * The command-line agents the Brains pane offers as launch choices, in
    * order. `command` `''` is a plain shell. The route probes each command's
    * executable through the login shell and serves the verdict alongside.
@@ -3491,7 +3497,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/idealize/ui-terminal/src/index.ts:50`](../packages/idealize/ui-terminal/src/index.ts)
+Source: [`packages/idealize/ui-terminal/src/index.ts:57`](../packages/idealize/ui-terminal/src/index.ts)
 
 <a id="idealizevault"></a>
 

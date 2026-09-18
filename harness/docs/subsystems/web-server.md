@@ -267,7 +267,7 @@ Which terminal agents are working right now, for the surfaces that show it.
 working(): string[]
 ```
 
-Source: [`packages/idealize/ui-terminal/src/index.ts:135`](../../packages/idealize/ui-terminal/src/index.ts)
+Source: [`packages/idealize/ui-terminal/src/index.ts:149`](../../packages/idealize/ui-terminal/src/index.ts)
 
 <a id="ctxtranscription--transcriptionruntime"></a>
 

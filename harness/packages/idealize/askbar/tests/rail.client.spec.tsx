@@ -56,6 +56,19 @@ describe('Rail in the sidebar home', () => {
       .toEqual([['Juno', 'Needs input'], ['Nova', 'Working']])
   })
 
+  it('captions a finished agent in one word, badges it with a tick in place of the presence dot, and says it is safe to close in its accessible name', () => {
+    const finished: AskbarView = { ...VIEW, roster: { ...ROSTER, chips: [{ ...ROSTER.chips[0]!, running: false, state: 'finished' }, ROSTER.chips[1]!] } }
+    const view = render(<Rail view={finished} home='sidebar' onOpenMain={vi.fn()} t={t} />)
+    const chip = view.getByLabelText('Juno — Finished, safe to close')
+    expect(chip.getAttribute('data-chip-state')).toBe('finished')
+    expect([...chip.querySelectorAll('span')].at(-1)?.textContent).toBe('Finished')
+    expect(chip.querySelector('svg path')).toBeTruthy()
+    // The working chip beside it keeps its dot and carries no tick.
+    const working = view.getByLabelText('Nova — Working')
+    expect(working.querySelector('svg')).toBeNull()
+    expect(chip.querySelectorAll('span span').length).toBe(working.querySelectorAll('span span').length)
+  })
+
   it('routes the Studio entry to the home, and a chip click to the override', () => {
     const onOpenMain = vi.fn()
     const onOpenChip = vi.fn()

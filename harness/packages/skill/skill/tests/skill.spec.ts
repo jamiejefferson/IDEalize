@@ -764,6 +764,41 @@ describe('SkillRegistry registry', () => {
     expect(changes).toBe(5)
   })
 
+  it('reports a shadowed duplicate once, however often the catalog is rebuilt', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const provider = new MemoryProvider([
+      memorySkill('twin', 'Kept', 10),
+      { ...memorySkill('twin', 'Shadowed', 20), source: 'custom' },
+    ])
+    let invalidate = (): void => {}
+    ctx.skills.registerProvider((control) => {
+      invalidate = control.invalidate
+      return provider
+    })
+    const expected = ['skill "twin" from custom ignored because a higher-priority skill already exists']
+
+    await ctx.skills.list()
+    expect(warnings).toEqual(expected)
+    invalidate()
+    await ctx.skills.list()
+    invalidate()
+    await ctx.skills.list()
+    expect(provider.listCalls).toBe(3)
+    expect(warnings).toEqual(expected)
+
+    // A different shadowed source is new information and is reported.
+    provider.replace([
+      memorySkill('twin', 'Kept', 10),
+      { ...memorySkill('twin', 'Shadowed again', 30), source: 'plugin' },
+    ])
+    invalidate()
+    await ctx.skills.list()
+    expect(warnings).toEqual([...expected, 'skill "twin" from plugin ignored because a higher-priority skill already exists'])
+  })
+
   it('contains synchronous and asynchronous catalog observer failures', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillRegistry)

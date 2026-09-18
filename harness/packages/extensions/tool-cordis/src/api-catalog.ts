@@ -613,8 +613,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the ruleset\'s conventions text.',
       },
       {
+        signature: 'async terminalKnowledge(cwd: string): Promise<string>',
+        description: 'The documentation rule for a command-line agent the built-in terminal launches in `cwd`. `@idealize/ui-terminal` probes for this method and appends the text to the agent\'s prompt, because such an agent reads no harness prompt and no session-start notice.',
+        parameters: [{ name: 'cwd', description: 'the shell\'s working directory.' }],
+        returns: 'the guidance, naming the project\'s note when the folder holds one.',
+      },
+      {
+        signature: 'async projectFolder(projectPath: string): Promise<ProjectDocsFolder | undefined>',
+        description: 'The folder holding one project\'s documentation inside the configured documentation folder: the folder of the note whose `repo:` names the project, else `Projects/<project folder name>` when it exists.',
+        parameters: [{ name: 'projectPath', description: 'absolute path of the project\'s own folder.' }],
+        returns: 'the folder and how it was found, or `undefined` with no documentation folder or no match.',
+      },
+      {
         signature: 'scan(): Promise<DocScanRecord | undefined>',
-        description: 'Scaffold and scan the configured folder, rebuild the retrieval index, and record the scan to the storage domain when attached (DOC-04/06/07). Serialized: concurrent calls run one at a time in order.',
+        description: 'Scaffold and scan the configured folder, rebuild the retrieval index, and record the scan to the storage domain when attached (DOC-04/06/07). Serialized: concurrent calls run one at a time in order. A call that finds the folder\'s fingerprintFolder unchanged since the last scan returns that scan\'s record and neither re-reads, re-indexes nor records: sessions flush every few seconds, and the index rebuild runs synchronously on the Host thread.',
         parameters: [],
         returns: 'the scan record, or `undefined` when no folder is configured.',
       },
@@ -2577,6 +2589,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['{AliasProbeError} when the folder fails its probe; nothing is stored.'],
       },
       {
+        signature: 'async projectDocumentation(projectPath: string): Promise<ProjectDocumentation | undefined>',
+        description: 'One project\'s documentation folder: the folder chosen for it, else the one `@idealize/doc-policy` resolves inside the documentation vault. A chosen folder that has died is still returned, with its failing `accessState`, so the caller can say which folder was lost.',
+        parameters: [{ name: 'projectPath', description: 'absolute path of the project\'s own folder.' }],
+        returns: 'the folder with its probe verdict, or `undefined` when none is chosen and the vault holds none.',
+      },
+      {
+        signature: 'chosenProjectDocumentation(): Record<string, string>',
+        description: 'The documentation folders chosen per project, as stored.',
+        parameters: [],
+        returns: 'project folder path to chosen documentation folder; cleared entries omitted.',
+      },
+      {
+        signature: 'async setProjectDocumentation(projectPath: string, path: string): Promise<ProjectDocumentation | undefined>',
+        description: 'Choose one project\'s documentation folder, or clear the choice.',
+        parameters: [{ name: 'projectPath', description: 'absolute path of the project\'s own folder.' }, { name: 'path', description: 'absolute folder path; the empty string clears the choice.' }],
+        returns: 'the project\'s documentation folder after the write.',
+        throws: ['{AliasProbeError} when the folder fails its probe; nothing is stored.'],
+      },
+      {
         signature: 'async state(): Promise<SetupState>',
         description: 'Component seeds + live-probed aliases for the state route and, later, the settings surface.',
         parameters: [],
@@ -4296,6 +4327,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ProcessingLocation = \'on-device\' | \'remote\';',
   },
   {
+    name: 'ProjectDocsFolder',
+    declaration: 'export interface ProjectDocsFolder {\n    path: string;\n    source: \'note\' | \'name\';\n}',
+  },
+  {
+    name: 'ProjectDocumentation',
+    declaration: 'export interface ProjectDocumentation {\n    path: string;\n    source: \'chosen\' | \'note\' | \'name\';\n    accessState: AliasAccessState;\n    reason?: string;\n}',
+  },
+  {
     name: 'ProjectionChangeListener',
     declaration: 'export type ProjectionChangeListener = (session: Session, key: Extract<keyof SessionProjectionMap, string>, value: unknown, seq: number) => void;',
   },
@@ -4893,7 +4932,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'StudioAgentView',
-    declaration: 'export interface StudioAgentView {\n    active?: string | undefined;\n    queued: string[];\n    displayed?: string | undefined;\n    unresolved: string[];\n}',
+    declaration: 'export interface StudioAgentView {\n    active?: string | undefined;\n    queued: string[];\n    displayed?: string | undefined;\n    finished?: string | undefined;\n    unresolved: string[];\n}',
   },
   {
     name: 'StudioAppendResult',

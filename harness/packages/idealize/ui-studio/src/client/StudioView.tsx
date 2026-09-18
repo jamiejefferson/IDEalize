@@ -28,7 +28,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { StudioKey } from './locales.ts'
-import type { EventRow, ProjectView, StudioTranslate, TaskRow } from './studio-model.ts'
+import type { AgentViewRow, EventRow, ProjectView, StudioTranslate, TaskRow } from './studio-model.ts'
 import type { StudioViewState } from './store.ts'
 import { StudioOwl } from './StudioOwl.tsx'
 import css from './StudioView.module.css'
@@ -308,8 +308,8 @@ function ProjectSection({ project, named, names, address, t }: {
             <span className={css.rowLabel}>
               <AgentRef id={participant} names={names} address={address} t={t} />
             </span>
-            <span className={css.rowMeta}>
-              {agent.active !== undefined ? (byId.get(agent.active)?.goal ?? agent.active) : t('studio.agents.idle')}
+            <span className={css.rowMeta} data-studio-agent-finished={agent.finished === undefined ? undefined : ''}>
+              {agentWork(agent, byId, t)}
             </span>
             {agent.queued.length > 0 && (
               <span className={css.rowMeta}>{t('studio.agents.queued', { count: agent.queued.length })}</span>
@@ -412,6 +412,12 @@ function TimelineRow({ event, named, openThread, unread, focused, rowRef, open, 
       )}
     </li>
   )
+}
+
+/** What one agent's row says it is doing: its active task, else that it has finished, else that it is idle. */
+function agentWork(agent: AgentViewRow, byId: ReadonlyMap<string, TaskRow>, t: StudioTranslate): string {
+  if (agent.active !== undefined) return byId.get(agent.active)?.goal ?? agent.active
+  return t(agent.finished === undefined ? 'studio.agents.idle' : 'studio.agents.finished')
 }
 
 /** A task's attention label; `none` never reaches here. */

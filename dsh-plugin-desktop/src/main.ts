@@ -1,6 +1,6 @@
 /** IDEalize executable: minimal Electron bootstrap around the Host Cordis root. */
 
-import { app, crashReporter, dialog, globalShortcut, net, shell } from 'electron'
+import { app, crashReporter, dialog, globalShortcut, net, session, shell } from 'electron'
 
 // Chromium caps HTTP/1.1 at six connections per origin, and every window's
 // event streams hold theirs open (main + Askbar SSE pairs, a Terminal chat's
@@ -11,6 +11,7 @@ import { app, crashReporter, dialog, globalShortcut, net, shell } from 'electron
 // ignored by the network service.
 app.commandLine.appendSwitch('ignore-connections-limit', '127.0.0.1,localhost')
 import type { Context } from '@deepseek-ai/cordis'
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -46,6 +47,7 @@ import {
 import { exportDesktopDiagnostics } from './diagnostic-export.ts'
 import { FileExporter } from './file-exporter.ts'
 import { DESKTOP_SETTINGS_NAMESPACE, type DesktopSettings } from './index.ts'
+import { clearPreviousLaunchHttpCache } from './http-cache.ts'
 import { LogFileSink } from './log-files.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { resolveDesktopShellEnvironment } from './shell-environment.ts'
@@ -87,6 +89,7 @@ import {
 } from './profile.ts'
 import type { DesktopPnpmBootstrap } from './pnpm.ts'
 import {
+  armDesktopExitWatchdog,
   createDesktopExitCoordinator,
   createDesktopShutdown,
   installShutdownRequests,
@@ -269,6 +272,9 @@ async function start(): Promise<void> {
     logSink = new LogFileSink(join(app.getPath('userData'), 'logs'), {
       maxFileBytes: 10 * 1024 * 1024,
       maxDirectoryBytes: 200 * 1024 * 1024,
+      // Each append blocks the main thread (a median 8 ms per line on JJ's
+      // machine, 0.8-3.8 s for a 60-line skill-catalogue burst).
+      coalesceMs: 100,
     })
     logSink.enforceDirectoryCap()
     logSink.purgeOlderThan(7)
@@ -314,6 +320,7 @@ async function start(): Promise<void> {
       prepareToQuit: () => { runtime.prepareToQuit() },
       relaunch: () => { app.relaunch() },
       exit: code => { app.exit(code) },
+      armExitWatchdog: () => { armDesktopExitWatchdog(process.pid, process.platform, spawn) },
     },
     () => {
       removeShutdownRequests?.()
@@ -324,6 +331,7 @@ async function start(): Promise<void> {
       } catch (cause) {
         electronLogger.error(`${BIN_NAME}: failed to clear active run marker: ${cause instanceof Error ? cause.message : String(cause)}`)
       }
+      logSink?.flush()
     },
   )
   let restartRequested = false
@@ -432,6 +440,11 @@ async function start(): Promise<void> {
   })
   try {
     await app.whenReady()
+    // Detached: the clear runs in Chromium's cache thread while the Host boots.
+    void clearPreviousLaunchHttpCache(
+      session.defaultSession,
+      (message) => { electronLogger.error(`${BIN_NAME}: ${message}`) },
+    )
     startupStage = 'shell-environment'
     if (process.platform === 'win32') app.setAppUserModelId(APP_ID)
     if (app.isPackaged && process.cwd() === '/') process.chdir(app.getPath('home'))

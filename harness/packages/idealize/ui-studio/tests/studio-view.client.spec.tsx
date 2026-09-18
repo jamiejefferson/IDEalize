@@ -122,6 +122,19 @@ describe('the Studio pane', () => {
     expect(view.container.querySelector('[data-studio-event="2"]')?.textContent).toContain('new-task')
   })
 
+  it('says an agent with nothing active has finished when the fold names its done task, and is idle otherwise', () => {
+    const done = { ...STATE.tasks[0]!, state: 'done' as const, attention: 'completion' as const }
+    const finished = paneWith({ ...STATE, tasks: [done], agents: { 'session-a': { finished: 't1', queued: [], unresolved: ['t1'] } } })
+    const row = finished.view.container.querySelector('[data-studio-agent="session-a"]')
+    expect(row?.textContent).toContain('Finished, safe to close')
+    expect(row?.querySelector('[data-studio-agent-finished]')).toBeTruthy()
+    cleanup()
+    const idle = paneWith({ ...STATE, tasks: [], agents: { 'session-a': { queued: [], unresolved: [] } } })
+    const idleRow = idle.view.container.querySelector('[data-studio-agent="session-a"]')
+    expect(idleRow?.textContent).toContain('Idle')
+    expect(idleRow?.querySelector('[data-studio-agent-finished]')).toBeNull()
+  })
+
   it('opens the source chat from a timeline row and polls the overview', () => {
     const { view, openThread, sync } = paneWith(STATE, EVENTS)
     fireEvent.click(view.getByRole('button', { name: 'Open chat' }))

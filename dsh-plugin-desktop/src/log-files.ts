@@ -41,6 +41,17 @@ function truncateUtf8(text: string, maxBytes: number): string {
 export interface LogFileSinkOptions {
   readonly maxFileBytes: number
   readonly maxDirectoryBytes: number
+  /**
+   * Milliseconds `info`, `warn` and `debug` lines may wait so one burst costs
+   * one append per file. Absent or `0` appends every line as it arrives.
+   * `error` lines, `flush()` and `close()` always write what is waiting first.
+   */
+  readonly coalesceMs?: number
+}
+
+interface PendingLine {
+  readonly kind: 'all' | 'error'
+  readonly line: string
 }
 
 function localDateSuffix(date: Date): string {
@@ -56,7 +67,11 @@ export function logFileName(suffix: string, error: boolean, segment: number): st
   return segment === 0 ? `${base}.log` : `${base}.${segment}.log`
 }
 
-/** Per-day file sink with synchronous appends, size rotation, and a directory cap. */
+/**
+ * Per-day file sink with synchronous appends, size rotation, and a directory
+ * cap. Every append blocks its caller, and the Host logs from Electron's main
+ * thread, so `coalesceMs` batches a burst into one append per file.
+ */
 export class LogFileSink {
   private readonly directory: string
   private readonly maxFileBytes: number
@@ -67,11 +82,15 @@ export class LogFileSink {
   private allSegment = 0
   private errorSegment = 0
   private directoryBytes: number
+  private readonly coalesceMs: number
+  private pending: PendingLine[] = []
+  private flushTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(directory: string, options: LogFileSinkOptions) {
     this.directory = directory
     this.maxFileBytes = options.maxFileBytes
     this.maxDirectoryBytes = options.maxDirectoryBytes
+    this.coalesceMs = options.coalesceMs ?? 0
     if (this.maxFileBytes < 2 || this.maxDirectoryBytes < 1) {
       throw new Error('dsh-plugin-desktop: log size limits must be positive')
     }
@@ -91,13 +110,63 @@ export class LogFileSink {
     const suffix = localDateSuffix(new Date())
     if (suffix !== this.currentDate) this.rollDate(suffix)
     const masked = maskSecrets(line)
-    this.append('all', masked)
-    if (isErrorType(type)) this.append('error', masked)
+    if (this.coalesceMs <= 0) {
+      this.append('all', masked)
+      if (isErrorType(type)) this.append('error', masked)
+      if (this.directoryBytes > this.maxDirectoryBytes) this.enforceDirectoryCap()
+      return
+    }
+    this.pending.push({ kind: 'all', line: masked })
+    if (isErrorType(type)) this.pending.push({ kind: 'error', line: masked })
+    // An error may be the last line before the process dies: it never waits.
+    if (type === 'error') {
+      this.flush()
+      return
+    }
+    if (this.flushTimer === undefined) {
+      this.flushTimer = setTimeout(() => { this.flush() }, this.coalesceMs)
+      // Pending log lines must not keep the process alive; exit paths flush.
+      this.flushTimer.unref()
+    }
+  }
+
+  /** Append every waiting line now, in arrival order per file. */
+  flush(): void {
+    if (this.flushTimer !== undefined) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = undefined
+    }
+    if (this.pending.length === 0) return
+    const lines = this.pending
+    this.pending = []
+    const suffix = localDateSuffix(new Date())
+    if (suffix !== this.currentDate) this.rollDate(suffix)
+    for (const kind of ['all', 'error'] as const) {
+      let batch: string[] = []
+      let batchBytes = 0
+      const bytes = (): number => (kind === 'all' ? this.allBytes : this.errorBytes)
+      for (const entry of lines) {
+        if (entry.kind !== kind) continue
+        const rendered = truncateUtf8(entry.line, this.maxFileBytes - 1)
+        const lineBytes = Buffer.byteLength(rendered) + 1
+        // A batch ends where the per-file cap would rotate, so rotation
+        // lands on the same line it would with one append per line.
+        if (batch.length > 0 && bytes() + batchBytes + lineBytes > this.maxFileBytes) {
+          this.append(kind, batch.join('\n'))
+          batch = []
+          batchBytes = 0
+        }
+        batch.push(rendered)
+        batchBytes += lineBytes
+      }
+      if (batch.length > 0) this.append(kind, batch.join('\n'))
+    }
     if (this.directoryBytes > this.maxDirectoryBytes) this.enforceDirectoryCap()
   }
 
   /** Write a startup header line to the current full-log file (before ordinary lines). */
   writeHeader(line: string): void {
+    this.flush()
     const suffix = localDateSuffix(new Date())
     if (suffix !== this.currentDate) this.rollDate(suffix)
     this.append('all', line)
@@ -120,6 +189,9 @@ export class LogFileSink {
 
   /** Delete every file in the directory and reset the rotation state. */
   clear(): void {
+    if (this.flushTimer !== undefined) clearTimeout(this.flushTimer)
+    this.flushTimer = undefined
+    this.pending = []
     for (const entry of this.ownedFiles()) {
       try {
         unlinkSync(entry.path)
@@ -133,6 +205,7 @@ export class LogFileSink {
 
   /** Reset the in-memory date/rotation state (files are closed after every append). */
   close(): void {
+    this.flush()
     this.resetState()
   }
 

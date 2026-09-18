@@ -5,11 +5,14 @@
  * IDEalize Light and Solarized Dark. The grid keeps its own scheme,
  * independent of the app theme. `resolveTerminalPaint` layers the user's
  * custom background over the chosen theme (V0 `Theme.withBackground`:
- * selection re-derives from the new ground; ink, cursor and palette stay)
- * and folds in the type settings as the one object the terminal view needs.
+ * selection re-derives from the new ground; ink, cursor and palette stay),
+ * deepens the selection until it shows ({@link legibleSelection}) and folds in
+ * the type settings as the one object the terminal view needs. Classic Dark
+ * and Classic Light are V1's own rows: the OG app preset's grounds and inks
+ * under the standard terminal palette.
  */
 
-import { blend, parseHex, toHex } from './colour.ts'
+import { blend, contrast, isDark, parseHex, requireHex, toHex, type Rgb } from './colour.ts'
 import { TERMINAL_DEFAULTS, type TerminalAppearanceSettings, type TerminalThemeId } from './appearance-settings.ts'
 
 /** One terminal colour scheme. */
@@ -23,13 +26,19 @@ export interface TerminalTheme {
   foreground: string
   /** Cursor (V0: also the theme accent). */
   cursor: string
-  /** Selection highlight. */
+  /** Selection highlight as placed by hand; {@link legibleSelection} deepens it where it cannot be seen. */
   selection: string
   /** The 16 ANSI colours, 0–7 normal and 8–15 bright. */
   ansi: readonly string[]
+  /**
+   * The stops of V0's background wash, when the theme has one. The grid paints
+   * the flat {@link background}; the selection still clears every stop, so the
+   * highlight matches V0's and survives the wash being painted.
+   */
+  wash?: readonly string[]
 }
 
-/** The terminal themes in V0's panel order (`[.linen, .ink, .y2k] + all`). */
+/** The terminal themes in V0's panel order (`[.linen, .ink, .y2k] + all`), then V1's Classic pair. */
 export const TERMINAL_THEMES: readonly TerminalTheme[] = Object.freeze([
   {
     id: 'linen',
@@ -68,6 +77,7 @@ export const TERMINAL_THEMES: readonly TerminalTheme[] = Object.freeze([
       '#28484E', '#EB1800', '#00867A', '#A16C00', '#0D6EFF', '#AF30FF', '#008580', '#AB008E',
       '#BD37A6', '#FF7186', '#05FC8C', '#FFD98A', '#A9CBFF', '#FF74E7', '#00F2DA', '#FFFFFF',
     ],
+    wash: ['#FD85CA', '#B7D2FB'],
   },
   {
     id: 'idealize-dark',
@@ -105,6 +115,37 @@ export const TERMINAL_THEMES: readonly TerminalTheme[] = Object.freeze([
       '#002B36', '#CB4B16', '#586E75', '#657B83', '#839496', '#6C71C4', '#93A1A1', '#FDF6E3',
     ],
   },
+  {
+    // The OG app preset's dark side (#1B1D21 / #E8E9EB) under the standard
+    // terminal palette, for anyone the designed themes do not suit. Bright
+    // black is lifted from the stock #666666 (2.97:1) so every slot but black
+    // reads at 3:1 on the ground.
+    id: 'classic-dark',
+    name: 'Classic Dark',
+    background: '#1B1D21',
+    foreground: '#E8E9EB',
+    cursor: '#E8E9EB',
+    selection: '#3A3D44',
+    ansi: [
+      '#000000', '#CD3131', '#0DBC79', '#E5E510', '#2472C8', '#BC3FBC', '#11A8CD', '#E5E5E5',
+      '#7A7A7A', '#F14C4C', '#23D18B', '#F5F543', '#3B8EEA', '#D670D6', '#29B8DB', '#FFFFFF',
+    ],
+  },
+  {
+    // The OG preset's light side (#FFFFFF / #1F2328). The standard palette's
+    // hues, each dark enough to read at 3:1 on white; bright white stays a
+    // pale grey, the ground's own end of the palette.
+    id: 'classic-light',
+    name: 'Classic Light',
+    background: '#FFFFFF',
+    foreground: '#1F2328',
+    cursor: '#1F2328',
+    selection: '#ADD6FF',
+    ansi: [
+      '#000000', '#CD3131', '#107C10', '#8A6A00', '#0451A5', '#BC05BC', '#0B7C8E', '#555555',
+      '#666666', '#E0383E', '#1A9E1A', '#A07D00', '#1A6FD6', '#D03FD0', '#0E96AB', '#A5A5A5',
+    ],
+  },
 ])
 
 /**
@@ -132,8 +173,10 @@ export interface TerminalPaint {
   foreground: string
   /** Cursor colour (the cursor is always V0's bar style; no setting). */
   cursor: string
-  /** Selection highlight. */
+  /** Selection highlight, deepened by {@link legibleSelection}. */
   selection: string
+  /** The colour selected text is drawn in: the ink or the ground, whichever reads better on {@link selection}. */
+  selectionForeground: string
   /** The 16 ANSI colours, 0–7 normal and 8–15 bright. */
   ansi: readonly string[]
   /** CSS font-family stack, monospace-terminated. */
@@ -159,27 +202,89 @@ export function terminalFontStack(family: string): string {
   return `${JSON.stringify(trimmed)}, ${fallback}`
 }
 
+/** How far the selection highlight must stand off every ground stop (V0 `Theme.selectionContrast`). */
+export const SELECTION_CONTRAST = 1.5
+
+/** How readable the theme's ink or ground must be on the highlight (V0 `Theme.selectionTextContrast`). */
+export const SELECTION_TEXT_CONTRAST = 3
+
+/** The colours {@link legibleSelection} reads a selection against. */
+export interface SelectionGround {
+  /** Every ground the grid paints: the flat ground plus any wash stops. */
+  grounds: readonly Rgb[]
+  /** Body ink. */
+  foreground: Rgb
+  /** The flat ground, the other candidate for selected text. */
+  background: Rgb
+  /** The 16 ANSI colours; slot 0 (light ground) or 15 (dark ground) is the colour the walk heads for. */
+  ansi: readonly string[]
+}
+
+/** A selection highlight and the text colour drawn on it. */
+export interface LegibleSelection {
+  /** The highlight. */
+  selection: Rgb
+  /** The ink or the ground, whichever the highlight carries better. */
+  foreground: Rgb
+}
+
+/**
+ * V0's selection rule (`Theme.selectionColor`, `selectedTextColor`). The
+ * theme's own selection colour stands when it clears
+ * {@link SELECTION_CONTRAST} against every ground stop and the ink or the
+ * ground reads on it at {@link SELECTION_TEXT_CONTRAST}. Otherwise it walks in
+ * 0.005 blend steps toward the theme's own black slot (its bright-white slot
+ * on a dark ground), so each step mixes two colours the theme already owns,
+ * and returns the first step that passes both. A palette that cannot reach
+ * continues to pure black or white.
+ * @param selection - the hand-placed selection colour.
+ * @param ground - the grounds, ink and palette it is read against.
+ * @returns the highlight and the selected-text colour.
+ */
+export function legibleSelection(selection: Rgb, ground: SelectionGround): LegibleSelection {
+  const dark = isDark(ground.background)
+  const pure: Rgb = dark ? { r: 255, g: 255, b: 255 } : { r: 0, g: 0, b: 0 }
+  const slot = parseHex(ground.ansi[dark ? 15 : 0] ?? '') ?? pure
+  const legible = (candidate: Rgb): boolean =>
+    ground.grounds.every(stop => contrast(candidate, stop) >= SELECTION_CONTRAST)
+    && Math.max(contrast(ground.foreground, candidate), contrast(ground.background, candidate)) >= SELECTION_TEXT_CONTRAST
+  const walk = (target: Rgb): Rgb | undefined => {
+    for (let step = 0; step <= 200; step += 1) {
+      const candidate = blend(selection, target, step / 200)
+      if (legible(candidate)) return candidate
+    }
+    return undefined
+  }
+  const highlight = walk(slot) ?? walk(pure) ?? pure
+  const foreground = contrast(ground.foreground, highlight) >= contrast(ground.background, highlight)
+    ? ground.foreground
+    : ground.background
+  return { selection: highlight, foreground }
+}
+
 /**
  * Resolve the stored terminal settings into the paint object. A parsable
- * custom background replaces the theme's ground and re-derives the selection
- * from it (V0 `withBackground`'s 0.14 ink blend); everything else is the
- * theme's own.
+ * custom background replaces the theme's ground, drops its wash and re-derives
+ * the selection from it (V0 `withBackground`'s 0.14 ink blend); the selection
+ * then passes through {@link legibleSelection}. Everything else is the theme's
+ * own.
  * @param settings - the durable terminal section.
  * @returns the resolved paint.
  */
 export function resolveTerminalPaint(settings: TerminalAppearanceSettings = TERMINAL_DEFAULTS): TerminalPaint {
   const theme = terminalTheme(settings.theme)
   const custom = parseHex(settings.bgHex)
-  const foreground = parseHex(theme.foreground)
-  const background = custom === undefined ? theme.background : toHex(custom)
-  const selection = custom === undefined || foreground === undefined
-    ? theme.selection
-    : toHex(blend(custom, foreground, 0.14))
+  const foreground = requireHex(theme.foreground)
+  const background = custom ?? requireHex(theme.background)
+  const placed = custom === undefined ? requireHex(theme.selection) : blend(custom, foreground, 0.14)
+  const grounds = custom === undefined ? [...(theme.wash ?? []).map(requireHex), background] : [background]
+  const legible = legibleSelection(placed, { grounds, foreground, background, ansi: theme.ansi })
   return {
-    background,
+    background: toHex(background),
     foreground: theme.foreground,
     cursor: theme.cursor,
-    selection,
+    selection: toHex(legible.selection),
+    selectionForeground: toHex(legible.foreground),
     ansi: theme.ansi,
     fontFamily: terminalFontStack(settings.fontName),
     fontSize: settings.fontSize,

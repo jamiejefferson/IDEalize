@@ -1,8 +1,8 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { RULESET_VERSION, parseNotePointers, projectNoteFor, projectNotes, scaffoldVault, scanFolder } from '../src/index.ts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { RULESET_VERSION, fingerprintFolder, parseNotePointers, projectNoteFor, projectNotes, scaffoldVault, scanFolder } from '../src/index.ts'
 
 async function scratchVault(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'idealize-doc-policy-scan-'))
@@ -16,6 +16,67 @@ describe('scaffoldVault', () => {
     expect(first).toContain('Projects/')
     await writeFile(join(vault, 'CONVENTIONS.md'), 'customized\n')
     expect(await scaffoldVault(vault)).toEqual([])
+  })
+})
+
+describe('fingerprintFolder', () => {
+  afterEach(() => { vi.useRealTimers() })
+
+  it('stays equal for an untouched folder and changes with every input of a scan', async () => {
+    const vault = await scratchVault()
+    await scaffoldVault(vault)
+    const note = join(vault, 'Projects', 'acme', '_index.md')
+    await mkdir(join(vault, 'Projects', 'acme'), { recursive: true })
+    await writeFile(note, projectNoteFor('acme', '/repo/acme', '2026-08-24'))
+    const seen = new Set<string>()
+    const next = async (): Promise<string> => {
+      const print = await fingerprintFolder(vault)
+      seen.add(print)
+      return print
+    }
+
+    const base = await next()
+    expect(await fingerprintFolder(vault)).toBe(base)
+
+    // Same size, later modification time: an in-place edit.
+    await utimes(note, new Date('2026-09-01T00:00:00Z'), new Date('2026-09-01T00:00:00Z'))
+    await next()
+    // A new document, a project folder with no note, a stray root file, an unknown root folder.
+    await writeFile(join(vault, 'Reference', 'colour.md'), '# Colour\n')
+    await next()
+    await mkdir(join(vault, 'Projects', 'empty'))
+    await next()
+    await writeFile(join(vault, 'loose.md'), '# Loose\n')
+    await next()
+    await mkdir(join(vault, 'Archive'))
+    await next()
+    await rm(join(vault, 'Reference', 'colour.md'))
+    await next()
+    expect(seen.size).toBe(7)
+  })
+
+  it('ignores what a scan never reads: hidden entries, other file types, and folders outside the canonical set', async () => {
+    const vault = await scratchVault()
+    await scaffoldVault(vault)
+    await mkdir(join(vault, 'Archive'))
+    const base = await fingerprintFolder(vault)
+
+    await mkdir(join(vault, '.obsidian'))
+    await writeFile(join(vault, '.obsidian', 'workspace.json'), '{}')
+    await writeFile(join(vault, 'Reference', 'photo.png'), 'x')
+    await writeFile(join(vault, 'Archive', 'old.md'), '# Old\n')
+
+    expect(await fingerprintFolder(vault)).toBe(base)
+  })
+
+  it('changes at the local date rollover, because the stale-note rule reads today', async () => {
+    const vault = await scratchVault()
+    await scaffoldVault(vault)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 8, 18, 23, 59))
+    const before = await fingerprintFolder(vault)
+    vi.setSystemTime(new Date(2026, 8, 19, 0, 1))
+    expect(await fingerprintFolder(vault)).not.toBe(before)
   })
 })
 

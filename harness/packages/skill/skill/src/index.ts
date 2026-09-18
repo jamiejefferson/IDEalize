@@ -366,6 +366,13 @@ export class SkillRegistry extends Service {
   )
   private readonly collectCache = new Map<string, Map<string, IndexedCandidate>>()
   private revision = 0
+  /**
+   * Shadowed duplicates already reported, as `name` + NUL + `source`. The
+   * catalog is rebuilt after every invalidation and the desktop logger appends
+   * synchronously, so repeating 58 identical warnings per rebuild held the
+   * Host thread for 0.8-3.8 s (measured 18 Sep 2026).
+   */
+  private readonly reportedDuplicates = new Set<string>()
   private nextProviderOrder = 0
   /** Stable identities for cache keys; scope keys are opaque identity-compared objects. */
   private readonly scopeIds = new WeakMap<ScopeKey, number>()
@@ -573,7 +580,11 @@ export class SkillRegistry extends Service {
     for (const entry of collected.entries) {
       const skill = entry.candidate
       if (seen.has(skill.name)) {
-        this.ctx.logger.warn(`skill "${skill.name}" from ${skill.source} ignored because a higher-priority skill already exists`)
+        const duplicate = `${skill.name}\0${skill.source}`
+        if (!this.reportedDuplicates.has(duplicate)) {
+          this.reportedDuplicates.add(duplicate)
+          this.ctx.logger.warn(`skill "${skill.name}" from ${skill.source} ignored because a higher-priority skill already exists`)
+        }
         continue
       }
       seen.add(skill.name)

@@ -1,11 +1,11 @@
 /** The per-surface stylesheet, the action tokens and the chat panel rules as pure functions. */
 import { describe, expect, it } from 'vitest'
 import { clearSurfaceColours, EMPTY_ACTION, EMPTY_SURFACE, surfaceScheme } from '../src/appearance-settings.ts'
-import { contrast, parseHex, UI_CONTRAST } from '../src/colour.ts'
+import { blend, contrast, parseHex, requireHex, TEXT_CONTRAST, toHsl, UI_CONTRAST, type Rgb } from '../src/colour.ts'
 import { deriveTokens, presetPalette } from '../src/presets.ts'
 import {
   actionAccent, actionTokens, appearanceStylesheet, panelScalarsCss, COMPOSER_ATTRIBUTE, gradientCss, seedStops,
-  SURFACE_EXEMPT_ATTRIBUTE, surfaceCss,
+  INK_FLOORS, SURFACE_EXEMPT_ATTRIBUTE, surfaceCss, surfaceGrounds, surfaceInk,
 } from '../src/surface-css.ts'
 
 const defaults = { ground: '#F5F5F6', surface: '#FFFFFF', tokens: deriveTokens(presetPalette('idealize', 'light')), scheme: 'light' as const }
@@ -63,8 +63,8 @@ describe('surfaceCss', () => {
     expect(rule).toContain(`--dsw-alias-label-primary: ${defaults.tokens['--dsw-alias-label-primary']}`)
     expect(rule).toContain(`--dsw-alias-label-secondary: ${defaults.tokens['--dsw-alias-label-secondary']}`)
     expect(rule).toContain('color: var(--dsw-alias-label-primary)')
-    // A background alone leaves nothing to undo, so no exempt rule is written.
-    expect(surfaceCss('files', { ...EMPTY_SURFACE, bgMode: 'solid' }, defaults)).not.toContain(SURFACE_EXEMPT_ATTRIBUTE)
+    // A background the theme's ink already reads on leaves nothing to undo, so no exempt rule is written.
+    expect(surfaceCss('files', { ...EMPTY_SURFACE, bgMode: 'solid', bgColorHex: '#101014' }, darkDefaults)).not.toContain(SURFACE_EXEMPT_ATTRIBUTE)
     // A layer without the ink tokens is a broken resolver, named loudly.
     expect(() => surfaceCss('files', { ...EMPTY_SURFACE, textColorHex: '#FF0000' }, { ...defaults, tokens: {} })).toThrow(/carries no --dsw-alias-label-primary/)
   })
@@ -132,6 +132,124 @@ describe('surface colours belong to one scheme', () => {
       bgGradientType: 'radial', bgGradientStops: seedStops('#000000', '#111111'), scheme: 'light',
     })
     expect(cleared).toEqual({ ...EMPTY_SURFACE, fontName: 'Optima', fontSize: 18 })
+  })
+})
+
+/** The value a rule writes for a token, as the opaque colour seen over `ground`. */
+function written(css: string, selector: string, token: string, ground: Rgb): Rgb | undefined {
+  const rule = css.split('\n').find(line => line.startsWith(`${selector} {`))
+  const value = new RegExp(`${token}: (#[0-9A-F]{6}|rgba\\((\\d+), (\\d+), (\\d+), ([\\d.]+)\\))`).exec(rule ?? '')
+  if (value === null) return undefined
+  if (value[2] === undefined) return requireHex(value[1] ?? '')
+  return blend(ground, { r: Number(value[2]), g: Number(value[3]), b: Number(value[4]) }, Number(value[5]))
+}
+
+/** A token's floor on the light theme: {@link INK_FLOORS}, capped at what the theme's own token holds on its own ground. */
+function floorOf(name: keyof typeof INK_FLOORS): number {
+  const themeGround = requireHex(defaults.ground)
+  const themed = written(`x { ${name}: ${defaults.tokens[name] ?? ''}; }`, 'x', name, themeGround) ?? themeGround
+  return Math.min(INK_FLOORS[name], contrast(themed, themeGround))
+}
+
+describe('ink on a surface\'s own ground', () => {
+  // Feedback cb68f5d5: a ground chosen alone left the inherited ink and icons unchecked.
+  const root = '[data-idealize-surface="chat"][data-idealize-surface]'
+  const tokens = ['--dsw-alias-label-primary', '--dsw-alias-label-secondary', '--dsw-alias-label-tertiary', '--dsw-alias-label-caption'] as const
+  const ground = (hex: string) => ({ ...EMPTY_SURFACE, bgMode: 'solid' as const, bgColorHex: hex, scheme: 'light' as const })
+
+  it('leaves the theme\'s ink alone on a light ground it reads on', () => {
+    // Every token reads on white at least as well as the theme has it on its own ground, so the sheet writes no ink at all.
+    const css = surfaceCss('chat', ground('#FFFFFF'), defaults)
+    expect(css).toContain('background: #FFFFFF')
+    expect(css).not.toContain('label-')
+    expect(css).not.toContain(COMPOSER_ATTRIBUTE)
+    // The theme's faint tertiary sits under 3:1 on its own ground, and that ratio, not 3:1, is its floor.
+    const ink = surfaceInk(ground('#FFFFFF'), defaults, [requireHex('#FFFFFF')])
+    expect(ink['--dsw-alias-label-tertiary']).toMatchObject({ deepened: false, value: defaults.tokens['--dsw-alias-label-tertiary'] })
+    expect(ink['--dsw-alias-label-tertiary'].ratio).toBeLessThan(UI_CONTRAST)
+    // A cream a little darker than the theme ground takes the faint ink with it: tertiary alone is written, no fainter than the theme's.
+    const cream = surfaceCss('chat', ground('#FFF4D6'), defaults).split('\n')[0] ?? ''
+    expect(cream).toMatch(/\{ --dsw-alias-label-tertiary: #[0-9A-F]{6}; background: #FFF4D6;/)
+    const seen = requireHex('#FFF4D6')
+    expect(contrast(written(cream, root, '--dsw-alias-label-tertiary', seen) ?? seen, seen)).toBeGreaterThanOrEqual(floorOf('--dsw-alias-label-tertiary') - 0.001)
+  })
+
+  it('turns the theme\'s dark ink light on a dark ground, every token at its floor, and hands the panel its ink back', () => {
+    const css = surfaceCss('chat', ground('#14233B'), defaults)
+    const seen = requireHex('#14233B')
+    for (const name of tokens) {
+      const colour = written(css, root, name, seen)
+      expect(colour).toBeDefined()
+      expect(contrast(colour ?? seen, seen)).toBeGreaterThanOrEqual(floorOf(name) - 0.001)
+    }
+    expect(css).toMatch(/--dsw-alias-label-caption: #[0-9A-F]{6}; color: #[0-9A-F]{6}; background: #14233B/)
+    // Deepened along the ink's own hue: #1B1F24 sits at 213°, and so does what is written.
+    const primary = written(css, root, '--dsw-alias-label-primary', seen) ?? seen
+    expect(Math.abs(toHsl(primary).h - toHsl(requireHex('#1B1F24')).h)).toBeLessThan(2)
+    expect(css).toContain(`${root} [${SURFACE_EXEMPT_ATTRIBUTE}] { --dsw-alias-label-primary: ${defaults.tokens['--dsw-alias-label-primary']};`)
+  })
+
+  it('finds the side of a mid-tone ground that can carry text', () => {
+    // White stays under 4:1 on #808080 and black reaches 5.3:1, so a pale ink goes dark.
+    const surface = { ...ground('#808080'), textColorHex: '#C8D2DC' }
+    const css = surfaceCss('chat', surface, defaults)
+    const seen = requireHex('#808080')
+    for (const name of tokens) expect(contrast(written(css, root, name, seen) ?? seen, seen)).toBeGreaterThanOrEqual(floorOf(name) - 0.001)
+    const ink = surfaceInk(surface, defaults, [seen])
+    expect(ink['--dsw-alias-label-primary']).toMatchObject({ deepened: true })
+    expect(ink['--dsw-alias-label-primary'].ratio).toBeLessThan(TEXT_CONTRAST)
+    expect(ink['--dsw-alias-label-primary'].painted).toBeGreaterThanOrEqual(TEXT_CONTRAST)
+  })
+
+  it('writes a text colour that reads exactly as chosen', () => {
+    const css = surfaceCss('chat', { ...ground('#FFFFFF'), textColorHex: '#102030' }, defaults)
+    expect(css).toContain(`${root} { --dsw-alias-label-primary: #102030; --dsw-alias-label-secondary: rgba(16, 32, 48, 0.55); --dsw-alias-label-tertiary: rgba(16, 32, 48, 0.45); --dsw-alias-label-caption: rgba(16, 32, 48, 0.55); color: #102030;`)
+  })
+
+  it('reads a gradient at every stop, and a see-through fill over the theme ground beneath it', () => {
+    const stops = [{ colorHex: '#FFFFFF', location: 0 }, { colorHex: '#7A7A7A', location: 1 }]
+    const surface = { ...EMPTY_SURFACE, bgMode: 'gradient' as const, bgGradientStops: stops, scheme: 'light' as const }
+    const grounds = surfaceGrounds(surface, defaults) ?? []
+    expect(grounds).toEqual([requireHex('#FFFFFF'), requireHex('#7A7A7A')])
+    const ink = surfaceInk(surface, defaults, grounds)
+    for (const name of tokens) expect(ink[name].painted).toBeGreaterThanOrEqual(floorOf(name) - 0.001)
+    // An empty stop list seeds from the theme, and an unparsable stop reads as the theme ground.
+    const seeded = [requireHex(defaults.ground), requireHex(defaults.surface)]
+    expect(surfaceGrounds({ ...surface, bgGradientStops: [] }, defaults)).toEqual(seeded)
+    expect(surfaceGrounds({ ...surface, bgGradientStops: [{ colorHex: 'bad', location: 0 }] }, defaults)).toEqual([requireHex(defaults.ground)])
+    // Black at 10% over the light ground is still a light ground: the theme's primary ink stands.
+    const veil = { ...ground('#000000'), bgOpacity: 0.1 }
+    expect(surfaceInk(veil, defaults, surfaceGrounds(veil, defaults) ?? [])['--dsw-alias-label-primary'].deepened).toBe(false)
+    // No ground in this scheme, none inherited, or no theme ground to composite over: nothing to floor.
+    expect(surfaceGrounds(ground('#14233B'), darkDefaults)).toBeUndefined()
+    expect(surfaceGrounds({ ...EMPTY_SURFACE, textColorHex: '#000000' }, defaults)).toBeUndefined()
+    expect(surfaceGrounds(ground('#14233B'), { ...defaults, ground: 'bad' })).toBeUndefined()
+  })
+
+  it('settles on the better extreme when no shade reads across the whole ground', () => {
+    // A mid grey still reads at 4.6:1 on black and white alone; a grey stop between them leaves nothing.
+    const stops = [{ colorHex: '#000000', location: 0 }, { colorHex: '#777777', location: 0.5 }, { colorHex: '#FFFFFF', location: 1 }]
+    const surface = { ...EMPTY_SURFACE, bgMode: 'gradient' as const, bgGradientStops: stops, scheme: 'light' as const }
+    const primary = surfaceInk(surface, defaults, surfaceGrounds(surface, defaults) ?? [])['--dsw-alias-label-primary']
+    expect(primary.deepened).toBe(true)
+    expect(primary.painted).toBeLessThan(TEXT_CONTRAST)
+    expect(['#000000', '#FFFFFF']).toContain(primary.value)
+  })
+
+  it('keeps the composer card readable on its own fill when the chat surface writes its ink', () => {
+    // A pale ink for a dark chat ground sat on the theme's white card, where the right-hand icons vanished.
+    const css = surfaceCss('chat', { ...ground('#14233B'), textColorHex: '#E8EEF5' }, defaults)
+    const card = `${root} [${COMPOSER_ATTRIBUTE}]`
+    const fill = requireHex(defaults.tokens['--dsw-specific-input-major'] ?? '')
+    for (const name of tokens) expect(contrast(written(css, card, name, fill) ?? fill, fill)).toBeGreaterThanOrEqual(floorOf(name) - 0.001)
+    // Only the chat surface holds a composer; a card fill that is not a plain colour gets no rule.
+    expect(surfaceCss('doc', { ...ground('#14233B'), textColorHex: '#E8EEF5' }, defaults)).not.toContain(COMPOSER_ATTRIBUTE)
+    const gradientCard = { ...defaults, tokens: { ...defaults.tokens, '--dsw-specific-input-major': 'linear-gradient(#000, #FFF)' } }
+    expect(surfaceCss('chat', { ...ground('#14233B'), textColorHex: '#E8EEF5' }, gradientCard)).not.toContain(`[${COMPOSER_ATTRIBUTE}] {`)
+    const noCard = { ...defaults, tokens: Object.fromEntries(Object.entries(defaults.tokens).filter(([name]) => name !== '--dsw-specific-input-major')) }
+    expect(surfaceCss('chat', ground('#14233B'), noCard)).not.toContain(`[${COMPOSER_ATTRIBUTE}] {`)
+    // A layer token that is no colour at all is a broken resolver, named loudly.
+    expect(() => surfaceInk(ground('#14233B'), { ...defaults, tokens: { ...defaults.tokens, '--dsw-alias-label-caption': 'currentColor' } }, [fill])).toThrow(/neither #RRGGBB nor rgba\(\)/)
   })
 })
 

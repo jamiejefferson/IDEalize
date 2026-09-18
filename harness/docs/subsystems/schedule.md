@@ -390,5 +390,5 @@ A terminal agent started or stopped working, from its shell's output.
 'idealize/terminal-activity': (change: { id: string; working: boolean }) => void
 ```
 
-Source: [`packages/idealize/ui-terminal/src/index.ts:153`](../../packages/idealize/ui-terminal/src/index.ts)
+Source: [`packages/idealize/ui-terminal/src/index.ts:167`](../../packages/idealize/ui-terminal/src/index.ts)
 <!-- END GENERATED cordis-surface -->

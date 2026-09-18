@@ -173,9 +173,32 @@ rulesetVersion(): RulesetVersion
 conventions(): string
 
 /**
+ * The documentation rule for a command-line agent the built-in terminal
+ * launches in `cwd`. `@idealize/ui-terminal` probes for this method and
+ * appends the text to the agent's prompt, because such an agent reads no
+ * harness prompt and no session-start notice.
+ * @param cwd - the shell's working directory.
+ * @returns the guidance, naming the project's note when the folder holds one.
+ */
+async terminalKnowledge(cwd: string): Promise<string>
+
+/**
+ * The folder holding one project's documentation inside the configured
+ * documentation folder: the folder of the note whose `repo:` names the
+ * project, else `Projects/<project folder name>` when it exists.
+ * @param projectPath - absolute path of the project's own folder.
+ * @returns the folder and how it was found, or `undefined` with no documentation folder or no match.
+ */
+async projectFolder(projectPath: string): Promise<ProjectDocsFolder | undefined>
+
+/**
  * Scaffold and scan the configured folder, rebuild the retrieval index,
  * and record the scan to the storage domain when attached (DOC-04/06/07).
- * Serialized: concurrent calls run one at a time in order.
+ * Serialized: concurrent calls run one at a time in order. A call that
+ * finds the folder's {@link fingerprintFolder} unchanged since the last
+ * scan returns that scan's record and neither re-reads, re-indexes nor
+ * records: sessions flush every few seconds, and the index rebuild runs
+ * synchronously on the Host thread.
  * @returns the scan record, or `undefined` when no folder is configured.
  */
 scan(): Promise<DocScanRecord | undefined>
@@ -205,7 +228,7 @@ attachScans(table: KvTable<string, DocScanRecord>): void
 detachScans(): void
 ```
 
-Source: [`packages/idealize/doc-policy/src/index.ts:118`](../../packages/idealize/doc-policy/src/index.ts)
+Source: [`packages/idealize/doc-policy/src/index.ts:127`](../../packages/idealize/doc-policy/src/index.ts)
 
 <a id="ctxworkspacealiases--workspacealiases"></a>
 
@@ -238,6 +261,31 @@ async resolve(aliasName: WorkspaceAliasName): Promise<WorkspaceAlias | undefined
 async set(aliasName: WorkspaceAliasName, path: string): Promise<WorkspaceAlias>
 
 /**
+ * One project's documentation folder: the folder chosen for it, else the
+ * one `@idealize/doc-policy` resolves inside the documentation vault. A
+ * chosen folder that has died is still returned, with its failing
+ * `accessState`, so the caller can say which folder was lost.
+ * @param projectPath - absolute path of the project's own folder.
+ * @returns the folder with its probe verdict, or `undefined` when none is chosen and the vault holds none.
+ */
+async projectDocumentation(projectPath: string): Promise<ProjectDocumentation | undefined>
+
+/**
+ * The documentation folders chosen per project, as stored.
+ * @returns project folder path to chosen documentation folder; cleared entries omitted.
+ */
+chosenProjectDocumentation(): Record<string, string>
+
+/**
+ * Choose one project's documentation folder, or clear the choice.
+ * @param projectPath - absolute path of the project's own folder.
+ * @param path - absolute folder path; the empty string clears the choice.
+ * @returns the project's documentation folder after the write.
+ * @throws {AliasProbeError} when the folder fails its probe; nothing is stored.
+ */
+async setProjectDocumentation(projectPath: string, path: string): Promise<ProjectDocumentation | undefined>
+
+/**
  * Component seeds + live-probed aliases for the state route and, later,
  * the settings surface.
  * @returns the current setup state.
@@ -256,7 +304,7 @@ async state(): Promise<SetupState>
 async orient(request: OrientationRequest): Promise<OrientationResult>
 ```
 
-Source: [`packages/idealize/setup/src/index.ts:215`](../../packages/idealize/setup/src/index.ts)
+Source: [`packages/idealize/setup/src/index.ts:241`](../../packages/idealize/setup/src/index.ts)
 
 <a id="ctxworkspaceregistry--workspaceregistry"></a>
 

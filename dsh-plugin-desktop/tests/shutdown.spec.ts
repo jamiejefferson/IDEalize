@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  armDesktopExitWatchdog,
   createDesktopExitCoordinator,
   createDesktopShutdown,
   installShutdownRequests,
@@ -42,6 +43,45 @@ describe('application shutdown requests', () => {
 
     expect(native.relaunch).not.toHaveBeenCalled()
     expect(native.exit).toHaveBeenCalledWith(1)
+  })
+
+  it('arms the exit watchdog after the relaunch request and before the native exit', () => {
+    const order: string[] = []
+    const coordinator = createDesktopExitCoordinator({
+      prepareToQuit: () => { order.push('prepare') },
+      relaunch: () => { order.push('relaunch') },
+      armExitWatchdog: () => { order.push('watchdog') },
+      exit: () => { order.push('exit') },
+    }, () => { order.push('before') })
+
+    coordinator.requestRelaunch()
+    coordinator.finish(0)
+
+    expect(order).toEqual(['before', 'prepare', 'relaunch', 'watchdog', 'exit'])
+  })
+
+  it('starts a detached watchdog that kills this process after the grace period', () => {
+    const unref = vi.fn()
+    const spawn = vi.fn(() => ({ unref }))
+
+    expect(armDesktopExitWatchdog(4242, 'darwin', spawn, 7)).toBe(true)
+
+    expect(spawn).toHaveBeenCalledWith(
+      '/bin/sh',
+      ['-c', 'sleep 7; kill -9 4242 2>/dev/null'],
+      { detached: true, stdio: 'ignore' },
+    )
+    expect(unref).toHaveBeenCalledOnce()
+  })
+
+  it('starts no watchdog on Windows, for an unusable pid, or when spawn fails', () => {
+    const spawn = vi.fn(() => ({ unref: vi.fn() }))
+
+    expect(armDesktopExitWatchdog(4242, 'win32', spawn)).toBe(false)
+    expect(armDesktopExitWatchdog(1, 'darwin', spawn)).toBe(false)
+    expect(armDesktopExitWatchdog(Number.NaN, 'darwin', spawn)).toBe(false)
+    expect(spawn).not.toHaveBeenCalled()
+    expect(armDesktopExitWatchdog(4242, 'linux', () => { throw new Error('EAGAIN') })).toBe(false)
   })
 
   it('exits after graceful disposal and ignores later completions', async () => {

@@ -1,6 +1,6 @@
 # @idealize/ui-studio
 
-The Studio view: every project's coordination at a glance (JJ, 3 Sep 2026: "the studio is for all projects"), filling the conversation column — per project, the coordinator's synthesis, the tasks holding unresolved attention, every task with its state, each participant's work view with reachability — and one timeline merged across projects, each addressed row offering the way back to its source chat. Under it sits the chat's ordinary composer. The header is the title alone: the Studio belongs to no one project and needs no explainer under its name.
+The Studio view: every project's coordination at a glance (JJ, 3 Sep 2026: "the studio is for all projects"), filling the conversation column — per project, the coordinator's synthesis, the tasks holding unresolved attention, every task with its state, each participant's work view with reachability (its active task, else "Finished, safe to close" when the fold names a finished task, else Idle) — and one timeline merged across projects, each addressed row offering the way back to its source chat. Under it sits the chat's ordinary composer. The header is the title alone: the Studio belongs to no one project and needs no explainer under its name.
 
 There is one Studio chat: a chat in the `studio` space (`@idealize/spaces`), opened from the pinned Studio card in the sidebar (`@idealize/ui-bar`, which mints the chat the first time). This package registers the `studio` entry of the conversation view ring, the composer's `@` agents source, and the `studioSection` service the card reads.
 

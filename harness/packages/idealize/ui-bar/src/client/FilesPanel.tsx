@@ -1,14 +1,21 @@
 /**
- * The files panel: V0's two file windows in one drawer. A three-tab tree
- * rides on top — the current project, the projects root, and the
- * documentation vault, the last two being the folders first run captured as
- * workspace aliases — over the same fenced listing route. Each tab opens on
+ * The files panel: V0's two file windows in one drawer. Two rows of tabs ride
+ * on top. The first picks whose files show — this project, all projects, or
+ * the skills folder — and the second picks which of their two folders:
+ * project files (the project's own folder, or the projects root) or
+ * documentation (the project's documentation folder, or the documentation
+ * vault plus any project's documentation folder chosen outside it). All five
+ * views list through the same fenced route. A project's documentation folder
+ * is the one the vault resolves for it until the user chooses another, which
+ * `@idealize/setup` stores per project. Each view opens on
  * its folder's contents: the toolbar names the folder and the tree lists it
  * straight away, so a lone root renders no row of its own and several roots
  * keep their rows, open until folded. The subordinate browse pane
  * (home root, home-plus-roots fence) stacks beneath it, collapsed until
- * opened. Clicking any file opens it in the deck's viewer panel (a separate
- * resizable column, per V0). The toolbar creates files and folders in the
+ * opened. Clicking a Markdown file or an image opens it in the deck's viewer
+ * panel (a separate resizable column, per V0); any other file opens in its
+ * default macOS application where the host can launch one, and in the viewer
+ * where it cannot or the launch is refused. The toolbar creates files and folders in the
  * selected directory (V0's header-button + name-sheet pattern); every row
  * offers Reveal in Finder and files offer Add to chat on hover; the row menu
  * adds Open, Rename, Duplicate, New here and Move to Trash, and rows drag
@@ -16,7 +23,7 @@
  * whose folder has gone keeps its tab and offers Reconnect, which picks a
  * replacement folder and writes it back through @idealize/setup's alias
  * route. A reveal request (`ctx.idealizeBar.revealFile`, raised by a
- * gallery's Reveal) opens the tab whose root holds the file, expands the way
+ * gallery's Reveal) opens the view whose root holds the file, expands the way
  * down to it, selects its folder and lights its row until the next click. The
  * agent still does the editing — this panel keeps the project's shape
  * visible.
@@ -58,8 +65,66 @@ interface ListEntry {
   kind: 'dir' | 'file'
 }
 
-/** Which Files tab; also the suffix of its label's locale key. */
+/** One folder set the host reports under `tabs`. */
 type TabId = 'project' | 'projectsRoot' | 'documentation' | 'skills'
+
+/** One view of the pane: a host tab, or the current project's documentation folder. */
+type ViewId = TabId | 'projectDocs'
+
+/** Whose files show: the first row of tabs. */
+type Scope = 'project' | 'all' | 'skills'
+
+/** Which of a scope's two folders shows: the second row of tabs. */
+type Kind = 'files' | 'docs'
+
+/** The scopes in header order, each with the `data-tab` it has always carried and its label. */
+const SCOPES: readonly { scope: Scope; tab: TabId; label: 'files.tab.project' | 'files.tab.projects' | 'files.tab.skills' }[] = [
+  { scope: 'project', tab: 'project', label: 'files.tab.project' },
+  { scope: 'all', tab: 'projectsRoot', label: 'files.tab.projects' },
+  { scope: 'skills', tab: 'skills', label: 'files.tab.skills' },
+]
+
+/** The second row's labels per scope; the skills folder has one view and no second row. */
+const KIND_LABELS = {
+  project: { files: 'files.kind.projectFiles', docs: 'files.kind.documentation' },
+  all: { files: 'files.kind.allProjectFiles', docs: 'files.kind.allDocumentation' },
+} as const
+
+/**
+ * The view a scope and kind select.
+ * @param scope - whose files show.
+ * @param kind - which of the scope's two folders shows.
+ * @returns the view's id.
+ */
+export function viewOf(scope: Scope, kind: Kind): ViewId {
+  if (scope === 'skills') return 'skills'
+  if (scope === 'project') return kind === 'files' ? 'project' : 'projectDocs'
+  return kind === 'files' ? 'projectsRoot' : 'documentation'
+}
+
+/** The views a reveal searches, narrowest first: the projects root holds every project, the vault most documentation folders. */
+const REVEAL_ORDER: readonly { view: ViewId; scope: Scope; kind: Kind }[] = [
+  { view: 'project', scope: 'project', kind: 'files' },
+  { view: 'projectDocs', scope: 'project', kind: 'docs' },
+  { view: 'projectsRoot', scope: 'all', kind: 'files' },
+  { view: 'documentation', scope: 'all', kind: 'docs' },
+  { view: 'skills', scope: 'skills', kind: 'files' },
+]
+
+/** File extensions the deck's viewer renders: Markdown, and the images the raw route serves. */
+const OPENS_IN_APP = new Set(['md', 'markdown', 'mdown', 'mkd', 'mdx', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'ico'])
+
+/**
+ * Whether a clicked file opens in IDEalize's own viewer. Markdown and images
+ * do; every other type belongs to its default application (JJ, 18 Sep 2026).
+ * @param path - the file's path or name.
+ * @returns true for a Markdown or image extension, compared without case.
+ */
+export function opensInApp(path: string): boolean {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  const dot = name.lastIndexOf('.')
+  return dot > 0 && OPENS_IN_APP.has(name.slice(dot + 1).toLowerCase())
+}
 
 /**
  * One tab as `GET /idealize/bar/aliases` reports it: its tree roots plus the
@@ -77,12 +142,42 @@ interface AliasTab {
   reason?: string
 }
 
-/** Tab labels, in header order. */
-const TAB_LABELS: Readonly<Record<TabId, 'files.tab.project' | 'files.tab.projects' | 'files.tab.docs' | 'files.tab.skills'>> = {
-  project: 'files.tab.project',
-  projectsRoot: 'files.tab.projects',
-  documentation: 'files.tab.docs',
-  skills: 'files.tab.skills',
+/** One project's documentation folder as `GET /idealize/bar/aliases` reports it under `projectDocs`. */
+interface ProjectDocsEntry {
+  project: RootEntry
+  /** Absent while `state` is `'unset'`. */
+  folder?: string
+  /** `chosen` by the user, or found in the vault by its `note` or its `name`. */
+  source?: 'chosen' | 'note' | 'name'
+  state: AliasTab['state']
+  /** The host's plain-language failure sentence, shown verbatim. */
+  reason?: string
+}
+
+/**
+ * Narrow the documentation folders to the current project's, as the project
+ * files view narrows the workspace roots.
+ * @param entries - every project's documentation folder.
+ * @param projects - the roots the project files view shows.
+ * @returns the entries whose project is one of `projects`.
+ */
+export function currentProjectDocs(entries: ProjectDocsEntry[], projects: RootEntry[]): ProjectDocsEntry[] {
+  return entries.filter(entry => projects.some(project => project.path === entry.project.path))
+}
+
+/**
+ * The tree roots of the documentation view: one project's folder under its
+ * own name, several under their projects' names so the rows tell them apart.
+ * @param entries - the current project's documentation folders.
+ * @returns a root per folder that answers.
+ */
+export function projectDocsRoots(entries: ProjectDocsEntry[]): RootEntry[] {
+  const reachable = entries.flatMap(entry =>
+    entry.folder !== undefined && entry.state === 'ok' ? [{ ...entry, folder: entry.folder }] : [])
+  return reachable.map(entry => ({
+    name: reachable.length === 1 ? entry.folder.slice(entry.folder.lastIndexOf('/') + 1) : entry.project.name,
+    path: entry.folder,
+  }))
 }
 
 /** One directory re-list request; a bumped nonce re-fetches `path`'s listing. */
@@ -478,11 +573,14 @@ export function currentProjectRoots(roots: RootEntry[], cwd: string | undefined)
 }
 
 export function FilesPanel({
-  canReveal, canTrash, currentCwd, pickDirectory, onOpenFile, onAddToChat, onIdealize, reveal, onRevealDone, externalReload, t,
+  canReveal, canTrash, canOpenExternal, currentCwd, pickDirectory, onOpenFile, onAddToChat, onIdealize,
+  reveal, onRevealDone, externalReload, t,
 }: {
   canReveal: boolean
   /** Offer Move to Trash on rows (macOS only: the Finder does the moving). */
   canTrash: boolean
+  /** Hand files the viewer does not render to their default application (macOS only). */
+  canOpenExternal: boolean
   /** The active chat's working directory; picks the current project out of the roots. */
   currentCwd: string | undefined
   /** Raise the host's folder picker for Reconnect; rejects where the shell has none. */
@@ -502,7 +600,9 @@ export function FilesPanel({
   t: BarTranslate
 }) {
   const [tabs, setTabs] = useState<AliasTab[] | 'error' | undefined>(undefined)
-  const [activeTab, setActiveTab] = useState<TabId>('project')
+  const [projectDocs, setProjectDocs] = useState<ProjectDocsEntry[]>([])
+  const [scope, setScope] = useState<Scope>('project')
+  const [kind, setKind] = useState<Kind>('files')
   const [reconnecting, setReconnecting] = useState(false)
   const [browseRoot, setBrowseRoot] = useState<RootEntry | undefined>(undefined)
   const [browseOpen, setBrowseOpen] = useState(false)
@@ -523,8 +623,9 @@ export function FilesPanel({
   const loadTabs = useCallback(async (): Promise<AliasTab[] | undefined> => {
     const response = await fetch('/idealize/bar/aliases')
     if (!response.ok) throw new Error('aliases failed')
-    const body = await response.json() as { tabs: AliasTab[] }
+    const body = await response.json() as { tabs: AliasTab[]; projectDocs?: ProjectDocsEntry[] }
     setTabs(body.tabs)
+    setProjectDocs(body.projectDocs ?? [])
     return body.tabs
   }, [])
 
@@ -565,23 +666,55 @@ export function FilesPanel({
   const rootsOf = useCallback((tab: AliasTab): RootEntry[] =>
     tab.id === 'project' ? currentProjectRoots(tab.roots, currentCwd) : tab.roots, [currentCwd])
 
-  // A reveal: the tab whose root holds the file, the project tab first (the
-  // projects root holds every project), its folder as the creation target,
-  // and the tab's tree opens the way down. A path under no tab is said so.
+  /** The roots one view shows; the documentation view follows the project files view's narrowing. */
+  const rootsOfView = useCallback((view: ViewId): RootEntry[] => {
+    if (!Array.isArray(tabs)) return []
+    if (view === 'projectDocs') {
+      const project = tabs.find(tab => tab.id === 'project')
+      return projectDocsRoots(currentProjectDocs(projectDocs, project === undefined ? [] : rootsOf(project)))
+    }
+    const tab = tabs.find(candidate => candidate.id === view)
+    return tab === undefined ? [] : rootsOf(tab)
+  }, [tabs, projectDocs, rootsOf])
+
+  // A reveal: the view whose root holds the file, narrowest first, its
+  // folder as the creation target, and the view's tree opens the way down.
+  // A path under no view is said so.
   const handledReveal = useRef(0)
   useEffect(() => {
     if (reveal === null || !Array.isArray(tabs) || handledReveal.current === reveal.nonce) return
     handledReveal.current = reveal.nonce
-    const owner = tabs.find(tab => rootsOf(tab).some(root => reveal.path.startsWith(`${root.path}/`)))
+    const owner = REVEAL_ORDER.find(({ view }) => rootsOfView(view).some(root => reveal.path.startsWith(`${root.path}/`)))
     if (owner === undefined) {
       setStatus({ level: 'error', text: t('files.revealMissing') })
       onRevealDone()
       return
     }
-    setActiveTab(owner.id)
+    setScope(owner.scope)
+    setKind(owner.kind)
     const dir = reveal.path.slice(0, reveal.path.lastIndexOf('/'))
     setTarget({ name: dir.slice(dir.lastIndexOf('/') + 1), path: dir })
-  }, [reveal, tabs, rootsOf, onRevealDone, t])
+  }, [reveal, tabs, rootsOfView, onRevealDone, t])
+
+  // A file the viewer renders opens in the deck; any other goes to its
+  // default application, and comes back to the viewer when the host refuses
+  // it (a script, a type no application claims) or cannot be reached.
+  const openEntry = useCallback((path: string) => {
+    if (!canOpenExternal || opensInApp(path)) {
+      onOpenFile(path)
+      return
+    }
+    void fetch('/idealize/bar/open', {
+      method: 'POST',
+      headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ path }),
+    })
+      .then((response) => {
+        if (response.ok) setStatus({ level: 'info', text: t('files.openedExternally') })
+        else onOpenFile(path)
+      })
+      .catch(() => { onOpenFile(path) })
+  }, [canOpenExternal, onOpenFile, t])
 
   const revealInFinder = useCallback((path: string) => {
     void fetch('/idealize/bar/reveal', {
@@ -708,6 +841,38 @@ export function FilesPanel({
       .finally(() => { setReconnecting(false) })
   }, [pickDirectory, loadTabs, t])
 
+  // A view that gains its first root (a documentation folder just chosen)
+  // becomes the creation target while nothing else is.
+  useEffect(() => {
+    setTarget(current => current ?? rootsOfView(viewOf(scope, kind))[0])
+  }, [rootsOfView, scope, kind, target])
+
+  // A project's documentation folder is the user's to decide: the picker
+  // writes the choice through @idealize/setup, and an empty path returns the
+  // project to the folder the vault resolves for it.
+  const chooseProjectDocs = useCallback((project: string, pick: boolean) => {
+    setReconnecting(true)
+    ;(pick ? pickDirectory() : Promise.resolve(''))
+      .then(async (path) => {
+        if (path === null) return
+        const response = await fetch('/idealize/setup/project-docs', {
+          method: 'POST',
+          headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' },
+          body: JSON.stringify({ project, path }),
+        })
+        const body = await response.json() as { ok?: boolean; failure?: { reason?: string } }
+        if (response.ok && body.ok === true) {
+          await loadTabs()
+          setTarget(undefined)
+          setStatus({ level: 'info', text: t(pick ? 'files.docsChosen' : 'files.docsReset') })
+          return
+        }
+        setStatus({ level: 'error', text: body.failure?.reason ?? t('files.docsChooseFailed') })
+      })
+      .catch(() => { setStatus({ level: 'error', text: t('files.docsChooseFailed') }) })
+      .finally(() => { setReconnecting(false) })
+  }, [pickDirectory, loadTabs, t])
+
   const openRowMenu = useCallback((path: string, kind: 'dir' | 'file', x: number, y: number) => {
     setTrashArmed(null)
     setMenu({ path, kind, x, y })
@@ -783,30 +948,127 @@ export function FilesPanel({
   if (tabs === 'error') return <div className={css.empty}>{t('files.rootsError')}</div>
 
   const nameValid = isValidEntryName(draftName)
-  const active = tabs.find(tab => tab.id === activeTab)
-  const activeRoots = active === undefined ? [] : rootsOf(active)
+  const activeView = viewOf(scope, kind)
+  const active = tabs.find(tab => tab.id === activeView)
+  const activeRoots = rootsOfView(activeView)
   const deadAlias = activeRoots.length === 0 ? active?.alias : undefined
+  /** Whether the alias behind one view has stopped answering. */
+  const viewDead = (view: ViewId): boolean => tabs.some(tab => tab.id === view && tab.alias !== undefined && tab.state !== 'ok')
+  const projectTab = tabs.find(tab => tab.id === 'project')
+  const docsEntries = currentProjectDocs(projectDocs, projectTab === undefined ? [] : rootsOf(projectTab))
+  // The folder is one project's to choose: with several projects in view
+  // (no chat open) the documentation view lists what they have and offers no choice.
+  const docsEntry = activeView === 'projectDocs' && docsEntries.length === 1 ? docsEntries[0] : undefined
+  const selectView = (nextScope: Scope, nextKind: Kind): void => {
+    setScope(nextScope)
+    setKind(nextKind)
+    setTarget(rootsOfView(viewOf(nextScope, nextKind))[0])
+  }
+
+  let treeBody: React.ReactNode
+  if (deadAlias !== undefined) {
+    treeBody = (
+      <div className={css.reconnect} data-alias={deadAlias}>
+        <p className={css.reconnectReason}>{active?.reason ?? t('files.aliasUnset')}</p>
+        <button
+          type="button"
+          className={css.reconnectButton}
+          disabled={reconnecting}
+          onClick={() => { reconnect(deadAlias) }}
+        >
+          {t('files.reconnect')}
+        </button>
+      </div>
+    )
+  } else if (docsEntry !== undefined && activeRoots.length === 0) {
+    treeBody = (
+      <div className={css.reconnect} data-project-docs={docsEntry.state}>
+        <p className={css.reconnectReason}>{docsEntry.reason ?? t('files.docsUnset')}</p>
+        <button
+          type="button"
+          className={css.reconnectButton}
+          disabled={reconnecting}
+          onClick={() => { chooseProjectDocs(docsEntry.project.path, true) }}
+        >
+          {t('files.docsChoose')}
+        </button>
+        {docsEntry.source === 'chosen' && (
+          <button
+            type="button"
+            className={css.reconnectButton}
+            disabled={reconnecting}
+            onClick={() => { chooseProjectDocs(docsEntry.project.path, false) }}
+          >
+            {t('files.docsUseDefault')}
+          </button>
+        )}
+      </div>
+    )
+  } else if (activeRoots.length === 0) {
+    treeBody = <div className={css.empty}>{t(activeView === 'projectDocs' ? 'files.docsNone' : 'files.empty')}</div>
+  } else {
+    treeBody = (
+      <LazyTree
+        key={activeView}
+        endpoint="/idealize/bar/files"
+        roots={activeRoots}
+        canReveal={canReveal}
+        selectedDir={target?.path}
+        refresh={refresh}
+        reloadNonce={reloadNonce + externalReload}
+        reveal={reveal}
+        onRevealed={onRevealDone}
+        onOpenFile={openEntry}
+        onReveal={revealInFinder}
+        onAddToChat={addToChat}
+        onRowMenu={openRowMenu}
+        onDropEntry={moveEntry}
+        onSelectDir={setTarget}
+        t={t}
+      />
+    )
+  }
 
   return (
     <div className={css.split}>
       <div className={css.tabs} role="tablist" aria-label={t('files.tabs')}>
-        {tabs.map(tab => (
+        {SCOPES.filter(entry => tabs.some(tab => tab.id === entry.tab)).map(entry => (
           <button
-            key={tab.id}
+            key={entry.scope}
             type="button"
             role="tab"
             className={css.tab}
-            data-tab={tab.id}
-            aria-selected={tab.id === activeTab}
-            onClick={() => { setActiveTab(tab.id); setTarget(rootsOf(tab)[0]) }}
+            data-tab={entry.tab}
+            aria-selected={entry.scope === scope}
+            onClick={() => { selectView(entry.scope, kind) }}
           >
-            {t(TAB_LABELS[tab.id])}
-            {tab.alias !== undefined && tab.state !== 'ok' && (
+            {t(entry.label)}
+            {(entry.scope === 'skills' ? viewDead('skills') : viewDead(viewOf(entry.scope, 'files')) || viewDead(viewOf(entry.scope, 'docs'))) && (
               <span className={css.tabDead} aria-label={t('files.needsReconnect')} role="img" />
             )}
           </button>
         ))}
       </div>
+      {scope !== 'skills' && (
+        <div className={css.kinds} role="tablist" aria-label={t('files.kinds')}>
+          {(['files', 'docs'] as const).map(option => (
+            <button
+              key={option}
+              type="button"
+              role="tab"
+              className={css.kind}
+              data-kind={option}
+              aria-selected={option === kind}
+              onClick={() => { selectView(scope, option) }}
+            >
+              {t(KIND_LABELS[scope][option])}
+              {viewDead(viewOf(scope, option)) && (
+                <span className={css.tabDead} aria-label={t('files.needsReconnect')} role="img" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
       <div className={css.toolbar}>
         <span className={css.toolbarTarget}>{target?.name ?? ''}</span>
         <Tooltip label={t('files.newFile')} delayMs={400}>
@@ -882,44 +1144,30 @@ export function FilesPanel({
           </div>
         </form>
       )}
-      <div className={css.tree}>
-        {deadAlias !== undefined
-          ? (
-            <div className={css.reconnect} data-alias={deadAlias}>
-              <p className={css.reconnectReason}>{active?.reason ?? t('files.aliasUnset')}</p>
-              <button
-                type="button"
-                className={css.reconnectButton}
-                disabled={reconnecting}
-                onClick={() => { reconnect(deadAlias) }}
-              >
-                {t('files.reconnect')}
-              </button>
-            </div>
-          )
-          : activeRoots.length === 0
-            ? <div className={css.empty}>{t('files.empty')}</div>
-            : (
-              <LazyTree
-                key={activeTab}
-                endpoint="/idealize/bar/files"
-                roots={activeRoots}
-                canReveal={canReveal}
-                selectedDir={target?.path}
-                refresh={refresh}
-                reloadNonce={reloadNonce + externalReload}
-                reveal={reveal}
-                onRevealed={onRevealDone}
-                onOpenFile={onOpenFile}
-                onReveal={revealInFinder}
-                onAddToChat={addToChat}
-                onRowMenu={openRowMenu}
-                onDropEntry={moveEntry}
-                onSelectDir={setTarget}
-                t={t}
-              />
-            )}
-      </div>
+      {docsEntry !== undefined && activeRoots.length > 0 && (
+        <div className={css.docsSource} data-docs-source={docsEntry.source}>
+          <span className={css.docsSourcePath} title={docsEntry.folder}>{docsEntry.folder}</span>
+          <button
+            type="button"
+            className={css.docsSourceAction}
+            disabled={reconnecting}
+            onClick={() => { chooseProjectDocs(docsEntry.project.path, true) }}
+          >
+            {t('files.docsChange')}
+          </button>
+          {docsEntry.source === 'chosen' && (
+            <button
+              type="button"
+              className={css.docsSourceAction}
+              disabled={reconnecting}
+              onClick={() => { chooseProjectDocs(docsEntry.project.path, false) }}
+            >
+              {t('files.docsUseDefault')}
+            </button>
+          )}
+        </div>
+      )}
+      <div className={css.tree}>{treeBody}</div>
       {status !== null && (
         <div className={css.status} data-level={status.level} role="status">{status.text}</div>
       )}
@@ -941,9 +1189,14 @@ export function FilesPanel({
           >
             {menu.kind === 'file' && (
               <>
-                <button type="button" role="menuitem" className={css.menuItem} onClick={() => { onOpenFile(menu.path); closeMenu() }}>
+                <button type="button" role="menuitem" className={css.menuItem} onClick={() => { openEntry(menu.path); closeMenu() }}>
                   {t('files.open')}
                 </button>
+                {canOpenExternal && !opensInApp(menu.path) && (
+                  <button type="button" role="menuitem" className={css.menuItem} onClick={() => { onOpenFile(menu.path); closeMenu() }}>
+                    {t('files.openHere')}
+                  </button>
+                )}
                 <button type="button" role="menuitem" className={css.menuItem} onClick={() => { addToChat(menu.path); closeMenu() }}>
                   {t('files.addToChat')}
                 </button>
@@ -1017,7 +1270,7 @@ export function FilesPanel({
                 reloadNonce={reloadNonce + externalReload}
                 reveal={null}
                 onRevealed={onRevealDone}
-                onOpenFile={onOpenFile}
+                onOpenFile={openEntry}
                 onReveal={revealInFinder}
                 onAddToChat={addToChat}
                 onRowMenu={openRowMenu}

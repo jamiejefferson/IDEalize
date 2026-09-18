@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-desktop",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "IDEalize desktop product workspace",
   "license": "MIT",
@@ -99,7 +99,9 @@
     "@deepseek-ai/dsh-client-ui-trajectory@npm:0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-client-ui-trajectory-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-client-ui-trajectory@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-client-ui-trajectory-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-tool-cordis@npm:0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-tool-cordis-0.1.0-rc.7.tgz",
-    "@deepseek-ai/dsh-tool-cordis@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-tool-cordis-0.1.0-rc.7.tgz"
+    "@deepseek-ai/dsh-tool-cordis@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-tool-cordis-0.1.0-rc.7.tgz",
+    "@deepseek-ai/dsh-skill@npm:0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-skill-0.1.0-rc.7.tgz",
+    "@deepseek-ai/dsh-skill@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-skill-0.1.0-rc.7.tgz"
   },
   "dependenciesMeta": {
     "@deepseek-ai/dsh-subprocess-local": {

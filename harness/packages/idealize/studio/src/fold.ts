@@ -77,6 +77,12 @@ export interface StudioAgentView {
   queued: string[]
   /** The chip's routing target: the active task, else the first queued. */
   displayed?: string | undefined
+  /**
+   * The owner's latest task that was not cancelled, when that task is `done`
+   * and nothing is active or queued: every surface reads this as "finished,
+   * safe to close". A new assignment clears it, acknowledgement does not.
+   */
+  finished?: string | undefined
   /** Tasks holding any unresolved attention, earliest created first. */
   unresolved: string[]
 }
@@ -343,6 +349,11 @@ export function foldStudioState(events: readonly StudioEvent[]): StudioState {
     if (task.state === 'queued') view.queued.push(task.id)
     if (task.attention !== 'none') view.unresolved.push(task.id)
   }
-  for (const view of Object.values(agents)) view.displayed = view.active ?? view.queued[0]
+  for (const [owner, view] of Object.entries(agents)) {
+    view.displayed = view.active ?? view.queued[0]
+    if (view.displayed !== undefined) continue
+    const latest = ordered.findLast(task => task.owner === owner && task.state !== 'cancelled')
+    if (latest?.state === 'done') view.finished = latest.id
+  }
   return { tasks: ordered, agents, deliveries, ...synthesis === undefined ? {} : { synthesis } }
 }

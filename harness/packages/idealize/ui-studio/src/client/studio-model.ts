@@ -50,6 +50,8 @@ export interface AgentViewRow {
   active?: string
   queued: string[]
   displayed?: string
+  /** The agent's latest task, done, with nothing active or queued: safe to close. */
+  finished?: string
   unresolved: string[]
 }
 

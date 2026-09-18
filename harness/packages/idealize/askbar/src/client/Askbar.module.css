@@ -339,6 +339,9 @@
 .stNeedsInput .badge { background: var(--dsw-alias-brand-primary); animation: askbar-blink 0.6s steps(1) 2; }
 .stWrong .badge { background: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-bg-layer-1); }
 .stWrong .avatarWrap { animation: askbar-shake 0.4s ease 1; }
+/* Finished wears the tick where the other badges sit and no presence dot: the
+   question it answers is whether the chat can be closed, loaded or not. */
+.stFinished .badge { background: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-bg-layer-1); }
 /* Idle keeps the face readable (JJ, 2 Sep 2026); the dashed ring and hollow dot carry the state. */
 .stIdle .avatarWrap { opacity: 0.8; }
 .stIdle .avatar { border-style: dashed; border-color: var(--dsw-alias-label-dimmed); }

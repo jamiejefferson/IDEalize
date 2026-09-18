@@ -42,7 +42,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `idealize/cron-changed` | `emit` | [`packages/idealize/cron/src/index.ts:82`](../packages/idealize/cron/src/index.ts) | `cron` (`emit`) | `host-bridge` |
 | `idealize/cron-run` | `emit` | [`packages/idealize/cron/src/index.ts:75`](../packages/idealize/cron/src/index.ts) | `cron` (`emit`) | `cron`, `host-bridge` |
 | `idealize/studio-event` | `emit` | [`packages/idealize/studio/src/index.ts:55`](../packages/idealize/studio/src/index.ts) | `studio` (`emit`) | `comm`, `notify`, `studio`, `telegram` |
-| `idealize/terminal-activity` | `emit` | [`packages/idealize/ui-terminal/src/index.ts:153`](../packages/idealize/ui-terminal/src/index.ts) | - | - |
+| `idealize/terminal-activity` | `emit` | [`packages/idealize/ui-terminal/src/index.ts:167`](../packages/idealize/ui-terminal/src/index.ts) | - | - |
 | `llm/adapters-updated` | `emit` | [`packages/llm/llm/src/types.ts:23`](../packages/llm/llm/src/types.ts) | [`llm`](../packages/llm/llm) (`events.dispatch`) | `apiproxy`, [`llm`](../packages/llm/llm) |
 | `llm/stream` | `waterfall` | [`packages/llm/llm/src/index.ts:64`](../packages/llm/llm/src/index.ts) | [`llm`](../packages/llm/llm) (`waterfall`) | [`agent-loop`](../packages/core/agent-loop), [`llm`](../packages/llm/llm), [`llm-replay`](../packages/test-support/llm-replay), [`session-checkpoint-policy`](../packages/session/session-checkpoint-policy), [`session-title`](../packages/session/session-title) |
 | `session-telemetry/record` | `waterfall` | [`packages/session/session-telemetry/src/index.ts:43`](../packages/session/session-telemetry/src/index.ts) | [`session-telemetry`](../packages/session/session-telemetry) (`waterfall`) | - |

@@ -45,6 +45,17 @@ describe('assembleChips', () => {
     expect(juno).toMatchObject({ state: 'working', task: 'Draft the launch email', unread: 2, status: 'Outlined both tones' })
   })
 
+  it('reads the fold’s finished task as finished with its goal on the task line, until new work is displayed', () => {
+    const done = { ...STUDIO.tasks[0]!, state: 'done' as const, attention: 'completion' as const }
+    const finished: StudioState = { ...STUDIO, tasks: [done], agents: { 's-juno': { finished: 't1', queued: [], unresolved: ['t1'] } } }
+    expect(assembleChips('/work/demo', SESSIONS, [], finished).find(chip => chip.id === 's-juno'))
+      .toMatchObject({ state: 'finished', task: 'Draft the launch email' })
+    const next = { ...STUDIO.tasks[0]!, id: 't2', goal: 'Draft the follow-up', state: 'queued' as const, createdSeq: 2 }
+    const reassigned: StudioState = { ...STUDIO, tasks: [done, next], agents: { 's-juno': { displayed: 't2', queued: ['t2'], unresolved: ['t1'] } } }
+    expect(assembleChips('/work/demo', SESSIONS, [], reassigned).find(chip => chip.id === 's-juno'))
+      .toMatchObject({ state: 'ready', task: 'Draft the follow-up' })
+  })
+
   it('degrades honestly without Studio: comm signals alone decide state', () => {
     const chips = assembleChips('/work/demo', SESSIONS, [{ session: 's-nova', blocker: 'waiting-on-user' }], undefined)
     expect(chips.find(chip => chip.id === 's-nova')).toMatchObject({ state: 'needs-input', task: null })

@@ -12,11 +12,11 @@
  * re-seeds the doc-policy and vault sections — is covered by @idealize/setup's
  * own suite. Everything the fence itself depends on is real.
  */
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { SettingsProvider, settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
@@ -325,5 +325,87 @@ describe('the listing fence', () => {
       body: JSON.stringify({ parent: docs, name: 'note.md', kind: 'file' }),
     })
     expect(create.status).toBe(403)
+  }, 30_000)
+})
+
+describe("a project's documentation folder", () => {
+  it('reports each project, lists a chosen folder outside the vault, and adds it to All documentation', async () => {
+    const { ctx, workspaces, projects, project, docs, skills, outside, origin } = await boot()
+    await captureFirstRun(ctx, workspaces, { project, projects, docs, skills })
+    const read = async () => await (await fetch(`${origin}/idealize/bar/aliases`)).json() as {
+      tabs: AliasTabWire[]
+      projectDocs: { project: { name: string; path: string }; folder?: string; source?: string; state: string; reason?: string }[]
+    }
+
+    // No doc-policy in this composition and nothing chosen: the project has no folder yet.
+    expect((await read()).projectDocs).toEqual([{ project: { name: 'Alpha', path: project }, state: 'unset' }])
+    expect((await fetch(`${origin}/idealize/bar/files?path=${encodeURIComponent(outside)}`)).status).toBe(403)
+
+    await ctx.workspaceAliases.setProjectDocumentation(project, outside)
+    const chosen = await read()
+    expect(chosen.projectDocs).toEqual([{ project: { name: 'Alpha', path: project }, folder: outside, source: 'chosen', state: 'ok' }])
+    expect(chosen.tabs.find(tab => tab.id === 'documentation')!.roots).toEqual([
+      { name: 'vault', path: docs },
+      { name: 'Alpha · outside', path: outside },
+    ])
+    // The fence widens to the chosen folder, so its tree lists.
+    const listed = await fetch(`${origin}/idealize/bar/files?path=${encodeURIComponent(outside)}`)
+    expect(listed.status).toBe(200)
+    expect(((await listed.json()) as { entries: { name: string }[] }).entries.map(entry => entry.name)).toEqual(['secret.txt'])
+
+    // A chosen folder inside the vault is already under All documentation.
+    await mkdir(join(docs, 'Projects', 'Alpha'), { recursive: true })
+    await ctx.workspaceAliases.setProjectDocumentation(project, join(docs, 'Projects', 'Alpha'))
+    expect((await read()).tabs.find(tab => tab.id === 'documentation')!.roots).toEqual([{ name: 'vault', path: docs }])
+
+    // A chosen folder that dies keeps its path and says why.
+    await ctx.workspaceAliases.setProjectDocumentation(project, outside)
+    await rm(outside, { recursive: true, force: true })
+    const dead = (await read()).projectDocs[0]!
+    expect(dead).toMatchObject({ folder: outside, source: 'chosen', state: 'missing' })
+    expect(dead.reason).toContain(outside)
+  }, 30_000)
+})
+
+describe('POST /idealize/bar/open', () => {
+  it.runIf(process.platform === 'darwin')('hands a fenced file to the default application and refuses what the system would run', async () => {
+    const { ctx, workspaces, projects, project, docs, skills, outside, origin } = await boot()
+    await captureFirstRun(ctx, workspaces, { project, projects, docs, skills })
+    const opened: string[] = []
+    const launcher = vi.spyOn(uiBar.defaultApplication, 'open').mockImplementation((target) => {
+      opened.push(target)
+      return Promise.resolve(target.endsWith('.nothing') ? 1 : 0)
+    })
+    const post = (path: string, headers: Record<string, string> = { 'x-idealize-auth': '1' }) =>
+      fetch(`${origin}/idealize/bar/open`, {
+        method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ path }),
+      })
+    try {
+      await writeFile(join(project, 'brief.pdf'), '%PDF')
+      await writeFile(join(project, 'run.command'), '#!/bin/sh\n')
+      await writeFile(join(project, 'tool'), '#!/bin/sh\n')
+      await chmod(join(project, 'tool'), 0o755)
+      await writeFile(join(project, 'LICENSE'), 'MIT\n')
+      await writeFile(join(project, 'odd.nothing'), '')
+
+      expect((await post(join(project, 'brief.pdf'), {})).status).toBe(403)
+      expect((await post(join(project, 'brief.pdf'))).status).toBe(200)
+      expect((await post(join(project, 'LICENSE'))).status).toBe(200)
+      expect(opened).toEqual([join(project, 'brief.pdf'), join(project, 'LICENSE')])
+
+      expect((await post(join(outside, 'secret.txt'))).status).toBe(403)
+      expect((await post(join(project, 'run.command'))).status).toBe(422)
+      expect((await post(join(project, 'tool'))).status).toBe(422)
+      expect((await post(project)).status).toBe(422)
+      expect(opened).toHaveLength(2)
+
+      // No application claims the type: the pane falls back to its own viewer.
+      expect((await post(join(project, 'odd.nothing'))).status).toBe(422)
+
+      const capabilities = await (await fetch(`${origin}/idealize/bar/capabilities`)).json() as { openExternal: boolean }
+      expect(capabilities.openExternal).toBe(true)
+    } finally {
+      launcher.mockRestore()
+    }
   }, 30_000)
 })

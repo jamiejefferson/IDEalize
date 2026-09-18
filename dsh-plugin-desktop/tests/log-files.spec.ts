@@ -10,7 +10,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LogFileSink, logFileName } from '../src/log-files.ts'
 
 function todaySuffix(): string {
@@ -31,6 +31,82 @@ describe('logFileName', () => {
     expect(logFileName('2026-08-16', false, 0)).toBe('dsh-2026-08-16.log')
     expect(logFileName('2026-08-16', true, 0)).toBe('dsh-2026-08-16.error.log')
     expect(logFileName('2026-08-16', false, 2)).toBe('dsh-2026-08-16.2.log')
+  })
+})
+
+afterEach(() => { vi.useRealTimers() })
+
+describe('LogFileSink burst coalescing', () => {
+  function coalescing(maxFileBytes = 10 * 1024 * 1024): { s: LogFileSink; dir: string } {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-log-'))
+    return { s: new LogFileSink(dir, { maxFileBytes, maxDirectoryBytes: 200 * 1024 * 1024, coalesceMs: 100 }), dir }
+  }
+
+  it('holds a warning burst and writes it in order once the window elapses', () => {
+    vi.useFakeTimers()
+    const { s, dir } = coalescing()
+    const day = todaySuffix()
+    s.write('info', 'one')
+    s.write('warn', 'two')
+    s.write('warn', 'three')
+
+    expect(readdirSync(dir)).toEqual([])
+    vi.advanceTimersByTime(100)
+
+    expect(readFileSync(join(dir, `dsh-${day}.log`), 'utf8')).toBe('one\ntwo\nthree\n')
+    expect(readFileSync(join(dir, `dsh-${day}.error.log`), 'utf8')).toBe('two\nthree\n')
+  })
+
+  it('writes an error at once, after the lines that were waiting', () => {
+    vi.useFakeTimers()
+    const { s, dir } = coalescing()
+    const day = todaySuffix()
+    s.write('warn', 'before')
+    s.write('error', 'fatal')
+
+    expect(readFileSync(join(dir, `dsh-${day}.log`), 'utf8')).toBe('before\nfatal\n')
+    expect(readFileSync(join(dir, `dsh-${day}.error.log`), 'utf8')).toBe('before\nfatal\n')
+  })
+
+  it('writes waiting lines on flush, on close and ahead of a header', () => {
+    vi.useFakeTimers()
+    const { s, dir } = coalescing()
+    const day = todaySuffix()
+    const full = join(dir, `dsh-${day}.log`)
+    s.write('info', 'a')
+    s.flush()
+    expect(readFileSync(full, 'utf8')).toBe('a\n')
+    s.write('info', 'b')
+    s.writeHeader('--- header ---')
+    expect(readFileSync(full, 'utf8')).toBe('a\nb\n--- header ---\n')
+    s.write('info', 'c')
+    s.close()
+    expect(readFileSync(full, 'utf8')).toBe('a\nb\n--- header ---\nc\n')
+    vi.advanceTimersByTime(1_000)
+    expect(readFileSync(full, 'utf8')).toBe('a\nb\n--- header ---\nc\n')
+  })
+
+  it('rotates inside a burst on the same line as one append per line', () => {
+    vi.useFakeTimers()
+    const { s, dir } = coalescing(10)
+    const day = todaySuffix()
+    s.write('info', 'x'.repeat(8))
+    s.write('info', 'y'.repeat(8))
+    s.write('info', 'z')
+    s.flush()
+
+    expect(readFileSync(join(dir, `dsh-${day}.log`), 'utf8')).toBe(`${'x'.repeat(8)}\n`)
+    expect(readFileSync(join(dir, `dsh-${day}.1.log`), 'utf8')).toBe(`${'y'.repeat(8)}\n`)
+    expect(readFileSync(join(dir, `dsh-${day}.2.log`), 'utf8')).toBe('z\n')
+  })
+
+  it('drops waiting lines when the logs are cleared', () => {
+    vi.useFakeTimers()
+    const { s, dir } = coalescing()
+    s.write('info', 'gone')
+    s.clear()
+    vi.advanceTimersByTime(1_000)
+    expect(readdirSync(dir)).toEqual([])
   })
 })
 

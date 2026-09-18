@@ -28,6 +28,22 @@ After one capability probe, and only when it answers `embedded: true`, the plugi
 
 `ctx.terminalMode` is provided in every composition, probed or not: `embedded()` returns the memoised probe answer, `open(sessionId)` flips the chat's ring onto the Terminal view through the same per-session chat store the rendered ring reads, `restart(sessionId, brainId)` closes the running shell and reopens it on that brain's launch command, and `Pane` is the same grid over one plain shell for the tool rail's Terminal pane (`@idealize/ui-bar` seats it; JJ, 15 Sep 2026: "a plain terminal - no cli etc. just for running commands"). The pane's shell starts in the directory the pane is first opened in (the current chat's project, else home), is cached like every chat grid so closing the pane keeps the shell and its scrollback, and takes the appearance panel's Terminal paint like the main view. Restarting loses the scrollback and the running agent's context, so callers confirm with the user first; `@idealize/activity-pills`' brain switcher does, with the line "The terminal restarts. You may lose some context.". Archiving a Terminal chat is how it closes (JJ, 2 Sep 2026): the client watches `workspaces.list`'s archived ids and ends the archived chat's shell, so no process runs on behind a row that has left the sidebar. A Terminal chat never sends a prompt, so the sidebar (`@deepseek-ai/dsh-client-ui-workspace`) counts it as started from its launch — its recorded `terminal` space — and lists it with the row verbs like any chat.
 
+## Grid size
+
+An agent's full-screen UI draws its input box on the grid's last rows, so a grid taller than its column hides the one place to type (JJ, 18 Sep 2026). Three rules in `src/client/TerminalView.tsx` and its stylesheet keep the last row inside the column and the shell informed:
+
+- **The host is sized by its column.** `.grid` carries `contain: size`, because xterm gives its screen an explicit pixel height and the conversation's view area (`flex: 1 0 auto`) grows to its content and never shrinks under it. Uncontained, the drawn rows held the host open through a shorter window or a larger font, and the fit addon measured the height the old grid had made.
+- **One fit per frame, from every cause.** A `ResizeObserver` on the host covers the window, a column drag, the paint's margin, a surface zoom and a view returning from `display: none`; `applyTerminalPaint` covers font size, family and line height; `document.fonts`' `loadingdone` covers a web font that arrives after the grid opened, and measures the cell again. A host with no box is never fitted, so a hidden view does not shrink the shell to one row.
+- **The PTY hears from the grid.** The connection subscribes to xterm's `onResize`, so every change of cols/rows reaches `POST /idealize/terminal/resize`, whichever cause refitted the grid, and an unchanged size sends nothing.
+
+### Rendered proof
+
+```sh
+OUT=.idealize/proof/terminal-resize pnpm exec tsx packages/idealize/ui-terminal/proof/resize-proof.mts
+```
+
+Headless Chromium mounts the shipped view inside the shipped conversation column styles, and the shipped pane inside a drawer-like column, over a PTY stand-in that redraws an ask bar on the last row of whatever size it was last told. It walks the window shrinking and growing, the column narrowing, font size, line height, margin, hide-resize-show, a 1.25 surface zoom, a 420x320 window and a late web font (macOS: it borrows a system face), and fails unless after each step the last row ends inside the visible frame, the frame has nothing to scroll, the ask bar is on the last row, and the last size the PTY was told equals the grid's. It writes one screenshot per step and `result.json`.
+
 ## Standing rules for a terminal agent
 
 A harness agent reads IDEalize's standing rules from its system prompt. The CLIs a Terminal chat runs read none of it, so a Claude Code chat was never told where documentation goes (JJ, 17 Sep 2026). On a fresh launch the open route asks each service in `KNOWLEDGE_SERVICES` (`docPolicy` today) for `terminalKnowledge(cwd)`, writes the answers to `<DSH_HOME>/idealize/terminal-knowledge/<terminal id>.md`, and types the launch with that file passed on the command line. The file is removed when the shell exits. A service joins by offering the method; this package probes and never imports it.
