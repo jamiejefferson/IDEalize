@@ -190,8 +190,13 @@ export class AskbarWindow {
     window.setAlwaysOnTop(true, 'floating')
     // The bar stays with the user across Spaces and over full-screen apps
     // (design spec: "another app, full screen or not — the bar stays").
+    // Electron otherwise turns the whole app into a UIElement (accessory) to
+    // honour visibleOnFullScreen, which removes the menu bar, the Dock's
+    // running dot and the app's place in Cmd-Tab (JJ, 18 Sep 2026: "there's
+    // no main nav"). The bar is an NSPanel, which floats over full-screen
+    // spaces from an ordinary foreground app, so the transform is skipped.
     if (process.platform === 'darwin') {
-      window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+      window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
     }
     this.place()
     window.on('close', (event) => {

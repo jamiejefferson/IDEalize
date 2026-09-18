@@ -56,12 +56,15 @@ const CHIME_URL = new URL('../assets/TaskComplete.mp3', import.meta.url)
 
 /** Plugin config. */
 export interface Config {
-  /** The running app's version, compared against announcement min/max bounds. */
+  /**
+   * The running app's version, compared against announcement min/max bounds;
+   * `IDEALIZE_APP_VERSION` (set by the desktop shell) when empty.
+   */
   appVersion?: string
 }
 
 export const Config: z<Config> = z.object({
-  appVersion: z.string().default(V1_APP_VERSION),
+  appVersion: z.string().default(''),
 })
 
 /** The ledger's read path. */
@@ -150,7 +153,7 @@ function bridgeFeed(ctx: Context): BridgeLike | undefined {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  const appVersion = config.appVersion ?? V1_APP_VERSION
+  const appVersion = (config.appVersion ?? '').trim() || (process.env.IDEALIZE_APP_VERSION ?? '').trim() || V1_APP_VERSION
   const store = new AttentionStore(attentionLedgerPath(resolveDshHome()))
 
   ctx.inject(['settings'], (settingsCtx) => {

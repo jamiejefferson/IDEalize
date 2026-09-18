@@ -308,6 +308,15 @@ describe('the notify surface’s other routes', () => {
 
     const composed = await mount({ appVersion: '9.9.9-test' })
     expect((await composed.call('/idealize/notify/app')).json()).toEqual({ appVersion: '9.9.9-test' })
+
+    // The desktop shell names its packaged version in the environment; the composition still wins.
+    process.env.IDEALIZE_APP_VERSION = '1.0.4'
+    try {
+      expect((await (await mount()).call('/idealize/notify/app')).json()).toEqual({ appVersion: '1.0.4' })
+      expect((await (await mount({ appVersion: '9.9.9-test' })).call('/idealize/notify/app')).json()).toEqual({ appVersion: '9.9.9-test' })
+    } finally {
+      delete process.env.IDEALIZE_APP_VERSION
+    }
   })
 
   it('registers its own settings section when a provider is composed', async () => {

@@ -4734,14 +4734,14 @@ __metadata:
 
 "@idealize/feedback@file:./vendor/idealize/idealize-feedback-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/feedback@file:./vendor/idealize/idealize-feedback-1.0.0-dev.0.tgz#./vendor/idealize/idealize-feedback-1.0.0-dev.0.tgz::hash=c37d4f&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/feedback@file:./vendor/idealize/idealize-feedback-1.0.0-dev.0.tgz#./vendor/idealize/idealize-feedback-1.0.0-dev.0.tgz::hash=9f262a&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-host-webserver": "npm:^0.1.0-rc.7"
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/71ac5b7b3d6fb301ba401ff99ea7dada090a08b174c562adbdf61b9aba3f4125b4916340187dbacc6e1d620fa6878eb1ee3c0d975d1e9a405b7f0c250a9b60a1
+  checksum: 10c0/d7fc9e588f6612c606269962efc17c9a5e444621aed38832779a60f0039d5c7626668f5b143af75975536c9a62ffa0eaa4b3a962b564f093e8db57c7115404b9
   languageName: node
   linkType: hard
 
@@ -4859,7 +4859,7 @@ __metadata:
 
 "@idealize/notify@file:./vendor/idealize/idealize-notify-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/notify@file:./vendor/idealize/idealize-notify-1.0.0-dev.0.tgz#./vendor/idealize/idealize-notify-1.0.0-dev.0.tgz::hash=04df81&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/notify@file:./vendor/idealize/idealize-notify-1.0.0-dev.0.tgz#./vendor/idealize/idealize-notify-1.0.0-dev.0.tgz::hash=8b5894&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-locale": ^0.1.0-rc.7
@@ -4877,7 +4877,7 @@ __metadata:
     "@idealize/host-bridge": ^1.0.0-dev.0
     "@idealize/studio": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/d9e993d3d88cce8669b6e07677d090fdf23ca47a21bb5e9b8ab2bd4a9f47de175d57fdb910a50ce472fb71b7ba732a81efb4a9168022ee42c3f510d6c0d6bd4b
+  checksum: 10c0/1b15c0eeebe1f59d276ff5126ebbdaa1921d73f41ac594e459ba4fda72af2ab0e547ffacbbef4ee51b5ba570aa68e55ba7caff5b0cb034e2c50fb22e9255ff63
   languageName: node
   linkType: hard
 

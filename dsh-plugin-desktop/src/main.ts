@@ -461,6 +461,12 @@ async function start(): Promise<void> {
     if ((process.env.DSH_HOME ?? '').trim().length === 0) {
       process.env.DSH_HOME = join(app.getPath('userData'), 'harness')
     }
+    // The announcement banner's version gate and the feedback rows read the
+    // packaged version from here; without it every install reported
+    // 1.0.0-dev, so an updated app kept showing the update notice.
+    if (app.isPackaged && (process.env.IDEALIZE_APP_VERSION ?? '').trim().length === 0) {
+      process.env.IDEALIZE_APP_VERSION = app.getVersion()
+    }
     // IDEalize ships the forked FreeLLMAPI server as a single-file bundle;
     // point the freetokens plugin at it so every install gets the embedded
     // free-tokens engine with zero setup. An explicit env value wins (dev

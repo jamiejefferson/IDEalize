@@ -350,7 +350,7 @@ describe('Electron compatibility runtime', () => {
       frame: false, alwaysOnTop: true, minimizable: true, width: ASKBAR_WIDTH, show: false,
     }))
     expect(bar.setAlwaysOnTop).toHaveBeenCalledWith(true, 'floating')
-    expect(bar.setVisibleOnAllWorkspaces).toHaveBeenCalledWith(true, { visibleOnFullScreen: true })
+    expect(bar.setVisibleOnAllWorkspaces).toHaveBeenCalledWith(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
     const workArea = electron.screen.getPrimaryDisplay().workArea
     expect(bar.getBounds()).toEqual({
       x: workArea.x + workArea.width - ASKBAR_WIDTH, y: workArea.y, width: ASKBAR_WIDTH, height: workArea.height,

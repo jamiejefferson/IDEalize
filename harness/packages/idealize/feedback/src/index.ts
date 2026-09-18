@@ -30,7 +30,7 @@ const V1_APP_VERSION = '1.0.0-dev'
 
 /** Plugin config. */
 export interface Config {
-  /** Stamped into feedback rows as `app_version`. */
+  /** Stamped into feedback rows as `app_version`; `IDEALIZE_APP_VERSION` (set by the desktop shell) when empty. */
   appVersion?: string
   /** The Supabase REST base URL (`https://<project>.supabase.co/rest/v1`); `IDEALIZE_FEEDBACK_ENDPOINT` when empty. */
   endpoint?: string
@@ -42,7 +42,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  appVersion: z.string().default(V1_APP_VERSION),
+  appVersion: z.string().default(''),
   endpoint: z.string().default(''),
   publishableKey: z.string().default(''),
 })
@@ -82,7 +82,7 @@ async function appendLocalBackup(text: string, feedbackType: string): Promise<vo
 }
 
 export function apply(ctx: Context, config: Config): void {
-  const appVersion = config.appVersion ?? V1_APP_VERSION
+  const appVersion = (config.appVersion ?? '').trim() || (process.env.IDEALIZE_APP_VERSION ?? '').trim() || V1_APP_VERSION
 
   ctx.inject(['webServer'], (webCtx) => {
     const register = (
