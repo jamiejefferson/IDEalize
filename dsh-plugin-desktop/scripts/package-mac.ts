@@ -40,6 +40,8 @@ export interface MacSmokePackageOptions {
   readonly verifier: string
   /** Node executable used to run package-local scripts. */
   readonly nodeExecutable: string
+  /** Fail unless the packaged app in the output directory carries a sealed signature. */
+  readonly verifySignature: () => void
   /** Execute one packaging command. */
   readonly run: (
     command: string,
@@ -87,6 +89,10 @@ function defaultOptions(): MacSmokePackageOptions {
     builderCli: require.resolve('electron-builder/cli.js'),
     verifier: fileURLToPath(new URL('./verify-mac-smoke.ts', import.meta.url)),
     nodeExecutable: process.execPath,
+    verifySignature: () => {
+      const app = resolve(outputDir, 'mac-universal', 'IDEalize V1.app')
+      run('codesign', ['--verify', '--deep', '--strict', app], desktopRoot, process.env)
+    },
     run,
     log: message => console.log(message),
   }
@@ -118,8 +124,9 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
   }
 
   const cleanEnvironment = withoutMacReleaseSecrets(options.env)
-  options.log(options.outputDir.endsWith('mac-public')
-    ? 'Building the unsigned universal macOS DMG the public release ships; the installer clears its quarantine flag.'
+  const publicBuild = options.outputDir.endsWith('mac-public')
+  options.log(publicBuild
+    ? 'Building the ad-hoc signed universal macOS DMG the public release ships; the installer clears its quarantine flag.'
     : 'Building an unsigned macOS DMG smoke; signing and notarization are release-only steps.')
   options.run(
     'corepack',
@@ -141,13 +148,19 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
       '--config.mac.notarize=false',
       '--config.npmRebuild=false',
       `--config.directories.output=${options.outputDir}`,
+      // The public app carries a sealed ad-hoc signature. With no signature at
+      // all macOS cannot tell which app a folder grant belongs to, so it asked
+      // again on every access (JJ, 18 Sep 2026: "dozens of 'IDEalize would like
+      // to access files' modals"). Ad-hoc needs no certificate; the hardened
+      // runtime stays off, as it is in the locally signed build (package-dir.mjs).
+      ...publicBuild ? ['--config.mac.identity=-', '--config.mac.hardenedRuntime=false'] : [],
     ],
     options.desktopRoot,
-    {
-      ...cleanEnvironment,
-      CSC_IDENTITY_AUTO_DISCOVERY: 'false',
-    },
+    publicBuild
+      ? cleanEnvironment
+      : { ...cleanEnvironment, CSC_IDENTITY_AUTO_DISCOVERY: 'false' },
   )
+  if (publicBuild) options.verifySignature()
   options.run(
     options.nodeExecutable,
     [options.verifier, options.outputDir],

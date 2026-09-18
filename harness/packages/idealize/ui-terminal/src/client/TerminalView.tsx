@@ -101,6 +101,49 @@ export const httpTransport: TerminalTransport = {
   },
 }
 
+/** The drag type a Files pane row carries (`@idealize/ui-bar`'s FILE_DRAG_TYPE). */
+const FILES_ROW_DRAG_TYPE = 'application/x-idealize-path'
+
+/** The desktop shell's preload bridge: a dropped Web File to its path on disk. */
+const FILE_PATH_BRIDGE = '__DSH_DESKTOP_FILE_PATH__'
+
+/**
+ * What a drop types into the shell: each path backslash-escaped, joined by
+ * spaces, with a trailing space so the next word starts clear of it. This is
+ * what Terminal.app types for a dragged file, and what a terminal agent reads
+ * as an attached image.
+ * @param paths - absolute paths, in drop order.
+ */
+export function dropText(paths: readonly string[]): string {
+  const escaped = paths
+    .map(path => path.trim())
+    .filter(path => path !== '')
+    .map(path => path.replace(/[^\w@%+=:,./-]/gu, character => `\\${character}`))
+  return escaped.length === 0 ? '' : `${escaped.join(' ')} `
+}
+
+/**
+ * The disk paths one drop carries: files from Finder, the desktop or a
+ * screenshot thumbnail (through the desktop shell's bridge), or a Files pane row.
+ * @param transfer - the drop's payload.
+ */
+export function droppedPaths(transfer: DataTransfer): string[] {
+  const row = transfer.getData(FILES_ROW_DRAG_TYPE)
+  if (row !== '') return [row]
+  const bridge = (window as unknown as Record<string, { getPathForFile?: (file: File) => string } | undefined>)[FILE_PATH_BRIDGE]
+  if (typeof bridge?.getPathForFile !== 'function') return []
+  const resolve = bridge.getPathForFile.bind(bridge)
+  return Array.from(transfer.files).map((file) => {
+    try { return resolve(file) } catch { return '' }
+  }).filter(path => path !== '')
+}
+
+function carriesFiles(transfer: DataTransfer | null): transfer is DataTransfer {
+  if (transfer === null) return false
+  const types = Array.from(transfer.types)
+  return types.includes('Files') || types.includes(FILES_ROW_DRAG_TYPE)
+}
+
 /** One chat's live grid + connection, kept across view switches. */
 interface Attachment {
   terminal: Terminal
@@ -607,7 +650,29 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
     // margin, a surface zoom, and the view coming back from `display: none`.
     const observer = new ResizeObserver(() => { scheduleRefit(current) })
     observer.observe(host)
+    // A file dropped on the grid types its path at the prompt (JJ, 18 Sep 2026:
+    // "drag and drop images into terminal is not working"). paste() wraps the
+    // text in bracketed-paste marks when the program asked for them, which is
+    // how a terminal agent tells a dropped screengrab from typed text.
+    const onDragOver = (event: DragEvent): void => {
+      if (!carriesFiles(event.dataTransfer)) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    }
+    const onDrop = (event: DragEvent): void => {
+      if (!carriesFiles(event.dataTransfer)) return
+      event.preventDefault()
+      event.stopPropagation()
+      const text = dropText(droppedPaths(event.dataTransfer))
+      if (text === '') return
+      current.terminal.paste(text)
+      current.terminal.focus()
+    }
+    host.addEventListener('dragover', onDragOver)
+    host.addEventListener('drop', onDrop)
     return () => {
+      host.removeEventListener('dragover', onDragOver)
+      host.removeEventListener('drop', onDrop)
       observer.disconnect()
       current.listeners.delete(rerender)
       // The grid stays alive in the cache; only its DOM moves out with us.

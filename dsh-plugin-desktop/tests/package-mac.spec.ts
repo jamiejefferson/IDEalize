@@ -39,6 +39,7 @@ function options(calls: CommandCall[], logs: string[] = []): MacSmokePackageOpti
     builderCli: '/repo/node_modules/electron-builder/cli.js',
     verifier: '/repo/dsh-plugin-desktop/scripts/verify-mac-smoke.ts',
     nodeExecutable: '/usr/local/bin/node',
+    verifySignature: () => undefined,
     run: (command, args, cwd, env) => {
       calls.push({ command, args: [...args], cwd, env: { ...env } })
     },
@@ -92,6 +93,24 @@ describe('macOS DMG smoke packaging', () => {
     expect(logs).toEqual([
       'Building an unsigned macOS DMG smoke; signing and notarization are release-only steps.',
     ])
+  })
+
+  it('signs the public build ad-hoc and checks the seal, so macOS can remember folder grants', () => {
+    const calls: CommandCall[] = []
+    const logs: string[] = []
+    let verified = 0
+    packageMacSmoke({
+      ...options(calls, logs),
+      outputDir: '/repo/dsh-plugin-desktop/dist/mac-public',
+      verifySignature: () => { verified += 1 },
+    })
+
+    const build = calls[1]
+    expect(build?.args).toContain('--config.mac.identity=-')
+    expect(build?.args).toContain('--config.mac.hardenedRuntime=false')
+    expect(build?.env).toEqual({ PATH: '/usr/bin:/bin', SAFE_VALUE: 'kept' })
+    expect(verified).toBe(1)
+    expect(logs[0]).toContain('ad-hoc signed')
   })
 
   it.each([
