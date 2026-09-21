@@ -11,6 +11,7 @@
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { AskbarRoster } from '../types.ts'
+import { type BridgeFeedAttachment, followBridgeFeed } from './bridge-feed.ts'
 import { type RosterSelection, sameSelection } from './selection.ts'
 
 /** What the bar renders: the selection it follows, the latest roster, or why there is none yet. */
@@ -82,6 +83,8 @@ export function startAskbarStore(initial: RosterSelection, options: AskbarStoreO
   let timer: ReturnType<typeof setTimeout> | undefined
   let debounce: ReturnType<typeof setTimeout> | undefined
   let stopped = false
+  /** The body of the last roster published, to tell a poll that changed nothing. */
+  let lastText: string | undefined
 
   const refresh = async (): Promise<void> => {
     const asked = selection
@@ -90,7 +93,15 @@ export function startAskbarStore(initial: RosterSelection, options: AskbarStoreO
       if (!response.ok) throw new Error(`roster read failed: ${response.status}`)
       const roster = await response.json() as AskbarRoster
       // A read for a superseded selection is stale: the refresh it triggered lands next.
-      if (!stopped && asked === selection) store.set({ project: asked.project, roster, error: null })
+      if (!stopped && asked === selection) {
+        // Most polls answer what the last one did. Publishing an equal roster
+        // as a fresh object re-renders every subscriber for nothing.
+        const shown = store.getSnapshot()
+        const text = JSON.stringify(roster)
+        const unchanged = text === lastText && shown.roster !== null && shown.error === null && shown.project === asked.project
+        lastText = text
+        if (!unchanged) store.set({ project: asked.project, roster, error: null })
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (!stopped && asked === selection) store.set({ ...store.getSnapshot(), error: message })
@@ -98,8 +109,22 @@ export function startAskbarStore(initial: RosterSelection, options: AskbarStoreO
     if (stopped) return
     const pollMs = store.getSnapshot().roster?.config.pollMs ?? BOOT_POLL_MS
     clearTimeout(timer)
-    timer = setTimeout(() => { void refresh() }, pollMs)
+    timer = setTimeout(tick, pollMs)
   }
+
+  // A hidden window shows nobody the roster, so its poll waits: the timer
+  // keeps its cadence without reading, a bridge event still hurries a read,
+  // and the window reads at once when it shows again.
+  const hidden = (): boolean => typeof document !== 'undefined' && document.visibilityState === 'hidden'
+  const tick = (): void => {
+    if (!hidden()) { void refresh(); return }
+    const pollMs = store.getSnapshot().roster?.config.pollMs ?? BOOT_POLL_MS
+    timer = setTimeout(tick, pollMs)
+  }
+  const onVisibility = (): void => {
+    if (!stopped && !hidden()) void refresh()
+  }
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
 
   const hurry = (): void => {
     if (stopped) return
@@ -108,9 +133,12 @@ export function startAskbarStore(initial: RosterSelection, options: AskbarStoreO
   }
 
   void refresh()
-  // EventSource is absent in test DOMs; the poll alone stays correct without it.
-  const stream = typeof EventSource === 'undefined' ? undefined : new EventSource('/idealize/events/stream')
-  stream?.addEventListener('message', hurry)
+  // The window's one bridge feed connection; the poll alone stays correct without it.
+  let feed: BridgeFeedAttachment | undefined
+  void followBridgeFeed(hurry).then((attachment) => {
+    if (stopped) attachment?.close()
+    else feed = attachment
+  })
 
   return {
     store,
@@ -125,7 +153,8 @@ export function startAskbarStore(initial: RosterSelection, options: AskbarStoreO
       stopped = true
       clearTimeout(timer)
       clearTimeout(debounce)
-      stream?.close()
+      feed?.close()
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility)
     },
   }
 }

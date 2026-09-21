@@ -14,6 +14,8 @@
 
 import { type Context, Service } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { win32 } from 'node:path'
 
 /** The node-pty surface this service uses (kept narrow so tests fake it). */
 export interface EmbeddedPtyProcess {
@@ -107,9 +109,32 @@ const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
 const DEFAULT_LIMIT = 24
 
-/** The shell command and arguments for one platform. */
-export function defaultShell(platform: NodeJS.Platform, environment: NodeJS.ProcessEnv): { file: string; args: string[] } {
+/**
+ * The shell command and arguments for one platform.
+ *
+ * Windows gets Windows PowerShell 5.1, which every Windows 10 and 11 carries.
+ * The harness types an agent's launch line into this shell
+ * (`@idealize/ui-terminal`), and that line reads a file into an argument and
+ * clears the prompt first; cmd.exe can do neither, so under it every Terminal
+ * brain answered "'claude' is not recognized" (PC test drive of 1.0.3, 18 Sep
+ * 2026). 5.1 rather than PowerShell 7 because the two pass quoted arguments
+ * to a native program differently, and the launch line is written for one.
+ * `RemoteSigned` holds for this process only: an npm-installed CLI is a local
+ * `.ps1` shim, which the client default policy (Restricted) refuses to run.
+ * cmd.exe remains the fallback for a machine without PowerShell.
+ * @param platform - the host platform.
+ * @param environment - the launcher's environment.
+ * @param exists - whether a file exists; injected by tests.
+ * @returns the shell to spawn.
+ */
+export function defaultShell(
+  platform: NodeJS.Platform,
+  environment: NodeJS.ProcessEnv,
+  exists: (path: string) => boolean = existsSync,
+): { file: string; args: string[] } {
   if (platform === 'win32') {
+    const powershell = win32.join(environment.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    if (exists(powershell)) return { file: powershell, args: ['-NoLogo', '-ExecutionPolicy', 'RemoteSigned'] }
     return { file: environment.COMSPEC ?? 'cmd.exe', args: [] }
   }
   const shell = environment.SHELL ?? (platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
@@ -141,7 +166,11 @@ class EmbeddedTerminal implements DesktopEmbeddedTerminal {
   cols: number
   rows: number
   exit: { exitCode: number } | undefined = undefined
-  private buffer = ''
+  // Output is kept as the chunks it arrived in. Appending to one string and
+  // slicing it back to the cap copied up to 256 KB on the main process for
+  // every chunk once a terminal had produced that much.
+  private chunks: string[] = []
+  private buffered = 0
   private readonly listeners = new Set<(event: EmbeddedTerminalEvent) => void>()
   private readonly process: EmbeddedPtyProcess
   private readonly subscriptions: Array<{ dispose(): void }> = []
@@ -161,8 +190,12 @@ class EmbeddedTerminal implements DesktopEmbeddedTerminal {
     this.process = spawn(shell.file, shell.args, { name: 'xterm-256color', cols, rows, cwd, env })
     this.subscriptions.push(
       this.process.onData((data) => {
-        this.buffer += data
-        if (this.buffer.length > REPLAY_CAP) this.buffer = this.buffer.slice(this.buffer.length - REPLAY_CAP)
+        this.chunks.push(data)
+        this.buffered += data.length
+        // Drop whole chunks from the head while what is left still covers the cap.
+        while (this.chunks.length > 1 && this.buffered - this.chunks[0]!.length >= REPLAY_CAP) {
+          this.buffered -= this.chunks.shift()!.length
+        }
         this.emit({ kind: 'data', data })
       }),
       this.process.onExit(({ exitCode }) => {
@@ -173,7 +206,11 @@ class EmbeddedTerminal implements DesktopEmbeddedTerminal {
   }
 
   replay(): string {
-    return this.buffer
+    const joined = this.chunks.join('')
+    const replay = joined.length > REPLAY_CAP ? joined.slice(joined.length - REPLAY_CAP) : joined
+    this.chunks = replay === '' ? [] : [replay]
+    this.buffered = replay.length
+    return replay
   }
 
   write(data: string): void {

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createSnapshotStore, SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply } from '../src/client/index.ts'
+import { closeBridgeFeed } from '../src/client/bridge-feed.ts'
 import type { SelectionSessions, SelectionWorkspaces } from '../src/client/selection.ts'
 import type { SidebarRailInjected } from '../src/client/SidebarRail.tsx'
 import { onStudioRequest } from '../src/client/studio-request.ts'
@@ -33,7 +34,10 @@ async function bench(
 ) {
   window.history.replaceState(null, '', `/${search}`)
   const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ project: '/work/demo', config: { edge: 'right', hoverRevealMs: 150, pendingSendMs: 1000, transformMs: 200, pollMs: 60_000 }, chips: options.chips ?? [] }) })
-  vi.stubGlobal('fetch', fetchMock)
+  // The window's bridge feed read answers an empty tail; every other read reaches the mock the tests count.
+  vi.stubGlobal('fetch', (input: string, init?: RequestInit) => input.startsWith('/idealize/events/')
+    ? Promise.resolve({ ok: true, json: async () => [] })
+    : (init === undefined ? fetchMock(input) : fetchMock(input, init)) as unknown)
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   ctx.provide('locale', new LocaleRuntime(ctx))
@@ -62,6 +66,7 @@ async function bench(
 }
 
 afterEach(() => {
+  closeBridgeFeed()
   vi.unstubAllGlobals()
   vi.useRealTimers()
   window.history.replaceState(null, '', '/')

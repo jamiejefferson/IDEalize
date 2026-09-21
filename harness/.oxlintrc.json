@@ -22,7 +22,6 @@
     "**/oxlint-contract-*", // Flat probes use real TypeScript project include paths.
     "packages/typert/generator/tests/fixtures/type-model/**", // tsgolint rejects this fixture's preserved project shapes before rules run.
     "website/.generated/**",
-    "packages/idealize/onboarding/src/client/owl-clips.ts", // Generated data-URI clips (scripts/gen-owl-clips.ts); the minified-file heuristic trips on its megabyte lines.
     "vendor/**", // Vendored source keeps upstream style and idioms.
     "native/**", // The imported landlock-run subtree has its own gates; see native/README.md.
     "**/*.js",

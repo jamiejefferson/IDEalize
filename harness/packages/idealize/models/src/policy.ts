@@ -58,7 +58,16 @@ export function dominantWeight(weights: PolicyWeights): Dominant {
   return 'speed'
 }
 
-function freeUsable(facts: FreetokensFacts): boolean {
+/**
+ * Whether the free-tokens route can answer a request: registered, its engine
+ * running, and at least one upstream key usable where the count is knowable.
+ * The auto policy and the Brains pane's Connected badge share this rule, so the
+ * badge cannot claim a route that every completion would refuse (PC test
+ * drive, 18 Sep 2026: "Connected" over an engine with no usable key).
+ * @param facts - the route and engine facts.
+ * @returns true when a request has somewhere to go.
+ */
+export function freeUsable(facts: FreetokensFacts): boolean {
   return facts.routeModels > 0 && facts.engineUp
     && (facts.usableKeys === undefined || facts.usableKeys > 0)
 }

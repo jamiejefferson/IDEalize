@@ -54,7 +54,7 @@ export const RECENT_REFRESH_MS = 3000
 
 /** Base name of a project folder, for the identity header. */
 function projectLabel(project: string): string {
-  const parts = project.split('/').filter(part => part !== '')
+  const parts = project.split(/[\\/]/).filter(part => part !== '')
   return parts[parts.length - 1] ?? project
 }
 

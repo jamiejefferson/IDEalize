@@ -7,6 +7,7 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { closeBridgeFeed } from '@idealize/askbar/src/client/bridge-feed.ts'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
@@ -75,6 +76,7 @@ async function bench(search = '') {
 }
 
 afterEach(() => {
+  closeBridgeFeed()
   vi.unstubAllGlobals()
   FakeNotification.permission = 'granted'
   FakeNotification.requestPermission = vi.fn(async () => FakeNotification.permission)
@@ -161,6 +163,16 @@ describe('the Studio’s alerts in the window', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(posts.map(post => post.url)).toEqual(['/idealize/notify/native'])
+  })
+
+  it('says an agent stopped, rather than promising a reply, when its turn ended on an error', async () => {
+    const { push } = await bench()
+    push(JSON.stringify({ seq: 12, kind: 'agent-finished', title: '', body: '', failed: true }))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(posts).toHaveLength(1)
+    expect(JSON.stringify(posts[0])).toContain('Agent stopped')
+    expect(JSON.stringify(posts[0])).not.toContain('reply is ready')
   })
 
   it('falls back to the host’s own notification when the browser refuses permission', async () => {

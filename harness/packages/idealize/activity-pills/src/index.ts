@@ -55,7 +55,7 @@
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import {
@@ -186,7 +186,19 @@ export function probeFlags(shell: string): string {
  * @param cli - the executable name, a single path component.
  * @returns true/false from `command -v`, null when the probe itself failed.
  */
-export function cliInstalled(cli: string): Promise<boolean | null> {
+export function cliInstalled(cli: string, platform: NodeJS.Platform = process.platform): Promise<boolean | null> {
+  // Windows has no login shell to ask; `where.exe` searches PATH and PATHEXT,
+  // so it finds claude.exe and an npm claude.cmd alike, and exits 1 for a
+  // name it cannot find. Without this every CLI read "Could not check" there.
+  if (platform === 'win32') {
+    if (!/^[\w.-]+$/.test(cli)) return Promise.resolve(null)
+    return new Promise((resolve) => {
+      execFile('where.exe', [cli], { timeout: 5_000, windowsHide: true }, (error) => {
+        if (error === null) { resolve(true); return }
+        resolve(typeof error.code === 'number' && error.code === 1 ? false : null)
+      })
+    })
+  }
   const shell = probeShell()
   if (shell === null || !/^[\w.-]+$/.test(cli)) return Promise.resolve(null)
   return new Promise((resolve) => {
@@ -397,7 +409,7 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   /** Whether a preset's composition file sits under the user root (the editable set). */
-  const editable = (path: string): boolean => resolve(path).startsWith(`${resolve(root)}/`)
+  const editable = (path: string): boolean => resolve(path).startsWith(`${resolve(root)}${sep}`)
 
   /**
    * The shipped composition every Chat / Terminal brain derives from.

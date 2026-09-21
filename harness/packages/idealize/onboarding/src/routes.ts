@@ -13,6 +13,10 @@
  *   is a pi-ai catalog provider: the profile needs only `apiKeyEnv`, the
  *   smallest write that makes the stored credential the one requests use
  *   (without it the route falls back to pi-ai's ambient env discovery).
+ * - `GET  /idealize/onboarding/owl/<clip>.<hash>.webm` — one owl clip's bytes
+ *   (`video/webm`, byte ranges honoured). The file name carries a hash of the
+ *   bytes (see ./owl-clip-urls.ts), so the answer caches as immutable and a
+ *   changed clip gets a new URL; any other name under the prefix answers 404.
  *
  * @module @idealize/onboarding/routes
  */
@@ -25,6 +29,9 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 // Type-only: the `subprocess` Context merge (claude executable resolution).
 import type {} from '@deepseek-ai/dsh-subprocess'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { OWL_CLIP_FILES, OWL_CLIP_PREFIX } from './owl-clip-urls.ts'
+import type { OwlClipId } from './owl-clip-urls.ts'
+import { OWL_CLIP_BASE64 } from './owl-clips.ts'
 
 /** The credential reference the OpenRouter save stores and the detection reads. */
 export const OPENROUTER_KEY_ENV = 'OPENROUTER_API_KEY'
@@ -101,6 +108,78 @@ async function verifyOpenRouterKey(baseURL: string, apiKey: string): Promise<Key
   return { ok: true }
 }
 
+/** The clip each served file name answers with. */
+const OWL_CLIP_BY_FILE = new Map(
+  (Object.entries(OWL_CLIP_FILES) as [OwlClipId, string][]).map(([id, file]) => [file, id]),
+)
+
+/** Clips decoded so far; each decodes once, on its first request. */
+const OWL_CLIP_BYTES = new Map<OwlClipId, Buffer>()
+
+function owlClipBytes(id: OwlClipId): Buffer {
+  let bytes = OWL_CLIP_BYTES.get(id)
+  if (bytes === undefined) {
+    bytes = Buffer.from(OWL_CLIP_BASE64[id], 'base64')
+    OWL_CLIP_BYTES.set(id, bytes)
+  }
+  return bytes
+}
+
+/**
+ * Resolve a single-range `Range` header against a body. Media elements ask
+ * for ranges to seek, which is how a looping clip returns to its start.
+ * @param header - the request's `Range` header.
+ * @param size - the body's length in bytes.
+ * @returns the inclusive byte span, `'whole'` when the header names no single
+ *   byte range (the full body answers), or `'unsatisfiable'` for HTTP 416.
+ */
+function byteRange(header: string | undefined, size: number): { start: number; end: number } | 'whole' | 'unsatisfiable' {
+  const match = header === undefined ? null : /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (match === null || (match[1] === '' && match[2] === '')) return 'whole'
+  if (match[1] === '') {
+    const suffix = Number(match[2])
+    return suffix === 0 ? 'unsatisfiable' : { start: Math.max(0, size - suffix), end: size - 1 }
+  }
+  const start = Number(match[1])
+  const end = match[2] === '' ? size - 1 : Math.min(Number(match[2]), size - 1)
+  return start >= size || start > end ? 'unsatisfiable' : { start, end }
+}
+
+/**
+ * Answer one owl clip request: the clip's bytes for a known file name, 404
+ * for anything else under the prefix.
+ * @param req - the request.
+ * @param res - the response.
+ */
+function serveOwlClip(req: IncomingMessage, res: ServerResponse): void {
+  if (req.method !== 'GET') {
+    res.writeHead(405, { 'content-type': 'text/plain', allow: 'GET' }).end('GET only')
+    return
+  }
+  /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server requests. */
+  const pathname = new URL(req.url ?? '/', 'http://x').pathname
+  const id = OWL_CLIP_BY_FILE.get(pathname.slice(OWL_CLIP_PREFIX.length + 1))
+  if (id === undefined) {
+    res.writeHead(404, { 'content-type': 'text/plain' }).end('no such owl clip')
+    return
+  }
+  const bytes = owlClipBytes(id)
+  const range = byteRange(req.headers.range, bytes.length)
+  if (range === 'unsatisfiable') {
+    res.writeHead(416, { 'content-range': `bytes */${bytes.length}` }).end()
+    return
+  }
+  const body = range === 'whole' ? bytes : bytes.subarray(range.start, range.end + 1)
+  res.writeHead(range === 'whole' ? 200 : 206, {
+    'content-type': 'video/webm',
+    'content-length': body.length,
+    'accept-ranges': 'bytes',
+    // The file name carries the bytes' hash: the answer never changes.
+    'cache-control': 'public, max-age=31536000, immutable',
+    ...(range === 'whole' ? {} : { 'content-range': `bytes ${range.start}-${range.end}/${bytes.length}` }),
+  }).end(body)
+}
+
 /**
  * Mount the onboarding routes while the web server, settings, credentials, and
  * subprocess services are composed.
@@ -108,6 +187,18 @@ async function verifyOpenRouterKey(baseURL: string, apiKey: string): Promise<Key
  * @param openrouterBaseURL - the OpenRouter API base URL (Config-owned).
  */
 export function installOnboardingRoutes(ctx: Context, openrouterBaseURL: string): void {
+  // The clips need the web server alone, so they serve in any composition.
+  ctx.inject(['webServer'], (webCtx) => {
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'prefix',
+      path: OWL_CLIP_PREFIX,
+      handler: (req, res) => {
+        if (refuse(req, res)) return
+        serveOwlClip(req, res)
+      },
+    }), 'idealize-onboarding: owl clips route')
+  })
+
   ctx.inject(['webServer', 'settings', 'credentials', 'subprocess'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',

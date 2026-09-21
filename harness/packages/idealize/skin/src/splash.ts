@@ -17,6 +17,14 @@ export const SPLASH_ID = 'idealize-splash'
  * @returns the self-contained HTML fragment.
  */
 export function splashMarkup(): string {
+  // Constant for the life of the process; the frames are ~460 KB to serialise.
+  markup ??= renderSplash()
+  return markup
+}
+
+let markup: string | undefined
+
+function renderSplash(): string {
   const frames = JSON.stringify(OWL_FRAMES)
   return `<div id="${SPLASH_ID}">
 <style>

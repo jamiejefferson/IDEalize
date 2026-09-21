@@ -10,6 +10,8 @@ export const zh = {
   'chime.preview': '试听',
   'chime.notification.title': '代理已完成',
   'chime.notification.body': '有回复等待查看。',
+  'chime.notification.failedTitle': '代理已停止',
+  'chime.notification.failedBody': '本轮因错误结束，请打开对话查看。',
 } as const
 
 /** Translation key set. */
@@ -25,4 +27,6 @@ export const en: Record<NotifyKey, string> = {
   'chime.preview': 'Preview',
   'chime.notification.title': 'Agent finished',
   'chime.notification.body': 'A reply is ready for you.',
+  'chime.notification.failedTitle': 'Agent stopped',
+  'chime.notification.failedBody': 'The turn ended on an error. Open the chat to see it.',
 }

@@ -90,6 +90,9 @@ export function createStudioStore(): StudioStore {
     }
   }
 
+  /** The last overview and read positions published, serialised, to tell a poll that changed nothing. */
+  let lastAnswered: string | undefined
+
   const sync = async (): Promise<void> => {
     const mine = ++token
     try {
@@ -98,6 +101,12 @@ export function createStudioStore(): StudioStore {
       const overview = await response.json() as OverviewResponse
       const read = await readPositions()
       if (mine !== token) return
+      // Most polls answer what the last one did; replacing equal projects
+      // with fresh objects re-renders and re-sorts the whole view for nothing.
+      const answered = JSON.stringify([overview.projects, read])
+      const shown = state.getSnapshot()
+      if (answered === lastAnswered && shown.loaded && !shown.loading && shown.error === null) return
+      lastAnswered = answered
       state.update((draft) => {
         draft.projects = overview.projects
         draft.read = read
@@ -126,6 +135,8 @@ export function createStudioStore(): StudioStore {
 
   const markRead = async (project: string, seq: number): Promise<void> => {
     if (seq <= (state.getSnapshot().read[project] ?? 0)) return
+    // The position shown now runs ahead of the last answer; the next sync publishes whatever the host holds.
+    lastAnswered = undefined
     state.update((draft) => { draft.read = { ...draft.read, [project]: seq } })
     try {
       await fetch('/idealize/notify/attention/read', {

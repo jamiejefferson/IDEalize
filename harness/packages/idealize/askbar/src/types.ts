@@ -30,6 +30,8 @@ export interface AskbarConfigWire {
   transformMs: number
   /** Roster poll interval, in milliseconds. */
   pollMs: number
+  /** False when no speech provider is composed, so a chip's hold cannot be transcribed; absent reads as true. */
+  speech?: boolean
 }
 
 /** One agent chip: a named chat of the active project with its folded state. */

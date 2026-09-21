@@ -40,6 +40,8 @@ export interface CommBoardRow {
   session: string
   /** The rung's blocker. */
   blocker: ChipBlocker
+  /** The project folder the rung was reported in; the route splits an every-project read on it. */
+  projectPath?: string
 }
 
 /**

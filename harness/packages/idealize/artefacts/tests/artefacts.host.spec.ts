@@ -8,6 +8,7 @@
 
 import { createHash } from 'node:crypto'
 import { get as httpGet, request as httpRequest } from 'node:http'
+import type { IncomingHttpHeaders } from 'node:http'
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -114,20 +115,22 @@ async function loadComposition(withSettings = false): Promise<{ ctx: Context; pr
   return { ctx: context, projectDir, port: context.webServer.port }
 }
 
-/** GET one path with an overridable Host header; returns status, content-type, and raw body. */
+/** GET one path with an overridable Host header and extra headers; returns status, content-type, headers, and raw body. */
 function request(
   port: number,
   path: string,
   host = '127.0.0.1',
-): Promise<{ status: number; contentType: string | undefined; body: Buffer }> {
+  extraHeaders: Record<string, string> = {},
+): Promise<{ status: number; contentType: string | undefined; headers: IncomingHttpHeaders; body: Buffer }> {
   return new Promise((resolve, reject) => {
-    httpGet({ host: '127.0.0.1', port, path, headers: { host } }, (res) => {
+    httpGet({ host: '127.0.0.1', port, path, headers: { host, ...extraHeaders } }, (res) => {
       const chunks: Buffer[] = []
       res.on('data', chunk => chunks.push(chunk as Buffer))
       res.on('end', () => {
         resolve({
           status: res.statusCode ?? 0,
           contentType: res.headers['content-type'],
+          headers: res.headers,
           body: Buffer.concat(chunks),
         })
       })
@@ -236,6 +239,41 @@ describe('@idealize/artefacts composition', () => {
 
     const offLoopback = await request(port, `/idealize/artefacts/raw?id=${record.id}`, 'evil.example')
     expect(offLoopback.status).toBe(403)
+  })
+
+  it('revalidates the raw route: an ETag with no-cache, 304 while the file is unchanged, 200 with new bytes once it changes', async () => {
+    const { ctx, projectDir, port } = await loadComposition()
+    const workspace = await ctx.workspaceRegistry.create(projectDir)
+    const record = await ctx.artefacts.create(createRequest(ctx, projectDir, workspace.id))
+    const path = `/idealize/artefacts/raw?id=${record.id}`
+
+    const first = await request(port, path)
+    expect(first.status).toBe(200)
+    expect(first.headers['cache-control']).toBe('no-cache')
+    const etag = first.headers.etag
+    expect(etag).toMatch(/^"[^"]+"$/)
+    if (etag === undefined) throw new Error('no etag')
+
+    const unchanged = await request(port, path, '127.0.0.1', { 'if-none-match': etag })
+    expect(unchanged.status).toBe(304)
+    expect(unchanged.body.length).toBe(0)
+    expect(unchanged.headers.etag).toBe(etag)
+    expect(unchanged.headers['cache-control']).toBe('no-cache')
+
+    // A list with a weak-prefixed copy of the tag still matches.
+    const listed = await request(port, path, '127.0.0.1', { 'if-none-match': `"other", W/${etag}` })
+    expect(listed.status).toBe(304)
+    const stale = await request(port, path, '127.0.0.1', { 'if-none-match': '"other"' })
+    expect(stale.status).toBe(200)
+
+    // Rewrite with a different size, so the ETag changes whatever the mtime granularity.
+    const changed = Buffer.concat([PNG_BYTES, Buffer.from('changed')])
+    await writeFile(ctx.artefacts.resolve(record.id), changed)
+    const refetched = await request(port, path, '127.0.0.1', { 'if-none-match': etag })
+    expect(refetched.status).toBe(200)
+    expect(refetched.headers.etag).toMatch(/^"[^"]+"$/)
+    expect(refetched.headers.etag).not.toBe(etag)
+    expect(refetched.body.equals(changed)).toBe(true)
   })
 
   it('refuses a record whose stored path escapes the project', async () => {

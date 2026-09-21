@@ -37,6 +37,8 @@ export interface BridgeEvent {
   project?: string
   /** The Studio event an `attention` alert was raised for; opening the alert opens this event. */
   studioEvent?: string
+  /** On `agent-finished`: the turn the agent stopped on ended in an error, so no reply is waiting. */
+  failed?: boolean
   /** The absolute folder an `open-folder` event asks the shell to register as a project and open. */
   folder?: string
 }

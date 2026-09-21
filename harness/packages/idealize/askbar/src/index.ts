@@ -220,7 +220,14 @@ export function apply(ctx: Context, config: Config): void {
         // window names none; a per-project read keeps its old silence.
         const lister = query.all ? commAll : comm
         const listing = lister === undefined ? undefined : await lister.handle({ command: 'list' })
-        const board = comm === undefined ? undefined : await comm.handle({ command: 'board', path: project })
+        // A grouped read needs every project's rows, and this window's are
+        // among them in the same newest-first order: one board read serves both.
+        const everyRung = query.all ? (await commAll?.handle({ command: 'board' }))?.rungs ?? [] : undefined
+        const board = comm === undefined
+          ? undefined
+          : everyRung === undefined
+            ? await comm.handle({ command: 'board', path: project })
+            : { rungs: everyRung.filter(row => row.projectPath === project) }
         const studioAll = webCtx.get('idealizeStudio') as StudioLike | undefined
         const studio = project === '' ? undefined : studioAll
         const state = studio === undefined ? undefined : await studio.state(project)
@@ -232,7 +239,7 @@ export function apply(ctx: Context, config: Config): void {
         // sidebar's). No rows named: every chat comm lists in each folder.
         let groups: AskbarRosterGroup[] | undefined
         if (query.all) {
-          const rungs = (await commAll?.handle({ command: 'board' }))?.rungs ?? []
+          const rungs = everyRung ?? []
           const folds = await foldsOf(studioAll)
           groups = query.sessions === undefined
             ? assembleGroups(listing?.sessions ?? [], rungs, folds, working)
@@ -246,6 +253,9 @@ export function apply(ctx: Context, config: Config): void {
             pendingSendMs: config.pendingSendMs,
             transformMs: config.transformMs,
             pollMs: config.pollMs,
+            // ctx.get() probes a service this plugin does not inject: the
+            // transcription seam is optional, and the bar works without it.
+            speech: (webCtx as unknown as { get(name: string): unknown }).get('transcription') !== undefined,
           },
           chips: assembleChips(project, listing?.sessions ?? [], board?.rungs ?? [], state, query.sessions, working),
           ...groups === undefined ? {} : { groups },

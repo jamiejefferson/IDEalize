@@ -16,6 +16,7 @@ import type { OnboardingOverlayProps } from '../src/client/OnboardingOverlay.tsx
 import type { OnboardingApi } from '../src/client/api.ts'
 import { en } from '../src/client/locales.ts'
 import type { OnboardingSeedLike } from '../src/client/steps.ts'
+import { owlClipUrl } from '../src/owl-clip-urls.ts'
 
 afterEach(() => {
   cleanup()
@@ -87,7 +88,15 @@ describe('OnboardingOverlay', () => {
     const dialog = screen.getByRole('dialog')
     expect(dialog.getAttribute('aria-label')).toBe(en['onboarding.title'])
     expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('agents')
-    expect(document.querySelector('[data-owl-art]')?.getAttribute('data-owl-art')).toBe('agents')
+    const owl = document.querySelector('[data-owl-art]')
+    expect(owl?.getAttribute('data-owl-art')).toBe('agents')
+    // The clip streams from the host route: the bundle carries its URL alone.
+    expect(owl?.getAttribute('src')).toBe(owlClipUrl('agents'))
+    expect(owl?.getAttribute('src')).toMatch(/^\/idealize\/onboarding\/owl\/agents\.[0-9a-f]{12}\.webm$/)
+    expect(owl?.hasAttribute('autoplay')).toBe(true)
+    expect(owl?.hasAttribute('loop')).toBe(true)
+    expect(owl?.hasAttribute('playsinline')).toBe(true)
+    expect((owl as HTMLVideoElement).muted).toBe(true)
     expect(screen.getByText(en['step.agents.sub'])).toBeDefined()
     expect(document.querySelector('[data-onboarding-dots]')?.childElementCount).toBe(6)
   })

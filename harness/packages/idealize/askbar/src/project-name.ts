@@ -10,5 +10,6 @@
  * @returns the folder's last segment; the path itself when it has no segments (the filesystem root, or '').
  */
 export function projectDisplayName(project: string): string {
-  return project.split('/').filter(part => part !== '').pop() ?? project
+  // Either separator: a Windows host names its folders with backslashes.
+  return project.split(/[\\/]/).filter(part => part !== '').pop() ?? project
 }

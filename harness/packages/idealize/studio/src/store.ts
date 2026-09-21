@@ -43,6 +43,8 @@ export interface StudioAppendResult {
 /** The timeline store: loads lazily per project, appends through a per-project chain. */
 export class StudioStore {
   private readonly timelines = new Map<string, StudioEvent[]>()
+  /** Timeline file name to the project its first line names; a timeline is append-only, so this never goes stale. */
+  private readonly projectByFile = new Map<string, string>()
   private readonly byMessage = new Map<string, Map<string, StudioEvent>>()
   private readonly loads = new Map<string, Promise<void>>()
   private readonly chains = new Map<string, Promise<void>>()
@@ -142,6 +144,13 @@ export class StudioStore {
     const projects: string[] = []
     for (const name of names) {
       if (!name.endsWith('.jsonl')) continue
+      // A timeline only grows, so the first line of a file already read still
+      // names the same project; the bars ask every couple of seconds.
+      const known = this.projectByFile.get(name)
+      if (known !== undefined) {
+        projects.push(known)
+        continue
+      }
       let text: string
       try {
         text = await readFile(join(this.root, name), 'utf8')
@@ -151,7 +160,10 @@ export class StudioStore {
       const first = text.slice(0, text.indexOf('\n'))
       try {
         const parsed = JSON.parse(first) as { project?: unknown }
-        if (typeof parsed.project === 'string' && parsed.project !== '') projects.push(parsed.project)
+        if (typeof parsed.project === 'string' && parsed.project !== '') {
+          projects.push(parsed.project)
+          this.projectByFile.set(name, parsed.project)
+        }
       } catch {
         // A torn or foreign first line: the file is not a readable timeline
         // head, and load() will refuse it loudly if something asks for it.

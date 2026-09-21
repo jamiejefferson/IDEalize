@@ -276,7 +276,7 @@ export function FileViewer({ path, canReveal, onClose, onAddToChat, t }: {
     heading.el.scrollIntoView({ block: 'start' })
   }
 
-  const name = envelope !== undefined && envelope !== 'error' ? envelope.name : path.split('/').pop() ?? path
+  const name = envelope !== undefined && envelope !== 'error' ? envelope.name : path.split(/[\\/]/).pop() ?? path
   const extension = fileExtension(name)
   const isMarkdown = envelope !== undefined && envelope !== 'error'
     && envelope.kind === 'text' && extension !== undefined && MARKDOWN_EXT.has(extension)

@@ -38,6 +38,35 @@ import { en, NS, zh } from './locales.ts'
 export const STUDIO_VIEW = 'studio'
 
 export { StudioView } from './StudioView.tsx'
+
+/** What the name projection reads off a session-list snapshot. */
+interface NamedSessions {
+  byId: Record<string, { projectionValues?: { agentName?: { name?: string | undefined } | undefined } | undefined }>
+}
+
+/**
+ * Build the session-id-to-agent-name projection. It returns the previous map,
+ * by reference, while the names are shallow-equal (same ids, same names), so a
+ * selector over it holds still across session updates that rename nobody.
+ * @returns the projection from a session-list snapshot to its name map.
+ */
+export function createNameProjection(): (snapshot: NamedSessions) => Record<string, string> {
+  let last: Record<string, string> | undefined
+  return (snapshot) => {
+    const names: Record<string, string> = {}
+    for (const [id, summary] of Object.entries(snapshot.byId)) {
+      const name = summary.projectionValues?.agentName?.name
+      if (name !== undefined) names[id] = name
+    }
+    if (last !== undefined) {
+      const ids = Object.keys(names)
+      const previous = last
+      if (ids.length === Object.keys(previous).length && ids.every(id => previous[id] === names[id])) return previous
+    }
+    last = names
+    return names
+  }
+}
 export type { StudioViewInjected, StudioViewProps } from './StudioView.tsx'
 export { createStudioStore } from './store.ts'
 export type { StudioStore, StudioViewState } from './store.ts'
@@ -114,16 +143,12 @@ export function apply(ctx: ClientContext): void {
   // records authors as ids, and the view has no other way to read them as
   // people. The same projection the `@` source below autocompletes from, so a
   // reference and its completion can never name the participant differently.
+  // The map is rebuilt per snapshot but handed on by reference while its
+  // content stands, so a session update that renames nobody re-renders nothing.
   const useNames = bindSnapshotSelector(sessions.list)
+  const project = createNameProjection()
   function namesOf<T>(selector: (names: Record<string, string>) => T): T {
-    return useNames((snapshot) => {
-      const names: Record<string, string> = {}
-      for (const [id, summary] of Object.entries(snapshot.byId)) {
-        const name = summary.projectionValues?.agentName?.name
-        if (name !== undefined) names[id] = name
-      }
-      return selector(names)
-    })
+    return useNames(snapshot => selector(project(snapshot)))
   }
 
   // Start a reply to one agent: `@Name ` into the open chat's draft, which is

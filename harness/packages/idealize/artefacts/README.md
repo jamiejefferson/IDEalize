@@ -14,7 +14,7 @@ The `idealize-artefacts` settings section (`ARTEFACT_SETTINGS_NAMESPACE`, schema
 
 ## Routes
 
-- `GET /idealize/artefacts/raw?id=` (`RAW_ROUTE`) serves a record's bytes with its media type as `content-type`. Loopback only; the resolved path must realpath inside the project root or the request is refused.
+- `GET /idealize/artefacts/raw?id=` (`RAW_ROUTE`) serves a record's bytes with its media type as `content-type`. Responses carry `cache-control: no-cache` and a strong `ETag` built from the file's size, mtime and inode, so the browser revalidates on every use: an unchanged file answers `304` with no body, and a changed file has a new ETag and is refetched. Loopback only; the resolved path must realpath inside the project root or the request is refused.
 - `POST /idealize/artefacts/disposition` (`DISPOSITION_ROUTE`) with `{id, disposition: 'kept' | 'archived'}` is the Gallery's Keep and Archive. Loopback plus the `x-idealize-auth: 1` mutating-request header; a malformed body is a 400, an unknown id a 404, and the response is the updated record.
 
 ## Browser half

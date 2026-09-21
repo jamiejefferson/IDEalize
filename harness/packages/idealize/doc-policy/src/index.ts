@@ -34,7 +34,6 @@ import z from '@deepseek-ai/schemastery'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 // Type-only: merges the agent lifecycle events (agent/session-start) into Events.
 import type {} from '@deepseek-ai/dsh-agent'
-import type { Session } from '@deepseek-ai/dsh-session'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 // Type-only: the prompt registry's Context merge (ctx.systemPrompt).
@@ -481,19 +480,20 @@ export function apply(ctx: Context, config: DocPolicyConfig): void {
     })
 
     // Refresh when managed documentation changes (DOC-06): sessions flush
-    // repeatedly, so the rescan is throttled per session; vault additionally
-    // calls scan() directly after appending commit evidence.
-    const lastChecked = new WeakMap<Session, number>()
+    // repeatedly, so the rescan is throttled; vault additionally calls scan()
+    // directly after appending commit evidence. One clock serves every
+    // session: the scan walks the one documentation folder whoever flushed,
+    // and a clock per session walked it once per open chat per window.
+    let lastChecked: number | undefined
     // The flush is the durability barrier a turn's first step waits on; a
     // folder scan is bookkeeping, so it runs detached and is awaited at
     // disposal instead of holding the barrier.
     const inflight = new Set<Promise<void>>()
-    policyCtx.on('session/flush', (session) => {
+    policyCtx.on('session/flush', () => {
       if (policyCtx.docPolicy.folder() === undefined) return
       const now = Date.now()
-      const prior = lastChecked.get(session)
-      if (prior !== undefined && now - prior < 15_000) return
-      lastChecked.set(session, now)
+      if (lastChecked !== undefined && now - lastChecked < 15_000) return
+      lastChecked = now
       const work = policyCtx.docPolicy.scan()
         .then(() => undefined, (error: unknown) => {
           policyCtx.logger.warn('idealize-doc-policy: rescan on session flush failed')

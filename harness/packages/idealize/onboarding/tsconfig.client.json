@@ -7,6 +7,7 @@
   },
   "files": [
     "src/css-modules.d.ts",
+    "src/owl-clip-urls.ts",
     "src/step-ids.ts",
     "src/client/AgentsStepBody.tsx",
     "src/client/api.ts",
@@ -18,7 +19,6 @@
     "src/client/locales.ts",
     "src/client/OnboardingOverlay.tsx",
     "src/client/OnboardingRow.tsx",
-    "src/client/owl-clips.ts",
     "src/client/OwlArt.tsx",
     "src/client/RainbowBurst.tsx",
     "src/client/steps.ts",

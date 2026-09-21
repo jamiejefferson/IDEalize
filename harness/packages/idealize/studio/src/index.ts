@@ -205,6 +205,8 @@ export function resolveAddress(rest: string, participants: readonly Participant[
 /** The Studio service: record, read and fold one project's coordination timeline. */
 export class IdealizeStudio extends Service {
   private readonly store: StudioStore
+  /** The last fold per project, and the newest seq it folded up to. */
+  private readonly folds = new Map<string, { seq: number; state: StudioState }>()
   private readonly deliveryExpiryMs: number
 
   constructor(ctx: Context, options: { store: StudioStore; deliveryExpiryHours?: number }) {
@@ -277,7 +279,14 @@ export class IdealizeStudio extends Service {
    */
   async state(project: string): Promise<StudioState> {
     await this.store.load(project)
-    return foldStudioState(this.store.events(project))
+    // The fold is a pure function of an append-only timeline, so the newest
+    // seq names its result. Callers read the state and never write to it.
+    const seq = this.store.lastSeq(project)
+    const held = this.folds.get(project)
+    if (held?.seq === seq) return held.state
+    const state = foldStudioState(this.store.events(project))
+    this.folds.set(project, { seq, state })
+    return state
   }
 
   /**

@@ -128,6 +128,21 @@ describe('embedded terminals Host service', () => {
     expect(terminal.replay().endsWith('tail')).toBe(true)
   })
 
+  it('replays exactly the last cap of output, however it was chunked', async () => {
+    const { spawn, ptys } = fakeSpawn()
+    const { service } = await mount(spawn)
+    const terminal = service.open({ cwd: '/tmp' })
+    let all = ''
+    for (let index = 0; index < 900; index += 1) {
+      const chunk = `${String(index)}:`.padEnd(1 + (index * 37) % 997, 'x')
+      all += chunk
+      ptys[0]!.emitData(chunk)
+      if (index % 250 === 0) expect(terminal.replay()).toBe(all.slice(-REPLAY_CAP))
+    }
+    expect(all.length).toBeGreaterThan(REPLAY_CAP)
+    expect(terminal.replay()).toBe(all.slice(-REPLAY_CAP))
+  })
+
   it('closing kills the shell and forgets it; disposal closes everything', async () => {
     const { spawn, ptys } = fakeSpawn()
     const { service, dispose } = await mount(spawn)
@@ -155,7 +170,14 @@ describe('embedded terminals Host service', () => {
   it('selects the platform shell', () => {
     expect(defaultShell('darwin', {})).toEqual({ file: '/bin/zsh', args: ['-l'] })
     expect(defaultShell('linux', { SHELL: '/usr/bin/fish' })).toEqual({ file: '/usr/bin/fish', args: ['-l'] })
-    expect(defaultShell('win32', { COMSPEC: 'C:\\Windows\\System32\\cmd.exe' })).toEqual({ file: 'C:\\Windows\\System32\\cmd.exe', args: [] })
+    // Windows: PowerShell 5.1, which the harness's launch line is written for; cmd.exe only where it is missing.
+    expect(defaultShell('win32', { SystemRoot: 'D:\\Win' }, () => true)).toEqual({
+      file: 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      args: ['-NoLogo', '-ExecutionPolicy', 'RemoteSigned'],
+    })
+    expect(defaultShell('win32', {}, () => true).file).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    expect(defaultShell('win32', { COMSPEC: 'C:\\Windows\\System32\\cmd.exe' }, () => false)).toEqual({ file: 'C:\\Windows\\System32\\cmd.exe', args: [] })
+    expect(defaultShell('win32', {}, () => false)).toEqual({ file: 'cmd.exe', args: [] })
     expect(shellEnvironment({ A: '1', B: undefined }).A).toBe('1')
     expect('B' in shellEnvironment({ A: '1', B: undefined })).toBe(false)
   })

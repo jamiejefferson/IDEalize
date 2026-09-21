@@ -5320,9 +5320,6 @@ importers:
       '@idealize/telegram':
         specifier: workspace:^
         version: link:../telegram
-      '@idealize/transcribe':
-        specifier: workspace:^
-        version: link:../transcribe
       '@idealize/ui-bar':
         specifier: workspace:^
         version: link:../ui-bar
@@ -6589,6 +6586,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@idealize/askbar':
+        specifier: workspace:^
+        version: link:../askbar
       '@idealize/cron':
         specifier: workspace:^
         version: link:../cron

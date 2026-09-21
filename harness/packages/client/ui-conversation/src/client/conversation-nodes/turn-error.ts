@@ -55,12 +55,13 @@ function fallbackState(context: ConversationNodeContext<TurnErrorState>): TurnEr
   const turn = end.event.data.turn
   return {
     turn,
-    hidden: context.matches.some(match => retryTurn(match.event) === turn),
+    // Only a retry after the failure supersedes it; a chain that ran out ends in the failure.
+    hidden: context.matches.some(match => retryTurn(match.event) === turn && match.event.seq > failure.seq),
     failure,
   }
 }
 
-/** Terminal turn failure Definition, suppressed when the turn owns a retry chain. */
+/** Terminal turn failure Definition, suppressed while a later retry supersedes it. */
 export const turnErrorDefinition: ConversationNodeDefinition<TurnErrorState> = {
   kind: 'turn-error',
   target: 'chat',
@@ -78,7 +79,11 @@ export const turnErrorDefinition: ConversationNodeDefinition<TurnErrorState> = {
   },
   update: (context, match) => {
     const failure = failureFrom(match)
-    if (failure !== undefined) return { ...context.state, failure }
+    // IDEalize: a failure that arrives after the turn's retries is what the
+    // turn ended on, so it shows. Upstream kept it hidden whenever the turn
+    // had retried at all, and a chain that ran out then left a collapsed
+    // "Retried model request (2/2)" row and no word that the turn had failed.
+    if (failure !== undefined) return { ...context.state, failure, hidden: false }
     return retryTurn(match.event) === context.state.turn
       ? { ...context.state, hidden: true }
       : context.state

@@ -17,6 +17,7 @@ This repository is a hard fork of [deepseek-ai/deepseek-harness](https://github.
 | File | Change | Why |
 |---|---|---|
 | `packages/boot/app-boot/src/profile.ts` | `idealize` added to `PROFILE_TEMPLATES` | Ship the profile as a first-class template |
+| `packages/client/ui-conversation/src/client/conversation-nodes/turn-error.ts` (+ node-definitions spec) | a turn's failure shows when it arrives after the turn's retries; only a later retry hides it (upstream hid it whenever the turn had retried at all) | A retry chain that ran out left a collapsed "Retried model request (2/2)" row and nothing saying the turn had failed; on a fresh install with no usable key every chat read as an empty reply (PC test drive, 18 Sep 2026). The visibility rule lives in this definition |
 | `apps/cli/package.json` | dependency on `@idealize/bundle-idealize` | Bundles resolve installation-first; in-box bundles are CLI dependencies |
 | `packages/llm/llm-pi-ai/src/adapter.ts (credential store + annotateRequest seams)` | optional `credentialStore` in `PiAiAdapterOptions`; snapshot keyed on it; `createModels({credentials})` | The OAuth seam upstream's own comments mark: a persistent store lets `resolveProviderAuth` settle OAuth-only routes (openai-codex) with refresh |
 | `packages/llm/llm-pi-ai/src/catalog.ts` | `catalogProviderOffersOAuth()` | Directory gating needs to ask the question |

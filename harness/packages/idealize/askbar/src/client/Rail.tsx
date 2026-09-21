@@ -126,6 +126,9 @@ export function Rail(props: RailProps): React.JSX.Element {
   const pendingSendMs = roster === null ? 1000 : roster.config.pendingSendMs
   const hoverRevealMs = roster === null ? 150 : roster.config.hoverRevealMs
   const compact = home === 'sidebar'
+  // No speech provider composed: a hold opens the panel as a click does,
+  // rather than opening a microphone nothing will transcribe.
+  const speech = roster?.config.speech !== false
   // The sidebar rail asked for every project's agents; the floating bar reads
   // the one project it follows, which is one group with no rule above it.
   const groups = roster?.groups ?? (chips.length === 0 ? [] : [{ project, name: projectDisplayName(project), chips }])
@@ -241,6 +244,7 @@ export function Rail(props: RailProps): React.JSX.Element {
   }
 
   const onHoldStart = (chip: AskbarChip): void => {
+    if (!speech) return
     const id = ++run.current
     if (!speechNoticeSeen()) {
       setHold({ phase: 'notice', chipId: chip.id })
@@ -263,6 +267,10 @@ export function Rail(props: RailProps): React.JSX.Element {
   }
 
   const onHoldEnd = (chip: AskbarChip, held: number): void => {
+    if (!speech) {
+      if (held > 0) onOpen(chip)
+      return
+    }
     const id = run.current
     const started = capture.current
     if (held <= 0 || started === null) {

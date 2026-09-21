@@ -121,7 +121,7 @@ const OPENS_IN_APP = new Set(['md', 'markdown', 'mdown', 'mkd', 'mdx', 'png', 'j
  * @returns true for a Markdown or image extension, compared without case.
  */
 export function opensInApp(path: string): boolean {
-  const name = path.slice(path.lastIndexOf('/') + 1)
+  const name = baseName(path)
   const dot = name.lastIndexOf('.')
   return dot > 0 && OPENS_IN_APP.has(name.slice(dot + 1).toLowerCase())
 }
@@ -175,7 +175,7 @@ export function projectDocsRoots(entries: ProjectDocsEntry[]): RootEntry[] {
   const reachable = entries.flatMap(entry =>
     entry.folder !== undefined && entry.state === 'ok' ? [{ ...entry, folder: entry.folder }] : [])
   return reachable.map(entry => ({
-    name: reachable.length === 1 ? entry.folder.slice(entry.folder.lastIndexOf('/') + 1) : entry.project.name,
+    name: reachable.length === 1 ? baseName(entry.folder) : entry.project.name,
     path: entry.folder,
   }))
 }
@@ -189,6 +189,26 @@ interface RefreshSignal {
 /** How long a revealed row stays lit when nothing is clicked. */
 const REVEAL_HIGHLIGHT_MS = 4000
 
+/** Index of a path's last separator. The host names its paths, and a Windows host uses backslashes. */
+function lastSeparator(path: string): number {
+  return Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+}
+
+/** The separator a host path is written with. */
+function separatorOf(path: string): string {
+  return path.includes('\\') && !path.includes('/') ? '\\' : '/'
+}
+
+/** A path's last segment. */
+function baseName(path: string): string {
+  return path.slice(lastSeparator(path) + 1)
+}
+
+/** A path without its last segment. */
+function dirName(path: string): string {
+  return path.slice(0, lastSeparator(path))
+}
+
 /**
  * The folders a reveal has to open between a tree root and a file: every
  * directory strictly below the root on the way to the file's own folder,
@@ -198,12 +218,12 @@ const REVEAL_HIGHLIGHT_MS = 4000
  * @returns the ancestor directories, outermost first.
  */
 export function revealAncestors(root: string, path: string): string[] {
-  const segments = path.slice(root.length + 1).split('/')
+  const segments = path.slice(root.length + 1).split(/[\\/]/)
   segments.pop()
   const ancestors: string[] = []
   let current = root
   for (const segment of segments) {
-    current = `${current}/${segment}`
+    current = `${current}${separatorOf(root)}${segment}`
     ancestors.push(current)
   }
   return ancestors
@@ -398,7 +418,7 @@ function LazyTree({
       setDropTarget(null)
       const source = event.dataTransfer.getData(FILE_DRAG_TYPE)
       // A row dropped on its own folder, or a folder on itself, moves nothing.
-      if (source === '' || source === dir || source.slice(0, source.lastIndexOf('/')) === dir) return
+      if (source === '' || source === dir || dirName(source) === dir) return
       onDropEntry(source, dir)
     },
   })
@@ -692,8 +712,8 @@ export function FilesPanel({
     }
     setScope(owner.scope)
     setKind(owner.kind)
-    const dir = reveal.path.slice(0, reveal.path.lastIndexOf('/'))
-    setTarget({ name: dir.slice(dir.lastIndexOf('/') + 1), path: dir })
+    const dir = dirName(reveal.path)
+    setTarget({ name: baseName(dir), path: dir })
   }, [reveal, tabs, rootsOfView, onRevealDone, t])
 
   // A file the viewer renders opens in the deck; any other goes to its
@@ -770,7 +790,7 @@ export function FilesPanel({
       return undefined
     }
   }, [t])
-  const parentOf = (path: string): string => path.slice(0, path.lastIndexOf('/'))
+  const parentOf = (path: string): string => dirName(path)
   const duplicateEntry = useCallback((path: string) => {
     void operate('duplicate', { path }, 'files.duplicated', 'files.duplicateFailed', parentOf(path))
   }, [operate])
@@ -884,8 +904,8 @@ export function FilesPanel({
   /** Open the name sheet on an entry's current name; the target row is the entry's parent. */
   const openRename = (path: string): void => {
     setSheet('rename')
-    setRenaming({ path, name: path.slice(path.lastIndexOf('/') + 1) })
-    setDraftName(path.slice(path.lastIndexOf('/') + 1))
+    setRenaming({ path, name: baseName(path) })
+    setDraftName(baseName(path))
     setSheetError(null)
   }
 
@@ -911,7 +931,7 @@ export function FilesPanel({
   }
   /** New file / New folder from a folder's menu: the folder becomes the target, then the sheet opens. */
   const openSheetIn = (kind: 'file' | 'dir', dir: string): void => {
-    setTarget({ name: dir.slice(dir.lastIndexOf('/') + 1), path: dir })
+    setTarget({ name: baseName(dir), path: dir })
     openSheet(kind)
   }
 

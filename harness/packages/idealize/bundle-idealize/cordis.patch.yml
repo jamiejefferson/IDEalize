@@ -163,10 +163,13 @@
       name: '@idealize/askbar'
 
 # A5 — the transcription seam and the on-device whisper provider the Askbar's
-# hold gesture speaks through. The model is fetched on first use, not at boot.
-- insert:
-    - id: idealize-transcribe
-      name: '@idealize/transcribe'
+# hold gesture speaks through. Out of the product for now (JJ, 18 Sep 2026):
+# its runtime is about 265 MB of the packaged app. The Askbar reads the seam's
+# absence and a held chip opens its panel. To bring speech back, restore this
+# row and the bundle's `@idealize/transcribe` dependency:
+# - insert:
+#     - id: idealize-transcribe
+#       name: '@idealize/transcribe'
 
 # S10 — feedback + announcements. Everyone's feedback goes to the Supabase
 # project V0 uses (JJ, 17 Sep 2026, reversing the 16 Sep no-key rule for this

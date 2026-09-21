@@ -231,9 +231,6 @@ the package names, versions, and licenses for transparency.
 | @earendil-works/pi-telemetry | 0.85.1 | MIT |
 | @google/genai | 1.52.0 | Apache-2.0 |
 | @hono/node-server | 2.1.0 | MIT |
-| @huggingface/jinja | 0.5.10 | MIT |
-| @huggingface/tokenizers | 0.1.3 | Apache-2.0 |
-| @huggingface/transformers | 4.2.0 | Apache-2.0 |
 | @idealize/activity-pills | 1.0.0-dev.0 | MIT |
 | @idealize/appearance | 1.0.0-dev.0 | MIT |
 | @idealize/artefacts | 1.0.0-dev.0 | MIT |
@@ -259,7 +256,6 @@ the package names, versions, and licenses for transparency.
 | @idealize/spaces | 1.0.0-dev.0 | MIT |
 | @idealize/studio | 1.0.0-dev.0 | MIT |
 | @idealize/telegram | 1.0.0-dev.0 | MIT |
-| @idealize/transcribe | 1.0.0-dev.0 | MIT |
 | @idealize/ui-bar | 1.0.0-dev.0 | MIT |
 | @idealize/ui-gallery | 1.0.0-dev.0 | MIT |
 | @idealize/ui-launch | 1.0.0-dev.0 | MIT |
@@ -348,7 +344,6 @@ the package names, versions, and licenses for transparency.
 | base64-js | 1.5.1 | MIT |
 | bignumber.js | 9.3.1 | MIT |
 | body-parser | 2.3.0 | MIT |
-| boolean | 3.2.0 | MIT |
 | bowser | 2.14.1 | MIT |
 | buffer-equal-constant-time | 1.0.1 | BSD-3-Clause |
 | bytes | 3.1.2 | MIT |
@@ -371,12 +366,9 @@ the package names, versions, and licenses for transparency.
 | data-uri-to-buffer | 4.0.1 | MIT |
 | debug | 4.4.3 | MIT |
 | decode-named-character-reference | 1.3.0 | MIT |
-| define-data-property | 1.1.4 | MIT |
-| define-properties | 1.2.1 | MIT |
 | depd | 2.0.0 | MIT |
 | dequal | 2.0.3 | MIT |
 | detect-libc | 2.1.2 | Apache-2.0 |
-| detect-node | 2.1.0 | MIT |
 | devlop | 1.1.0 | MIT |
 | diff | 9.0.0 | BSD-3-Clause |
 | dsh-community-market | 0.1.0-dev.0 | MIT |
@@ -387,7 +379,6 @@ the package names, versions, and licenses for transparency.
 | es-define-property | 1.0.1 | MIT |
 | es-errors | 1.3.0 | MIT |
 | es-object-atoms | 1.1.2 | MIT |
-| es6-error | 4.1.1 | MIT |
 | escape-html | 1.0.3 | MIT |
 | escape-string-regexp | 5.0.0 | MIT |
 | etag | 1.8.1 | MIT |
@@ -402,7 +393,6 @@ the package names, versions, and licenses for transparency.
 | fetch-blob | 3.2.0 | MIT |
 | fflate | 0.8.3 | MIT |
 | finalhandler | 2.1.1 | MIT |
-| flatbuffers | 25.9.23 | Apache-2.0 |
 | formdata-polyfill | 4.0.10 | MIT |
 | forwarded | 0.2.0 | MIT |
 | fresh | 2.0.0 | MIT |
@@ -412,13 +402,9 @@ the package names, versions, and licenses for transparency.
 | generator-function | 2.0.1 | MIT |
 | get-intrinsic | 1.3.1 | MIT |
 | get-proto | 1.0.1 | MIT |
-| global-agent | 3.0.0 | BSD-3-Clause |
-| globalthis | 1.0.4 | MIT |
 | google-auth-library | 10.9.1 | Apache-2.0 |
 | google-logging-utils | 1.1.3 | Apache-2.0 |
 | gopd | 1.2.0 | MIT |
-| guid-typescript | 1.0.9 | ISC |
-| has-property-descriptors | 1.0.2 | MIT |
 | has-symbols | 1.1.0 | MIT |
 | hasown | 2.0.4 | MIT |
 | hast-util-to-html | 9.0.5 | MIT |
@@ -442,7 +428,6 @@ the package names, versions, and licenses for transparency.
 | json-schema-to-ts | 3.1.1 | MIT |
 | json-schema-traverse | 1.0.0 | MIT |
 | json-schema-typed | 8.0.2 | BSD-2-Clause |
-| json-stringify-safe | 5.0.1 | ISC |
 | jwa | 2.0.1 | MIT |
 | jws | 4.0.1 | MIT |
 | katex | 0.16.47 | MIT |
@@ -451,7 +436,6 @@ the package names, versions, and licenses for transparency.
 | longest-streak | 3.1.0 | MIT |
 | loose-envify | 1.4.0 | MIT |
 | markdown-table | 3.0.4 | MIT |
-| matcher | 3.0.0 | MIT |
 | math-intrinsics | 1.1.0 | MIT |
 | mdast-util-find-and-replace | 3.0.2 | MIT |
 | mdast-util-from-markdown | 2.0.3 | MIT |
@@ -511,14 +495,10 @@ the package names, versions, and licenses for transparency.
 | node-pty | 1.2.0-beta.15 | MIT |
 | object-assign | 4.1.1 | MIT |
 | object-inspect | 1.13.4 | MIT |
-| object-keys | 1.1.1 | MIT |
 | on-finished | 2.4.1 | MIT |
 | once | 1.4.0 | ISC |
 | oniguruma-parser | 0.12.2 | MIT |
 | oniguruma-to-es | 4.3.6 | MIT |
-| onnxruntime-common | 1.24.3 | MIT |
-| onnxruntime-node | 1.24.3 | MIT |
-| onnxruntime-web | 1.26.0-dev.20260416-b7804b056c | MIT |
 | openai | 6.40.0 | Apache-2.0 |
 | p-retry | 4.6.2 | MIT |
 | parseurl | 1.3.3 | MIT |
@@ -528,7 +508,6 @@ the package names, versions, and licenses for transparency.
 | picocolors | 1.1.1 | ISC |
 | picomatch | 4.0.5 | MIT |
 | pkce-challenge | 5.0.1 | MIT |
-| platform | 1.3.6 | MIT |
 | pnpm | 11.7.0 | MIT |
 | property-information | 7.2.0 | MIT |
 | protobufjs | 7.6.5 | BSD-3-Clause |
@@ -544,15 +523,12 @@ the package names, versions, and licenses for transparency.
 | regex-utilities | 2.3.0 | MIT |
 | require-from-string | 2.0.2 | MIT |
 | retry | 0.13.1 | MIT |
-| roarr | 2.15.4 | BSD-3-Clause |
 | router | 2.2.0 | MIT |
 | safe-buffer | 5.2.1 | MIT |
 | safer-buffer | 2.1.2 | MIT |
 | scheduler | 0.23.2 | MIT |
 | semver | 7.8.5 | ISC |
-| semver-compare | 1.0.0 | MIT |
 | send | 1.2.1 | MIT |
-| serialize-error | 7.0.1 | MIT |
 | serve-static | 2.2.1 | MIT |
 | setprototypeof | 1.2.0 | ISC |
 | sharp | 0.35.3 | Apache-2.0 |
@@ -564,7 +540,6 @@ the package names, versions, and licenses for transparency.
 | side-channel-map | 1.0.1 | MIT |
 | side-channel-weakmap | 1.0.2 | MIT |
 | space-separated-tokens | 2.0.2 | MIT |
-| sprintf-js | 1.1.3 | BSD-3-Clause |
 | standardwebhooks | 1.1.1 | MIT |
 | statuses | 2.0.2 | MIT |
 | stringify-entities | 4.0.4 | MIT |
@@ -573,7 +548,6 @@ the package names, versions, and licenses for transparency.
 | ts-algebra | 2.0.0 | MIT |
 | tslib | 2.8.1 | 0BSD |
 | turndown | 7.2.4 | MIT |
-| type-fest | 0.13.1 | (MIT OR CC0-1.0) |
 | type-is | 2.1.0 | MIT |
 | typebox | 1.3.7 | MIT |
 | undici-types | 8.3.0 | MIT |

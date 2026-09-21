@@ -163,6 +163,22 @@ function refuseNonLoopback(req: IncomingMessage, res: ServerResponse): boolean {
   return false
 }
 
+/**
+ * Whether an `if-none-match` header names the given ETag. The header is a
+ * comma-separated list; `*` matches anything, and a `W/` prefix is ignored
+ * because `if-none-match` compares weakly (RFC 9110 section 13.1.2).
+ * @param header - the request's raw `if-none-match` value, if any.
+ * @param etag - the current strong ETag, quoted.
+ * @returns true when the client's cached copy is still current.
+ */
+function etagMatches(header: string | undefined, etag: string): boolean {
+  if (header === undefined) return false
+  return header.split(',').some((candidate) => {
+    const tag = candidate.trim().replace(/^W\//, '')
+    return tag === '*' || tag === etag
+  })
+}
+
 async function readBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of req) chunks.push(chunk as Buffer)
@@ -489,12 +505,20 @@ export class ArtefactStore extends Service {
       sendJson(res, 404, { error: 'artefact bytes are missing' })
       return
     }
+    // Never stale, by revalidation: `no-cache` makes the browser ask on every
+    // use, and the ETag names this exact file (size, mtime, inode). A changed
+    // or re-created file changes its size or mtime, so its ETag changes and
+    // the browser refetches; an unchanged file costs a bodiless 304.
+    const etag = `"${info.size}-${info.mtimeMs}-${info.ino}"`
+    if (etagMatches(req.headers['if-none-match'], etag)) {
+      res.writeHead(304, { etag, 'cache-control': 'no-cache' }).end()
+      return
+    }
     res.writeHead(200, {
       'content-type': record.mediaType,
       'content-length': info.size,
-      // Bytes are immutable per id, but the store is local and small: keep
-      // responses uncacheable so a re-created project never serves stale bytes.
-      'cache-control': 'no-store',
+      etag,
+      'cache-control': 'no-cache',
     })
     await pipeline(createReadStream(resolved), res)
   }

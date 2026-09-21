@@ -60,6 +60,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // the `/client` entry is the loader bundle and cannot be imported for a value.
 import { onArtefactLanded, onRevealRequest } from '@idealize/artefacts/src/client/reveal.ts'
 // The sidebar rail's in-window Studio request, the same kind of stateless module.
+import { type BridgeFeedAttachment, followBridgeFeed } from '@idealize/askbar/src/client/bridge-feed.ts'
 import { onStudioRequest } from '@idealize/askbar/src/client/studio-request.ts'
 import { createBarViewStore, type BarPanel, type BarViewState, type BrainsRequest, type HatchTab } from './bar-store.ts'
 import { IdealizeBar, MARKET_LAUNCHER_SELECTOR, type IdealizeBarInjected } from './IdealizeBar.tsx'
@@ -929,52 +930,37 @@ export function apply(ctx: ClientContext): void {
   // after attach count, so a reload never replays an old request.
   ctx.effect(() => {
     const offRequest = onStudioRequest((studioEvent) => { void openStudio(studioEvent) })
-    let source: EventSource | undefined
+    let feed: BridgeFeedAttachment | undefined
     let closed = false
     const attach = async (): Promise<void> => {
-      let latest = 0
-      let arrival: { kind?: string; folder?: string; at?: string } | undefined
-      try {
-        const response = await fetch('/idealize/events/recent?since=0')
-        if (response.ok) {
-          for (const event of (await response.json()) as { seq: number; kind?: string; folder?: string; at?: string }[]) {
-            latest = Math.max(latest, event.seq)
-            if (event.kind === 'open-folder') arrival = event
-          }
-        }
-      } catch {
-        // the bridge is absent in this composition: nothing to listen for
-        return
-      }
-      // The tail is otherwise skipped, so a reload never replays an old
-      // request. One kind is the exception: Finder's "Idealize this" starts
-      // the app when it is not running, and that request is on the feed
-      // before this window can attach to it. Only a request from the last
-      // half-minute counts, which is a cold start and nothing older.
-      if (arrival !== undefined && (arrival.folder ?? '') !== '' && Date.now() - Date.parse(arrival.at ?? '') < 30_000) {
-        void openFolder(arrival.folder ?? '')
-      }
-      if (closed || typeof EventSource === 'undefined') return
-      source = new EventSource(`/idealize/events/stream?since=${String(latest)}`)
-      source.onmessage = (message) => {
-        let event: { kind?: string; folder?: string }
-        try {
-          event = JSON.parse(message.data as string) as { kind?: string; folder?: string }
-        } catch {
-          return // a comment or malformed frame; the feed only carries JSON lines
-        }
+      // The window's one feed connection (`@idealize/askbar`'s bridge-feed).
+      const attachment = await followBridgeFeed((frame) => {
+        const event = frame as { kind?: string; folder?: string }
         if (event.kind === 'open-studio') void openStudio()
         // The bar's New chat: it has no chat surface of its own, so the
         // window it grows back into starts the chat (JJ, 13 Sep 2026).
         if (event.kind === 'new-chat') ctx.workspaces.startSession()
         // Finder's "Idealize this", carrying the folder it was invoked on.
         if (event.kind === 'open-folder' && (event.folder ?? '') !== '') void openFolder(event.folder ?? '')
+      })
+      // the bridge is absent in this composition: nothing to listen for
+      if (attachment === undefined) return
+      if (closed) { attachment.close(); return }
+      feed = attachment
+      // The tail is otherwise skipped, so a reload never replays an old
+      // request. One kind is the exception: Finder's "Idealize this" starts
+      // the app when it is not running, and that request is on the feed
+      // before this window can attach to it. Only a request from the last
+      // half-minute counts, which is a cold start and nothing older.
+      const arrival = attachment.tail.findLast(event => event.kind === 'open-folder') as { folder?: string; at?: string } | undefined
+      if (arrival !== undefined && (arrival.folder ?? '') !== '' && Date.now() - Date.parse(arrival.at ?? '') < 30_000) {
+        void openFolder(arrival.folder ?? '')
       }
     }
     void attach()
     return () => {
       closed = true
-      source?.close()
+      feed?.close()
       offRequest()
     }
   }, 'idealize-bar: open the Studio on the Askbar\'s request')

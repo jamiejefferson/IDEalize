@@ -31,6 +31,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionBinding } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsLocale, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import { type BridgeFeedAttachment, followBridgeFeed } from '@idealize/askbar/src/client/bridge-feed.ts'
 import { ScheduleEditor } from './ScheduleEditor.tsx'
 import { ScheduleCreateChat } from './ScheduleCreateChat.tsx'
 // Type-only: the LocaleNamespaceMap merge this view's locale seat resolves through.
@@ -168,35 +169,22 @@ export function ScheduleView(props: ScheduleViewProps) {
   // so the pane follows the host bridge feed and refetches on each change.
   // Only events after attach count; the mount fetch already covers the past.
   useEffect(() => {
-    let source: EventSource | undefined
+    let feed: BridgeFeedAttachment | undefined
     let closed = false
     const attach = async (): Promise<void> => {
-      let latest = 0
-      try {
-        const response = await fetch('/idealize/events/recent?since=0')
-        if (response.ok) {
-          for (const event of (await response.json()) as { seq: number }[]) latest = Math.max(latest, event.seq)
-        }
-      } catch {
-        // the bridge is absent in this composition: mount and own writes are the only refreshes
-        return
-      }
-      if (closed || typeof EventSource === 'undefined') return
-      source = new EventSource(`/idealize/events/stream?since=${String(latest)}`)
-      source.onmessage = (message) => {
-        let event: { kind?: string }
-        try {
-          event = JSON.parse(message.data as string) as { kind?: string }
-        } catch {
-          return // a comment or malformed frame; the feed only carries JSON lines
-        }
+      // The window's one feed connection (`@idealize/askbar`'s bridge-feed);
+      // without the bridge, mount and own writes are the only refreshes.
+      const attachment = await followBridgeFeed((event) => {
         if (event.kind !== undefined && REFETCH_KINDS.has(event.kind)) void refresh()
-      }
+      })
+      if (attachment === undefined) return
+      if (closed) { attachment.close(); return }
+      feed = attachment
     }
     void attach()
     return () => {
       closed = true
-      source?.close()
+      feed?.close()
     }
   }, [refresh])
 

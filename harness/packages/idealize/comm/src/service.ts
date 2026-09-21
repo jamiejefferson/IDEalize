@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
-import { basename, resolve } from 'node:path'
+import { basename, resolve, sep } from 'node:path'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
@@ -397,11 +397,28 @@ export class IdealizeComm extends Service {
   }
 
   /**
+   * The board's rows, newest first.
+   * @param scope - the project folder to keep, or undefined for every project.
+   * @returns the board response.
+   */
+  private board(scope: string | undefined): CommResponse {
+    const rows = this.store.rungs()
+      .filter(row => scope === undefined || row.projectPath === scope)
+      .sort((left, right) => right.updated.localeCompare(left.updated))
+    return { ok: true, info: rows.length === 0 ? 'no pieces reported yet' : `${rows.length} piece(s)`, rungs: rows }
+  }
+
+  /**
    * Answer one wire request. Never throws for a caller mistake; those come back as `ok: false`.
    * @param request - the command envelope from the wire.
    * @returns the command's response payload.
    */
   async handle(request: CommRequest): Promise<CommResponse> {
+    // Two commands read no roster, and building one walks every stored chat:
+    // a ping, and a board nobody sent (its scope is the path alone). The bars
+    // poll the second every couple of seconds.
+    if (request.command === 'ping') return { ok: true, info: 'pong' }
+    if (request.command === 'board' && request.from === undefined) return this.board(request.path)
     const roster = await this.roster()
     const me = request.from === undefined ? undefined : roster.find(entry => entry.id === request.from)
     const find = (target: string): { ok: true; session: RosterEntry } | { ok: false; error: string } => {
@@ -412,9 +429,6 @@ export class IdealizeComm extends Service {
     }
 
     switch (request.command) {
-      case 'ping':
-        return { ok: true, info: 'pong' }
-
       case 'list':
         return { ok: true, sessions: roster.map(entry => this.info(entry)) }
 
@@ -518,13 +532,8 @@ export class IdealizeComm extends Service {
         return { ok: true, info: line }
       }
 
-      case 'board': {
-        const scope = request.path ?? me?.cwd
-        const rows = this.store.rungs()
-          .filter(row => scope === undefined || row.projectPath === scope)
-          .sort((left, right) => right.updated.localeCompare(left.updated))
-        return { ok: true, info: rows.length === 0 ? 'no pieces reported yet' : `${rows.length} piece(s)`, rungs: rows }
-      }
+      case 'board':
+        return this.board(request.path ?? me?.cwd)
 
       case 'setStatus': {
         if (me === undefined) return failure('unknown sender session')
@@ -823,7 +832,7 @@ export class IdealizeComm extends Service {
       } catch {
         continue
       }
-      if (path === root || path.startsWith(`${root}/`)) owners.push(entry)
+      if (path === root || path.startsWith(`${root}${sep}`)) owners.push(entry)
     }
     const owner = owners.find(entry => entry.id === me?.id) ?? owners[0]
     if (owner === undefined) return failure(`${path} isn't inside any folder open in IDEalize`)

@@ -1,11 +1,12 @@
 /**
- * The wizard's owl: the per-step transparent WebM clip from owl-clips.ts
- * (generated; inlined as data URIs). `data-owl-art` keys the element per step
- * for future retargeting. Under reduced motion the clip stays parked on its
+ * The wizard's owl: the per-step transparent WebM clip, served by the host
+ * face at the URL ../owl-clip-urls.ts names (generated; the bytes stay out of
+ * the client bundle). `data-owl-art` keys the element per step for future
+ * retargeting. Under reduced motion the clip stays parked on its
  * first frame (no autoplay).
  */
 import type { OnboardingStepId } from './steps.ts'
-import { OWL_CLIPS } from './owl-clips.ts'
+import { owlClipUrl } from '../owl-clip-urls.ts'
 import css from './OwlArt.module.css'
 
 /** Props for {@link OwlArt}. */
@@ -22,7 +23,7 @@ export function OwlArt({ step, reduced }: OwlArtProps) {
     <video
       className={css.owl}
       data-owl-art={step}
-      src={OWL_CLIPS[step]}
+      src={owlClipUrl(step)}
       muted
       loop
       playsInline

@@ -14,11 +14,15 @@ import { createSnapshotStore, SlotRegistry } from '@deepseek-ai/dsh-client-runti
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { closeBridgeFeed } from '@idealize/askbar/src/client/bridge-feed.ts'
 import { requestStudio } from '@idealize/askbar/src/client/studio-request.ts'
 import { apply, inject, StudioCard, type StudioCardInjected } from '../src/client/index.ts'
 
 usePinnedBrowserLanguages('en')
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  closeBridgeFeed()
+})
 
 const unused = (): never => { throw new Error('unused hook') }
 const t = (key: string): string => key

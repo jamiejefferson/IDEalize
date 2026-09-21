@@ -272,7 +272,7 @@ export async function fencedDirectory(raw: string, roots: readonly string[]): Pr
  * @param terminal - the freshly opened shell.
  * @param command - the resolved non-empty launch command.
  */
-export function scheduleLaunch(terminal: DesktopTerminalLike, command: string): void {
+export function scheduleLaunch(terminal: DesktopTerminalLike, command: string, platform: NodeJS.Platform = process.platform): void {
   let settle: ReturnType<typeof setTimeout> | undefined
   let detach: (() => void) | undefined
   const stop = (): void => {
@@ -283,7 +283,10 @@ export function scheduleLaunch(terminal: DesktopTerminalLike, command: string): 
   }
   const fire = (): void => {
     stop()
-    if (terminal.exit === undefined) terminal.write(`\u0015${command}\r`)
+    // Clearing the line: Ctrl-U in a POSIX shell's readline. Windows
+    // PowerShell's line editor leaves Ctrl-U unbound and cmd.exe prints it, and
+    // both clear the line on Escape.
+    if (terminal.exit === undefined) terminal.write(`${platform === 'win32' ? '\u001b' : '\u0015'}${command}\r`)
   }
   const fallback = setTimeout(fire, LAUNCH_FALLBACK_MS)
   detach = terminal.subscribe((event) => {

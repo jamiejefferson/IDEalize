@@ -5,6 +5,7 @@
 // and stop() silencing every late arrival.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { rosterUrl, startAskbarStore } from '../src/client/askbar-store.ts'
+import { closeBridgeFeed } from '../src/client/bridge-feed.ts'
 import type { AskbarRoster } from '../src/types.ts'
 
 const ROSTER: AskbarRoster = {
@@ -33,7 +34,12 @@ class FakeEventSource {
     this.closed = true
   }
 
+  onmessage: ((message: { data: string }) => void) | null = null
+  private seq = 0
+
   emit(): void {
+    this.seq += 1
+    this.onmessage?.({ data: JSON.stringify({ seq: this.seq, kind: 'agent-finished' }) })
     for (const listener of this.listeners) listener()
   }
 }
@@ -42,7 +48,20 @@ function ok(roster: AskbarRoster = ROSTER) {
   return { ok: true, json: async () => roster }
 }
 
+/** How many times the roster was read; the window's one bridge feed read is not the store's. */
+function rosterReads(mock: ReturnType<typeof vi.fn>): number {
+  return mock.mock.calls.filter(call => String(call[0]).startsWith('/idealize/askbar/roster')).length
+}
+
+/** Stub fetch so the window's bridge feed read answers an empty tail and every other read reaches `mock`. */
+function stubFetch(mock: (...args: unknown[]) => unknown): void {
+  vi.stubGlobal('fetch', (input: string, init?: RequestInit) => input.startsWith('/idealize/events/')
+    ? Promise.resolve({ ok: true, json: async () => [] })
+    : (init === undefined ? mock(input) : mock(input, init)))
+}
+
 afterEach(() => {
+  closeBridgeFeed()
   vi.unstubAllGlobals()
   vi.useRealTimers()
   FakeEventSource.instances = []
@@ -60,17 +79,55 @@ describe('rosterUrl', () => {
 })
 
 describe('startAskbarStore', () => {
+  it('waits while the window is hidden and reads at once when it shows again', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue(ok())
+    stubFetch(fetchMock)
+    const visibility = vi.spyOn(document, 'visibilityState', 'get')
+    const { stop } = startAskbarStore(DEMO)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(rosterReads(fetchMock)).toBe(1)
+    visibility.mockReturnValue('hidden')
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(rosterReads(fetchMock)).toBe(1)
+    visibility.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(rosterReads(fetchMock)).toBe(2)
+    stop()
+    visibility.mockRestore()
+  })
+
+  it('publishes a poll only when the roster changed', async () => {
+    vi.useFakeTimers()
+    const changed: AskbarRoster = { ...ROSTER, config: { ...ROSTER.config, edge: 'left' } }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(ok({ ...ROSTER }))
+      .mockResolvedValueOnce(ok({ ...ROSTER }))
+      .mockResolvedValue(ok(changed))
+    stubFetch(fetchMock)
+    const { store, stop } = startAskbarStore(DEMO)
+    await vi.advanceTimersByTimeAsync(0)
+    const first = store.getSnapshot()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(rosterReads(fetchMock)).toBe(2)
+    expect(store.getSnapshot()).toBe(first)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(store.getSnapshot().roster).toEqual(changed)
+    stop()
+  })
+
   it('reads the roster for the selection, then polls at the configured cadence', async () => {
     vi.useFakeTimers()
     const fetchMock = vi.fn().mockResolvedValue(ok())
-    vi.stubGlobal('fetch', fetchMock)
+    stubFetch(fetchMock)
     const { store, stop } = startAskbarStore(DEMO)
     expect(store.getSnapshot()).toEqual({ project: '/work/demo', roster: null, error: null })
     await vi.advanceTimersByTimeAsync(0)
     expect(fetchMock).toHaveBeenCalledWith(DEMO_URL)
     expect(store.getSnapshot()).toEqual({ project: '/work/demo', roster: ROSTER, error: null })
     await vi.advanceTimersByTimeAsync(5000)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(rosterReads(fetchMock)).toBe(2)
     stop()
   })
 
@@ -80,7 +137,7 @@ describe('startAskbarStore', () => {
       .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) })
       .mockRejectedValueOnce('socket gone')
       .mockResolvedValue(ok())
-    vi.stubGlobal('fetch', fetchMock)
+    stubFetch(fetchMock)
     const { store, stop } = startAskbarStore(DEMO)
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getSnapshot()).toEqual({ project: '/work/demo', roster: null, error: 'roster read failed: 500' })
@@ -94,23 +151,23 @@ describe('startAskbarStore', () => {
   it('hurries one refresh per debounce window on SSE events, and not after stop', async () => {
     vi.useFakeTimers()
     const fetchMock = vi.fn().mockResolvedValue(ok())
-    vi.stubGlobal('fetch', fetchMock)
+    stubFetch(fetchMock)
     vi.stubGlobal('EventSource', FakeEventSource)
     const { stop } = startAskbarStore(DEMO)
     await vi.advanceTimersByTimeAsync(0)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(rosterReads(fetchMock)).toBe(1)
     const stream = FakeEventSource.instances[0]
     if (stream === undefined) throw new Error('no stream opened')
-    expect(stream.url).toBe('/idealize/events/stream')
+    expect(stream.url).toBe('/idealize/events/stream?since=0')
     stream.emit()
     stream.emit()
     await vi.advanceTimersByTimeAsync(150)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(rosterReads(fetchMock)).toBe(2)
     stop()
     expect(stream.closed).toBe(true)
     stream.emit()
     await vi.advanceTimersByTimeAsync(150)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(rosterReads(fetchMock)).toBe(2)
   })
 
   it('follows a new selection at once: same project keeps the roster, a new project drops it', async () => {
@@ -120,13 +177,13 @@ describe('startAskbarStore', () => {
       .mockResolvedValueOnce(ok())
       .mockResolvedValueOnce(ok())
       .mockResolvedValue(ok(other))
-    vi.stubGlobal('fetch', fetchMock)
+    stubFetch(fetchMock)
     const { store, select, stop } = startAskbarStore(DEMO)
     await vi.advanceTimersByTimeAsync(0)
     // An unchanged selection is a no-op; a new row set refreshes without clearing.
     select({ project: '/work/demo', sessionIds: ['s-juno', 's-nova'] })
     await vi.advanceTimersByTimeAsync(150)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(rosterReads(fetchMock)).toBe(1)
     select({ project: '/work/demo', sessionIds: ['s-juno'] })
     expect(store.getSnapshot().roster).toEqual(ROSTER)
     await vi.advanceTimersByTimeAsync(150)
@@ -148,7 +205,7 @@ describe('startAskbarStore', () => {
       .mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
       .mockRejectedValueOnce(new Error('late failure'))
       .mockResolvedValue(ok({ ...ROSTER, project: '/work/other' }))
-    vi.stubGlobal('fetch', fetchMock)
+    stubFetch(fetchMock)
     const { store, select, stop } = startAskbarStore(DEMO)
     select({ project: '/work/other', sessionIds: [] })
     release(ok())
@@ -165,7 +222,7 @@ describe('startAskbarStore', () => {
     vi.useFakeTimers()
     let release: (value: { ok: boolean; json: () => Promise<AskbarRoster> }) => void = () => {}
     const fetchMock = vi.fn().mockReturnValue(new Promise((resolve) => { release = resolve }))
-    vi.stubGlobal('fetch', fetchMock)
+    stubFetch(fetchMock)
     const { store, stop } = startAskbarStore(DEMO)
     stop()
     release(ok())
@@ -178,7 +235,7 @@ describe('startAskbarStore', () => {
     vi.useFakeTimers()
     let refuse: (reason: Error) => void = () => {}
     const fetchMock = vi.fn().mockReturnValue(new Promise((_resolve, reject) => { refuse = reject }))
-    vi.stubGlobal('fetch', fetchMock)
+    stubFetch(fetchMock)
     const { store, stop } = startAskbarStore(DEMO)
     stop()
     refuse(new Error('too late'))

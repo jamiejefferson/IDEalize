@@ -23,6 +23,7 @@ const PATCH = resolve(import.meta.dirname, '../cordis.patch.yml')
  */
 const UNCOMPOSED: ReadonlyMap<string, string> = new Map([
   ['@idealize/gen-fixture', 'a keyless test backend; composing it in the shipped profile would offer users a fake model'],
+  ['@idealize/transcribe', 'speech is out of the product for now (JJ, 18 Sep 2026): its on-device runtime is about 265 MB of the packaged app'],
 ])
 
 /** One row of the patch, as far as the manifest expectation reads it. */

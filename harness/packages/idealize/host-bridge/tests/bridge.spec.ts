@@ -36,7 +36,7 @@ afterEach(async () => {
 })
 
 /** One agent, as the events the bridge listens to carry it. */
-const agentWith = (id: string) => ({ session: { header: { id } } })
+const agentWith = (id: string, events: unknown[] = []) => ({ session: { header: { id }, events } })
 
 async function mount() {
   const ctx = new Context()
@@ -121,6 +121,19 @@ describe('the bridge’s sources', () => {
       ['agent-finished', 'Agent finished', ''],
       ['agent-error', 'Agent hit an error', 'the key expired'],
       ['agent-error', 'Agent hit an error', 'a thrown string'],
+    ])
+  })
+
+  it('says a turn that ended on an error left no reply', async () => {
+    const { ctx } = await mount()
+    const agent = agentWith('session-2', [
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', data: { turn: 2, reason: { kind: 'error', error: { code: 'TRANSPORT', message: '503' } } } },
+    ])
+    ctx.emit('agent/status', { agent, status: 'running' } as never)
+    ctx.emit('agent/status', { agent, status: 'idle' } as never)
+    expect(ctx.idealizeBridge.buffer.recent(0).map(event => [event.kind, event.title, event.failed])).toEqual([
+      ['agent-finished', 'Agent stopped on an error', true],
     ])
   })
 

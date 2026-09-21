@@ -8,7 +8,7 @@
  * /api/analytics/by-label rolls up.
  */
 
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { basename } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -38,12 +38,53 @@ function projectFor(cwd: string): string {
   return basename(cwd)
 }
 
+/**
+ * {@link projectFor} without blocking the event loop: the same command, the
+ * same timeout, the same fallback. Never rejects.
+ */
+function projectForAsync(cwd: string): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      execFile('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', timeout: 3_000 }, (error, stdout) => {
+        const toplevel = error === null ? stdout.trim() : ''
+        resolve(toplevel === '' ? basename(cwd) : basename(toplevel))
+      })
+    } catch {
+      // a spawn that throws outright is git unavailable, as in the sync path
+      resolve(basename(cwd))
+    }
+  })
+}
+
 /** Maps a requesting session to its project attribution header. */
 export class IdealizeAttribution extends Service {
   private readonly byCwd = new Map<string, string>()
+  private readonly warming = new Map<string, Promise<void>>()
 
   constructor(ctx: Context) {
     super(ctx, 'idealizeAttribution')
+    // Resolve a session's label as it enters the store (created or resumed),
+    // off the event loop, so its first request reads the cache instead of
+    // blocking on git. `headersFor` still resolves synchronously on a miss.
+    ctx.on('session/created', (session) => { void this.warm(session.header.cwd) })
+  }
+
+  /**
+   * Resolve one cwd's label asynchronously into the cache `headersFor` reads.
+   * A label already cached, or one the sync path caches meanwhile, is kept.
+   * @param cwd - The session cwd to resolve; empty or undefined is ignored.
+   * @returns a promise settled once the label is cached; it never rejects.
+   */
+  warm(cwd: string | undefined): Promise<void> {
+    if (cwd === undefined || cwd === '' || this.byCwd.has(cwd)) return Promise.resolve()
+    const inflight = this.warming.get(cwd)
+    if (inflight !== undefined) return inflight
+    const pending = projectForAsync(cwd).then((project) => {
+      this.warming.delete(cwd)
+      if (!this.byCwd.has(cwd)) this.byCwd.set(cwd, project.slice(0, 128))
+    })
+    this.warming.set(cwd, pending)
+    return pending
   }
 
   /**

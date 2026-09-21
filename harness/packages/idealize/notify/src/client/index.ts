@@ -30,6 +30,7 @@ import { createChimeGate, type GateEvent } from '../chime-gate.ts'
 import { NOTIFY_SETTINGS_NAMESPACE, type NotifySettings } from '../settings.ts'
 import { AnnouncementBanner, type AnnouncementBannerInjected } from './AnnouncementBanner.tsx'
 import { ChimeRow, type ChimePreference, type ChimeRowInjected } from './ChimeRow.tsx'
+import { type BridgeFeedAttachment, followBridgeFeed } from '@idealize/askbar/src/client/bridge-feed.ts'
 import { requestStudio } from '@idealize/askbar/src/client/studio-request.ts'
 import { notify, notifyAttention, playChime, requestNotificationPermission } from './notifier.ts'
 import { en, zh, type NotifyKey } from './locales.ts'
@@ -71,6 +72,8 @@ interface FeedEvent extends GateEvent {
   body: string
   /** Present on `attention` frames: the Studio event the alert names. */
   studioEvent?: string
+  /** On `agent-finished`: the turn ended in an error, so no reply is waiting. */
+  failed?: boolean
 }
 
 /**
@@ -210,12 +213,13 @@ export function apply(ctx: ClientContext): void {
   // ── The done chime and the Studio's alerts over the bridge feed ────────
   ctx.effect(() => {
     const gate = createChimeGate()
-    let source: EventSource | undefined
+    let feed: BridgeFeedAttachment | undefined
     let closed = false
-    const onAttention = (): void => {
+    const onAttention = (failed: boolean): void => {
       const preference = chime.getSnapshot()
       if (preference.enabled) void playChime(preference.volume)
-      void notify(t('chime.notification.title'), t('chime.notification.body'))
+      if (failed) void notify(t('chime.notification.failedTitle'), t('chime.notification.failedBody'))
+      else void notify(t('chime.notification.title'), t('chime.notification.body'))
     }
     const onAlert = (event: FeedEvent): void => {
       const studioEvent = event.studioEvent
@@ -229,34 +233,23 @@ export function apply(ctx: ClientContext): void {
       })
     }
     const attach = async (): Promise<void> => {
-      let latest = 0
-      try {
-        const res = await fetch('/idealize/events/recent?since=0')
-        if (res.ok) {
-          for (const event of (await res.json()) as GateEvent[]) latest = Math.max(latest, event.seq)
-        }
-      } catch {
-        // the bridge is absent in this composition: nothing to chime for
-        return
-      }
-      if (closed || typeof EventSource === 'undefined') return
-      gate.seed(latest)
-      source = new EventSource(`/idealize/events/stream?since=${latest}`)
-      source.onmessage = (message) => {
-        let event: FeedEvent
-        try {
-          event = JSON.parse(message.data as string) as FeedEvent
-        } catch {
-          return // a comment or malformed frame; the feed only carries JSON lines
-        }
+      // The window's one feed connection. Only events after attach chime; the
+      // tail seeds the gate so history replayed at attach stays quiet.
+      const attachment = await followBridgeFeed((frame) => {
+        const event = frame as unknown as FeedEvent
         if (event.kind === 'attention') onAlert(event)
-        if (gate.consider(event)) onAttention()
-      }
+        if (gate.consider(event)) onAttention(event.failed === true)
+      })
+      // the bridge is absent in this composition: nothing to chime for
+      if (attachment === undefined) return
+      if (closed) { attachment.close(); return }
+      gate.seed(attachment.tail.reduce((latest, event) => Math.max(latest, event.seq), 0))
+      feed = attachment
     }
     void attach()
     return () => {
       closed = true
-      source?.close()
+      feed?.close()
     }
   }, 'idealize-notify: done chime over the bridge feed')
 }

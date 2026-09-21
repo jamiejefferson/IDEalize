@@ -322,6 +322,15 @@ describe('auto-launch', () => {
     expect(terminals.terminals[0]!.written).toEqual([])
   })
 
+  it('clears the line with Escape on Windows, where Ctrl-U is unbound in PowerShell and printed by cmd', async () => {
+    vi.useFakeTimers()
+    const shell = new FakeTerminal('s1', 'C:\\work')
+    scheduleLaunch(shell, 'claude', 'win32')
+    shell.emit({ kind: 'data', data: 'PS C:\\work> ' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(shell.written).toEqual(['\u001bclaude\r'])
+  })
+
   it('waits for the shell to fall quiet, so a prompt drawn in several chunks is finished first', async () => {
     vi.useFakeTimers()
     const shell = new FakeTerminal('s1', '/tmp')
@@ -461,6 +470,24 @@ describe('standing rules for a terminal agent', () => {
     expect(withKnowledge('claude', '/Users/j/Application Support/JJ\'s app/k.md'))
       .toBe('claude --append-system-prompt "$(cat \'/Users/j/Application Support/JJ\'\\\'\'s app/k.md\')"')
     expect(withKnowledge('kimi', '/k.md')).toBeUndefined()
+  })
+
+  // The Windows embedded terminal is PowerShell 5.1. `"$(cat file)"` would
+  // join the file's lines with spaces there, and 5.1 passes embedded double
+  // quotes to a native program unescaped (PC test drive, 18 Sep 2026).
+  it('types the PowerShell form on Windows: the file read whole into a variable, quotes escaped for a native program', () => {
+    const file = 'C:\\Users\\j\\AppData\\Roaming\\JJ\'s app\\k.md'
+    const read = '$idealizeKnowledge = ((Get-Content -Raw -LiteralPath \'C:\\Users\\j\\AppData\\Roaming\\JJ\'\'s app\\k.md\').TrimEnd() -replace \'(\\\\*)"\',\'$1$1\\"\' -replace \'(\\\\+)$\',\'$1$1\')'
+    expect(withKnowledge('claude --dangerously-skip-permissions', file, 'win32'))
+      .toBe(`${read}; claude --dangerously-skip-permissions --append-system-prompt $idealizeKnowledge`)
+    expect(withKnowledge('codex exec', file, 'win32'))
+      .toBe(`${read}; codex -c "developer_instructions=$idealizeKnowledge" exec`)
+    expect(withKnowledge('kimi', file, 'win32')).toBeUndefined()
+  })
+
+  it('knows a CLI by its name under a Windows path and launcher suffix', () => {
+    expect(promptChannel('C:\\tools\\claude.exe --verbose')?.option).toBe('--append-system-prompt ')
+    expect(promptChannel('claude.cmd')?.option).toBe('--append-system-prompt ')
   })
 })
 

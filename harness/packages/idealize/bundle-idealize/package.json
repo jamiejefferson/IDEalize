@@ -62,7 +62,6 @@
     "@idealize/spaces": "workspace:^",
     "@idealize/studio": "workspace:^",
     "@idealize/telegram": "workspace:^",
-    "@idealize/transcribe": "workspace:^",
     "@idealize/ui-bar": "workspace:^",
     "@idealize/ui-gallery": "workspace:^",
     "@idealize/ui-launch": "workspace:^",

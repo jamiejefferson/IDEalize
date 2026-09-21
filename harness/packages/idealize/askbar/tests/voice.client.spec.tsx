@@ -99,8 +99,8 @@ function installFetch(answers: {
   return calls
 }
 
-function mount() {
-  const store = createSnapshotStore<AskbarView>({ project: '/work/demo', roster: ROSTER, error: null })
+function mount(roster: typeof ROSTER = ROSTER) {
+  const store = createSnapshotStore<AskbarView>({ project: '/work/demo', roster, error: null })
   return render(<AskbarRoot store={store} t={t} />)
 }
 
@@ -124,6 +124,21 @@ afterEach(() => {
 })
 
 describe('holding a chip to speak', () => {
+  it('opens the panel as a click does when no speech provider is composed, and never opens the microphone', async () => {
+    installRecorder()
+    const calls = installFetch({})
+    const view = mount({ ...ROSTER, config: { ...ROSTER.config, speech: false } })
+
+    const chip = await hold(view)
+    expect(view.queryByLabelText('Nova — Listening')).toBeNull()
+    fireEvent.pointerUp(chip)
+
+    await waitFor(() => { expect(view.container.querySelector('[data-askbar-panel]')).not.toBeNull() })
+    expect(view.queryByRole('status')).toBeNull()
+    expect(calls.some(call => call.url.startsWith('/idealize/transcribe'))).toBe(false)
+    expect(stopped).toBe(0)
+  })
+
   it('records, transcribes, shows the words, then sends them to the agent it locked onto', async () => {
     installRecorder()
     const calls = installFetch({})

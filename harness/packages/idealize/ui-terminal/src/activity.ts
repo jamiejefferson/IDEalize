@@ -26,7 +26,11 @@ export const MIN_RUN_MS = 4_000
 interface Run {
   /** When output first arrived. */
   startedAt: number
-  /** The quiet timer that ends it. */
+  /** When output last arrived; the quiet is measured from here. */
+  lastOutputAt: number
+  /** True when output has arrived since the quiet timer was last armed. */
+  outputSinceArmed: boolean
+  /** The one quiet timer that ends it, armed once and re-armed only when it fires early. */
   timer: ReturnType<typeof setTimeout>
   /** True once the run was reported as started, so it is reported as finished exactly once. */
   announced: boolean
@@ -86,17 +90,20 @@ export class TerminalActivity {
   sawOutput(id: string): void {
     const existing = this.#runs.get(id)
     if (existing !== undefined) {
-      clearTimeout(existing.timer)
+      // Output is the hot path, so it only notes the time: the standing timer
+      // reads it when it fires and waits out whatever quiet is still owed.
+      existing.lastOutputAt = this.#now()
+      existing.outputSinceArmed = true
       // A run that has now outlasted the floor is the CLI working, and says so
       // once — while the output is still arriving, not after it stops.
       if (!existing.announced && this.#now() - existing.startedAt >= MIN_RUN_MS) {
         existing.announced = true
         this.#options.onWorking(id)
       }
-      existing.timer = this.#arm(id)
       return
     }
-    this.#runs.set(id, { startedAt: this.#now(), timer: this.#arm(id), announced: false })
+    const startedAt = this.#now()
+    this.#runs.set(id, { startedAt, lastOutputAt: startedAt, outputSinceArmed: false, timer: this.#arm(id, QUIET_MS), announced: false })
   }
 
   /**
@@ -117,16 +124,26 @@ export class TerminalActivity {
     this.#runs.clear()
   }
 
-  /** Arm the quiet timer that ends one terminal's run. */
-  #arm(id: string): ReturnType<typeof setTimeout> {
+  /**
+   * Arm the quiet timer that ends one terminal's run. Firing after output has
+   * arrived, it re-arms for the rest of that output's quiet, so the run ends
+   * exactly {@link QUIET_MS} after the last output, as a per-chunk timer would.
+   */
+  #arm(id: string, ms: number): ReturnType<typeof setTimeout> {
     const timer = setTimeout(() => {
       const run = this.#runs.get(id)
       /* v8 ignore next -- the timer is cleared with the run it belongs to, so it only fires while that run stands. */
       if (run === undefined) return
+      const owed = run.lastOutputAt + QUIET_MS - this.#now()
+      if (run.outputSinceArmed && owed > 0) {
+        run.outputSinceArmed = false
+        run.timer = this.#arm(id, owed)
+        return
+      }
       this.#runs.delete(id)
       // A run nobody was told about started never finished, so nothing to say.
       if (run.announced) this.#options.onDone(id, this.#now() - run.startedAt)
-    }, QUIET_MS)
+    }, ms)
     // The watcher must never hold the process open on its own account.
     timer.unref()
     return timer

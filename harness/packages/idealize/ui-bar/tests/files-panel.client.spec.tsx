@@ -179,6 +179,8 @@ describe('isValidEntryName', () => {
 describe('revealAncestors', () => {
   it('lists the folders between the root and the file, outermost first', () => {
     expect(revealAncestors('/w/proj', '/w/proj/Images/Archive/a.png')).toEqual(['/w/proj/Images', '/w/proj/Images/Archive'])
+    // A Windows host names its paths with backslashes, and the ancestors must match the host's own keys.
+    expect(revealAncestors('C:\\w\\proj', 'C:\\w\\proj\\Images\\Archive\\a.png')).toEqual(['C:\\w\\proj\\Images', 'C:\\w\\proj\\Images\\Archive'])
     expect(revealAncestors('/w/proj', '/w/proj/a.png')).toEqual([])
   })
 })

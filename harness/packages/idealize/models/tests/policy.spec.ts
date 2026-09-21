@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { choose, dominantWeight, subscriptionModel } from '../src/policy.ts'
+import { choose, dominantWeight, freeUsable, subscriptionModel } from '../src/policy.ts'
 import type { PolicyFacts } from '../src/policy.ts'
 
 const CODEX = ['gpt-5.5', 'gpt-5.5-mini', 'gpt-5.5-codex']
@@ -153,5 +153,17 @@ describe('subscriptionModel', () => {
 
   it('keeps the flagship when speed leads but the route offers no mini', () => {
     expect(subscriptionModel(['gpt-5.5'], 'speed')).toBe('gpt-5.5')
+  })
+})
+
+describe('freeUsable', () => {
+  it('needs a registered route, a running engine, and a usable key where the count is known', () => {
+    expect(freeUsable({ routeModels: 237, engineUp: true, usableKeys: 2 })).toBe(true)
+    // The PC test drive's state: the engine lists 237 models and holds no usable key.
+    expect(freeUsable({ routeModels: 237, engineUp: true, usableKeys: 0 })).toBe(false)
+    expect(freeUsable({ routeModels: 237, engineUp: false, usableKeys: undefined })).toBe(false)
+    expect(freeUsable({ routeModels: 0, engineUp: true, usableKeys: 2 })).toBe(false)
+    // An engine this host did not provision cannot be asked; it is given the benefit of the doubt.
+    expect(freeUsable({ routeModels: 237, engineUp: true, usableKeys: undefined })).toBe(true)
   })
 })

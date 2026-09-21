@@ -249,7 +249,7 @@ None. The same harness Host and client feature plugins assemble model requests.
 
 ## Known Limitations and Deferred Work
 
-- **Transcription is Apple Silicon only.** onnxruntime-node publishes no macOS Intel binary, so the universal DMG carries its arm64 slice alone (`mac.x64ArchFiles`); on an Intel Mac the transcribe plugin cannot load its runtime while the rest of the app runs.
+- **Speech is out of the product for now (18 Sep 2026).** The profile no longer composes `@idealize/transcribe`, which drops about 265 MB of on-device speech runtime from the package; the `mac.x64ArchFiles` rule for onnxruntime stays for its return. When it returns: **transcription is Apple Silicon only.** onnxruntime-node publishes no macOS Intel binary, so the universal DMG carries its arm64 slice alone (`mac.x64ArchFiles`); on an Intel Mac the transcribe plugin cannot load its runtime while the rest of the app runs.
 
 - Adding or removing a profile bundle requires restarting IDEalize V1; the launcher does not watch profile manifests. Selecting another profile from the tray performs that restart automatically.
 - Switching compatibility/advanced mode always restarts the application by design; a live generation never hot-swaps Loader rows, slot ownership, or native materials.

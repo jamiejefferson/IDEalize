@@ -69,11 +69,18 @@ export class IdealizeBridge extends Service {
       }
       if (!this.runningAgents.has(agent)) return
       this.runningAgents.delete(agent)
+      // A turn that ended on an error left no reply. The event stays
+      // `agent-finished` so every surface refreshes and the chime sounds, and
+      // says so, so the notification does not promise a reply (PC test drive,
+      // 18 Sep 2026: "A reply is ready for you" over an empty conversation).
+      const ended = agent.session.events.findLast(event => event.type === 'turn/end')
+      const failed = ended?.type === 'turn/end' && ended.data.reason.kind === 'error'
       this.buffer.push({
         kind: 'agent-finished',
-        title: 'Agent finished',
+        title: failed ? 'Agent stopped on an error' : 'Agent finished',
         body: '',
         sessionId: String(agent.session.header.id),
+        ...failed ? { failed: true } : {},
       })
     })
 

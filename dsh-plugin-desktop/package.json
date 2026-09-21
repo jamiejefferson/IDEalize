@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-desktop",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "IDEalize: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "license": "MIT",
   "publishConfig": {
@@ -251,7 +251,6 @@
     "@types/react": "^18",
     "electron": "43.4.0",
     "electron-builder": "26.15.7",
-    "jsdom": "^26.1.0",
     "sharp": "0.35.3",
     "tsdown": "0.22.2",
     "typescript": "6.0.3",
@@ -269,6 +268,7 @@
       "node_modules/**"
     ],
     "afterPack": "./scripts/verify-packaged-runtime.ts",
+    "afterSign": "./scripts/sign-with-certificate.ts",
     "electronFuses": {
       "runAsNode": true
     },

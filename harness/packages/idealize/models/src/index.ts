@@ -49,10 +49,11 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { serviceName, SHIPPED_PRICE_CURRENCY, shippedTokenPrices } from '@idealize/services'
 
+import { createEngineKeyReader } from './engine-keys.ts'
 import { emptyGenerationPeriods, FAL_PROVIDER, foldGenerations, generationRows, refreshFalUsage } from './generations.ts'
 import type { FalUsageCache } from './generations.ts'
 import { modelsPage } from './models-page.ts'
-import { choose } from './policy.ts'
+import { choose, freeUsable } from './policy.ts'
 import type { FreetokensFacts, PolicyDecision } from './policy.ts'
 import { effectivePrices, OPENROUTER_PROVIDER, parsePriceBody, refreshOpenRouterPrices } from './prices.ts'
 import { costBreakdown, modelRows } from './pricing.ts'
@@ -197,6 +198,8 @@ export function apply(ctx: Context, config: ModelsConfig): void {
 
   ctx.inject(['webServer', 'llm', 'settings', 'credentials'], (webCtx) => {
     let lastAuto: AutoVerdict | undefined
+    // One admin session on the engine, carried across policy passes.
+    const engineKeys = createEngineKeyReader()
 
     /** The freetokens route + engine facts, read from the shared settings + engine API. */
     const freetokensFacts = async (): Promise<FreetokensFacts> => {
@@ -216,31 +219,7 @@ export function apply(ctx: Context, config: ModelsConfig): void {
       // Key headroom is only knowable when this host provisioned the engine.
       const password = await webCtx.credentials.resolve(credentialRef(FREETOKENS_ADMIN_PASSWORD_ENV))
       if (password === undefined) return { routeModels, engineUp, usableKeys: undefined }
-      try {
-        const login = await fetch(`${origin}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ email: 'host@idealize.local', password: password.value }),
-          signal: AbortSignal.timeout(10_000),
-        })
-        const { token } = await login.json() as { token?: string }
-        if (typeof token !== 'string') return { routeModels, engineUp, usableKeys: undefined }
-        const res = await fetch(`${origin}/api/keys`, {
-          headers: { authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(10_000),
-        })
-        const keys = await res.json() as { enabled?: boolean; status?: string }[]
-        if (!Array.isArray(keys)) return { routeModels, engineUp, usableKeys: undefined }
-        return {
-          routeModels,
-          engineUp,
-          // The same usability rule as the engine's own router:
-          // enabled AND status IN ('healthy', 'unknown').
-          usableKeys: keys.filter(key => key.enabled === true && (key.status === 'healthy' || key.status === 'unknown')).length,
-        }
-      } catch {
-        return { routeModels, engineUp, usableKeys: undefined }
-      }
+      return { routeModels, engineUp, usableKeys: await engineKeys.usableKeys(origin, password.value) }
     }
 
     const decide = async (): Promise<PolicyDecision> => {
@@ -359,7 +338,11 @@ export function apply(ctx: Context, config: ModelsConfig): void {
             // services table knows the company's own name.
             displayName: serviceName(entry.provider, entry.displayName),
             auth,
-            connected: auth === 'oauth' ? subs.signedIn.includes(entry.provider) : keyed,
+            // The free route's key only reaches its own engine; whether a
+            // request can be answered is the engine's to say.
+            connected: auth === 'oauth'
+              ? subs.signedIn.includes(entry.provider)
+              : keyed && (entry.provider !== FREE_PROVIDER || freeUsable(await freetokensFacts())),
             // Where the model list comes from: the route's own configuration
             // (a declared route, the free engine's registration), or the
             // catalogue the app ships and updates with itself.
