@@ -98,6 +98,10 @@ function stubFetch(routes: Routes): void {
       return Promise.resolve(routes.projectDocs(body as { project: string; path: string }))
     }
     if (url === '/idealize/setup/alias') return Promise.resolve(routes.alias(body as { name: string; path: string }))
+    // `@idealize/vault`'s switch under the documentation views: on, and echoing what it is sent.
+    if (url === '/idealize/vault/settings') {
+      return Promise.resolve(jsonResponse({ sessionFiles: (body as { sessionFiles?: boolean } | undefined)?.sessionFiles ?? true }))
+    }
     const operation = /^\/idealize\/bar\/(rename|duplicate|move|trash)$/.exec(url)
     if (operation !== null) return Promise.resolve(routes.operate(operation[1]!, body as Record<string, string>))
     throw new Error(`unrouted fetch: ${url}`)
@@ -303,6 +307,20 @@ describe('a reveal request', () => {
     await gate
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(onRevealDone).not.toHaveBeenCalled()
+  })
+
+  it('offers the chat-copy switch under the documentation views only, and saves a change', async () => {
+    const { view } = mount({}, { listing })
+    await view.findByRole('tab', { name: /^All projects/ })
+    expect(view.container.querySelector('[data-session-files]')).toBeNull()
+    await openAllDocumentation(view)
+    const box = await view.findByRole('checkbox', { name: 'Keep a copy of each chat here' }) as HTMLInputElement
+    expect(box.checked).toBe(true)
+    fireEvent.click(box)
+    await waitFor(() => {
+      expect(fetchCalls).toContainEqual({ url: '/idealize/vault/settings', body: { sessionFiles: false } })
+    })
+    expect(box.checked).toBe(false)
   })
 
   it('picks All documentation for a file under the vault', async () => {

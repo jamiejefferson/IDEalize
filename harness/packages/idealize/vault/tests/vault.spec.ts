@@ -5,7 +5,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -84,7 +84,9 @@ async function mount(folder: string | undefined, scan: () => Promise<void> = asy
   const fiber = ctx.plugin({ name: 'idealize-vault', inject: [...(await import('../src/index.ts')).inject], apply }, { projectsRoot: join(tmpdir(), 'projects') })
   await fiber.await()
 
-  const flush = (cwd: string | undefined) => { ctx.emit('session/flush', { header: { cwd } } as never) }
+  // A chat nobody has spoken in: the Markdown copy has nothing to write, so these tests read the commit evidence alone.
+  const quiet = { events: [], deriveMessages: () => [] }
+  const flush = (cwd: string | undefined) => { ctx.emit('session/flush', { header: { id: 's1', cwd }, ...quiet } as never) }
   // An empty host stands for a request that carries no Host header at all.
   const call = async (host: string) => {
     if (handler === undefined) throw new Error('the reconcile route was never registered')
@@ -132,12 +134,35 @@ describe('a session closing over a documented repo', () => {
     expect(infos[0]).toContain('appended 1 commit(s)')
   })
 
+  it('keeps a Markdown copy of the chat in the project note’s folder', async () => {
+    const repo = await repoWith(['a commit'])
+    const { folder } = await folderFor(repo)
+    const { ctx, fiber } = await mount(folder)
+    const messages = [
+      { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'Name the colours' }] },
+      { role: 'assistant', source: { kind: 'model', provider: 'p', model: 'gpt-5.5' }, content: [{ type: 'text', text: 'Ink and Linen.' }] },
+    ]
+    const session = {
+      header: { id: 'session-0000-abcd1234', cwd: repo },
+      events: [{ type: 'session', time: Date.parse('2026-09-21T12:00:00Z') }, { type: 'session/title', data: { title: 'Palette' } }],
+      deriveMessages: () => messages,
+    }
+    ctx.emit('session/flush', session as never)
+    await fiber.dispose()
+
+    const files = await readdir(join(folder, 'Projects', 'p', 'sessions'))
+    expect(files).toEqual(['2026-09-21-palette-abcd1234.md'])
+    const text = await readFile(join(folder, 'Projects', 'p', 'sessions', files[0] ?? ''), 'utf8')
+    expect(text).toContain('## You\n\nName the colours')
+    expect(text).toContain('## gpt-5.5\n\nInk and Linen.')
+  })
+
   it('checks once per 15 seconds, however often the session flushes', async () => {
     const repo = await repoWith(['the only commit'])
     const { folder } = await folderFor(repo)
     const { ctx, fiber, scans } = await mount(folder)
 
-    const session = { header: { cwd: repo } }
+    const session = { header: { id: 's1', cwd: repo }, events: [], deriveMessages: () => [] }
     ctx.emit('session/flush', session as never)
     ctx.emit('session/flush', session as never)
     await fiber.dispose()
@@ -234,5 +259,28 @@ describe('the reconcile endpoint', () => {
     await writeFile(note, `${await readFile(note, 'utf8')}\n- \`${hash}\` already here\n`)
 
     expect(answerOf((await (await mount(folder)).call('127.0.0.1:3180')).body).stale).toEqual([])
+  })
+})
+
+describe('the chat copy and the 15-second window', () => {
+  it('writes the state of a save that landed inside the window', async () => {
+    const repo = await repoWith(['a commit'])
+    const { folder } = await folderFor(repo)
+    const { ctx, fiber } = await mount(folder)
+    const messages: unknown[] = [{ role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'Name the colours' }] }]
+    const session = {
+      header: { id: 'session-0000-abcd1234', cwd: repo },
+      events: [{ type: 'session', time: Date.parse('2026-09-21T12:00:00Z') }],
+      deriveMessages: () => messages,
+    }
+    ctx.emit('session/flush', session as never)
+    // The reply arrives a moment later, inside the window the first save opened.
+    messages.push({ role: 'assistant', source: { kind: 'model', provider: 'p', model: 'gpt-5.5' }, content: [{ type: 'text', text: 'Ink and Linen.' }] })
+    ctx.emit('session/flush', session as never)
+    await fiber.dispose()
+
+    const dir = join(folder, 'Projects', 'p', 'sessions')
+    const text = await readFile(join(dir, (await readdir(dir))[0] ?? ''), 'utf8')
+    expect(text).toContain('Ink and Linen.')
   })
 })

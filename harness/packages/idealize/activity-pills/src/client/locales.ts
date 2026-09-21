@@ -20,6 +20,17 @@ export const zh = {
   'overflow.trigger': '更多设置',
   'overflow.access': '项目权限',
   'overflow.brain': '大脑',
+  'overflow.blocked': '选择大脑',
+  'overflow.openBrains': '打开大脑面板',
+  'router.row': '模型路由',
+  'router.badge.switched': '当前为 {model}',
+  'router.badge.offer': '试试 {model}',
+  'router.switched': '路由已将此聊天从 {from} 切换到 {to}。',
+  'router.offer.needs-payment': '{to} 更适合这项工作。它是付费模型,由你决定是否使用。',
+  'router.offer.loses-context': '{to} 更适合这项工作。它能容纳的内容少于此聊天已有的内容,最早的部分会被丢弃。',
+  'router.back': '切换回 {from}',
+  'router.accept': '使用 {to}',
+  'router.lock': '让此聊天保持当前模型',
 } as const
 
 /** Dictionary key set. */
@@ -45,4 +56,15 @@ export const en: Record<ActivityKey, string> = {
   'overflow.trigger': 'More settings',
   'overflow.access': 'Project access',
   'overflow.brain': 'Brain',
+  'overflow.blocked': 'Choose a brain',
+  'overflow.openBrains': 'Open Brains',
+  'router.row': 'Model router',
+  'router.badge.switched': 'Now on {model}',
+  'router.badge.offer': 'Try {model}',
+  'router.switched': 'The router moved this chat from {from} to {to}.',
+  'router.offer.needs-payment': '{to} suits this work better. It is a paid model, so the choice is yours.',
+  'router.offer.loses-context': '{to} suits this work better. It holds less than this chat has said so far, so the earliest part would be dropped.',
+  'router.back': 'Switch back to {from}',
+  'router.accept': 'Use {to}',
+  'router.lock': 'Keep this chat on its model',
 }

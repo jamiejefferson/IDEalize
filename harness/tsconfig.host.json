@@ -266,6 +266,7 @@
     { "path": "./packages/idealize/freetokens" },
     { "path": "./packages/idealize/hatch" },
     { "path": "./packages/idealize/models" },
+    { "path": "./packages/idealize/router" },
     { "path": "./packages/idealize/generate" },
     { "path": "./packages/idealize/services" },
     { "path": "./packages/idealize/gen-fixture" },

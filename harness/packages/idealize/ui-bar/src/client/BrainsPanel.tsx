@@ -77,6 +77,7 @@ import { notifyBrainsChanged } from './brains-changed.ts'
 import { SPACE_LABELS } from './HeroLauncher.tsx'
 import type { BarKey } from './locales.ts'
 import { mediaRecoveryText } from './media-recovery.ts'
+import { RouterTab } from './RouterTab.tsx'
 import css from './BrainsPanel.module.css'
 
 /** Mutating /idealize routes require the auth marker (host route fence). */
@@ -96,8 +97,8 @@ export interface BrainsPanelHost {
   followBrain: (brainId: string) => Promise<void>
 }
 
-type Tab = 'usage' | 'budget' | 'models'
-const TABS: readonly Tab[] = ['usage', 'budget', 'models']
+type Tab = 'usage' | 'budget' | 'models' | 'router'
+const TABS: readonly Tab[] = ['usage', 'budget', 'models', 'router']
 
 /** The engine's weight axes, in the Paper frame's slider order. */
 const WEIGHT_KEYS = ['reliability', 'speed', 'intelligence'] as const
@@ -365,6 +366,8 @@ interface Draft {
    * agent role: a brain that answers to the person and to no space.
    */
   spaces: SpaceId[]
+  /** Whether the model router may move this brain's chats off its model; absent reads as yes. */
+  routed?: boolean
 }
 
 const CATEGORIES = ['subscriptions', 'metered', 'free', 'total'] as const
@@ -550,6 +553,11 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   const [modelFilter, setModelFilter] = useState('')
   const [status, setStatus] = useState('')
 
+  // The brains the model router leaves alone, for the sheet's routing choice.
+  const [routerOff, setRouterOff] = useState<string[]>([])
+  const refreshRouterOff = useCallback(async () => {
+    setRouterOff((await getJson<{ settings?: { offBrains?: string[] } }>('/idealize/router/state'))?.settings?.offBrains ?? [])
+  }, [])
   const refreshState = useCallback(async () => {
     const [next, engine] = await Promise.all([
       getJson<ModelsState>('/idealize/models/state'),
@@ -588,7 +596,8 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     void refreshAgents()
     void refreshMedia()
     void refreshSpaces()
-  }, [refreshState, refreshAgents, refreshMedia, refreshSpaces])
+    void refreshRouterOff()
+  }, [refreshState, refreshAgents, refreshMedia, refreshSpaces, refreshRouterOff])
   useEffect(() => { if (tab === 'budget') void refreshUsage(scope) }, [tab, scope, refreshUsage])
   useEffect(() => { if (draft === null) setModelFilter('') }, [draft])
 
@@ -715,6 +724,7 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
       cli: launches?.byActivity[row.id] ?? '',
       instructions: row.instructions,
       spaces: row.spaces,
+      routed: !routerOff.includes(row.id),
     })
   }
   const saveDraft = async (): Promise<void> => {
@@ -749,6 +759,11 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
       ok = await post('/idealize/terminal/launch', { activity: savedId, command: draft.cli })
     }
     setStatus(ok ? t('brains.agent.saved') : t('brains.agent.failed'))
+    if (ok && savedId !== undefined && (draft.routed ?? true) === routerOff.includes(savedId)) {
+      // The router keeps the list of brains it leaves alone; the sheet adds or removes this one.
+      const offBrains = draft.routed ?? true ? routerOff.filter(id => id !== savedId) : [...routerOff, savedId]
+      if (await post('/idealize/router/settings', { offBrains })) setRouterOff(offBrains)
+    }
     if (ok) {
       setDraft(null)
       notifyBrainsChanged()
@@ -1475,6 +1490,7 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
           </>
         )}
 
+        {tab === 'router' && <RouterTab t={t} />}
         {tab === 'budget' && (
           <>
             <SectionHead title={t('brains.budget.title')} detail={t('brains.budget.detail')} />
@@ -1718,131 +1734,149 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
               <div className={css.sheetTitle}>{t(draft.id === undefined ? 'brains.edit.newTitle' : 'brains.edit.title')}</div>
               <div className={css.sheetDetail}>{t('brains.edit.detail')}</div>
             </div>
-            {spaces !== null && (
-              <div
-                className={css.field}
-                role="group"
-                data-brains-field="spaces"
-                aria-label={t('brains.edit.space')}
-                {...draft.id === undefined && draft.spaces[0] !== undefined
-                  ? { 'data-brains-add-space': draft.spaces[0] }
-                  : {}}
-              >
-                <span className={css.fieldLabel}>{t('brains.edit.space')}</span>
-                <span className={css.fieldChoices}>
-                  {spaces.map(entry => (
-                    <label key={entry.id} className={css.choice}>
-                      <input
-                        type="checkbox"
-                        checked={draft.spaces.includes(entry.id)}
-                        onChange={(event) => { toggleSpace(entry.id, event.target.checked) }}
-                      />
-                      {t(SPACE_LABELS[entry.id])}
-                    </label>
-                  ))}
-                </span>
-                {/* The rule that separates the pane's two lists, where the
-                    choice is made: a brain in no space is an agent role
-                    (JJ, 1 Sep 2026: the wording was not clear). */}
-                <span className={css.fieldHint} data-brains-space-hint="">{t('brains.edit.spaceHint')}</span>
-              </div>
-            )}
-            <label className={css.field} data-brains-field="name">
-              <span className={css.fieldLabel}>{t('brains.edit.name')}</span>
-              <input
-                className={css.fieldInput}
-                value={draft.name}
-                required
-                onChange={(event) => { setDraft({ ...draft, name: event.target.value }) }}
-              />
-            </label>
-            {draft.spaces.includes('terminal') && launches !== null && (
-              <label className={css.field} data-brains-field="cli">
-                <span className={css.fieldLabel}>{t('brains.edit.cli')}</span>
-                {/* Which CLI a fresh Terminal shell types for this brain. The
-                    model below is the brain's own; a CLI brings its own models
-                    with it, which this app cannot enumerate, so the two are
-                    stated separately rather than one filtering the other. */}
-                <select
-                  className={css.fieldSelect}
-                  data-brains-cli=""
-                  aria-label={t('brains.edit.cli')}
-                  value={draft.cli}
-                  onChange={(event) => { setDraft({ ...draft, cli: event.target.value }) }}
+            {/* The fields scroll inside the sheet and the actions stay pinned
+                under them: on a short window Save brain sat below the fold,
+                which read as a broken dialog (PC test drive, 18 Sep 2026). */}
+            <div className={css.sheetBody} data-brains-sheet-body="">
+              {spaces !== null && (
+                <div
+                  className={css.field}
+                  role="group"
+                  data-brains-field="spaces"
+                  aria-label={t('brains.edit.space')}
+                  {...draft.id === undefined && draft.spaces[0] !== undefined
+                    ? { 'data-brains-add-space': draft.spaces[0] }
+                    : {}}
                 >
-                  <option value="">{t('brains.edit.cliDefault', { label: cliLabel('') ?? '' })}</option>
-                  {(launches.catalog ?? [])
-                    .filter(entry => entry.installed !== false || entry.command === draft.cli)
-                    .map(entry => (
-                      <option key={entry.id} value={entry.command}>
-                        {entry.installed === false ? t('brains.cli.notFound', { label: entry.label }) : entry.label}
-                      </option>
+                  <span className={css.fieldLabel}>{t('brains.edit.space')}</span>
+                  <span className={css.fieldChoices}>
+                    {spaces.map(entry => (
+                      <label key={entry.id} className={css.choice}>
+                        <input
+                          type="checkbox"
+                          checked={draft.spaces.includes(entry.id)}
+                          onChange={(event) => { toggleSpace(entry.id, event.target.checked) }}
+                        />
+                        {t(SPACE_LABELS[entry.id])}
+                      </label>
                     ))}
-                </select>
-                <span className={css.fieldHint}>{t('brains.edit.cliHint')}</span>
+                  </span>
+                  {/* The rule that separates the pane's two lists, where the
+                      choice is made: a brain in no space is an agent role
+                      (JJ, 1 Sep 2026: the wording was not clear). */}
+                  <span className={css.fieldHint} data-brains-space-hint="">{t('brains.edit.spaceHint')}</span>
+                </div>
+              )}
+              <label className={css.field} data-brains-field="name">
+                <span className={css.fieldLabel}>{t('brains.edit.name')}</span>
+                <input
+                  className={css.fieldInput}
+                  value={draft.name}
+                  required
+                  onChange={(event) => { setDraft({ ...draft, name: event.target.value }) }}
+                />
               </label>
-            )}
-            <label className={css.field} data-brains-field="model">
-              <span className={css.fieldLabel}>{t(sheetGeneration === undefined ? 'brains.edit.model' : 'brains.edit.generationModel')}</span>
-              {/* Narrowed by the spaces above: a brain confined to one
-                  generating space picks from that space's compatible models,
-                  and every other brain picks from the chat catalogue. */}
-              <select
-                className={css.fieldSelect}
-                data-brains-model=""
-                aria-label={t(sheetGeneration === undefined ? 'brains.edit.model' : 'brains.edit.generationModel')}
-                value={draft.model}
-                onChange={(event) => { setDraft({ ...draft, model: event.target.value }) }}
-              >
-                {sheetGeneration === undefined
-                  ? chatModelOptions()
-                  : (
-                    <>
-                      <option value="">{t('brains.media.choose')}</option>
-                      {sortedCandidates(sheetGeneration.candidates).map(candidate => (
-                        <option
-                          key={`${candidate.backend} ${candidate.model.id}`}
-                          value={`${candidate.backend} ${candidate.model.id}`}
-                        >
-                          {candidate.model.name}
+              {draft.spaces.includes('terminal') && launches !== null && (
+                <label className={css.field} data-brains-field="cli">
+                  <span className={css.fieldLabel}>{t('brains.edit.cli')}</span>
+                  {/* Which CLI a fresh Terminal shell types for this brain. The
+                      model below is the brain's own; a CLI brings its own models
+                      with it, which this app cannot enumerate, so the two are
+                      stated separately rather than one filtering the other. */}
+                  <select
+                    className={css.fieldSelect}
+                    data-brains-cli=""
+                    aria-label={t('brains.edit.cli')}
+                    value={draft.cli}
+                    onChange={(event) => { setDraft({ ...draft, cli: event.target.value }) }}
+                  >
+                    <option value="">{t('brains.edit.cliDefault', { label: cliLabel('') ?? '' })}</option>
+                    {(launches.catalog ?? [])
+                      .filter(entry => entry.installed !== false || entry.command === draft.cli)
+                      .map(entry => (
+                        <option key={entry.id} value={entry.command}>
+                          {entry.installed === false ? t('brains.cli.notFound', { label: entry.label }) : entry.label}
                         </option>
                       ))}
-                    </>
-                  )}
-              </select>
-              {sheetGeneration === undefined && chatCatalogueAids()}
-            </label>
-            {sheetGeneration !== undefined && (
-              <label className={css.field} data-brains-field="chat-model">
-                <span className={css.fieldLabel}>{t('brains.edit.chatModel')}</span>
-                {/* The model that drives the generation tool. Its own field,
-                    so a generating brain can leave an unreachable default
-                    route without moving every other brain off it. */}
+                  </select>
+                  <span className={css.fieldHint}>{t('brains.edit.cliHint')}</span>
+                </label>
+              )}
+              <label className={css.field} data-brains-field="model">
+                <span className={css.fieldLabel}>{t(sheetGeneration === undefined ? 'brains.edit.model' : 'brains.edit.generationModel')}</span>
+                {/* Narrowed by the spaces above: a brain confined to one
+                    generating space picks from that space's compatible models,
+                    and every other brain picks from the chat catalogue. */}
                 <select
                   className={css.fieldSelect}
-                  data-brains-chat-model=""
-                  aria-label={t('brains.edit.chatModel')}
-                  value={draft.chatModel}
-                  onChange={(event) => { setDraft({ ...draft, chatModel: event.target.value }) }}
+                  data-brains-model=""
+                  aria-label={t(sheetGeneration === undefined ? 'brains.edit.model' : 'brains.edit.generationModel')}
+                  value={draft.model}
+                  onChange={(event) => { setDraft({ ...draft, model: event.target.value }) }}
                 >
-                  {chatModelOptions()}
+                  {sheetGeneration === undefined
+                    ? chatModelOptions()
+                    : (
+                      <>
+                        <option value="">{t('brains.media.choose')}</option>
+                        {sortedCandidates(sheetGeneration.candidates).map(candidate => (
+                          <option
+                            key={`${candidate.backend} ${candidate.model.id}`}
+                            value={`${candidate.backend} ${candidate.model.id}`}
+                          >
+                            {candidate.model.name}
+                          </option>
+                        ))}
+                      </>
+                    )}
                 </select>
-                {chatCatalogueAids()}
-                <span className={css.fieldHint}>{t('brains.edit.chatModelHint')}</span>
+                {sheetGeneration === undefined && chatCatalogueAids()}
               </label>
-            )}
-            <label className={css.field} data-brains-field="instructions">
-              <span className={css.fieldLabel}>{t('brains.edit.instructions')}</span>
-              <textarea
-                className={css.fieldArea}
-                rows={5}
-                value={draft.instructions}
-                onChange={(event) => { setDraft({ ...draft, instructions: event.target.value }) }}
-              />
-              <span className={css.fieldHint} data-brains-instructions-hint="">
-                {t('brains.edit.instructionsHint')}
-              </span>
-            </label>
+              {sheetGeneration !== undefined && (
+                <label className={css.field} data-brains-field="chat-model">
+                  <span className={css.fieldLabel}>{t('brains.edit.chatModel')}</span>
+                  {/* The model that drives the generation tool. Its own field,
+                      so a generating brain can leave an unreachable default
+                      route without moving every other brain off it. */}
+                  <select
+                    className={css.fieldSelect}
+                    data-brains-chat-model=""
+                    aria-label={t('brains.edit.chatModel')}
+                    value={draft.chatModel}
+                    onChange={(event) => { setDraft({ ...draft, chatModel: event.target.value }) }}
+                  >
+                    {chatModelOptions()}
+                  </select>
+                  {chatCatalogueAids()}
+                  <span className={css.fieldHint}>{t('brains.edit.chatModelHint')}</span>
+                </label>
+              )}
+              <label className={css.field} data-brains-field="instructions">
+                <span className={css.fieldLabel}>{t('brains.edit.instructions')}</span>
+                <textarea
+                  className={css.fieldArea}
+                  rows={5}
+                  value={draft.instructions}
+                  onChange={(event) => { setDraft({ ...draft, instructions: event.target.value }) }}
+                />
+                <span className={css.fieldHint} data-brains-instructions-hint="">
+                  {t('brains.edit.instructionsHint')}
+                </span>
+              </label>
+              {draft.spaces.includes('chat') && (
+                <div className={css.field} data-brains-field="routed">
+                  <label className={css.choice}>
+                    <input
+                      type="checkbox"
+                      checked={draft.routed ?? true}
+                      onChange={(event) => { setDraft({ ...draft, routed: event.target.checked }) }}
+                    />
+                    {t('brains.edit.routed')}
+                  </label>
+                  <span className={css.fieldHint}>{t('brains.edit.routedHint')}</span>
+                </div>
+              )}
+            </div>
             <div className={css.sheetActions}>
               <button type="button" className={css.secondary} onClick={() => { setDraft(null) }}>{t('brains.cancel')}</button>
               <button type="submit" className={css.primary}>{t('brains.edit.save')}</button>

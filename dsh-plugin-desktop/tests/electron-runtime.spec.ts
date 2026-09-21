@@ -72,6 +72,9 @@ const electron = vi.hoisted(() => {
   const browserWindowOff = vi.fn()
   const loadURL = vi.fn(async (_url: string) => {})
   const menuTemplates: unknown[][] = []
+  // The macOS menu bar is tracked apart from the tray menus so the tray
+  // assertions keep their indices.
+  const applicationMenuTemplates: unknown[][] = []
   const notifications: Notification[] = []
   let zoomLevel = 0
   const dialog = {
@@ -102,6 +105,7 @@ const electron = vi.hoisted(() => {
   const nativeTheme = { themeSource: 'system' }
 
   class BrowserWindow {
+    static readonly getFocusedWindow = vi.fn((): BrowserWindow | null => null)
     readonly webContents = webContents
     accessibleTitle = ''
 
@@ -228,11 +232,14 @@ const electron = vi.hoisted(() => {
     dialog,
     Menu: {
       buildFromTemplate: vi.fn((template: unknown[]) => {
-        menuTemplates.push(template)
+        if ((template[0] as { role?: string } | undefined)?.role === 'appMenu') applicationMenuTemplates.push(template)
+        else menuTemplates.push(template)
         return {}
       }),
+      setApplicationMenu: vi.fn(),
     },
     menuTemplates,
+    applicationMenuTemplates,
     nativeImage: { createFromPath },
     nativeTheme,
     net: { fetch: vi.fn() },
@@ -303,6 +310,7 @@ describe('Electron compatibility runtime', () => {
     electron.browserWindows.length = 0
     electron.trays.length = 0
     electron.menuTemplates.length = 0
+    electron.applicationMenuTemplates.length = 0
     electron.notifications.length = 0
     childProcess.reset()
     vi.clearAllMocks()
@@ -447,6 +455,51 @@ describe('Electron compatibility runtime', () => {
     const rebuilt = (electron.menuTemplates.at(-1) as Item[]).find(candidate => candidate.label === 'Askbar edge')
     expect(rebuilt?.submenu?.find(candidate => candidate.label === 'Right')?.checked).toBe(true)
 
+    await release()
+  })
+
+  it('opens a second window from File > New Window and the tray, and carries it through a collapse', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+    await runtime.mountScheduled()
+
+    type Item = { label?: string, role?: string, accelerator?: string, click?: () => void, submenu?: Item[] }
+    expect(electron.Menu.setApplicationMenu).toHaveBeenCalledOnce()
+    const fileMenu = (electron.applicationMenuTemplates[0] as Item[]).find(candidate => candidate.label === 'File')
+    expect(fileMenu?.submenu).toEqual([
+      expect.objectContaining({ label: 'New Window', accelerator: 'CmdOrCtrl+N' }),
+      { type: 'separator' },
+      { role: 'close' },
+    ])
+    expect((electron.menuTemplates[0] as Item[]).map(candidate => candidate.label)).toContain('New Window')
+
+    const first = electron.browserWindows[0]!
+    first.visible = true
+    fileMenu?.submenu?.[0]?.click?.()
+    expect(electron.browserWindows).toHaveLength(2)
+    const second = electron.browserWindows[1]!
+    // Stepped off the window in front, on the same harness page.
+    expect(second.setBounds).toHaveBeenCalledWith({ x: 128, y: 108, width: 1280, height: 840 })
+    expect(electron.loadURL).toHaveBeenLastCalledWith(spec.url)
+    const secondOnce = second.once.mock.calls as Array<[string, () => void]>
+    secondOnce.find(([event]) => event === 'ready-to-show')?.[1]()
+    expect(second.isVisible()).toBe(true)
+
+    // A collapse takes the second window with the first; the expand returns it.
+    runtime.collapseToBar()
+    expect(second.hide).toHaveBeenCalledOnce()
+    runtime.expandFromBar()
+    expect(second.showInactive).toHaveBeenCalledOnce()
+
+    // A closed window is forgotten: the next collapse leaves it alone. Its
+    // webContents is destroyed by then, so the handler must not reach for it.
+    const released = electron.webContents.off.mock.calls.length
+    secondOnce.find(([event]) => event === 'closed')?.[1]()
+    expect(electron.webContents.off.mock.calls).toHaveLength(released)
+    runtime.collapseToBar()
+    expect(second.hide).toHaveBeenCalledOnce()
     await release()
   })
 
@@ -955,7 +1008,7 @@ describe('Electron compatibility runtime', () => {
 
     const labels = (electron.menuTemplates.at(-1) as Array<{ label?: string }>).map(item => item.label)
     expect(labels).toEqual([
-      'Open DSH Desktop', undefined,
+      'Open DSH Desktop', 'New Window', undefined,
       'Earlier Tool', 'Later Tool', undefined,
       'Check for Updates…', undefined,
       'Collapse to Askbar', 'Askbar edge', 'Window Mode', undefined,

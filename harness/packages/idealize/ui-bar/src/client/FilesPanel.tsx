@@ -38,6 +38,7 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BarKey } from './locales.ts'
 import type { RevealRequest } from './bar-store.ts'
 import { BarIconBrowse, BarIconFilePlus, BarIconFolderPlus, BarIconRefresh } from './BarIcons.tsx'
+import { SessionFilesToggle } from './SessionFilesToggle.tsx'
 import css from './FilesPanel.module.css'
 
 /** The bar namespace's bound translate seat, passed down as a plain prop. */
@@ -1188,6 +1189,7 @@ export function FilesPanel({
         </div>
       )}
       <div className={css.tree}>{treeBody}</div>
+      {(activeView === 'documentation' || activeView === 'projectDocs') && <SessionFilesToggle t={t} />}
       {status !== null && (
         <div className={css.status} data-level={status.level} role="status">{status.text}</div>
       )}

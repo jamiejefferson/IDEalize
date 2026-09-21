@@ -565,6 +565,14 @@ export function InputBar({
     }
     const onDragOver = (event: globalThis.DragEvent): void => {
       if (!hasFiles(event) || event.dataTransfer === null) return
+      // A surface under the pointer that takes file drops itself (the terminal
+      // types the path) has already claimed this event on its way up. The
+      // invitation is not true there, so it steps aside until the drag moves on.
+      if (event.defaultPrevented) {
+        setDragActive(false)
+        return
+      }
+      if (dragDepthRef.current > 0) setDragActive(true)
       event.preventDefault()
       event.dataTransfer.dropEffect = canAcceptDrop ? 'copy' : 'none'
     }
@@ -589,12 +597,17 @@ export function InputBar({
     document.addEventListener('dragover', onDragOver)
     document.addEventListener('dragleave', onDragLeave)
     document.addEventListener('drop', onDrop)
+    // Captured, so the overlay clears even when the surface that takes the
+    // drop stops the event: a file drag from outside the page fires no dragend,
+    // and the overlay stayed up over the app (JJ, 21 Sep 2026).
+    document.addEventListener('drop', reset, true)
     window.addEventListener('dragend', reset)
     return () => {
       document.removeEventListener('dragenter', onDragEnter)
       document.removeEventListener('dragover', onDragOver)
       document.removeEventListener('dragleave', onDragLeave)
       document.removeEventListener('drop', onDrop)
+      document.removeEventListener('drop', reset, true)
       window.removeEventListener('dragend', reset)
     }
   }, [canAcceptDrop, intakeImages])

@@ -110,6 +110,9 @@
 # it on loopback while a file is open, with no key; the plugin starts without
 # it and keeps trying every minute, so the tools appear once Paper is opened
 # (JJ, 8 Sep 2026: "bake in the ability for any agent to use the paper mcp").
+# A machine without Paper retries for good: the client warns once when the
+# outage starts and logs the retries after it at debug, so they stay out of
+# the error log (PC test drive, 18 Sep 2026).
 - insert:
     - id: idealize-mcp-paper
       name: '@deepseek-ai/dsh-mcp-client'
@@ -215,6 +218,12 @@
 - insert:
     - id: idealize-models
       name: '@idealize/models'
+
+# The model router: reads each chat message for the work it asks for and moves
+# the turn to a clearly better connected model. Settings live in Brains > Router.
+- insert:
+    - id: idealize-router
+      name: '@idealize/router'
 
 # The toggle bar (V0's icon bar rebuilt): files panel, model/calendar/hatch/
 # feedback panels, theme cycle, desktop terminal, plus the composer heart.

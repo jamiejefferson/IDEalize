@@ -82,14 +82,16 @@ function sleep(ms: number): Promise<void> {
 }
 
 /** Capture the supervisor's logger lines by level on one context. */
-function captureLogs(ctx: Context): { warns: string[]; errors: string[]; infos: string[] } {
+function captureLogs(ctx: Context): { warns: string[]; errors: string[]; infos: string[]; debugs: string[] } {
+  const debugs: string[] = []
   const warns: string[] = []
   const errors: string[] = []
   const infos: string[] = []
   ctx.logger.warn = ((message: unknown) => { warns.push(String(message)) }) as typeof ctx.logger.warn
   ctx.logger.error = ((message: unknown) => { errors.push(String(message)) }) as typeof ctx.logger.error
   ctx.logger.info = ((message: unknown) => { infos.push(String(message)) }) as typeof ctx.logger.info
-  return { warns, errors, infos }
+  ctx.logger.debug = ((message: unknown) => { debugs.push(String(message)) }) as typeof ctx.logger.debug
+  return { warns, errors, infos, debugs }
 }
 
 function stdioConfig(reconnect?: Config['reconnect']): Config {
@@ -171,7 +173,7 @@ describe('reconnect supervisor', () => {
   })
 
   it('stops at the failure cap, unregisters the tools, and reports final failure', async () => {
-    const { warns, errors } = captureLogs(ctx)
+    const { warns, errors, debugs } = captureLogs(ctx)
     await apply(ctx, stdioConfig({ initialDelayMs: 2, maxDelayMs: 8, maxAttempts: 2 }))
     await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
 
@@ -191,7 +193,13 @@ describe('reconnect supervisor', () => {
     // Initial connect + exactly maxAttempts reconnect attempts.
     expect(mockConnect).toHaveBeenCalledTimes(3)
     expect(warns.some(line => line.includes('connection attempt failed: Error: server gone'))).toBe(true)
-    expect(warns.some(line => line.includes('connection failed; retrying in 4ms (attempt 2/2)'))).toBe(true)
+    // The outage warns once per kind of line; its repeats log at debug, so a
+    // server that never comes back cannot fill the log (PC test drive, 18 Sep 2026).
+    expect(warns.filter(line => line.includes('connection attempt failed'))).toHaveLength(1)
+    expect(warns.filter(line => /reconnecting in|retrying in/.test(line))).toHaveLength(1)
+    expect(warns.some(line => line.includes('further failed attempts in this outage log at debug level'))).toBe(true)
+    expect(debugs.some(line => line.includes('connection failed; retrying in 4ms (attempt 2/2)'))).toBe(true)
+    expect(debugs.some(line => line.includes('connection attempt failed: Error: server gone'))).toBe(true)
     await sleep(30)
     expect(mockConnect).toHaveBeenCalledTimes(3)
   })

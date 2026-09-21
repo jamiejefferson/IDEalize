@@ -9,6 +9,8 @@
  * sends the folder to the app over the `idealize://` scheme. Installing it is
  * the app's job rather than an installer's, because the app is copied into
  * /Applications by hand and there is no installer to do it.
+ * Windows does have an installer, so Explorer's entry of the same name is
+ * written by `build/installer.nsh` (PC test drive, 18 Sep 2026).
  *
  * The bundle is rewritten whenever the shipped text differs from what is on
  * disk, so a change here reaches an existing install on its next launch.

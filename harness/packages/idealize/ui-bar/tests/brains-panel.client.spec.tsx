@@ -585,6 +585,21 @@ describe('BrainsPanel', () => {
     expect(chatModel.options.length).toBeGreaterThan(galleryCount)
   })
 
+  // PC test drive, 18 Sep 2026: on a short window the whole sheet scrolled and
+  // Save brain sat below the fold. Every field now sits in the one scrolling
+  // body, and the actions sit outside it, as the sheet's last child.
+  it('keeps the sheet\'s actions outside the region that scrolls', async () => {
+    const view = await mount()
+    fireEvent.click(within(group(view, 'chat')).getByRole('button', { name: 'Add a brain' }))
+    const sheet = view.getByRole('form', { name: 'Edit brain' })
+    const body = sheet.querySelector('[data-brains-sheet-body]') as HTMLElement
+    expect([...sheet.querySelectorAll('[data-brains-field]')].every(field => body.contains(field))).toBe(true)
+    const save = within(sheet).getByRole('button', { name: 'Save brain' })
+    expect(body.contains(save)).toBe(false)
+    expect(sheet.lastElementChild?.contains(save)).toBe(true)
+    expect(sheet.lastElementChild?.contains(within(sheet).getByRole('button', { name: 'Cancel' }))).toBe(true)
+  })
+
   it('persists the chosen space, and the space model, when a new brain is saved', async () => {
     const view = await mount()
     fireEvent.click(within(group(view, 'gallery')).getByRole('button', { name: 'Add a brain' }))
@@ -614,9 +629,11 @@ describe('BrainsPanel', () => {
     expect(name.value).toBe('Coding')
     // An edited brain arrives with its own spaces checked, so saving cannot
     // silently drop it out of a group.
-    expect([...sheet.querySelectorAll('input[type="checkbox"]')]
+    expect([...sheet.querySelectorAll('[data-brains-field="spaces"] input[type="checkbox"]')]
       .filter(box => (box as HTMLInputElement).checked)
       .map(box => (box.parentElement?.textContent ?? '').trim())).toEqual(['Chat', 'Terminal'])
+    // A chat brain is routed until its sheet says otherwise.
+    expect((sheet.querySelector('[data-brains-field="routed"] input') as HTMLInputElement).checked).toBe(true)
     expect(sheet.querySelector('[data-brains-add-space]')).toBeNull()
     fireEvent.change(name, { target: { value: 'Code' } })
     fireEvent.change(sheet.querySelector('[data-brains-model]')!, { target: { value: 'openai-codex gpt-5.5' } })

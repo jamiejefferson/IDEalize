@@ -8,12 +8,19 @@ import {
   shell,
   Tray,
 } from 'electron'
+import { applicationMenuTemplate } from './application-menu.ts'
 import { formatDesktopExitCode } from './desktop-logger.ts'
 import type { ElectronPlatformStrategy } from './electron-platform.ts'
-import type { DesktopShellSpec } from './runtime.ts'
+import type { DesktopLocale, DesktopShellSpec } from './runtime.ts'
 import { prepareTrayIcon } from './tray-icons.ts'
+import { desktopTrayLabel } from './tray-locale.ts'
 import { desktopWindowOptions } from './window-options.ts'
 import type { DockRectangle } from './askbar-window.ts'
+
+/** Where the File and Help menus send a reader: the product's site. */
+const WEBSITE_URL = 'https://idealize.projject.ai'
+/** How far a new window opens from the one in front, so both title bars show. */
+const NEW_WINDOW_OFFSET = 28
 
 const MIN_ZOOM_LEVEL = -4
 const MAX_ZOOM_LEVEL = 4
@@ -33,6 +40,7 @@ function isZoomShortcut(input: Electron.Input): 'in' | 'out' | 'reset' | undefin
 export interface ElectronShellGenerationOptions {
   readonly platform: ElectronPlatformStrategy
   readonly spec: DesktopShellSpec
+  readonly locale: DesktopLocale
   readonly preloadPath: string
   readonly isQuitting: () => boolean
   readonly buildTrayTemplate: () => Electron.MenuItemConstructorOptions[]
@@ -44,6 +52,10 @@ export interface ElectronShellGenerationOptions {
 /** Own one BrowserWindow and Tray generation, including every native listener. */
 export class ElectronShellGeneration {
   private window: BrowserWindow | undefined
+  /** Windows opened through New Window. They close for real; the first window hides. */
+  private readonly extraWindows = new Set<BrowserWindow>()
+  /** The extra windows a collapse hid, shown again by {@link expandRestored}. */
+  private collapsedExtraWindows: BrowserWindow[] = []
   /** The frame the collapse transform left; consumed by {@link expandRestored}. */
   private preCollapseFrame: DockRectangle | undefined
   /** Whether the window was in macOS full screen when it collapsed; restored by {@link expandRestored}. */
@@ -79,6 +91,67 @@ export class ElectronShellGeneration {
       event.preventDefault()
       window.hide()
     }
+    const rendererGone = (_event: Electron.Event, details: Electron.RenderProcessGoneDetails): void => {
+      const detail = `renderer process gone (reason: ${details.reason}, exitCode: ${formatDesktopExitCode(details.exitCode)})`
+      this.options.logError(`dsh-plugin-desktop: ${detail}`)
+      this.options.failRendererBoot(detail)
+    }
+    const loadFailed = (
+      _event: Electron.Event,
+      errorCode: number,
+      errorDescription: string,
+      _validatedUrl: string,
+      isMainFrame: boolean,
+    ): void => {
+      this.options.logError(`dsh-plugin-desktop: renderer failed to load (${errorCode}: ${errorDescription})`)
+      if (isMainFrame === true && errorCode !== -3) {
+        this.options.failRendererBoot(
+          `renderer main frame failed to load (${String(errorCode)}: ${errorDescription})`,
+        )
+      }
+    }
+
+    app.on('activate', show)
+    window.on('close', close)
+    const releaseGuards = this.guardWindow(window, origin)
+    window.webContents.on('render-process-gone', rendererGone)
+    window.webContents.on('did-fail-load', loadFailed)
+    window.once('ready-to-show', show)
+    let tray: Tray | undefined
+    this.cleanupListeners = () => {
+      app.off('activate', show)
+      window.off('close', close)
+      releaseGuards()
+      window.off('ready-to-show', show)
+      window.webContents.off('render-process-gone', rendererGone)
+      window.webContents.off('did-fail-load', loadFailed)
+      tray?.off('click', show)
+    }
+
+    try {
+      await window.loadURL(spec.url)
+      tray = new Tray(prepareTrayIcon(spec.trayIcons, platform.platform))
+      this.tray = tray
+      tray.setToolTip(spec.productName)
+      this.refreshTrayMenu()
+      tray.on('click', show)
+      this.installApplicationMenu()
+      beforeInteractive?.()
+      this.mounted = true
+    } catch (cause) {
+      await this.release()
+      throw cause
+    }
+  }
+
+  /**
+   * The rules every app window holds: a blank title, the zoom chords, no
+   * navigation off the harness origin, and outside links handed to the OS.
+   * @param window - the window to guard.
+   * @param origin - the harness origin the window may stay on.
+   * @returns the release for the listeners this added.
+   */
+  private guardWindow(window: BrowserWindow, origin: string): () => void {
     const preserveBlankTitle = (event: Electron.Event): void => { event.preventDefault() }
     const handleZoomShortcut = (event: Electron.Event, input: Electron.Input): void => {
       const action = isZoomShortcut(input)
@@ -116,34 +189,10 @@ export class ElectronShellGeneration {
       }
       if (targetOrigin !== origin) event.preventDefault()
     }
-    const rendererGone = (_event: Electron.Event, details: Electron.RenderProcessGoneDetails): void => {
-      const detail = `renderer process gone (reason: ${details.reason}, exitCode: ${formatDesktopExitCode(details.exitCode)})`
-      this.options.logError(`dsh-plugin-desktop: ${detail}`)
-      this.options.failRendererBoot(detail)
-    }
-    const loadFailed = (
-      _event: Electron.Event,
-      errorCode: number,
-      errorDescription: string,
-      _validatedUrl: string,
-      isMainFrame: boolean,
-    ): void => {
-      this.options.logError(`dsh-plugin-desktop: renderer failed to load (${errorCode}: ${errorDescription})`)
-      if (isMainFrame === true && errorCode !== -3) {
-        this.options.failRendererBoot(
-          `renderer main frame failed to load (${String(errorCode)}: ${errorDescription})`,
-        )
-      }
-    }
-
-    app.on('activate', show)
-    window.on('close', close)
     window.on('page-title-updated', preserveBlankTitle)
     window.webContents.on('before-input-event', handleZoomShortcut)
     window.webContents.on('will-frame-navigate', navigate)
     window.webContents.on('will-redirect', redirect)
-    window.webContents.on('render-process-gone', rendererGone)
-    window.webContents.on('did-fail-load', loadFailed)
     window.webContents.setWindowOpenHandler(({ url }) => {
       try {
         const target = new URL(url)
@@ -157,34 +206,65 @@ export class ElectronShellGeneration {
       }
       return { action: 'deny' }
     })
-    window.once('ready-to-show', show)
-    let tray: Tray | undefined
-    this.cleanupListeners = () => {
-      app.off('activate', show)
-      window.off('close', close)
+    return () => {
       window.off('page-title-updated', preserveBlankTitle)
-      window.off('ready-to-show', show)
       window.webContents.off('before-input-event', handleZoomShortcut)
       window.webContents.off('will-frame-navigate', navigate)
       window.webContents.off('will-redirect', redirect)
-      window.webContents.off('render-process-gone', rendererGone)
-      window.webContents.off('did-fail-load', loadFailed)
-      tray?.off('click', show)
     }
+  }
 
-    try {
-      await window.loadURL(spec.url)
-      tray = new Tray(prepareTrayIcon(spec.trayIcons, platform.platform))
-      this.tray = tray
-      tray.setToolTip(spec.productName)
-      this.refreshTrayMenu()
-      tray.on('click', show)
-      beforeInteractive?.()
-      this.mounted = true
-    } catch (cause) {
-      await this.release()
-      throw cause
+  /** The menu bar is a macOS surface; the other platforms' windows carry none. */
+  private installApplicationMenu(): void {
+    if (this.options.platform.platform !== 'darwin') return
+    const { locale } = this.options
+    Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate({
+      fileLabel: desktopTrayLabel(locale, 'fileMenu'),
+      newWindowLabel: desktopTrayLabel(locale, 'newWindow'),
+      websiteLabel: desktopTrayLabel(locale, 'website'),
+      openNewWindow: () => { this.openWindow() },
+      openWebsite: () => {
+        void shell.openExternal(WEBSITE_URL).catch((cause: unknown) => {
+          this.options.logError(`dsh-plugin-desktop: failed to open the website: ${cause instanceof Error ? cause.message : String(cause)}`)
+        })
+      },
+    })))
+  }
+
+  /**
+   * Open another window on the same harness page. Each window is a second
+   * view of one running app, as two browser tabs would be: chats, terminals
+   * and layout come from the harness, so nothing is copied or restarted.
+   * It opens stepped off the window in front and closes for real; the first
+   * window stays the one the dock, the tray and the Askbar bring back.
+   */
+  openWindow(): void {
+    const first = this.window
+    if (!this.mounted || first === undefined || first.isDestroyed()) return
+    const { platform, spec } = this.options
+    const icon = nativeImage.createFromPath(spec.iconPath)
+    const window = new BrowserWindow(desktopWindowOptions(spec, icon, platform.platform, this.options.preloadPath))
+    window.accessibleTitle = spec.windowTitle
+    platform.configureWindow(window)
+    const front = BrowserWindow.getFocusedWindow() ?? first
+    if (!front.isDestroyed() && front.isVisible() && !front.isFullScreen()) {
+      const frame = front.getBounds()
+      window.setBounds({ ...frame, x: frame.x + NEW_WINDOW_OFFSET, y: frame.y + NEW_WINDOW_OFFSET })
     }
+    // The guards go with the window: by `closed` its webContents is destroyed
+    // and touching it throws, which took the whole app down with the window.
+    this.guardWindow(window, new URL(spec.url).origin)
+    this.extraWindows.add(window)
+    window.once('ready-to-show', () => {
+      if (window.isDestroyed()) return
+      window.show()
+      window.focus()
+    })
+    window.once('closed', () => { this.extraWindows.delete(window) })
+    void window.loadURL(spec.url).catch((cause: unknown) => {
+      this.options.logError(`dsh-plugin-desktop: a new window failed to load: ${cause instanceof Error ? cause.message : String(cause)}`)
+      if (!window.isDestroyed()) window.destroy()
+    })
   }
 
   show(): void {
@@ -198,7 +278,8 @@ export class ElectronShellGeneration {
   /** Whether the app window is on screen: the transform toggle's answer. */
   isWindowVisible(): boolean {
     const window = this.window
-    return window !== undefined && !window.isDestroyed() && window.isVisible()
+    if (window !== undefined && !window.isDestroyed() && window.isVisible()) return true
+    return [...this.extraWindows].some(extra => !extra.isDestroyed() && extra.isVisible())
   }
 
   /**
@@ -213,7 +294,18 @@ export class ElectronShellGeneration {
    */
   collapseToward(target: DockRectangle | undefined, ms: number, afterHide?: () => void): void {
     const window = this.window
-    if (window === undefined || window.isDestroyed() || !window.isVisible()) return
+    // The windows New Window opened leave with the first one and come back
+    // with it; only the first window glides.
+    const extras = [...this.extraWindows].filter(extra => !extra.isDestroyed() && extra.isVisible())
+    for (const extra of extras) {
+      if (extra.isFullScreen()) extra.setFullScreen(false)
+      extra.hide()
+    }
+    this.collapsedExtraWindows.push(...extras)
+    if (window === undefined || window.isDestroyed() || !window.isVisible()) {
+      if (extras.length > 0) afterHide?.()
+      return
+    }
     // A window hidden while in macOS full screen leaves its empty space on
     // screen: the bar over a black desktop (JJ, 16 Sep 2026: "minimode
     // launched on a full black screen"). Leave full screen first and glide
@@ -262,6 +354,9 @@ export class ElectronShellGeneration {
     // position on every show, shoving it off the restored frame; pinning
     // the frame again after the show wins deterministically.
     if (frame !== undefined && !window.isDestroyed()) window.setBounds(frame)
+    const extras = this.collapsedExtraWindows
+    this.collapsedExtraWindows = []
+    for (const extra of extras) if (!extra.isDestroyed()) extra.showInactive()
   }
 
   async showOpenDialog(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
@@ -296,6 +391,9 @@ export class ElectronShellGeneration {
     const tray = this.tray
     this.window = undefined
     this.tray = undefined
+    for (const extra of this.extraWindows) if (!extra.isDestroyed()) extra.destroy()
+    this.extraWindows.clear()
+    this.collapsedExtraWindows = []
     if (window === undefined) return
 
     this.cleanupListeners?.()

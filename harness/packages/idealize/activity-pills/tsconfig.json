@@ -63,6 +63,9 @@
       "path": "../gen-tools"
     },
     {
+      "path": "../router"
+    },
+    {
       "path": "../spaces"
     }
   ]

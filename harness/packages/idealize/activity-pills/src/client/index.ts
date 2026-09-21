@@ -25,8 +25,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SpaceId, SpaceRosterEntry } from '@idealize/spaces/client'
 import type {} from '@idealize/spaces/client'
 import { ActivityPillsController, type ActivityAvailabilityMap, type ActivityPillsFace, type PillSessionSummary } from './pills-store.ts'
-import type { BrainSwitcherInjected } from './BrainSwitcher.tsx'
 import { ComposerOverflow } from './ComposerOverflow.tsx'
+import type { ComposerBlockSource, ComposerOverflowInjected } from './ComposerOverflow.tsx'
 import {
   BrainSwitcherController,
   type BrainAgent, type BrainSessionSummary, type TerminalLaunchTable,
@@ -35,7 +35,7 @@ import { en, zh, type ActivityKey } from './locales.ts'
 
 export { BrainSwitcher, brainMeta } from './BrainSwitcher.tsx'
 export { ComposerOverflow } from './ComposerOverflow.tsx'
-export type { ComposerOverflowProps } from './ComposerOverflow.tsx'
+export type { ComposerBlockSource, ComposerOverflowInjected, ComposerOverflowProps } from './ComposerOverflow.tsx'
 export type { BrainSwitcherInjected, BrainSwitcherProps } from './BrainSwitcher.tsx'
 export { BrainSwitcherController, composeBrains, launchOf } from './brain-switcher.ts'
 export type {
@@ -96,6 +96,12 @@ interface TerminalModeLike {
 /** The tool rail's pane service face (restated; `@idealize/ui-bar` owns it). */
 interface IdealizeBarLike {
   addBrain(space: SpaceId): void
+  show(panel: 'models'): void
+}
+
+/** The conversation service's composer blocks (restated; ui-conversation owns it). */
+interface ConversationBlocksLike {
+  blocks: { storeFor(sessionId: SessionId): ComposerBlockSource }
 }
 
 /** Required services. */
@@ -253,11 +259,38 @@ export function apply(ctx: ClientContext): void {
     },
   )
 
-  const brainInjected = (): BrainSwitcherInjected => ({
+  /** `@idealize/router`'s mutating routes; a shell without the router answers 404 and the row changes nothing. */
+  const routerPost = async (path: string, body: unknown): Promise<void> => {
+    await fetch(path, { method: 'POST', headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => undefined)
+  }
+
+  const brainInjected = (): ComposerOverflowInjected => ({
     hooks: { brainSwitcher: brains.store },
     load: (session: BrainSessionSummary) => brains.load(session),
     select: (brainId: string, session: BrainSessionSummary) => brains.select(brainId, session),
-    ...bar() === undefined ? {} : { addBrain: (space: SpaceId) => { bar()?.addBrain(space) } },
+    ...bar() === undefined
+      ? {}
+      : {
+        addBrain: (space: SpaceId) => { bar()?.addBrain(space) },
+        openBrains: () => { bar()?.show('models') },
+      },
+    router: {
+      lock: async (sessionId, locked) => { await routerPost('/idealize/router/lock', { sessionId, locked }) },
+      back: async (sessionId, to) => {
+        await api.sessions.selectModel({ sessionId: sessionId as never, provider: to.provider, model: to.model })
+        await routerPost('/idealize/router/reset', { sessionId })
+        await routerPost('/idealize/router/lock', { sessionId, locked: true })
+      },
+      accept: async (sessionId, to) => {
+        await api.sessions.selectModel({ sessionId: sessionId as never, provider: to.provider, model: to.model })
+        await routerPost('/idealize/router/reset', { sessionId })
+      },
+    },
+    // Read through ctx.get, as the probes above are: the block only unlocks
+    // the control, so a shell without the conversation service loses nothing.
+    composerBlock: (sessionId: SessionId) =>
+      ((ctx as unknown as { get(name: string): unknown }).get('conversation') as ConversationBlocksLike | undefined)
+        ?.blocks.storeFor(sessionId),
   })
 
   // The access seat, not the model seat: the brain choice and the project's

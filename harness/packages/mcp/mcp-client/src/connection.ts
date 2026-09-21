@@ -148,6 +148,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   let connectedAt: number | undefined
   /** The real error from the first connection attempt, for startup-await diagnostics. */
   let firstAttemptError: unknown
+  /** Whether the current outage has already warned with an attempt's real error; cleared by a connection. */
+  let outageErrorWarned = false
 
   /** A generation may act only while it is the current one on a live plugin. */
   const isCurrent = (generation: Client): boolean => !disposed && client === generation
@@ -215,7 +217,14 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     }
     const delayMs = Math.min(policy.maxDelayMs, policy.initialDelayMs * 2 ** (failedAttempts - 1))
     const action = lostEstablishedConnection ? 'connection lost; reconnecting' : 'connection failed; retrying'
-    ctx.logger.warn(`${label}: ${action} in ${delayMs}ms (attempt ${failedAttempts}/${policy.maxAttempts})`)
+    // An outage warns once, when it starts. A server that is simply not
+    // running (Paper closed, or not installed) is retried for as long as the
+    // budget allows, and two warnings a minute buried every real error in the
+    // log (PC test drive, 18 Sep 2026). The retries that follow log at debug;
+    // the outage's end is still reported, by the reconnect line or the give-up.
+    const line = `${label}: ${action} in ${delayMs}ms (attempt ${failedAttempts}/${policy.maxAttempts})`
+    if (failedAttempts === 1) ctx.logger.warn(`${line}; further failed attempts in this outage log at debug level`)
+    else ctx.logger.debug(line)
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined
       settling = connectGeneration(false)
@@ -279,8 +288,14 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     } catch (error) {
       if (firstAttemptError === undefined) firstAttemptError = error
       // Disposal clears current ownership before it closes the generation, so
-      // only a live supervisor reports an attempt failure.
-      if (isCurrent(generation)) ctx.logger.warn(`${label}: connection attempt failed: ${String(error)}`)
+      // only a live supervisor reports an attempt failure. The outage's first
+      // failed attempt warns with the real error; its repeats log at debug.
+      if (isCurrent(generation)) {
+        const line = `${label}: connection attempt failed: ${String(error)}`
+        if (outageErrorWarned) ctx.logger.debug(line)
+        else ctx.logger.warn(line)
+        outageErrorWarned = true
+      }
       try { await generation.close() } catch { /* transport already gone */ }
       const quiesced = hasClosed() || await waitForClose(closed.promise)
       attemptSettled = true
@@ -301,6 +316,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     }
     if (!isCurrent(generation)) return
     connectedAt = Date.now()
+    outageErrorWarned = false
     if (failedAttempts > 0) ctx.logger.info(`${label}: reconnected and re-synced tools (attempt ${failedAttempts}/${policy.maxAttempts})`)
   }
 

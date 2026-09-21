@@ -5026,6 +5026,9 @@ importers:
       '@idealize/gen-tools':
         specifier: workspace:^
         version: link:../gen-tools
+      '@idealize/router':
+        specifier: workspace:^
+        version: link:../router
       '@idealize/spaces':
         specifier: workspace:^
         version: link:../spaces
@@ -5299,6 +5302,9 @@ importers:
       '@idealize/provider-pack':
         specifier: workspace:^
         version: link:../provider-pack
+      '@idealize/router':
+        specifier: workspace:^
+        version: link:../router
       '@idealize/services':
         specifier: workspace:^
         version: link:../services
@@ -5982,6 +5988,55 @@ importers:
       '@earendil-works/pi-ai':
         specifier: ^0.85.1
         version: 0.85.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+    devDependencies:
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+
+  packages/idealize/router:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-credentials':
+        specifier: workspace:^
+        version: link:../../credentials/credentials
+      '@deepseek-ai/dsh-home-paths':
+        specifier: workspace:^
+        version: link:../../util/home-paths
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../../host/webserver
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session/session-projection
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:^
+        version: link:../../settings/settings
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      '@idealize/models':
+        specifier: workspace:^
+        version: link:../models
+      '@idealize/services':
+        specifier: workspace:^
+        version: link:../services
+      '@idealize/spaces':
+        specifier: workspace:^
+        version: link:../spaces
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^

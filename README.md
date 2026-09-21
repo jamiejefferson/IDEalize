@@ -1,24 +1,29 @@
 <h1 align="center">IDEalize V1</h1>
 
 <p align="center">
-  <strong>The agent-directing desktop app for designers, for macOS.</strong><br>
+  <strong>The agent-directing desktop app for designers, for macOS and Windows.</strong><br>
   Open a project folder, pick a space and a brain, and direct the work from one window.
 </p>
 
 <p align="center"><sub>A fork of <a href="https://github.com/anywhere-labs/deepseek-harness-desktop">DeepSeek Harness Desktop</a> over the <a href="https://github.com/jamiejefferson/IDEalize/tree/main/harness">IDEalize harness</a>. Not affiliated with DeepSeek.</sub></p>
 
 <p align="center">
-  <a href="https://github.com/jamiejefferson/IDEalize/releases/latest"><img src="https://img.shields.io/github/v/release/jamiejefferson/IDEalize?style=flat&amp;label=release&amp;color=FF5436" alt="Latest release"></a>
-  <a href="https://github.com/jamiejefferson/IDEalize/releases"><img src="https://img.shields.io/github/downloads/jamiejefferson/IDEalize/total?style=flat&amp;label=downloads&amp;color=FF5436" alt="Total downloads"></a>
+  <a href="https://idealize.projject.ai"><img src="https://img.shields.io/github/v/release/jamiejefferson/IDEalize?style=flat&amp;label=release&amp;color=FF5436" alt="Latest release"></a>
+  <a href="https://idealize.projject.ai"><img src="https://img.shields.io/github/downloads/jamiejefferson/IDEalize/total?style=flat&amp;label=downloads&amp;color=FF5436" alt="Total downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/macOS-4493F8?style=flat-square" alt="Supported platform: macOS">
+  <img src="https://img.shields.io/badge/Windows_x64-4493F8?style=flat-square" alt="Supported platform: Windows x64">
 </p>
 
-IDEalize V1 packages the IDEalize harness (its plugin Host, web client and every `@idealize/*` plugin) into a native macOS application: the window, tray, Askbar, terminal, updates and work profiles come from this repository; the harness runs unchanged from vendored tarballs under `vendor/idealize/`.
+IDEalize V1 packages the IDEalize harness (its plugin Host, web client and every `@idealize/*` plugin) into a native desktop application for macOS and Windows x64: the window, tray, Askbar, terminal, updates and work profiles come from this repository; the harness runs unchanged from vendored tarballs under `vendor/idealize/`.
 
 <a id="run"></a>
 
 ## Download and install
+
+Download the installer for your platform from [idealize.projject.ai](https://idealize.projject.ai). The [FAQ](docs/faq.md#which-operating-systems-are-supported) lists the supported platforms.
+
+### macOS
 
 Run this once in Terminal, and again any time to update:
 
@@ -26,13 +31,19 @@ Run this once in Terminal, and again any time to update:
 curl -fsSL https://raw.githubusercontent.com/jamiejefferson/IDEalize/main/install.sh | bash
 ```
 
-Or download the DMG from the [latest release](https://github.com/jamiejefferson/IDEalize/releases/latest), drag `IDEalize V1.app` into Applications, then run this once so macOS opens it (the build is self-signed, not notarised):
+Or open the DMG and drag `IDEalize V1.app` into Applications. The build is self-signed and has no Apple notarisation, so run this once and macOS will open it:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/IDEalize V1.app"
 ```
 
-The app checks that release for updates itself. On Windows, download `IDEalize-V1-Setup.exe` from the same release and run it; the installer is unsigned, so SmartScreen shows "Windows protected your PC": choose **More info**, then **Run anyway**. The site is [idealize.projject.ai](https://idealize.projject.ai).
+### Windows
+
+Run `IDEalize-V1-Setup.exe`. The installer is unsigned, so SmartScreen shows "Windows protected your PC": choose **More info**, then **Run anyway**. The default installs for your user account and needs no administrator password. The installer also adds **Idealize this** to the right-click menu of every folder, which opens that folder as a project; Windows 11 lists it under **Show more options**.
+
+### Updates
+
+On both platforms the app checks for a newer release itself and offers the download.
 
 ### Keys
 
@@ -145,8 +156,8 @@ The app consumes the harness through the tarballs in `vendor/idealize/` (one per
 
 ### What the shell adds
 
-- **The Askbar** — a slim always-on-top column at a screen edge, one chip per agent, that the main window collapses to and expands from: the sidebar's collapse button, the tray, or ⌃⌥A from anywhere (a global shortcut, so no IDEalize window needs focus). Rolling over a chip opens a panel to read the agent's latest exchanges and ask it something.
-- **Finder's "Idealize this"** — a Quick Action the app installs into `~/Library/Services` on each launch; right-click a folder in Finder to open it as a project.
+- **The Askbar** — a slim always-on-top column at a screen edge, one chip per agent, that the main window collapses to and expands from: the sidebar's collapse button, the tray, or Ctrl+Alt+A (⌃⌥A on a Mac) from anywhere (a global shortcut, so no IDEalize window needs focus). Rolling over a chip opens a panel to read the agent's latest exchanges and ask it something.
+- **"Idealize this"**: right-click a folder in Finder or Windows Explorer to open it as a project. On macOS the app installs a Quick Action into `~/Library/Services` on each launch. On Windows the installer registers the menu entry and the uninstaller removes it.
 - **Keys files** — double-click a `.idealizekeys` file and the keys it carries are connected at once (see [Keys](#keys)). See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute.
 
 ## Community

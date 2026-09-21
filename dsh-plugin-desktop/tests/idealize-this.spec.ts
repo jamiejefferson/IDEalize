@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseIdealizeUrl, requestFromArgv } from '../src/idealize-url.ts'
+import { parseIdealizeUrl, parseProjectSwitch, requestFromArgv } from '../src/idealize-url.ts'
 import { installFinderQuickAction, QUICK_ACTION_NAME } from '../src/finder-quick-action.ts'
 
 describe('the idealize:// scheme', () => {
@@ -33,6 +33,28 @@ describe('the idealize:// scheme', () => {
     expect(requestFromArgv(['/Applications/IDEalize V1.app/Contents/MacOS/IDEalize', 'idealize://project?path=%2Ftmp%2Fv']))
       .toEqual({ kind: 'open-project', path: '/tmp/v' })
     expect(requestFromArgv(['--user-data-dir=/tmp/scratch'])).toBeUndefined()
+  })
+})
+
+describe('the Explorer switch', () => {
+  it('reads the folder Explorer substituted for %V, characters a URL would have eaten included', () => {
+    expect(parseProjectSwitch('--idealize-project=C:\\Work\\Art & Design #2 100%25'))
+      .toEqual({ kind: 'open-project', path: 'C:\\Work\\Art & Design #2 100%25' })
+  })
+
+  it('restores the backslash a drive root loses to the closing quote', () => {
+    expect(parseProjectSwitch('--idealize-project=D:"')?.path).toBe('D:\\')
+  })
+
+  it('refuses a relative path, an empty one, and any other switch', () => {
+    expect(parseProjectSwitch('--idealize-project=Work\\Vault')).toBeUndefined()
+    expect(parseProjectSwitch('--idealize-project=')).toBeUndefined()
+    expect(parseProjectSwitch('--user-data-dir=C:\\scratch')).toBeUndefined()
+  })
+
+  it('is found among the arguments of a first launch and of a second instance', () => {
+    expect(requestFromArgv(['C:\\Programs\\IDEalize V1.exe', '--allow-file-access-from-files', '--idealize-project=C:\\Work\\Vault']))
+      .toEqual({ kind: 'open-project', path: 'C:\\Work\\Vault' })
   })
 })
 

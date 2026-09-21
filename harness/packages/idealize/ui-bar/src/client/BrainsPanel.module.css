@@ -406,6 +406,14 @@
   font-size: var(--idealize-type-small, 11.5px);
 }
 
+/* The flexibility slider's closing label: it follows the track, so it keeps a gap from the thumb at the far end. */
+.weightEnd {
+  flex: none;
+  margin-left: 12px;
+  font-size: var(--idealize-type-small, 11.5px);
+  white-space: nowrap;
+}
+
 .weightInput {
   flex: 1;
   min-width: 0;
@@ -482,6 +490,74 @@
 
 .fieldSelect {
   composes: fieldControl;
+}
+
+/* A native select's list is an OS window that Chromium sizes against the
+   screen. With 94 models it opened upwards from the middle of the sheet, over
+   the title bar and off the top of the display (PC test drive, 18 Sep 2026).
+   base-select draws the list in the page's top layer: anchored to the field,
+   flipped to the side with more room, and scrolling inside the window. A
+   browser without base-select ignores these rules and keeps the native list. */
+@supports (appearance: base-select) {
+  .fieldSelect,
+  .fieldSelect::picker(select) {
+    appearance: base-select;
+  }
+
+  .fieldSelect {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: default;
+  }
+
+  .fieldSelect::picker-icon {
+    margin-left: auto;
+    color: var(--dsw-alias-label-secondary, #66696d);
+  }
+
+  /* Menu card treatment from ui-primitives Menu (r12, 4px inset), as wide as
+     the field and at most 320px tall inside a 12px viewport clearance. */
+  .fieldSelect::picker(select) {
+    box-sizing: border-box;
+    margin: 4px 0;
+    padding: 4px;
+    max-block-size: min(320px, calc(100vh - 24px));
+    overflow-y: auto;
+    border: 1px solid var(--dsw-alias-border-l2, #c9cbce);
+    border-radius: 12px;
+    background: var(--dsw-specific-menu, var(--dsw-alias-bg-layer-1, #fff));
+    box-shadow: var(--dsw-shadow-lv3);
+    color: var(--dsw-alias-label-primary, #24292f);
+    font-size: var(--idealize-type-body, 12.5px);
+  }
+
+  .fieldSelect option {
+    min-height: 26px;
+    padding: 3px 7px;
+    border-radius: 5px;
+  }
+
+  .fieldSelect option:hover,
+  .fieldSelect option:focus-visible {
+    outline: none;
+    background: var(--dsw-alias-interactive-bg-hover, #eeeff0);
+  }
+
+  /* The provider rules (── name ──) head each group, smaller and greyer than
+     the model rows under them. */
+  .fieldSelect optgroup {
+    padding-top: 4px;
+    font-size: var(--idealize-type-small, 11.5px);
+    font-weight: 600;
+    color: var(--dsw-alias-label-secondary, #66696d);
+  }
+
+  .fieldSelect optgroup option {
+    font-size: var(--idealize-type-body, 12.5px);
+    font-weight: 400;
+    color: var(--dsw-alias-label-primary, #24292f);
+  }
 }
 
 .fieldInput {
@@ -712,14 +788,16 @@
   background: var(--dsw-alias-bg-mask-1);
 }
 
-/* Dialog treatment from ui-primitives Modal (r24 card). */
+/* Dialog treatment from ui-primitives Modal (r24 card). The sheet is bounded
+   by the pane and never scrolls as a whole: its body does, so the head and the
+   actions stay in view at any window height (PC test drive, 18 Sep 2026). */
 .sheet {
   display: flex;
   flex-direction: column;
   width: 100%;
   max-width: 372px;
   max-height: 100%;
-  overflow-y: auto;
+  overflow: hidden;
   border: 1px solid var(--dsw-alias-border-l2, #c9cbce);
   border-radius: 24px;
   background: var(--dsw-alias-bg-layer-1, #fff);
@@ -729,9 +807,20 @@
 }
 
 .sheetHead {
-  margin: 0 -16px 14px;
+  flex: none;
+  margin: 0 -16px;
   padding: 16px 16px 14px;
   border-bottom: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+}
+
+/* The one scrolling region of a sheet. It bleeds to the card's edges so the
+   scrollbar rides the card's side, clear of the fields. */
+.sheetBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -16px;
+  padding: 14px 16px 0;
 }
 
 .sheetTitle {
@@ -746,6 +835,7 @@
 }
 
 .sheetActions {
+  flex: none;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -769,8 +859,10 @@
   font-weight: 500;
 }
 
-/* The upstream provider page was built for the modal's wide column; let its layout wrap. */
+/* The upstream provider page was built for the modal's wide column; let its
+   layout wrap, and scroll it between the head and the pinned Done button. */
 .hosted {
+  composes: sheetBody;
   min-width: 0;
   padding-bottom: 12px;
 }

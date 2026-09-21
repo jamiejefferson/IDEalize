@@ -9,10 +9,11 @@
 #   scripts/land-local.sh          # lists chats active in the last 5 min, stops if any
 #   scripts/land-local.sh --yes    # swap regardless
 #   DRY_RUN=1 scripts/land-local.sh --yes   # walk the steps without quitting or copying
+#   DIST=/path/to/IDEalize\ V1.app scripts/land-local.sh   # swap in another bundle, such as a release download
 set -euo pipefail
 
 APP="/Applications/IDEalize V1.app"
-DIST="$(cd "$(dirname "$0")/.." && pwd)/dsh-plugin-desktop/dist/mac-arm64/IDEalize V1.app"
+DIST="${DIST:-$(cd "$(dirname "$0")/.." && pwd)/dsh-plugin-desktop/dist/mac-arm64/IDEalize V1.app}"
 SESSIONS="$HOME/Library/Application Support/IDEalize V1/harness/sessions"
 LOG="$HOME/Library/Logs/idealize-land-local.log"
 PROC="IDEalize V1.app/Contents/MacOS/IDEalize V1"

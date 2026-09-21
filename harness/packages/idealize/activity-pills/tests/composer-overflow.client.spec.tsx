@@ -20,7 +20,7 @@ const BRAINS: BrainOption[] = [
   { id: 'pi', name: 'pi', model: { provider: 'openrouter', model: 'pi-1' }, instructions: 'Be exact.', isDefault: true, restarts: false },
 ]
 
-function mount(options: { locked?: boolean } = {}) {
+function mount(options: { locked?: boolean; block?: { reason: string }; openBrains?: () => void } = {}) {
   const state = createSnapshotStore<BrainSwitcherState>({
     status: 'ready', space: 'gallery', brains: BRAINS, currentId: 'pi', busy: null, error: null,
   })
@@ -34,6 +34,8 @@ function mount(options: { locked?: boolean } = {}) {
       },
     },
   })
+  // One store per chat, as the conversation service's registry keeps them.
+  const block = createSnapshotStore(options.block)
   const props = {
     locked: options.locked ?? false,
     control: <button type="button" data-access-chip="">Workspace Write</button>,
@@ -42,6 +44,8 @@ function mount(options: { locked?: boolean } = {}) {
     useSessions: bindSnapshotSelector(sessions),
     load: vi.fn(() => Promise.resolve()),
     select: vi.fn(() => Promise.resolve()),
+    composerBlock: (sessionId: string) => (sessionId === 's1' ? block : undefined),
+    ...options.openBrains === undefined ? {} : { openBrains: options.openBrains },
     t,
   } as unknown as ComposerOverflowProps
   const view = render(<ComposerOverflow {...props} />)
@@ -109,5 +113,33 @@ describe('the three-dot control', () => {
     expect(trigger().disabled).toBe(true)
     fireEvent.click(trigger())
     expect(document.querySelector('[data-composer-overflow-panel]')).toBeNull()
+  })
+
+  // PC test drive, 18 Sep 2026: the composer said "select one to continue"
+  // while the lock it puts on this seat disabled the only brain control.
+  it('stays live under a composer block, names the way out, and unlocks the brain row', () => {
+    const openBrains = vi.fn()
+    const { trigger } = mount({ locked: true, block: { reason: 'This model is unavailable' }, openBrains })
+    expect(trigger().disabled).toBe(false)
+    expect(trigger().hasAttribute('data-composer-overflow-blocked')).toBe(true)
+    expect(trigger().textContent).toBe('Choose a brain')
+    fireEvent.click(trigger())
+    const panel = document.querySelector('[data-composer-overflow-panel]')!
+    expect(panel.querySelector<HTMLButtonElement>('[data-brain-switcher]')?.disabled).toBe(false)
+    fireEvent.click(panel.querySelector('[data-composer-overflow-brains]')!)
+    expect(openBrains).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('[data-composer-overflow-panel]')).toBeNull()
+  })
+
+  it('offers no Brains row while the chat is not blocked, or where no rail can open the pane', () => {
+    const unblocked = mount({ openBrains: vi.fn() })
+    fireEvent.click(unblocked.trigger())
+    expect(document.querySelector('[data-composer-overflow-brains]')).toBeNull()
+    expect(unblocked.trigger().textContent).toBe('')
+    cleanup()
+    const railless = mount({ locked: true, block: { reason: 'This model is unavailable' } })
+    fireEvent.click(railless.trigger())
+    expect(document.querySelector('[data-composer-overflow-panel]')).not.toBeNull()
+    expect(document.querySelector('[data-composer-overflow-brains]')).toBeNull()
   })
 })

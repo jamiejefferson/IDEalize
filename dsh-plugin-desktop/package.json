@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-desktop",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "IDEalize: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "license": "MIT",
   "publishConfig": {
@@ -337,6 +337,7 @@
       "differentialPackage": false,
       "shortcutName": "IDEalize",
       "useZip": true,
+      "include": "build/installer.nsh",
       "artifactName": "IDEalize-${version}-${arch}-Setup.${ext}"
     },
     "linux": {

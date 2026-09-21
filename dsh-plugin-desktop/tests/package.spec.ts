@@ -4,6 +4,8 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
+import { QUICK_ACTION_NAME } from '../src/finder-quick-action.ts'
+import { PROJECT_SWITCH, requestFromArgv } from '../src/idealize-url.ts'
 
 const packageRoot = new URL('../', import.meta.url)
 const workspaceRoot = new URL('../', packageRoot)
@@ -356,9 +358,48 @@ describe('published package surface', () => {
       differentialPackage: false,
       shortcutName: 'IDEalize',
       useZip: true,
+      include: 'build/installer.nsh',
       artifactName: 'IDEalize-${version}-${arch}-Setup.${ext}',
     })
     expect(manifest.build?.linux?.icon).toBe('build/app-icon.png')
+  })
+
+  it('completes the Windows uninstall entry and registers the Explorer verb from the NSIS include', () => {
+    const include = readFileSync(new URL('build/installer.nsh', packageRoot), 'utf8')
+    const macro = (name: string): string =>
+      new RegExp(`^!macro ${name}\\b[^\\n]*\\n([\\s\\S]*?)^!macroend`, 'mu').exec(include)?.[1] ?? ''
+
+    // Inventory tools read InstallLocation from the uninstall entry, which the
+    // template leaves blank (PC test drive, 18 Sep 2026). The template's own
+    // define names the key and its own hive follows the install mode.
+    expect(macro('customInstall')).toContain(
+      'WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" "InstallLocation" "$INSTDIR"',
+    )
+    const electronBuilderRequire = createRequire(
+      createRequire(new URL('package.json', packageRoot)).resolve('electron-builder/package.json'),
+    )
+    const templates = join(dirname(electronBuilderRequire.resolve('app-builder-lib/package.json')), 'templates', 'nsis')
+    expect(readFileSync(join(templates, 'multiUser.nsh'), 'utf8')).toContain('!define /ifndef UNINSTALL_REGISTRY_KEY')
+    expect(readFileSync(join(templates, 'installSection.nsh'), 'utf8')).toContain('!insertmacro customInstall')
+    expect(readFileSync(join(templates, 'uninstaller.nsh'), 'utf8')).toContain('!insertmacro customUnInstall')
+
+    // "Idealize this" on a folder and inside one, under the label the Finder
+    // Quick Action uses, handing the folder over as the switch the app parses.
+    expect(include).toContain(`!define IDEALIZE_THIS_LABEL "${QUICK_ACTION_NAME}"`)
+    expect(macro('customInstall')).toContain('!insertmacro idealizeThisWrite "Directory"\n')
+    expect(macro('customInstall')).toContain('!insertmacro idealizeThisWrite "Directory\\Background"\n')
+    expect(macro('idealizeThisWrite')).toContain(
+      `'"$INSTDIR\\\${APP_EXECUTABLE_FILENAME}" "${PROJECT_SWITCH}%V"'`,
+    )
+    expect(requestFromArgv(['C:\\Programs\\IDEalize V1.exe', `${PROJECT_SWITCH}C:\\Work\\Vault`]))
+      .toEqual({ kind: 'open-project', path: 'C:\\Work\\Vault' })
+
+    // Every verb key the installer writes, the uninstaller deletes.
+    for (const parent of ['Directory', 'Directory\\Background']) {
+      expect(macro('customUnInstall')).toContain(
+        `DeleteRegKey SHELL_CONTEXT "Software\\Classes\\${parent}\\shell\\\${IDEALIZE_THIS_VERB}"`,
+      )
+    }
   })
 
   it('separates unsigned smoke packaging from the signed macOS release', () => {

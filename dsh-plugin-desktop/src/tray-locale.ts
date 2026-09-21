@@ -14,6 +14,9 @@ export type DesktopTrayLabelKey =
   | 'shellMode'
   | 'modeCompatibility'
   | 'modeAdvanced'
+  | 'fileMenu'
+  | 'newWindow'
+  | 'website'
   | 'collapseToAskbar'
   | 'expandFromAskbar'
   | 'askbarEdge'
@@ -37,6 +40,9 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
     shellMode: () => 'Window Mode',
     modeCompatibility: () => 'Standard',
     modeAdvanced: () => 'Advanced',
+    fileMenu: () => 'File',
+    newWindow: () => 'New Window',
+    website: () => 'IDEalize Website',
     collapseToAskbar: () => 'Collapse to Askbar',
     expandFromAskbar: () => 'Expand from Askbar',
     askbarEdge: () => 'Askbar edge',
@@ -59,6 +65,9 @@ const labels: Record<DesktopLocale, Record<DesktopTrayLabelKey, (value: string) 
     shellMode: () => '窗口模式',
     modeCompatibility: () => '标准',
     modeAdvanced: () => '高级',
+    fileMenu: () => '文件',
+    newWindow: () => '新建窗口',
+    website: () => 'IDEalize 网站',
     collapseToAskbar: () => '收起到 Askbar',
     expandFromAskbar: () => '从 Askbar 展开',
     askbarEdge: () => 'Askbar 停靠边',

@@ -342,6 +342,29 @@ describe('image draft rail', () => {
     expect(addImages).not.toHaveBeenCalled()
   })
 
+  it('steps aside over a surface that takes file drops itself, and clears when that surface stops the drop', () => {
+    const addImages = vi.fn(() => null)
+    const { view } = bench({ addImages })
+    // A drop target of its own, as the terminal grid is: it claims the drag
+    // and stops the drop before the page-wide listeners hear it.
+    const surface = document.createElement('div')
+    document.body.append(surface)
+    surface.addEventListener('dragover', (event) => { event.preventDefault() })
+    surface.addEventListener('drop', (event) => { event.preventDefault(); event.stopPropagation() })
+    const dataTransfer = { types: ['Files'], files: [new File([Uint8Array.of(1)], 'shot.png', { type: 'image/png' })], dropEffect: 'none' }
+    fireEvent.dragEnter(surface, { dataTransfer })
+    expect(view.getByRole('status')).toBeTruthy()
+    fireEvent.dragOver(surface, { dataTransfer })
+    expect(view.queryByRole('status')).toBeNull()
+    // Back over the page, the invitation returns.
+    fireEvent.dragOver(document.body, { dataTransfer })
+    expect(view.getByRole('status')).toBeTruthy()
+    fireEvent.drop(surface, { dataTransfer })
+    expect(view.queryByRole('status')).toBeNull()
+    expect(addImages).not.toHaveBeenCalled()
+    surface.remove()
+  })
+
   it('pre-checks projected limits at intake: whole-batch refusal with product copy, none added', () => {
     const limits = {
       maxImageBytes: 1024 * 1024,

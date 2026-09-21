@@ -224,6 +224,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       const generation = new ElectronShellGeneration({
         platform: this.platformStrategy,
         spec,
+        locale: this.locale,
         preloadPath: desktopPreloadPath(),
         isQuitting: () => this.quitting,
         buildTrayTemplate: () => this.buildTrayTemplate(spec),
@@ -870,6 +871,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     const status = this.contributedTrayItems('status')
     const template: Electron.MenuItemConstructorOptions[] = [
       { label: desktopTrayLabel(this.locale, 'openDesktop', spec.productName), click: show },
+      // The one route to a second window where the windows carry no menu bar.
+      { label: desktopTrayLabel(this.locale, 'newWindow'), click: () => { this.generation?.openWindow() } },
     ]
     if (tools.length > 0) template.push({ type: 'separator' }, ...tools)
     if (profiles.length > 0) template.push({ type: 'separator' }, ...profiles)

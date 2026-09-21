@@ -55,6 +55,7 @@
     "@idealize/notify": "workspace:^",
     "@idealize/onboarding": "workspace:^",
     "@idealize/provider-pack": "workspace:^",
+    "@idealize/router": "workspace:^",
     "@idealize/services": "workspace:^",
     "@idealize/setup": "workspace:^",
     "@idealize/skills": "workspace:^",

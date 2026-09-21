@@ -38,6 +38,23 @@
   opacity: 0.5;
 }
 
+/* The trigger while the chat's model has no route: the dots gain a label and
+   an outline, because this control is then the way out the placeholder asks
+   for and three grey dots do not say so (PC test drive, 18 Sep 2026). */
+.triggerBlocked {
+  composes: trigger;
+  display: inline-flex;
+  gap: 6px;
+  width: auto;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--dsw-alias-brand-primary, #1668dc);
+  color: var(--dsw-alias-label-primary, #24292f);
+  font: inherit;
+  font-size: var(--idealize-type-small, 11.5px);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* Above the trigger, left-aligned to it: the composer sits at the foot of the
    window, so a panel below it would open off-screen. Fixed, not absolute, and
    portalled to the body — the tool row it is triggered from scrolls sideways,
@@ -76,4 +93,70 @@
   letter-spacing: 0.02em;
   white-space: nowrap;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* The blocked panel's closing row: a text button to the Brains pane, for the
+   chat whose space lists no other brain to switch to. */
+.action {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary, #1668dc);
+  font: inherit;
+  font-size: var(--idealize-type-small, 11.5px);
+  cursor: pointer;
+}
+
+.action:hover {
+  text-decoration: underline;
+}
+
+/* The model router's chip beside the dots: the model the router moved this
+   chat to, or the one it offers. Text colour, since it opens the panel and the
+   panel holds the actions. */
+.badge {
+  max-width: 180px;
+  margin-left: 4px;
+  padding: 2px 8px;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l3, rgba(31, 35, 40, 0.16));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #57606a);
+  font: inherit;
+  font-size: var(--idealize-type-small, 11.5px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.badge:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.routerNote {
+  max-width: 280px;
+  font-size: var(--idealize-type-small, 11.5px);
+  line-height: 1.4;
+  color: var(--dsw-alias-label-secondary, #57606a);
+}
+
+.routerLock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-primary, #24292f);
+  cursor: pointer;
+}
+
+/* While a switch holds, the chip names the model the chat runs on, and the
+   composer's own model seat would name the brain's pick beside it: one screen,
+   two model names (JJ, 21 Sep 2026). The seat's wrapper carries an inline
+   `display: contents` no rule can outrank, so this hides what it renders.
+   Switch back, in the panel, returns the seat with the model it names. */
+:global([data-composer-card]):has(:global([data-router-badge='switched'])) :global([data-slot='conversation.input.model']) > * {
+  display: none;
 }
