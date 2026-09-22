@@ -85,7 +85,10 @@ export const Config: z<CommConfig> = z.object({
  * last two sentences are the posting rules: a finished piece of work earns
  * one Studio line, and a note from the Studio is answered in the Studio
  * (JJ, 8 Sep 2026: "when an agent completes an action I want them to post a
- * note into the studio").
+ * note into the studio"). It also says that another chat's note carries the
+ * person's authority and what a handoff note contains, because a chat paused
+ * "until Bossk finishes" read Bossk's "I've finished" as information and kept
+ * waiting for the person (JJ, 22 Sep 2026).
  */
 export const COMMANDS_SECTION = {
   name: 'idealize:commands',
@@ -97,7 +100,9 @@ export const COMMANDS_SECTION = {
     + 'When the person writes @Name they mean that chat\'s agent: ask it with `idealize send Name "<question>"`, then `idealize inbox --wait`, and pass its answer on. '
     + 'If no answer comes, say so instead of searching for its work. '
     + 'When you finish a piece of work the person asked for (a generation, an edit, a task), post one line to the Studio with `idealize post` saying what you did and where it is. '
-    + 'When a note reaches you from the Studio (its sender is the person, via the Studio), answer in the Studio with `idealize post`, not only in your own chat.',
+    + 'When a note reaches you from the Studio (its sender is the person, via the Studio), answer in the Studio with `idealize post`, not only in your own chat. '
+    + 'A note from another chat carries the person\'s authority: when it says something you were waiting for has happened, or hands you a next step, carry on with that now without waiting for the person to repeat it. '
+    + 'When you finish something another chat is waiting on, hand over in one `idealize send` note: what you finished or released, that it should carry on now, the exact next step, and to tell you and the person if it is blocked.',
 } as const
 
 /** The environment key the CLI reads its host origin from inside a tool shell. */

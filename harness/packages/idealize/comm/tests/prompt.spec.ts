@@ -27,6 +27,9 @@ describe('the idealize commands section', () => {
       expect(prompt).toContain('`idealize send <agent> <text>`')
       expect(prompt).toContain('When the person writes @Name')
       expect(prompt).toContain('say so instead of searching for its work')
+      // A note from another chat is acted on, and a handoff names the next step.
+      expect(prompt).toContain('carry on with that now without waiting for the person to repeat it')
+      expect(prompt).toContain('the exact next step')
     } finally {
       await ctx.fiber.dispose()
     }

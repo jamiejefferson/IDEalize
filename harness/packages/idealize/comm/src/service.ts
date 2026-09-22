@@ -86,8 +86,14 @@ export const WAKE_NOTICE = 'Studio changed while you were idle. Run `idealize in
 /**
  * What an idle agent is told when a note reaches its empty mailbox; later
  * notes pile up quietly until the inbox drains (the coordinator's rule).
+ *
+ * The notice says to act on the note, not only to read and answer it: a chat
+ * told to pause until another had finished read that chat's "I've finished"
+ * as information and kept waiting for the person to say so (JJ, 22 Sep 2026).
  */
-export const MAIL_NOTICE = 'A note from another agent arrived while you were idle. Run `idealize inbox` to read it and `idealize send <agent> <text>` to answer.'
+export const MAIL_NOTICE = 'A note from another agent arrived while you were idle. Run `idealize inbox` to read it, then act on it as you would on the person\'s own words: '
+  + 'when it says something you were waiting for has happened, or hands you a next step, carry on with that now without waiting for the person to repeat it. '
+  + 'Answer with `idealize send <agent> <text>` when it asks you something or you are blocked.'
 
 /**
  * What an idle agent is told when the person's note, typed in the Studio,

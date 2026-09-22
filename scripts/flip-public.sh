@@ -20,10 +20,10 @@ set -euo pipefail
 DESKTOP="${DESKTOP:-$HOME/dev/idealize-desktop}"
 HARNESS="${HARNESS:-$HOME/dev/idealize}"
 V0_SITE="${V0_SITE:-$HOME/dev/idealize-site}"
-DMG="${DMG:-$DESKTOP/dsh-plugin-desktop/dist/mac-public/IDEalize-V1-1.0.8-universal.dmg}"
+DMG="${DMG:-$DESKTOP/dsh-plugin-desktop/dist/mac-public/IDEalize-V1-1.0.9-universal.dmg}"
 OWNER="jamiejefferson"
 PUBLIC="https://github.com/$OWNER/IDEalize.git"
-VERSION="1.0.8"
+VERSION="1.0.9"
 EXPORT="$(mktemp -d)"
 GO=0; YES=0; SYNC=0; TAG=""
 prev=""
@@ -105,7 +105,7 @@ The agent-directing desktop app for designers (root) over the IDEalize harness (
 fi
 confirm "Push V1 to $OWNER/IDEalize main (V0 stays on branch v0)?"
 run git -C "$EXPORT/repo" push origin main:main
-run gh repo edit "$OWNER/IDEalize" --description "IDEalize V1: the agent-directing desktop app for designers, for macOS. V0 lives on branch v0." --homepage "https://idealize.projject.ai"
+run gh repo edit "$OWNER/IDEalize" --description "IDEalize V1: the agent-directing desktop app for designers, for macOS and Windows. V0 lives on branch v0." --homepage "https://idealize.projject.ai"
 
 if [ "$SYNC" = 1 ]; then
   if [ -n "$TAG" ]; then

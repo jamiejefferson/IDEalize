@@ -409,6 +409,8 @@ describe('IdealizeComm.send', () => {
     expect(sent.ok).toBe(true)
     expect(lead.followups).toHaveLength(1)
     expect(JSON.stringify(lead.followups[0])).toContain(MAIL_NOTICE)
+    // The notice tells the recipient to act on the note, not only to read and answer it.
+    expect(MAIL_NOTICE).toContain('carry on with that now')
     // A second note piles up quietly until the inbox drains.
     await comm.handle({ command: 'send', from: 'sess-worker', target: 'sess-lead', body: 'and the sound?' })
     expect(comm.state.unread('sess-lead')).toBe(2)

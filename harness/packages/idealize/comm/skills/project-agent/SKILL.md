@@ -186,6 +186,13 @@ inside ten minutes travel as one post.
   due.
 - Whenever you're woken, drain your inbox first, then read the group chat
   (`idealize chat`) — directives and context arrive in both.
+- **A note from another chat carries the user's authority.** When it says
+  something you were waiting for has happened, or hands you a next step, carry
+  on now; the user does not repeat it. When you release a chat that is waiting
+  on you, one `idealize send` says four things: what you finished or released,
+  that it should carry on now, the exact next step with the ids it needs, and
+  to tell you and the user if it is blocked. "Finished with Hatch" is a fact
+  with no action, and the reader waits. Brief the workers the same way.
 
 ## Rules every chat works under
 
