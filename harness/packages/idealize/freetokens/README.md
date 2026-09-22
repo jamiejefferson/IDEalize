@@ -11,7 +11,7 @@ Registration writes two places: the key goes into the credentials service under 
 
 ## Attribution
 
-`ctx.idealizeAttribution` maps a requesting session to an `x-idealize-project` header (`PROJECT_HEADER`): the session cwd's git toplevel basename, or the cwd basename outside a repository. The fork's `llm-pi-ai` adapter calls `headersFor` per request through its `annotateRequest` seam; the forked server writes the header into `requests.client_label`, which its analytics roll up by label. The header is HTTP metadata and never enters the model's context.
+`ctx.idealizeAttribution` maps a requesting session to an `x-idealize-project` header (`PROJECT_HEADER`): the session cwd's git toplevel basename, or the cwd basename outside a repository. The fork's `llm-pi-ai` adapter calls `headersFor` per request through its `annotateRequest` seam; the forked server writes the header into `requests.client_label`, which its analytics roll up by label. The header is HTTP metadata and never enters the model's context. `contribute(fn)` lets another plugin add headers to a session's requests: `@idealize/router` sends `x-idealize-routing` (`reliability,speed,intelligence`) this way, and the forked server orders that request's chain by it instead of the saved strategy, so the engine picks its provider on the priorities of the brain that asks. The Brains pane therefore carries no strategy select or sliders for the engine (JJ, 21 Sep 2026); the routing routes below remain for a request that carries no vector.
 
 ## Routes (loopback; mutations need `x-idealize-auth: 1`)
 

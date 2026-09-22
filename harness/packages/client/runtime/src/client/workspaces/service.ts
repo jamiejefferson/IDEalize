@@ -7,7 +7,7 @@ import type {
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
-import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
+import type { SessionsPort, SessionsPortList, SessionsPortSummary } from '../contract/sessions-port.ts'
 import type { IWorkspaces } from '../contract/workspaces.ts'
 import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
@@ -47,6 +47,17 @@ export class DirectoryBrowseError extends Error {
   }
 }
 
+/**
+ * Whether this page is a secondary window of the desktop shell (its
+ * `dsh-desktop-mode=askbar` marker): a projection of the running app that
+ * never shows a conversation, so it must not select or mint a chat at boot.
+ */
+function secondaryDesktopView(): boolean {
+  const search = globalThis.window?.location?.search
+  if (search === undefined) return false
+  return new URLSearchParams(search).get('dsh-desktop-mode') === 'askbar'
+}
+
 /** Real Workspace object layer and Host actions. */
 export class WorkspaceRuntime implements IWorkspaces {
   /** UI-facing immutable projection; the manager remains wire truth. */
@@ -55,6 +66,15 @@ export class WorkspaceRuntime implements IWorkspaces {
   private readonly manager: WorkspaceManager
   /** In-flight blank-session creates keyed by workspace (connectWorkspace coalescing). */
   private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
+  /**
+   * The blank session the last create minted for each workspace. Its summary
+   * lands in the list mirror without `cwd` until the host frame arrives, so
+   * the reuse scan cannot recognise it as the workspace's blank chat; a second
+   * connect in that window minted another. Two connects at start-up (the
+   * initial selection and a plugin's own) left two hidden blank chats per
+   * launch (JJ, 22 Sep 2026).
+   */
+  private readonly minted = new Map<WorkspaceId, SessionId>()
   /**
    * Blank sessions a caller has put to work on this page, ahead of the Host
    * projection that will say so durably. Page-lifetime only: see
@@ -118,6 +138,12 @@ export class WorkspaceRuntime implements IWorkspaces {
     // project's one group chat, never New chat's.
     const archived = this.list.getSnapshot().archivedSessionIds
     const sessions = this.sessions.list.getSnapshot()
+    const reusable = (summary: SessionsPortSummary | undefined): summary is SessionsPortSummary => summary !== undefined
+      && summary.blank
+      && summary.projectionValues?.brain?.brain === undefined
+      && summary.projectionValues?.space?.space !== 'studio'
+      && !this.configured.has(summary.id)
+      && !archived.includes(summary.id)
     for (const id of sessions.ids) {
       const summary = sessions.byId[id]
       if (summary !== undefined && summary.blank && summary.cwd === workspace.path
@@ -127,7 +153,17 @@ export class WorkspaceRuntime implements IWorkspaces {
         && !this.configured.has(summary.id)
         && !archived.includes(summary.id)) return summary.id
     }
+    // The durable rule found nothing. The session this runtime last minted
+    // for the workspace is still its blank chat while the host frame has yet
+    // to fill in its cwd and membership, so hand it back before minting again.
+    const fresh = this.minted.get(workspaceId)
+    if (fresh !== undefined) {
+      const summary = sessions.byId[fresh]
+      if (reusable(summary) && (summary.cwd === undefined || summary.cwd === workspace.path)) return fresh
+      this.minted.delete(workspaceId)
+    }
     const attempt = this.sessions.create({ workspaceId })
+      .then((id) => { this.minted.set(workspaceId, id); return id })
       .finally(() => { this.connecting.delete(workspaceId) })
     this.connecting.set(workspaceId, attempt)
     return attempt
@@ -157,6 +193,13 @@ export class WorkspaceRuntime implements IWorkspaces {
       throw new Error('workspaces.startInitialSelection: already started')
     }
     this.initialSelectionStarted = true
+    // The desktop shell's Askbar is a second renderer of this same page. It
+    // shows no conversation, so a blank chat minted for it is one nobody sees;
+    // booting beside the main window, each renderer minted its own before the
+    // other's summary had arrived, two hidden blank chats per launch (JJ,
+    // 22 Sep 2026). The bar follows the main window's selection through its
+    // own feed, so it selects nothing here.
+    if (secondaryDesktopView()) return () => {}
     let state: 'waiting' | 'connecting' | 'done' = 'waiting'
     let disposed = false
     const reconcile = (): void => {

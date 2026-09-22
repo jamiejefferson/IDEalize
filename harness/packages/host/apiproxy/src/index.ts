@@ -56,7 +56,7 @@ export interface Config {
   /**
    * Maximum physical size of a cold Session artifact eligible for blankness
    * verification. Zero disables probes.
-   * @default 1024
+   * @default 1048576
    */
   coldBlankProbeMaxBytes?: number
 }

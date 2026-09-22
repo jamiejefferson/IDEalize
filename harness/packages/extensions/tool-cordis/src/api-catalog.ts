@@ -893,9 +893,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'headersFor(sessionId: string | undefined): Record<string, string> | undefined',
-        description: 'Attribution headers for one request; undefined when nothing is known.',
+        description: 'Headers for one request; undefined when nothing is known.',
         parameters: [{ name: 'sessionId', description: 'The requesting session, when the request has one.' }],
-        returns: 'the `x-idealize-project` header, or undefined without a session cwd.',
+        returns: 'the `x-idealize-project` header and any contributed ones, or undefined when there are none.',
+      },
+      {
+        signature: 'contribute(contributor: (sessionId: string) => Record<string, string> | undefined): () => void',
+        description: 'Let another plugin add headers to a session\'s requests.',
+        parameters: [{ name: 'contributor', description: 'Returns the headers for one session, or undefined.' }],
+        returns: 'a function that removes the contributor.',
       },
     ],
   },

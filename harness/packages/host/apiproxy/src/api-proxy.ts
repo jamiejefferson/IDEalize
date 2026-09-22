@@ -117,8 +117,21 @@ const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
 
 /** Bound cold-log stat fan-out and settle each started batch before cancellation returns. */
 const COLD_SUMMARY_BATCH_SIZE = 16
-/** Default maximum artifact size eligible for one cold blankness read. */
-export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
+/**
+ * Default maximum artifact size eligible for one cold blankness read.
+ *
+ * Only a session whose cached hint is not `blank: false` is ever probed, and a
+ * session that has run a turn carries that monotonic `false`, so the probe
+ * reads chats that never ran a turn. Those are small, but not tiny: IDEalize
+ * splices a name and the project's documentation context into every new chat
+ * before the first turn, which put most blank chats past the earlier 1 KB
+ * limit. An unprobed session is served as visible and is never reused, so
+ * every restart listed the previous run's blank chats as empty conversations
+ * and New chat minted more (JJ, 22 Sep 2026: "when i restart, i seem to
+ * always have archived chats / or blank chats appearing"). 1 MiB covers a
+ * pre-turn log with room to spare.
+ */
+export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024 * 1024
 
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])

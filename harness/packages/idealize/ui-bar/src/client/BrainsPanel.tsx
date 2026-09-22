@@ -42,13 +42,15 @@
  *   Every save raises {@link notifyBrainsChanged}, so the welcome card's
  *   roster follows the pane without a reload, and a chat already running the
  *   saved brain is moved onto its new model so the composer's model seat
- *   agrees with the sheet (JJ, 10 Sep 2026).
+ *   agrees with the sheet (JJ, 10 Sep 2026). The router's switch and
+ *   sliders show for a chat brain opened from any group but Terminal, with a
+ *   line saying they apply in Chat when the brain also works there: a
+ *   Terminal chat runs a command-line agent the router cannot reach
+ *   (JJ, 22 Sep 2026).
  * - Models — Subscriptions (OAuth providers), Token Use (keyed providers)
- *   and the Free Token Use card: the free-token engine's routing strategy
- *   and its reliability / speed / intelligence weight vector, read and
- *   written through @idealize/freetokens' routing routes. The harness's own
- *   auto policy (cost / speed / intelligence) keeps its home on the
- *   /idealize/models page.
+ *   and the Free Token Use heading. The free-token engine has no controls
+ *   here: it picks its provider on the priorities of the brain that asks,
+ *   which the model router sends with each request (JJ, 21 Sep 2026).
  * - Budget — month-to-date and year-to-date tokens per billing category,
  *   overall or for one project, against the monthly token budget. When the
  *   host has token prices or subscription plan costs configured
@@ -99,22 +101,6 @@ export interface BrainsPanelHost {
 
 type Tab = 'usage' | 'budget' | 'models' | 'router'
 const TABS: readonly Tab[] = ['usage', 'budget', 'models', 'router']
-
-/** The engine's weight axes, in the Paper frame's slider order. */
-const WEIGHT_KEYS = ['reliability', 'speed', 'intelligence'] as const
-type WeightKey = typeof WEIGHT_KEYS[number]
-/** The engine's vector; the engine normalizes it to sum 1 once saved. */
-type Weights = Record<WeightKey, number>
-/** The engine's strategies: priority = its manual chain order; the rest are weight vectors. */
-const STRATEGIES = ['priority', 'balanced', 'fastest', 'smartest', 'reliable'] as const
-type Strategy = typeof STRATEGIES[number] | 'custom'
-
-/** The /idealize/freetokens/routing payload: `weights` is null in priority mode. */
-interface EngineRouting {
-  strategy: Strategy
-  weights: Weights | null
-  customWeights: Weights
-}
 
 /** One provider route of the state payload. */
 interface ProviderState {
@@ -366,21 +352,34 @@ interface Draft {
    * agent role: a brain that answers to the person and to no space.
    */
   spaces: SpaceId[]
+  /**
+   * The group whose row opened the sheet (`chat`, `terminal`, ...), absent
+   * for a brain being added. The router's switch and sliders govern the
+   * brain's chats only, so a sheet opened from the Terminal group leaves them
+   * out (JJ, 22 Sep 2026): a Terminal chat runs a command-line agent that
+   * picks its own model, and the controls read as a promise it cannot keep.
+   */
+  openedIn?: string
   /** Whether the model router may move this brain's chats off its model; absent reads as yes. */
   routed?: boolean
+  /** The brain's own routing criteria, once a slider has moved; absent leaves what the router holds. */
+  criteria?: RouterCriteria
+}
+
+const ROUTER_LEVELS = ['conservative', 'balanced', 'aggressive'] as const
+type RouterLevel = typeof ROUTER_LEVELS[number]
+const ROUTER_PRIORITIES = ['cost', 'speed', 'intelligence'] as const
+/** How readily a brain's chats move, and what a better model weighs for it, on the sliders' 0 to 100 scale. */
+interface RouterCriteria { aggressiveness: RouterLevel; cost: number; speed: number; intelligence: number }
+/** The /idealize/router/state payload, as far as the sheet reads it. */
+interface RouterBrainsState {
+  settings?: { offBrains?: string[]; aggressiveness?: RouterLevel }
+  weights?: { cost: number; speed: number; intelligence: number }
+  brains?: Record<string, Partial<RouterCriteria>>
+  shippedBrains?: Record<string, Partial<RouterCriteria>>
 }
 
 const CATEGORIES = ['subscriptions', 'metered', 'free', 'total'] as const
-
-/** The engine's vector as slider percentages; priority mode shows the saved custom vector. */
-function percentages(routing: EngineRouting): Weights {
-  const vector = routing.weights ?? routing.customWeights
-  return {
-    reliability: Math.round(vector.reliability * 100),
-    speed: Math.round(vector.speed * 100),
-    intelligence: Math.round(vector.intelligence * 100),
-  }
-}
 
 function tokens(value: number): string {
   if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`
@@ -535,8 +534,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   const [launches, setLaunches] = useState<TerminalLaunchesState | null>(null)
   const [usage, setUsage] = useState<UsageState | null>(null)
   const [scope, setScope] = useState('')
-  const [weights, setWeights] = useState<Weights | null>(null)
-  const [routing, setRouting] = useState<EngineRouting | null>(null)
   const [media, setMedia] = useState<MediaPresetRow[] | null>(null)
   const [services, setServices] = useState<ServiceRow[] | null>(null)
   /** The service whose key field is open, and the key typed so far. */
@@ -555,17 +552,15 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
 
   // The brains the model router leaves alone, for the sheet's routing choice.
   const [routerOff, setRouterOff] = useState<string[]>([])
+  // Each brain's own criteria as the router would read them now: its saved fields, its shipped row, the app-wide values.
+  const [routerBrains, setRouterBrains] = useState<RouterBrainsState | null>(null)
   const refreshRouterOff = useCallback(async () => {
-    setRouterOff((await getJson<{ settings?: { offBrains?: string[] } }>('/idealize/router/state'))?.settings?.offBrains ?? [])
+    const next = await getJson<RouterBrainsState>('/idealize/router/state')
+    setRouterBrains(next)
+    setRouterOff(next?.settings?.offBrains ?? [])
   }, [])
   const refreshState = useCallback(async () => {
-    const [next, engine] = await Promise.all([
-      getJson<ModelsState>('/idealize/models/state'),
-      getJson<EngineRouting>('/idealize/freetokens/routing'),
-    ])
-    setState(next)
-    setRouting(engine)
-    setWeights(engine === null ? null : percentages(engine))
+    setState(await getJson<ModelsState>('/idealize/models/state'))
   }, [])
   const refreshAgents = useCallback(async () => {
     const list = await getJson<{ agents: AgentRow[]; terminal?: TerminalCliRow[] }>('/idealize/activity/agents')
@@ -711,7 +706,20 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     const only = chosen.length === 1 ? chosen[0] : undefined
     return only === undefined ? undefined : mediaOf(only)
   }
-  const beginEdit = (row: AgentRow): void => {
+  /** The criteria the router reads for a brain now; a brain being created has no id and starts from the app-wide values. */
+  const criteriaOf = (id: string | undefined): RouterCriteria | undefined => {
+    if (routerBrains === null) return undefined
+    const own = id === undefined ? {} : { ...routerBrains.shippedBrains?.[id], ...routerBrains.brains?.[id] }
+    return {
+      aggressiveness: own.aggressiveness ?? routerBrains.settings?.aggressiveness ?? 'balanced',
+      cost: Math.round(own.cost ?? routerBrains.weights?.cost ?? 34),
+      speed: Math.round(own.speed ?? routerBrains.weights?.speed ?? 33),
+      intelligence: Math.round(own.intelligence ?? routerBrains.weights?.intelligence ?? 33),
+    }
+  }
+  /** Whether the sheet shows the router's switch and sliders: a chat brain, opened from any group but Terminal. */
+  const routerShown = draft !== null && draft.spaces.includes('chat') && draft.openedIn !== 'terminal'
+  const beginEdit = (row: AgentRow, openedIn: string): void => {
     const generation = mediaForSpaces(row.spaces)
     const chatModel = row.overridden && row.model !== null ? `${row.model.provider} ${row.model.model}` : ''
     setDraft({
@@ -724,6 +732,7 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
       cli: launches?.byActivity[row.id] ?? '',
       instructions: row.instructions,
       spaces: row.spaces,
+      openedIn,
       routed: !routerOff.includes(row.id),
     })
   }
@@ -764,6 +773,10 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
       const offBrains = draft.routed ?? true ? routerOff.filter(id => id !== savedId) : [...routerOff, savedId]
       if (await post('/idealize/router/settings', { offBrains })) setRouterOff(offBrains)
     }
+    if (ok && savedId !== undefined && draft.criteria !== undefined && draft.spaces.includes('chat')) {
+      // The router keeps each brain's criteria beside the list of brains it leaves alone.
+      if (await post('/idealize/router/brain', { brain: savedId, ...draft.criteria })) await refreshRouterOff()
+    }
     if (ok) {
       setDraft(null)
       notifyBrainsChanged()
@@ -786,19 +799,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   }
 
   // ── Models tab ─────────────────────────────────────────────────────────
-  const applyStrategy = async (strategy: Strategy): Promise<void> => {
-    if (strategy === 'custom') return
-    await post('/idealize/freetokens/routing/strategy', { strategy })
-    await refreshState()
-  }
-  /** Save the sliders as the engine's custom vector; it normalizes, and the refresh reads the result back. */
-  const commitWeights = async (): Promise<void> => {
-    if (weights === null) return
-    const ok = await post('/idealize/freetokens/routing/strategy', { strategy: 'custom', weights })
-    setStatus(ok ? t('brains.prefs.saved') : t('brains.prefs.failed'))
-    if (ok) await refreshState()
-  }
-
   // ── Budget tab ─────────────────────────────────────────────────────────
   /** One period cell: the cost from configured prices over the token count, or tokens alone while nothing is priced. */
   const periodCell = (period: 'month' | 'year', category: typeof CATEGORIES[number]): ReactNode => {
@@ -895,7 +895,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     return t('brains.model.cli', { provider: name, cli: cli.cli })
   }
   const free = state?.providers.find(p => p.auth === 'free')
-  const strategy: Strategy = routing?.strategy ?? 'priority'
   // Sorted by the name as shown, which is the resolved one, not the raw payload field.
   const modelOptions = sortedProviders(
     (state?.providers.filter(p => p.models.length > 0) ?? [])
@@ -1136,7 +1135,7 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
               </span>
             )}
         <span className={css.cellAction}>
-          <button type="button" className={css.chip} onClick={() => { beginEdit(row) }}>
+          <button type="button" className={css.chip} onClick={() => { beginEdit(row, prefix) }}>
             {t('brains.agent.edit')}
           </button>
         </span>
@@ -1450,43 +1449,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
               title={t('brains.free.title')}
               detail={free === undefined ? t('brains.free.none') : `${t('brains.free.detail')} · ${String(free.models.length)} ${t('brains.free.models')}`}
             />
-            <div className={css.card}>
-              <label className={css.cardRow}>
-                <span className={css.cardLabel}>{t('brains.free.strategy')}</span>
-                <select
-                  className={css.cardSelect}
-                  value={strategy}
-                  disabled={routing === null}
-                  onChange={(event) => { void applyStrategy(event.target.value as Strategy) }}
-                >
-                  {STRATEGIES.map(name => (
-                    <option key={name} value={name}>{t(`brains.strategy.${name}`)}</option>
-                  ))}
-                  {strategy === 'custom' && <option value="custom">{t('brains.strategy.custom')}</option>}
-                </select>
-              </label>
-              {WEIGHT_KEYS.map(key => (
-                <label key={key} className={css.weightRow}>
-                  <span className={css.weightLabel}>{t(`brains.weight.${key}`)}</span>
-                  <input
-                    type="range"
-                    className={css.weightInput}
-                    min={0}
-                    max={100}
-                    aria-label={t(`brains.weight.${key}`)}
-                    disabled={weights === null}
-                    value={weights?.[key] ?? 0}
-                    onChange={(event) => {
-                      setWeights(previous => previous === null ? null : { ...previous, [key]: Number(event.target.value) })
-                    }}
-                    onMouseUp={() => { void commitWeights() }}
-                    onKeyUp={() => { void commitWeights() }}
-                    onTouchEnd={() => { void commitWeights() }}
-                  />
-                  <span className={css.weightValue}>{weights === null ? '—' : `${String(weights[key])}%`}</span>
-                </label>
-              ))}
-            </div>
           </>
         )}
 
@@ -1863,7 +1825,7 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                   {t('brains.edit.instructionsHint')}
                 </span>
               </label>
-              {draft.spaces.includes('chat') && (
+              {routerShown && (
                 <div className={css.field} data-brains-field="routed">
                   <label className={css.choice}>
                     <input
@@ -1874,8 +1836,64 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                     {t('brains.edit.routed')}
                   </label>
                   <span className={css.fieldHint}>{t('brains.edit.routedHint')}</span>
+                  {draft.spaces.includes('terminal') && (
+                    <span className={css.fieldHint} data-brains-routed-terminal="">{t('brains.edit.routedTerminalHint')}</span>
+                  )}
                 </div>
               )}
+              {routerShown && (draft.routed ?? true) && (() => {
+                // The sheet shows what the router would read now; the draft holds criteria only once a slider moves.
+                const criteria = draft.criteria ?? criteriaOf(draft.id)
+                if (criteria === undefined) return null
+                return (
+                  <>
+                    <div className={css.field} role="group" aria-label={t('brains.router.level')} data-brains-field="flexibility">
+                      <span className={css.fieldLabel}>{t('brains.router.level')}</span>
+                      <label className={css.weightRow}>
+                        <span className={css.weightLabel}>{t('brains.router.level.low')}</span>
+                        <input
+                          type="range"
+                          className={css.weightInput}
+                          data-router-level=""
+                          min={0}
+                          max={ROUTER_LEVELS.length - 1}
+                          step={1}
+                          aria-label={t('brains.router.level')}
+                          aria-valuetext={t(`brains.router.level.${criteria.aggressiveness}`)}
+                          value={ROUTER_LEVELS.indexOf(criteria.aggressiveness)}
+                          onChange={(event) => {
+                            setDraft({ ...draft, criteria: { ...criteria, aggressiveness: ROUTER_LEVELS[Number(event.target.value)] ?? 'balanced' } })
+                          }}
+                        />
+                        <span className={css.weightEnd}>{t('brains.router.level.high')}</span>
+                      </label>
+                      <span className={css.fieldHint} data-router-level-hint={criteria.aggressiveness}>
+                        {t(`brains.router.level.${criteria.aggressiveness}.hint`)}
+                      </span>
+                    </div>
+                    <div className={css.field} role="group" aria-label={t('brains.router.priorities')} data-brains-field="priorities">
+                      <span className={css.fieldLabel}>{t('brains.router.priorities')}</span>
+                      {ROUTER_PRIORITIES.map(key => (
+                        <label key={key} className={css.weightRow}>
+                          <span className={css.weightLabel}>{t(`brains.router.priority.${key}`)}</span>
+                          <input
+                            type="range"
+                            className={css.weightInput}
+                            data-router-priority={key}
+                            min={0}
+                            max={100}
+                            aria-label={t(`brains.router.priority.${key}`)}
+                            value={criteria[key]}
+                            onChange={(event) => { setDraft({ ...draft, criteria: { ...criteria, [key]: Number(event.target.value) } }) }}
+                          />
+                          <span className={css.weightValue}>{String(criteria[key])}</span>
+                        </label>
+                      ))}
+                      <span className={css.fieldHint}>{t('brains.router.prioritiesHint')}</span>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
             <div className={css.sheetActions}>
               <button type="button" className={css.secondary} onClick={() => { setDraft(null) }}>{t('brains.cancel')}</button>

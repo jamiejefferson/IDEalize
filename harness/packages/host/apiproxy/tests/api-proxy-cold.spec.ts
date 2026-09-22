@@ -104,7 +104,8 @@ describe('sessions.list cold merge', () => {
         return undefined
       },
     } as never)
-    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
+    // The fixtures are sized around a 1 KB bound; the default is larger, so the bound is stated.
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', coldBlankProbeMaxBytes: 1024 })
 
     const response = await api.sessions.list(request({}))
     expect(response.result.ok).toBe(true)

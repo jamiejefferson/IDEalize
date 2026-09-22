@@ -4,9 +4,9 @@
 // each row stating its model as text, each space's own generation-model row
 // and its unavailable state, the agent-role section, the edit sheet asking
 // spaces then the model those spaces narrow it to (the one place a model is
-// chosen) then the instructions, the provider sections with the strategy
-// select, the weight sliders (reliability through the engine's routing
-// routes), and the budget table with its monthly budget field.
+// chosen) then the instructions and the brain's own routing criteria, the
+// provider sections (the free-token engine has no controls of its own), and
+// the budget table with its monthly budget field.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import type { RenderResult } from '@testing-library/react'
@@ -31,14 +31,13 @@ const STATE = {
     { provider: 'freetokens', displayName: 'Free tokens', auth: 'free', connected: true, models: ['auto', 'k3'] },
   ],
 }
-/** The engine's balanced preset: reliability carries twice speed or intelligence. */
-const ROUTING = {
-  strategy: 'balanced',
-  weights: { reliability: 0.5, speed: 0.25, intelligence: 0.25 },
-  customWeights: { reliability: 0.5, speed: 0.25, intelligence: 0.25 },
-  scores: [],
+/** The router's state: app-wide values, the shipped row for Coding, and nothing saved. */
+const ROUTER_STATE = {
+  settings: { offBrains: [], aggressiveness: 'balanced' },
+  weights: { cost: 34, speed: 33, intelligence: 33 },
+  brains: {},
+  shippedBrains: { coding: { cost: 10, speed: 80, intelligence: 80 } },
 }
-let routing: unknown = ROUTING
 const AGENTS = {
   agents: [
     { id: 'coding', name: 'Coding', activity: true, modelPinned: false, spaces: ['chat', 'terminal'], model: { provider: 'freetokens', model: 'auto' }, overridden: false, instructions: 'Build things.' },
@@ -191,7 +190,6 @@ function install(): void {
   agentsPayload = AGENTS
   statePayload = STATE
   launchesPayload = LAUNCHES
-  routing = ROUTING
   motionKeyMissing = true
   mediaKeys = [{ backend: 'fal', displayName: 'fal.ai', env: 'FAL_KEY', connected: false }]
   servicesList = [
@@ -203,9 +201,7 @@ function install(): void {
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     calls.push({ url, ...init === undefined ? {} : { init } })
     if (url.startsWith('/idealize/models/state')) return Promise.resolve(json(statePayload))
-    if (url === '/idealize/freetokens/routing') {
-      return Promise.resolve(routing === null ? new Response('', { status: 502 }) : json(routing))
-    }
+    if (url === '/idealize/router/state') return Promise.resolve(json(ROUTER_STATE))
     if (url.startsWith('/idealize/activity/agents')) return Promise.resolve(json(agentsPayload))
     if (url.startsWith('/idealize/terminal/launches')) return Promise.resolve(json(launchesPayload))
     if (url.startsWith('/idealize/models/usage')) return Promise.resolve(json(usagePayload))
@@ -762,7 +758,7 @@ describe('BrainsPanel', () => {
     expect(terminal.querySelector('[data-terminal-default-cli]')).toBeNull()
   })
 
-  it('lists subscriptions, and the strategy select switches the engine preset', async () => {
+  it('lists subscriptions, and gives the free-token engine no controls of its own', async () => {
     const view = await mount()
     fireEvent.click(view.getByRole('tab', { name: 'Models' }))
     expect(view.getByText('OpenAI (ChatGPT)')).toBeTruthy()
@@ -771,14 +767,11 @@ describe('BrainsPanel', () => {
     expect(view.getByText('Runs as the claude CLI in the terminal, on its subscription')).toBeTruthy()
     // Every chat provider holds a key, so no row reports one missing.
     expect(view.queryAllByText('Key missing')).toHaveLength(0)
-    expect(view.getByText('Choose how free providers are ranked · 2 models')).toBeTruthy()
-    const strategy = view.getByRole('combobox', { name: 'Routing strategy' }) as HTMLSelectElement
-    await waitFor(() => { expect(strategy.value).toBe('balanced') })
-    expect(Array.from(strategy.options).map(option => option.value)).toEqual(['priority', 'balanced', 'fastest', 'smartest', 'reliable'])
-    fireEvent.change(strategy, { target: { value: 'smartest' } })
-    await waitFor(() => { expect(posts('/idealize/freetokens/routing/strategy')).toHaveLength(1) })
-    expect(sent(posts('/idealize/freetokens/routing/strategy')[0]!)).toEqual({ strategy: 'smartest' })
-    expect(posts('/idealize/models/preferences')).toHaveLength(0)
+    // The engine follows the asking brain's priorities, so the tab carries no strategy select and no sliders for it.
+    expect(view.getByText('Picks a provider on the priorities of the brain that asks · 2 models')).toBeTruthy()
+    expect(view.queryByRole('combobox', { name: 'Routing strategy' })).toBeNull()
+    expect(view.queryAllByRole('slider')).toHaveLength(0)
+    expect(calls.some(call => call.url.startsWith('/idealize/freetokens/routing'))).toBe(false)
     // The re-hosted provider editor is now the marked advanced route, reached
     // from the add list rather than from a "+" that led straight to a URL field.
     fireEvent.click(view.getByRole('button', { name: 'Add a service' }))
@@ -786,35 +779,54 @@ describe('BrainsPanel', () => {
     expect(view.getByTestId('provider-editor')).toBeTruthy()
   })
 
-  it('shows the engine vector as percentages and saves a moved slider as the custom vector', async () => {
+  it('gives a chat brain its own flexibility and priorities, and saves them once a slider moves', async () => {
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
-    const reliability = view.getByRole('slider', { name: 'Reliability' }) as HTMLInputElement
-    // Balanced 0.5 / 0.25 / 0.25 reads 50% / 25% / 25%, in the Paper frame's order.
-    await waitFor(() => { expect(reliability.value).toBe('50') })
-    expect(reliability.disabled).toBe(false)
-    expect(view.getAllByRole('slider').map(slider => slider.getAttribute('aria-label'))).toEqual(['Reliability', 'Speed', 'Intelligence'])
-    expect(view.getByText('50%')).toBeTruthy()
-    expect(view.getAllByText('25%')).toHaveLength(2)
-    fireEvent.change(reliability, { target: { value: '80' } })
-    fireEvent.mouseUp(reliability)
-    await waitFor(() => { expect(posts('/idealize/freetokens/routing/strategy')).toHaveLength(1) })
-    expect(sent(posts('/idealize/freetokens/routing/strategy')[0]!)).toEqual({
-      strategy: 'custom', weights: { reliability: 80, speed: 25, intelligence: 25 },
+    fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
+    const sheet = view.getByRole('form', { name: 'Edit brain' })
+    // Coding opens on its shipped row over the app-wide level.
+    await waitFor(() => { expect(within(sheet).getByRole<HTMLInputElement>('slider', { name: 'Intelligence' }).value).toBe('80') })
+    expect(within(sheet).getAllByRole('slider').map(slider => slider.getAttribute('aria-label')))
+      .toEqual(['Model flexibility', 'Low cost', 'Speed', 'Intelligence'])
+    expect(within(sheet).getByRole<HTMLInputElement>('slider', { name: 'Low cost' }).value).toBe('10')
+    expect(within(sheet).getByRole<HTMLInputElement>('slider', { name: 'Model flexibility' }).value).toBe('1')
+    fireEvent.change(within(sheet).getByRole('slider', { name: 'Model flexibility' }), { target: { value: '2' } })
+    fireEvent.change(within(sheet).getByRole('slider', { name: 'Speed' }), { target: { value: '40' } })
+    fireEvent.click(view.getByRole('button', { name: 'Save brain' }))
+    await waitFor(() => { expect(posts('/idealize/router/brain')).toHaveLength(1) })
+    expect(sent(posts('/idealize/router/brain')[0]!)).toEqual({
+      brain: 'coding', aggressiveness: 'aggressive', cost: 10, speed: 40, intelligence: 80,
     })
-    expect(posts('/idealize/models/preferences')).toHaveLength(0)
   })
 
-  it('disables the card when the engine is unreachable', async () => {
-    routing = null
+  it('leaves a brain\u2019s criteria alone when no slider moved, and hides them once routing is off for it', async () => {
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
-    const strategy = view.getByRole('combobox', { name: 'Routing strategy' }) as HTMLSelectElement
-    expect(strategy.disabled).toBe(true)
-    expect(strategy.value).toBe('priority')
-    for (const slider of view.getAllByRole('slider') as HTMLInputElement[]) expect(slider.disabled).toBe(true)
-    expect(view.getAllByText('—')).toHaveLength(3)
-    expect(posts('/idealize/freetokens/routing/strategy')).toHaveLength(0)
+    fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
+    const sheet = view.getByRole('form', { name: 'Edit brain' })
+    await waitFor(() => { expect(within(sheet).getAllByRole('slider')).toHaveLength(4) })
+    fireEvent.click(sheet.querySelector('[data-brains-field="routed"] input')!)
+    expect(within(sheet).queryAllByRole('slider')).toHaveLength(0)
+    fireEvent.click(view.getByRole('button', { name: 'Save brain' }))
+    await waitFor(() => { expect(view.queryByRole('form', { name: 'Edit brain' })).toBeNull() })
+    expect(posts('/idealize/router/brain')).toHaveLength(0)
+  })
+
+  it('leaves the router controls out of a sheet opened from the Terminal group, and captions them in Chat', async () => {
+    const view = await mount()
+    // Coding works in Chat and Terminal; from the Terminal group its sheet
+    // asks nothing the router cannot honour there.
+    fireEvent.click(within(group(view, 'terminal')).getAllByRole('button', { name: 'Edit' })[0]!)
+    let sheet = view.getByRole('form', { name: 'Edit brain' })
+    expect((sheet.querySelector('input[type="text"], input:not([type])') as HTMLInputElement).value).toBe('Coding')
+    expect(sheet.querySelector('[data-brains-field="routed"]')).toBeNull()
+    expect(within(sheet).queryAllByRole('slider')).toHaveLength(0)
+    fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => { expect(view.queryByRole('form', { name: 'Edit brain' })).toBeNull() })
+    // The same brain from the Chat group carries them, with the line that scopes them.
+    fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
+    sheet = view.getByRole('form', { name: 'Edit brain' })
+    expect(sheet.querySelector('[data-brains-field="routed"]')).not.toBeNull()
+    expect(sheet.querySelector('[data-brains-routed-terminal]')?.textContent).toBe('Applies in Chat. A Terminal chat runs its own agent, which picks its own model.')
+    await waitFor(() => { expect(within(sheet).getAllByRole('slider')).toHaveLength(4) })
   })
 
   it('shows the budget table per scope and saves a monthly budget', async () => {

@@ -12,6 +12,11 @@
  * Only the latest message leaves the machine, with the brain's name and
  * instructions. No history, files or images (JJ, 21 Sep 2026).
  *
+ * Each brain carries its own criteria (how readily its chats move, and the
+ * three weights), set in its sheet. The app-wide values serve a chat that runs
+ * no brain. A turn that runs on free tokens sends the brain's weights to the
+ * engine in a header, so the engine picks its provider on the same criteria.
+ *
  * Three things stop switching: a chat's lock, a brain listed in `offBrains`,
  * and `enabled: false`. Terminal chats run a command-line agent the router
  * cannot reach, and the generating spaces choose their own models.
@@ -19,6 +24,7 @@
  * HTTP surface (loopback-fenced; mutations demand the header):
  * - GET  /idealize/router/state — settings, the weights it reads, whether Jev is reachable, the last Jev failure, and the capability table.
  * - POST /idealize/router/settings — any of {enabled, aggressiveness, preferFree, showRationale, useJev, offBrains}.
+ * - POST /idealize/router/brain — {brain, aggressiveness?, cost?, speed?, intelligence?}: one brain's own criteria.
  * - POST /idealize/router/lock — {sessionId, locked}.
  * - POST /idealize/router/reset — {sessionId}: the user took the model back; the earlier switch no longer holds.
  * - GET  /idealize/router/log?limit=n — the newest decisions, newest first.
@@ -44,6 +50,8 @@ import { shippedTokenPrices } from '@idealize/services'
 import { foldBrainRecord, resolveSessionSpace } from '@idealize/spaces'
 
 import { candidatesFrom, FREE_PROVIDER } from './candidates.ts'
+import { criteriaFor, engineWeights, ROUTING_HEADER, routingHeaderValue, SHIPPED_CRITERIA } from './criteria.ts'
+import type { BrainCriteria, Criteria } from './criteria.ts'
 import type { ConnectedRoute, RouteAuth } from './candidates.ts'
 import type { Aggressiveness, Candidate, Weights } from './decide.ts'
 import { askJev, JEV_TIMEOUT_MS, JEV_URL, requestFor } from './jev.ts'
@@ -57,6 +65,8 @@ import { SHIPPED_SCORES } from './score-table.ts'
 import type { ScoreRow } from './score-table.ts'
 
 export { candidatesFrom } from './candidates.ts'
+export { criteriaFor, engineWeights, ROUTING_HEADER, routingHeaderValue, SHIPPED_CRITERIA } from './criteria.ts'
+export type { BrainCriteria, Criteria, EngineWeights } from './criteria.ts'
 export { decide, PRESETS, rationaleFor, score } from './decide.ts'
 export type { Aggressiveness, Candidate, Decision, Scored, StayReason, Weights } from './decide.ts'
 export { askJev, requestFor } from './jev.ts'
@@ -93,6 +103,8 @@ export interface RouterConfig {
   useJev?: boolean
   /** Brains whose chats are never routed. */
   offBrains?: string[]
+  /** Each brain's own criteria, by brain id; a brain without an entry starts from its shipped row, then the app-wide values. */
+  brains?: Record<string, BrainCriteria>
   /** OpenRouter marks the Decisions endpoint alpha, so its address is config. */
   jevUrl?: string
   /** The longest a turn waits on Jev, in milliseconds. */
@@ -106,6 +118,12 @@ export const Config: z<RouterConfig> = z.object({
   showRationale: z.boolean().default(true),
   useJev: z.boolean().default(true),
   offBrains: z.array(z.string()).default([]),
+  brains: z.dict(z.object({
+    aggressiveness: z.union(['conservative', 'balanced', 'aggressive']),
+    cost: z.number(),
+    speed: z.number(),
+    intelligence: z.number(),
+  })).default({}),
   jevUrl: z.string().default(JEV_URL),
   jevTimeoutMs: z.natural().default(JEV_TIMEOUT_MS),
 })
@@ -221,6 +239,12 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       return { cost: models?.cost ?? 34, speed: models?.speed ?? 33, intelligence: models?.intelligence ?? 33 }
     }
 
+    /** The criteria a brain's turn is decided under; the app-wide values for a chat without one. */
+    const criteria = (brain: string | undefined): Criteria => {
+      const settings = current()
+      return criteriaFor(settings.brains, brain, { aggressiveness: settings.aggressiveness ?? 'balanced', weights: weights() })
+    }
+
     /**
      * The routes that can answer now, as the Brains pane judges them: a stored key,
      * a signed-in subscription, or the free engine with models registered.
@@ -322,8 +346,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
           brain: record === undefined ? undefined : { id: record.brain, instructions: record.instructions },
           contextTokens: contextTokensOf(agent.session.events),
           candidates: await usable(),
-          weights: weights(),
-          aggressiveness: settings.aggressiveness ?? 'balanced',
+          ...criteria(record?.brain),
           preferFree: settings.preferFree ?? true,
           table: await scoreTable(home),
           now: new Date(),
@@ -371,6 +394,20 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       return { kind: 'retry' }
     })
 
+    // The free-token engine picks its provider on the brain's priorities: every request of a chat carries them.
+    routeCtx.inject(['idealizeAttribution', 'sessions'], (engineCtx) => {
+      const attribution = engineCtx.get('idealizeAttribution') as {
+        contribute?: (contributor: (sessionId: string) => Record<string, string> | undefined) => () => void
+      } | undefined
+      if (attribution?.contribute === undefined) return
+      engineCtx.effect(() => attribution.contribute?.((sessionId) => {
+        const session = engineCtx.sessions.get(SessionId(sessionId))
+        if (session === undefined) return undefined
+        const brain = foldBrainRecord(session.events)?.brain
+        return { [ROUTING_HEADER]: routingHeaderValue(engineWeights(criteria(brain).weights)) }
+      }) ?? (() => {}), 'idealize-router: engine routing header')
+    })
+
     routeCtx.inject(['webServer', 'sessions'], (webCtx) => {
       type RouteHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void> | void
       const register = (path: string, mutating: boolean, handler: RouteHandler): void => {
@@ -406,6 +443,8 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
             offBrains: settings.offBrains ?? [],
           },
           weights: weights(),
+          brains: settings.brains ?? {},
+          shippedBrains: SHIPPED_CRITERIA,
           jev: { keyed: (await openRouterKey()) !== undefined, lastFailure: lastJevFailure },
           families: table.map(row => ({ family: row.family, speed: row.speed, scores: row.scores, yours: !SHIPPED_SCORES.includes(row) })),
           candidates: (await usable()).length,
@@ -428,6 +467,29 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
           return
         }
         await webCtx.settings.update(NS, next)
+        sendJson(res, 200, { ok: true })
+      })
+
+      register('/idealize/router/brain', true, async (req, res) => {
+        const body = await readBody(req)
+        if (typeof body.brain !== 'string' || body.brain === '') {
+          sendJson(res, 400, { error: 'brain must name a brain' })
+          return
+        }
+        const entry: BrainCriteria = {}
+        if (body.aggressiveness === 'conservative' || body.aggressiveness === 'balanced' || body.aggressiveness === 'aggressive') {
+          entry.aggressiveness = body.aggressiveness
+        }
+        for (const axis of ['cost', 'speed', 'intelligence'] as const) {
+          const value = body[axis]
+          if (typeof value === 'number' && Number.isFinite(value) && value >= 0) entry[axis] = value
+        }
+        if (Object.keys(entry).length === 0) {
+          sendJson(res, 400, { error: 'nothing to change: send aggressiveness, cost, speed or intelligence' })
+          return
+        }
+        const brains = current().brains ?? {}
+        await webCtx.settings.update(NS, { brains: { ...brains, [body.brain]: { ...brains[body.brain], ...entry } } })
         sendJson(res, 200, { ok: true })
       })
 

@@ -1,8 +1,8 @@
 /**
  * The Brains pane's Router tab: whether chats are moved to a better model,
- * how readily, what "better" weighs, and what the router did lately. Reads and
- * writes the loopback routes of @idealize/router; the three priorities are the
- * preferences @idealize/models already stores.
+ * and what the router did lately. How readily a chat moves and what "better"
+ * weighs belong to each brain, in its sheet (JJ, 21 Sep 2026). Reads and
+ * writes the loopback routes of @idealize/router.
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { BarKey } from './locales.ts'
@@ -10,10 +10,6 @@ import css from './BrainsPanel.module.css'
 
 const HEADERS = { 'x-idealize-auth': '1', 'content-type': 'application/json' }
 
-const LEVELS = ['conservative', 'balanced', 'aggressive'] as const
-type Level = typeof LEVELS[number]
-const PRIORITIES = ['cost', 'speed', 'intelligence'] as const
-type Priority = typeof PRIORITIES[number]
 const FLAGS = ['preferFree', 'showRationale'] as const
 type Flag = typeof FLAGS[number]
 
@@ -22,8 +18,7 @@ type JevFailure = typeof JEV_FAILURES[number]
 
 /** The /idealize/router/state payload, as far as the tab reads it. */
 interface RouterState {
-  settings: { enabled: boolean; aggressiveness: Level; useJev: boolean } & Record<Flag, boolean>
-  weights: Record<Priority, number>
+  settings: { enabled: boolean; useJev: boolean } & Record<Flag, boolean>
   jev: { keyed: boolean; lastFailure?: { failure: JevFailure; at: string } }
   candidates: number
   /** The user's own score file exists and could not be read, so the shipped table alone is in use. */
@@ -68,19 +63,12 @@ const modelOf = (route: string): string => route.slice(route.indexOf('/') + 1)
  */
 export function RouterTab({ t }: { t: (key: BarKey, params?: Record<string, string | number>) => string }) {
   const [state, setState] = useState<RouterState | null>(null)
-  const [weights, setWeights] = useState<Record<Priority, number> | null>(null)
   const [log, setLog] = useState<LogRow[]>([])
   const [failed, setFailed] = useState(false)
-  // Held beside the state so the thumb follows the pointer while the save is in flight.
-  const [level, setLevel] = useState<Level>('balanced')
 
   const refresh = useCallback(async (): Promise<void> => {
     const next = await getJson<RouterState>('/idealize/router/state')
-    if (next !== null) {
-      setState(next)
-      setWeights(next.weights)
-      setLevel(next.settings.aggressiveness)
-    }
+    if (next !== null) setState(next)
     setLog((await getJson<{ entries: LogRow[] }>('/idealize/router/log?limit=8'))?.entries ?? [])
   }, [])
   useEffect(() => { void refresh() }, [refresh])
@@ -111,56 +99,7 @@ export function RouterTab({ t }: { t: (key: BarKey, params?: Record<string, stri
           {t('brains.router.enabled')}
         </label>
         <span className={css.fieldHint}>{t('brains.router.enabledHint')}</span>
-      </div>
-      <div className={css.field} role="group" aria-label={t('brains.router.level')}>
-        <span className={css.fieldLabel}>{t('brains.router.level')}</span>
-        <label className={css.weightRow}>
-          <span className={css.weightLabel}>{t('brains.router.level.low')}</span>
-          <input
-            type="range"
-            className={css.weightInput}
-            data-router-level=""
-            min={0}
-            max={LEVELS.length - 1}
-            step={1}
-            aria-label={t('brains.router.level')}
-            aria-valuetext={t(`brains.router.level.${level}`)}
-            disabled={off}
-            value={LEVELS.indexOf(level)}
-            onChange={(event) => {
-              const next = LEVELS[Number(event.target.value)] ?? 'balanced'
-              setLevel(next)
-              void save('/idealize/router/settings', { aggressiveness: next })
-            }}
-          />
-          <span className={css.weightEnd}>{t('brains.router.level.high')}</span>
-        </label>
-        <span className={css.fieldHint} data-router-level-hint={level}>{t(`brains.router.level.${level}.hint`)}</span>
-      </div>
-      <div className={css.field} role="group" aria-label={t('brains.router.priorities')}>
-        <span className={css.fieldLabel}>{t('brains.router.priorities')}</span>
-        {PRIORITIES.map(key => (
-          <label key={key} className={css.weightRow}>
-            <span className={css.weightLabel}>{t(`brains.router.priority.${key}`)}</span>
-            <input
-              type="range"
-              className={css.weightInput}
-              min={0}
-              max={100}
-              aria-label={t(`brains.router.priority.${key}`)}
-              disabled={off || weights === null}
-              value={weights?.[key] ?? 0}
-              onChange={(event) => {
-                setWeights(previous => previous === null ? null : { ...previous, [key]: Number(event.target.value) })
-              }}
-              onMouseUp={() => { if (weights !== null) void save('/idealize/models/preferences', weights) }}
-              onKeyUp={() => { if (weights !== null) void save('/idealize/models/preferences', weights) }}
-              onTouchEnd={() => { if (weights !== null) void save('/idealize/models/preferences', weights) }}
-            />
-            <span className={css.weightValue}>{weights === null ? '—' : String(weights[key])}</span>
-          </label>
-        ))}
-        <span className={css.fieldHint}>{t('brains.router.prioritiesHint')}</span>
+        <span className={css.fieldHint} data-router-per-brain="">{t('brains.router.perBrain')}</span>
       </div>
       {FLAGS.map(flag => (
         <div key={flag} className={css.field}>

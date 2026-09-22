@@ -60,6 +60,7 @@ function projectForAsync(cwd: string): Promise<string> {
 export class IdealizeAttribution extends Service {
   private readonly byCwd = new Map<string, string>()
   private readonly warming = new Map<string, Promise<void>>()
+  private readonly contributors = new Set<(sessionId: string) => Record<string, string> | undefined>()
 
   constructor(ctx: Context) {
     super(ctx, 'idealizeAttribution')
@@ -88,12 +89,35 @@ export class IdealizeAttribution extends Service {
   }
 
   /**
-   * Attribution headers for one request; undefined when nothing is known.
+   * Let another plugin add headers to a session's requests: the model router
+   * sends the brain's priorities to the engine this way.
+   * @param contributor - Returns the headers for one session, or undefined.
+   * @returns a function that removes the contributor.
+   */
+  contribute(contributor: (sessionId: string) => Record<string, string> | undefined): () => void {
+    this.contributors.add(contributor)
+    return () => { this.contributors.delete(contributor) }
+  }
+
+  /**
+   * Headers for one request; undefined when nothing is known.
    * @param sessionId - The requesting session, when the request has one.
-   * @returns the `x-idealize-project` header, or undefined without a session cwd.
+   * @returns the `x-idealize-project` header and any contributed ones, or undefined when there are none.
    */
   headersFor(sessionId: string | undefined): Record<string, string> | undefined {
     if (sessionId === undefined) return undefined
+    const headers = { ...this.projectHeader(sessionId) }
+    for (const contributor of this.contributors) {
+      try {
+        Object.assign(headers, contributor(sessionId))
+      } catch {
+        // A contributor that throws costs the request its header and nothing else.
+      }
+    }
+    return Object.keys(headers).length === 0 ? undefined : headers
+  }
+
+  private projectHeader(sessionId: string): Record<string, string> | undefined {
     const sessions = this.ctx.get('sessions')
     const cwd = sessions?.get(sessionId as SessionId)?.header.cwd
     if (cwd === undefined || cwd === '') return undefined

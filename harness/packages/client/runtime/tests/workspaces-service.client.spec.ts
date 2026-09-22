@@ -275,6 +275,34 @@ describe('WorkspaceRuntime', () => {
     await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-fresh-2')
   })
 
+  it('connectWorkspace hands back the session it just minted before the host frame fills in its cwd', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('beta')] as never[] }))
+    api.onList = () => Promise.resolve(ok({ items: [] }))
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+
+    // The first connect mints: beta holds no blank session.
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-fresh') }))
+    await expect(workspaces.connectWorkspace(wid('beta'))).resolves.toBe('s-fresh')
+    // The create landed a summary with no cwd and beta's sessionIds still
+    // empty: the durable reuse rule cannot see it. A second connect inside
+    // that window used to mint another hidden blank session.
+    expect(sessions.list.getSnapshot().byId[sid('s-fresh')]?.cwd).toBeUndefined()
+    await expect(workspaces.connectWorkspace(wid('beta'))).resolves.toBe('s-fresh')
+    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'beta' }])
+
+    // Once the minted session is archived, the memory no longer applies and
+    // New Session mints again.
+    await workspaces.archiveSession(sid('s-fresh'))
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-fresh-2') }))
+    await expect(workspaces.connectWorkspace(wid('beta'))).resolves.toBe('s-fresh-2')
+    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'beta' }, { workspaceId: 'beta' }])
+  })
+
   it('connectWorkspace mints a fresh session rather than reusing a blank one a plugin has recorded a brain on', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
@@ -663,6 +691,31 @@ describe('startInitialSelection', () => {
     expect(noRecent.api.callsOf('session.create')).toHaveLength(0)
     expect(() => noRecent.workspaces.startInitialSelection()).toThrow(/already started/)
     stopEmpty()
+  })
+
+  it('the desktop Askbar window selects nothing: a second renderer of the page minted its own hidden blank', async () => {
+    // Node lane: the page marker is the only browser fact the runtime reads.
+    const page = globalThis as { window?: unknown }
+    const before = page.window
+    page.window = { location: { search: '?dsh-desktop-mode=askbar' } }
+    try {
+      const b = bench()
+      const stop = b.workspaces.startInitialSelection()
+      b.api.onWorkspaceList = () => Promise.resolve(ok({
+        items: [workspace('recent', [], '2026-01-02T00:00:00.000Z')] as never[],
+      }))
+      b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-new') }))
+      await b.workspaces.refresh()
+      await b.sessions.refresh()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(b.api.callsOf('session.create')).toHaveLength(0)
+      expect(b.sessions.list.getSnapshot().current).toBeUndefined()
+      expect(() => b.workspaces.startInitialSelection()).toThrow(/already started/)
+      stop()
+    } finally {
+      if (before === undefined) delete page.window
+      else page.window = before
+    }
   })
 
   it('a failed connect returns to waiting and retries on the next list change', async () => {

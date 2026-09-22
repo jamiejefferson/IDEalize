@@ -28,6 +28,19 @@
     - id: idealize-doc-policy
       name: '@idealize/doc-policy'
 
+# The API gateway reads a cold chat's log to tell a blank chat from a started
+# one only when the file is under a size bound, and serves an unprobed chat as
+# visible and never reuses it. IDEalize splices a name and the project's
+# documentation context into every new chat before its first turn, which put
+# most blank chats past the upstream 1 KB bound, so every restart listed the
+# previous run's blank chats as empty conversations and New chat minted more
+# (JJ, 22 Sep 2026: "when i restart, i seem to always have archived chats / or
+# blank chats appearing"). Only chats that never ran a turn are ever probed,
+# so 1 MiB costs nothing on a real conversation.
+- id: api-gateway
+  config:
+    coldBlankProbeMaxBytes: 1048576
+
 # S6 — the vault: session-close commit evidence + reconcile over doc-policy's
 # canonical structure. The projects root comes from the settings document's
 # `idealize-vault:` section (projectsRoot).
