@@ -4527,7 +4527,7 @@ __metadata:
 
 "@idealize/bundle-idealize@file:./vendor/idealize/idealize-bundle-idealize-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/bundle-idealize@file:./vendor/idealize/idealize-bundle-idealize-1.0.0-dev.0.tgz#./vendor/idealize/idealize-bundle-idealize-1.0.0-dev.0.tgz::hash=dbaa62&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/bundle-idealize@file:./vendor/idealize/idealize-bundle-idealize-1.0.0-dev.0.tgz#./vendor/idealize/idealize-bundle-idealize-1.0.0-dev.0.tgz::hash=871e1e&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-mcp-client": "npm:^0.1.0-rc.7"
     "@idealize/activity-pills": "npm:^1.0.0-dev.0"
@@ -4568,7 +4568,7 @@ __metadata:
     "@idealize/web-search-openrouter": "npm:^1.0.0-dev.0"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/f33033a50b95ed4ca0ea0ee51e8a4d11764e01f1a7fd7dc50d057695516e109b387a4ba168fc0a3462f47963d4eae7d5b5265ac3fa35d6aa5c63647f37e00486
+  checksum: 10c0/829a464233c1e60663f905b70e025ad8e7a866675bfbdfe4965399fecfa28ab8b8e1854c7bb6de2000412a143bdb3862609cf535da41e7d23220bae9c69012d4
   languageName: node
   linkType: hard
 

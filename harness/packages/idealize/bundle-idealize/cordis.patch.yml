@@ -141,6 +141,32 @@
           maxAttempts: 100000
 
 
+# Hatch — the agent-driven browser (https://github.com/jamiejefferson/Hatch),
+# bridged as native tools for every brain under `mcp__hatch__*`, so a chat
+# does what it is asked in Hatch with nothing pasted (JJ, 22 Sep 2026). The
+# client runs Hatch's stdio door, the launcher inside the installed app: it
+# finds Hatch's real port by itself, answers with the saved tool list while
+# Hatch is closed (each tool then says to open the app) and announces the
+# live list the moment Hatch starts, which the client picks up through
+# `tools/list_changed`. Every IDEalize chat shares the one agent name, so a
+# chat passes the canvas or Hatch it means on each call; Hatch's own briefing
+# tells it to. A machine without Hatch retries at debug for good, as Paper does.
+- insert:
+    - id: idealize-mcp-hatch
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: hatch
+        transport: stdio
+        command: /Applications/Hatch.app/Contents/Resources/hatch-mcp
+        env:
+          HATCH_AGENT: idealize
+        failOnStartupError: false
+        reconnect:
+          enabled: true
+          initialDelayMs: 2000
+          maxDelayMs: 60000
+          maxAttempts: 100000
+
 # S1 — spaces: the declared Chat / Terminal / Gallery / Sound Stage / Motion
 # table, the durable `idealize/space` and `idealize/brain` records with their
 # projections, and POST /idealize/spaces/select. Chats made before spaces
