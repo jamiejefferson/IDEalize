@@ -1,26 +1,29 @@
 /**
  * The browser half's output devices: the chime (an Audio element over the
- * host-served asset, volume from settings) and the notification (the desktop
- * shell's native notifier through the host route when present, the Web
- * Notifications API otherwise). Both fail silently: a missed chime is never
- * worth an error.
+ * host-served sound, volume and choice from settings) and the notification
+ * (the desktop shell's native notifier through the host route when present,
+ * the Web Notifications API otherwise). Both fail silently: a missed chime is
+ * never worth an error.
  */
 
-/** The host-served chime asset. */
-export const CHIME_URL = '/idealize/notify/chime.mp3'
+import { BUILT_IN_CHIME_SOUND, BUILT_IN_CHIME_URL, chimeSoundUrl } from '../chime-sounds.ts'
+
+/** The host-served built-in chime asset. */
+export const CHIME_URL = BUILT_IN_CHIME_URL
 
 /**
  * Play the chime. Resolves when playback starts or fails; never rejects.
  * @param volume - playback volume, clamped to 0…1.
+ * @param sound - the catalogue id to play; the built-in chime when omitted.
  */
-export async function playChime(volume: number): Promise<void> {
+export async function playChime(volume: number, sound: string = BUILT_IN_CHIME_SOUND): Promise<void> {
   if (typeof Audio === 'undefined') return
   try {
-    const audio = new Audio(CHIME_URL)
+    const audio = new Audio(chimeSoundUrl(sound))
     audio.volume = Math.min(1, Math.max(0, volume))
     await audio.play()
   } catch {
-    // autoplay refused before any user gesture, or the asset is unreachable
+    // autoplay refused before any user gesture, or the sound is unreachable
   }
 }
 

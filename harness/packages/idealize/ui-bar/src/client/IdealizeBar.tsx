@@ -16,7 +16,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type { BarPanel, BarViewStore } from './bar-store.ts'
 import {
   BarIconAppearance, BarIconFeedback, BarIconFiles, BarIconHatch, BarIconModels,
-  BarIconPlugins, BarIconSchedule, BarIconSettings, BarIconTerminal, BarIconTrajectory,
+  BarIconPlugins, BarIconSchedule, BarIconSettings, BarIconTerminal, BarIconTrajectory, BarIconWork,
 } from './BarIcons.tsx'
 import css from './IdealizeBar.module.css'
 
@@ -100,6 +100,7 @@ export function IdealizeBar(props: IdealizeBarProps) {
   // (Files, Schedule, Trajectory, Brains), the things that change the app
   // below (Plugins, Appearance, Settings), and the Service hatch last. The
   // Terminal (15 Sep 2026) sits under Files, with the working tools.
+  // Time & cost (24 Sep 2026) sits under Brains: it took Brains' budget tab.
   // Feedback is not on that list and keeps its place before Settings, the
   // only pane either side of it that it could be confused with. The mini-mode
   // toggle left the rail for the sidebar header, beside the other
@@ -111,6 +112,7 @@ export function IdealizeBar(props: IdealizeBarProps) {
       {paneButton('schedule', t('bar.schedule'), <BarIconSchedule size={ICON} />)}
       {paneButton('trajectory', t('bar.trajectory'), <BarIconTrajectory size={ICON} />)}
       {paneButton('models', t('bar.models'), <BarIconModels size={ICON} />)}
+      {paneButton('work', t('bar.work'), <BarIconWork size={ICON} />)}
       {marketPresent && barButton(t('bar.plugins'), openMarket, <BarIconPlugins size={ICON} />)}
       {paneButton('appearance', t('bar.appearance'), <BarIconAppearance size={ICON} />)}
       {paneButton('feedback', t('bar.feedback'), <BarIconFeedback size={ICON} />)}

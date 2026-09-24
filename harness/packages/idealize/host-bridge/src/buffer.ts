@@ -18,6 +18,7 @@ export type BridgeEventKind =
   | 'open-studio'
   | 'new-chat'
   | 'open-folder'
+  | 'open-file'
   | 'attention'
 
 /** One notification the host wants a shell (desktop or browser) to surface. */
@@ -39,8 +40,14 @@ export interface BridgeEvent {
   studioEvent?: string
   /** On `agent-finished`: the turn the agent stopped on ended in an error, so no reply is waiting. */
   failed?: boolean
-  /** The absolute folder an `open-folder` event asks the shell to register as a project and open. */
+  /**
+   * The absolute folder an `open-folder` event asks the shell to register as a
+   * project and open; on an `open-file` event, the folder to register first
+   * when the file lies outside what the viewer serves bare.
+   */
   folder?: string
+  /** The absolute file an `open-file` event asks the shell to show in its file viewer. */
+  file?: string
 }
 
 const CAP = 200

@@ -155,7 +155,7 @@ forgetSession(session: Session): void
 
 Types: [Session](session.md) · [SessionEvent](session.md)
 
-Source: [`packages/idealize/comm/src/service.ts:229`](../../packages/idealize/comm/src/service.ts)
+Source: [`packages/idealize/comm/src/service.ts:235`](../../packages/idealize/comm/src/service.ts)
 
 <a id="ctxidealizestudio--idealizestudio"></a>
 

@@ -4,11 +4,11 @@
 // each row stating its model as text, each space's own generation-model row
 // and its unavailable state, the agent-role section, the edit sheet asking
 // spaces then the model those spaces narrow it to (the one place a model is
-// chosen) then the instructions and the brain's own routing criteria, the
-// provider sections (the free-token engine has no controls of its own), and
-// the budget table with its monthly budget field.
+// chosen) then the instructions and the brain's own routing criteria, and the
+// provider sections (the free-token engine has no controls of its own). The
+// budget tables moved to the Time & cost pane (work-panel.client.spec.tsx).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import type { RenderResult } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
@@ -93,54 +93,8 @@ const MEDIA = () => ({
     },
   ],
 })
-const USAGE = {
-  scope: '',
-  projects: [{ path: '/p/alpha', label: 'alpha' }],
-  month: { subscriptions: 1500, metered: 0, free: 250, total: 1750 },
-  year: { subscriptions: 2_400_000, metered: 12, free: 250, total: 2_400_262 },
-  monthlyTokenBudget: 0,
-  // Costs the host computed from configured prices: a $20 plan (unset for
-  // Anthropic) and 12 metered tokens this year that no price entry covers.
-  cost: {
-    currency: 'USD',
-    month: { subscriptions: 20, metered: 0, free: 0, total: 20 },
-    year: { subscriptions: 160, metered: 0.5, free: 0, total: 160.5 },
-    unpricedTokens: { month: 0, year: 12 },
-    unpricedSubscriptions: ['anthropic'],
-    configured: true,
-  },
-  // One row per model with usage this month: a subscription row, an unpriced
-  // metered row, a metered row OpenRouter priced from its directory, a free row.
-  models: [
-    { provider: 'openai-codex', model: 'gpt-5.5', category: 'subscriptions', total: 1500 },
-    { provider: 'anthropic', model: 'claude', category: 'metered', total: 900 },
-    { provider: 'openrouter', model: 'a/b', category: 'metered', total: 400, cost: 0.25, price: { input: 1, output: 2, cacheRead: 1, cacheWrite: 1, source: 'market' } },
-    { provider: 'freetokens', model: 'auto', category: 'free', total: 250 },
-  ],
-  openRouterPrices: { fetchedAt: '2026-09-08T07:24:39.767Z', models: 276 },
-  // One row per endpoint that generated this month: a billed one, one fal has
-  // not billed yet, one fal reported that this app did not make itself, and one
-  // whose media type the copy has no word of its own for.
-  generations: {
-    rows: [
-      { provider: 'fal', model: 'fal-ai/flux/dev', mediaType: 'image/png', count: 6, billed: { quantity: 6, unit: 'image', cost: 0.52, currency: 'USD' } },
-      { provider: 'fal', model: 'fal-ai/kling/video', mediaType: 'video/mp4', count: 2 },
-      { provider: 'fal', model: 'fal-ai/whisper', count: 0, billed: { quantity: 1, unit: 'second', cost: 0.1, currency: 'USD' } },
-      { provider: 'fal', model: 'fal-ai/any-llm', mediaType: 'text/markdown', count: 1 },
-    ],
-    billed: { month: { USD: 0.62 }, year: { USD: 1.4 } } as { month: Record<string, number>; year: Record<string, number> } | undefined,
-    currency: 'USD' as string | null,
-  },
-  falUsage: { fetchedAt: '2026-09-08T07:24:39.767Z' } as { fetchedAt: string | null; error?: string } | null,
-}
 /** An instant as the panel prints it. */
 const when = (iso: string): string => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-
-/** The usage payload a test mounts over; `install` resets it to the shared fixture. */
-let usagePayload: typeof USAGE
-
-/** The cost strings the panel is expected to render, formatted exactly as the component formats them. */
-const usd = (value: number): string => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(value)
 
 /** Claude on subscription runs as Claude Code in the terminal: the chat cannot reach it, the terminal can. */
 const WRITER = { id: 'writer', name: 'Writer', activity: false, modelPinned: false, spaces: ['chat', 'terminal'], model: { provider: 'anthropic', model: 'claude-opus-5' }, access: { state: 'unavailable', reason: 'terminal-only', model: { provider: 'anthropic', model: 'claude-opus-5' } }, overridden: true, instructions: 'Write.' }
@@ -197,14 +151,12 @@ function install(): void {
     { id: 'acme', kind: 'chat', name: 'Acme Gateway', makes: ['chat'], connected: false },
     { id: 'fal', kind: 'media', name: 'fal.ai', makes: ['image', 'video', 'audio'], connected: false, keyUrl: 'https://fal.ai/dashboard/keys' },
   ]
-  usagePayload = USAGE
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     calls.push({ url, ...init === undefined ? {} : { init } })
     if (url.startsWith('/idealize/models/state')) return Promise.resolve(json(statePayload))
     if (url === '/idealize/router/state') return Promise.resolve(json(ROUTER_STATE))
     if (url.startsWith('/idealize/activity/agents')) return Promise.resolve(json(agentsPayload))
     if (url.startsWith('/idealize/terminal/launches')) return Promise.resolve(json(launchesPayload))
-    if (url.startsWith('/idealize/models/usage')) return Promise.resolve(json(usagePayload))
     if (url === '/idealize/brains/media' && init?.method !== 'POST') return Promise.resolve(json(MEDIA()))
     if (url === '/idealize/brains/media-keys' && init?.method !== 'POST') return Promise.resolve(json({ providers: mediaKeys }))
     if (url === '/idealize/brains/media-keys') {
@@ -829,54 +781,6 @@ describe('BrainsPanel', () => {
     await waitFor(() => { expect(within(sheet).getAllByRole('slider')).toHaveLength(4) })
   })
 
-  it('shows the budget table per scope and saves a monthly budget', async () => {
-    const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Budget' }))
-    await waitFor(() => { expect(view.getAllByText('1.5k').length).toBeGreaterThan(0) })
-    expect(view.getAllByText('2.4M')).toHaveLength(2)
-    const table = view.getByRole('table', { name: 'Budget breakdown' })
-    expect(table.querySelectorAll('[role="row"]')).toHaveLength(5)
-    // Each cell leads with the configured-price cost over the token count.
-    expect(within(table).getAllByText(usd(20))).toHaveLength(2) // month: Subscriptions and Total
-    expect(within(table).getByText(usd(160.5))).toBeTruthy()
-    expect(within(table).getByText(usd(0.5))).toBeTruthy()
-    // What the shown costs leave out is called out, not silently zeroed.
-    expect(view.getByText('No monthly cost set for Anthropic; those subscriptions are not counted in costs.')).toBeTruthy()
-    expect(view.getByText('12 tokens this year have no price set and are not counted in costs.')).toBeTruthy()
-    fireEvent.change(view.getByRole('combobox', { name: 'View' }), { target: { value: '/p/alpha' } })
-    await waitFor(() => {
-      expect(calls.some(call => call.url === `/idealize/models/usage?scope=${encodeURIComponent('/p/alpha')}`)).toBe(true)
-    })
-    fireEvent.click(view.getByRole('button', { name: 'Set a budget' }))
-    fireEvent.change(view.getByRole('textbox', { name: 'Monthly budget' }), { target: { value: '500000' } })
-    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Save' })) })
-    await waitFor(() => { expect(posts('/idealize/models/budget')).toHaveLength(1) })
-    expect(sent(posts('/idealize/models/budget')[0]!)).toEqual({ monthlyTokenBudget: 500000 })
-  })
-
-  it('shows token-only cells and a pricing hint while no price or plan cost is configured', async () => {
-    usagePayload = {
-      ...USAGE,
-      cost: {
-        currency: 'USD',
-        month: { subscriptions: 0, metered: 0, free: 0, total: 0 },
-        year: { subscriptions: 0, metered: 0, free: 0, total: 0 },
-        unpricedTokens: { month: 0, year: 12 },
-        unpricedSubscriptions: ['openai-codex'],
-        configured: false,
-      },
-    }
-    const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Budget' }))
-    await waitFor(() => { expect(view.getAllByText('1.5k').length).toBeGreaterThan(0) })
-    const table = view.getByRole('table', { name: 'Budget breakdown' })
-    // Never a made-up figure: no cost renders until the user supplies prices.
-    expect(table.querySelectorAll('[data-budget-cost]')).toHaveLength(0)
-    expect(view.getByText('Costs appear once you set a model’s price below or a subscription cost in settings.')).toBeTruthy()
-    expect(view.container.querySelector('[data-budget-unpriced-subs]')).toBeNull()
-    expect(view.container.querySelector('[data-budget-unpriced-tokens]')).toBeNull()
-  })
-
   it('names every route by one rule: the directory name when it is one, else the id with a capital', async () => {
     // JJ, 8 Sep 2026: "OpenAI listings are different to others and are listed as gpt rather than OpenAI".
     statePayload = {
@@ -936,118 +840,6 @@ describe('BrainsPanel', () => {
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
     fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
     expect((view.getByRole('searchbox', { name: 'Filter models' }) as HTMLInputElement).value).toBe('')
-  })
-
-  it('lists each model used this month with its cost, and saves a typed price for an unpriced one', async () => {
-    // JJ, 8 Sep 2026: "Cost of the models has not been included in the budget section."
-    const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Budget' }))
-    await waitFor(() => { expect(view.getByRole('table', { name: 'Models this month' })).toBeTruthy() })
-    const table = view.getByRole('table', { name: 'Models this month' })
-    expect([...table.querySelectorAll('[data-spend-model]')].map(row => row.getAttribute('data-spend-model')))
-      .toEqual(['openai-codex gpt-5.5', 'anthropic claude', 'openrouter a/b', 'freetokens auto'])
-    // A priced metered row shows its cost; an unpriced one a dash and the action; the others their category.
-    expect(table.querySelector('[data-spend-cost="openrouter a/b"]')?.textContent).toBe(usd(0.25))
-    expect(table.querySelector('[data-spend-unpriced="anthropic claude"]')).toBeTruthy()
-    expect(within(table.querySelector('[data-spend-model="openai-codex gpt-5.5"]') as HTMLElement).getByText('Subscription')).toBeTruthy()
-    expect(within(table.querySelector('[data-spend-model="freetokens auto"]') as HTMLElement).getByText('Free')).toBeTruthy()
-    // The total sums the priced rows and counts the unpriced ones.
-    expect(table.querySelector('[data-spend-total-cost]')?.textContent).toBe(usd(0.25))
-    expect(table.querySelector('[data-spend-unpriced-count]')?.textContent).toBe('1 unpriced')
-    // The OpenRouter-priced row names its source in the editor.
-    fireEvent.click(within(table).getByRole('button', { name: 'Edit price' }))
-    expect(table.querySelector('[data-spend-price-source="market"]')?.textContent)
-      .toBe(`Price published by OpenRouter, read ${when('2026-09-08T07:24:39.767Z')}. A price you type replaces it.`)
-    expect((view.getByRole('textbox', { name: 'a/b Input per million' }) as HTMLInputElement).value).toBe('1')
-    fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
-    // Set a price on the unpriced row: input and output typed, cache prices left to the input price.
-    fireEvent.click(within(table).getByRole('button', { name: 'Set price' }))
-    fireEvent.change(view.getByRole('textbox', { name: 'claude Input per million' }), { target: { value: '3' } })
-    fireEvent.change(view.getByRole('textbox', { name: 'claude Output per million' }), { target: { value: '15' } })
-    fireEvent.click(view.getByRole('button', { name: 'Cache prices' }))
-    fireEvent.change(view.getByRole('textbox', { name: 'claude Cache read per million' }), { target: { value: '0.3' } })
-    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Save' })) })
-    await waitFor(() => { expect(posts('/idealize/models/prices')).toHaveLength(1) })
-    expect(sent(posts('/idealize/models/prices')[0]!)).toEqual({
-      provider: 'anthropic',
-      model: 'claude',
-      price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 },
-    })
-    expect(view.getByRole('status').textContent).toBe('Price saved.')
-    // The usage re-reads so the row's cost appears.
-    expect(calls.filter(call => call.url.startsWith('/idealize/models/usage')).length).toBeGreaterThan(1)
-  })
-
-  it('lists each endpoint that generated this month with what fal billed for it', async () => {
-    // JJ, 8 Sep 2026: "what about Fal?"
-    const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Budget' }))
-    await waitFor(() => { expect(view.getByRole('table', { name: 'Generations this month' })).toBeTruthy() })
-    const table = view.getByRole('table', { name: 'Generations this month' })
-    expect([...table.querySelectorAll('[data-generation-row]')].map(row => row.getAttribute('data-generation-row')))
-      .toEqual(['fal-ai/flux/dev', 'fal-ai/kling/video', 'fal-ai/whisper', 'fal-ai/any-llm'])
-    // What it made: the count, with the media kind beside the service's name.
-    expect(within(table.querySelector('[data-generation-row="fal-ai/flux/dev"]') as HTMLElement).getByText('Fal · images')).toBeTruthy()
-    expect(within(table.querySelector('[data-generation-row="fal-ai/kling/video"]') as HTMLElement).getByText('Fal · video')).toBeTruthy()
-    // An endpoint only fal reported carries no media type, so it names the service alone.
-    expect(within(table.querySelector('[data-generation-row="fal-ai/whisper"]') as HTMLElement).getByText('Fal')).toBeTruthy()
-    // A media type outside images, video and sound reads as files.
-    expect(within(table.querySelector('[data-generation-row="fal-ai/any-llm"]') as HTMLElement).getByText('Fal · files')).toBeTruthy()
-    // The billed cost in fal's own currency, with the units fal charged for.
-    expect(table.querySelector('[data-generation-cost="fal-ai/flux/dev"]')?.textContent).toBe(usd(0.52))
-    expect(within(table.querySelector('[data-generation-row="fal-ai/flux/dev"]') as HTMLElement).getByText('6 image')).toBeTruthy()
-    // A row fal has counted but not billed says so rather than showing a zero.
-    expect(table.querySelector('[data-generation-unbilled="fal-ai/kling/video"]')?.textContent).toBe('not billed yet')
-    expect(table.querySelector('[data-generations-total-cost]')?.textContent).toBe(usd(0.62))
-    expect(view.container.querySelector('[data-generations-connect]')).toBeNull()
-    expect(view.container.querySelector('[data-generations-error]')).toBeNull()
-  })
-
-  it('asks for a fal key, says when nothing was generated, and passes fal’s refusal through', async () => {
-    usagePayload = { ...USAGE, generations: { ...USAGE.generations, rows: [], billed: undefined, currency: null }, falUsage: null }
-    const bare = await mount()
-    fireEvent.click(bare.getByRole('tab', { name: 'Budget' }))
-    await waitFor(() => { expect(bare.getByRole('table', { name: 'Generations this month' })).toBeTruthy() })
-    expect(bare.getByText('No generations this month.')).toBeTruthy()
-    expect(bare.container.querySelector('[data-generations-connect]')?.textContent)
-      .toBe('Connect fal to see what generations cost.')
-    // Nothing billed leaves the total a dash, never a made-up zero.
-    expect(bare.container.querySelector('[data-generations-total-cost]')).toBeNull()
-    cleanup()
-
-    usagePayload = { ...USAGE, falUsage: { fetchedAt: null, error: 'fal.ai answered 403: Access denied' } }
-    const refused = await mount()
-    fireEvent.click(refused.getByRole('tab', { name: 'Budget' }))
-    await waitFor(() => { expect(refused.container.querySelector('[data-generations-error]')).toBeTruthy() })
-    expect(refused.container.querySelector('[data-generations-error]')?.textContent)
-      .toBe('fal did not report its billing. fal.ai answered 403: Access denied')
-    expect(refused.container.querySelector('[data-generations-connect]')).toBeNull()
-  })
-
-  it('names the shipped catalogue as a price’s source in the editor', async () => {
-    usagePayload = {
-      ...USAGE,
-      models: [
-        { provider: 'anthropic', model: 'claude', category: 'metered', total: 900, cost: 0.9, price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, source: 'catalogue' } },
-      ],
-    }
-    const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Budget' }))
-    await waitFor(() => { expect(view.getByRole('table', { name: 'Models this month' })).toBeTruthy() })
-    fireEvent.click(within(view.getByRole('table', { name: 'Models this month' })).getByRole('button', { name: 'Edit price' }))
-    expect(view.container.querySelector('[data-spend-price-source="catalogue"]')?.textContent)
-      .toBe('Price from the model catalogue the app ships. A price you type replaces it.')
-  })
-
-  it('refuses to save a price with a figure missing, rather than reading the gap as free', async () => {
-    const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Budget' }))
-    await waitFor(() => { expect(view.getByRole('table', { name: 'Models this month' })).toBeTruthy() })
-    fireEvent.click(within(view.getByRole('table', { name: 'Models this month' })).getByRole('button', { name: 'Set price' }))
-    fireEvent.change(view.getByRole('textbox', { name: 'claude Input per million' }), { target: { value: '3' } })
-    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Save' })) })
-    expect(posts('/idealize/models/prices')).toHaveLength(0)
-    expect(view.getByRole('status').textContent).toBe('Enter an input and an output price.')
   })
 
   it('lists every service in one place, saying what each one makes', async () => {

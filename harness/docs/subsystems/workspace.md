@@ -228,7 +228,7 @@ attachScans(table: KvTable<string, DocScanRecord>): void
 detachScans(): void
 ```
 
-Source: [`packages/idealize/doc-policy/src/index.ts:127`](../../packages/idealize/doc-policy/src/index.ts)
+Source: [`packages/idealize/doc-policy/src/index.ts:126`](../../packages/idealize/doc-policy/src/index.ts)
 
 <a id="ctxworkspacealiases--workspacealiases"></a>
 

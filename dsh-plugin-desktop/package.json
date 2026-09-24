@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-desktop",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "IDEalize: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "license": "MIT",
   "publishConfig": {
@@ -286,6 +286,16 @@
         "name": "IDEalize keys",
         "description": "API keys for IDEalize",
         "role": "Editor"
+      },
+      {
+        "ext": [
+          "md",
+          "markdown"
+        ],
+        "name": "Markdown document",
+        "description": "A Markdown document",
+        "role": "Viewer",
+        "rank": "Alternate"
       }
     ],
     "directories": {

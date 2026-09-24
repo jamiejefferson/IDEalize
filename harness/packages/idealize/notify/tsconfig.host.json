@@ -13,9 +13,11 @@
     "src/attention.ts",
     "src/attention-store.ts",
     "src/chime-gate.ts",
+    "src/chime-sounds.ts",
     "src/index.ts",
     "src/invariant.ts",
-    "src/settings.ts"
+    "src/settings.ts",
+    "src/sounds.ts"
   ],
   "references": [
     { "path": "../../../vendor/cordis" },

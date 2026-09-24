@@ -27,6 +27,12 @@
  *   over the catalogue the app ships (prices.ts). The same pass counts the
  *   media the app generated this month per endpoint, and reports what fal
  *   billed for it (generations.ts).
+ * - GET  /idealize/models/work — working time and cost per project for the
+ *   Time & cost pane: each project's chats' turns unioned into working
+ *   spans, pauses under five minutes bridged (worktime.ts), as seconds for
+ *   today, this month and all time, beside what the project's metered
+ *   tokens cost this month at the known prices; the totals union every log
+ *   and add the subscription plans, which belong to no one project.
  * - POST /idealize/models/budget — {monthlyTokenBudget} (0 clears it).
  * - POST /idealize/models/prices — {provider, model, price} stores one
  *   model's token prices; `price: null` clears it.
@@ -57,8 +63,10 @@ import { choose, freeUsable } from './policy.ts'
 import type { FreetokensFacts, PolicyDecision } from './policy.ts'
 import { effectivePrices, OPENROUTER_PROVIDER, parsePriceBody, refreshOpenRouterPrices } from './prices.ts'
 import { costBreakdown, modelRows } from './pricing.ts'
-import type { SubscriptionPlan, TokenPrice, TokenPriceTable } from './pricing.ts'
+import type { CostBreakdown, SubscriptionPlan, TokenPrice, TokenPriceTable } from './pricing.ts'
 import { categoryOf, emptyUsagePeriods, foldUsage } from './usage.ts'
+import type { UsagePeriods } from './usage.ts'
+import { foldWorkTime, workBounds } from './worktime.ts'
 
 export { costBreakdown, meteredCost, modelRows, subscriptionCost } from './pricing.ts'
 export type {
@@ -78,6 +86,8 @@ export type {
 } from './generations.ts'
 export { categoryOf, emptyUsagePeriods, foldUsage, totalTokens, USAGE_CATEGORIES } from './usage.ts'
 export type { CategoryFacts, ModelTokens, PeriodModels, UsageCategory, UsagePeriods, UsageTotals } from './usage.ts'
+export { foldWorkSpans, foldWorkTime, mergeSpans, turnSpans, WORK_GAP_MS, workBounds, workTotals } from './worktime.ts'
+export type { WorkBounds, WorkSpan, WorkTotals } from './worktime.ts'
 
 const NS = settingsNamespace('idealize-models')
 const LLM_NS = settingsNamespace('llm-pi-ai')
@@ -490,19 +500,45 @@ export function apply(ctx: Context, config: ModelsConfig): void {
       return logs
     }
 
-    register('/idealize/models/usage', false, async (req, res) => {
-      const scope = new URL(req.url ?? '/', 'http://localhost').searchParams.get('scope') ?? ''
+    /**
+     * What both cost routes need before they fold a log: the billing
+     * classifier, the effective price table, and the plan facts, read once
+     * per request. `costOf` prices one fold's routes with them.
+     */
+    const pricingFacts = async (now: number) => {
       const subs = await subscriptions()
       const profiles = llmProfiles()
       const subscribed = subs.offered.filter(provider => authOf(provider, subs, profiles[provider]?.apiKeyEnv) === 'oauth')
       const classify = (provider: string): ReturnType<typeof categoryOf> =>
         categoryOf(provider, { freeProvider: FREE_PROVIDER, subscriptionProviders: subscribed })
-      const registry = webCtx.get('workspaceRegistry')
-      const workspaces = registry?.list() ?? []
-      const inScope = new Set<string>()
-      const scoped = workspaces.find(workspace => workspace.path === scope)
-      for (const id of scoped?.sessionIds ?? []) inScope.add(String(id))
+      const config = current()
+      const currency = config.currency ?? 'USD'
+      const openRouter = await openRouterPriceList(profiles, currency, config.openRouterPriceRefreshMinutes ?? 1440, now)
+      const prices = effectivePrices(config.tokenPrices ?? {}, openRouter?.prices, cataloguePrices(profiles, currency))
+      const costOf = (models: UsagePeriods['models']): CostBreakdown => costBreakdown(models, classify, {
+        currency,
+        tokenPrices: prices,
+        subscriptionPlans: config.subscriptionCosts ?? {},
+        signedIn: subs.signedIn.filter(provider => subscribed.includes(provider)),
+        now,
+      })
+      return { config, currency, classify, prices, openRouter, costOf }
+    }
+
+    /** The registered projects, each with the session ids it claims. */
+    const projectList = (): { path: string; label: string; sessionIds: Set<string> }[] =>
+      (webCtx.get('workspaceRegistry')?.list() ?? []).map(workspace => ({
+        path: workspace.path,
+        label: basename(workspace.path),
+        sessionIds: new Set(workspace.sessionIds.map(String)),
+      }))
+
+    register('/idealize/models/usage', false, async (req, res) => {
+      const scope = new URL(req.url ?? '/', 'http://localhost').searchParams.get('scope') ?? ''
       const now = Date.now()
+      const { config, classify, prices, openRouter, costOf } = await pricingFacts(now)
+      const projects = projectList()
+      const inScope = projects.find(project => project.path === scope)?.sessionIds ?? new Set<string>()
       const periods = emptyUsagePeriods()
       const generated = emptyGenerationPeriods()
       for (const log of await sessionLogs()) {
@@ -510,25 +546,15 @@ export function apply(ctx: Context, config: ModelsConfig): void {
         foldUsage(log.events, classify, now, periods)
         foldGenerations(log.events, now, generated)
       }
-      const config = current()
-      const currency = config.currency ?? 'USD'
-      const openRouter = await openRouterPriceList(profiles, currency, config.openRouterPriceRefreshMinutes ?? 1440, now)
-      const prices = effectivePrices(config.tokenPrices ?? {}, openRouter?.prices, cataloguePrices(profiles, currency))
       const fal = await falUsageReport(config.falUsageRefreshMinutes ?? 1440, now)
       const generations = generationRows(generated, fal?.usage, now)
       sendJson(res, 200, {
         scope,
-        projects: workspaces.map(workspace => ({ path: workspace.path, label: basename(workspace.path) })),
+        projects: projects.map(project => ({ path: project.path, label: project.label })),
         month: periods.month,
         year: periods.year,
         monthlyTokenBudget: config.monthlyTokenBudget ?? 0,
-        cost: costBreakdown(periods.models, classify, {
-          currency,
-          tokenPrices: prices,
-          subscriptionPlans: config.subscriptionCosts ?? {},
-          signedIn: subs.signedIn.filter(provider => subscribed.includes(provider)),
-          now,
-        }),
+        cost: costOf(periods.models),
         models: modelRows(periods.models.month, classify, prices),
         openRouterPrices: openRouter === undefined
           ? null
@@ -546,6 +572,58 @@ export function apply(ctx: Context, config: ModelsConfig): void {
             fetchedAt: fal.usage?.fetchedAt ?? null,
             ...fal.error === undefined ? {} : { error: fal.error },
           },
+      })
+    })
+
+    /**
+     * Working time and cost per project, for the Time & cost pane. A log
+     * belongs to the project whose registry entry claims its session id, or
+     * whose path is the log's working directory; a log no project claims
+     * counts in the totals alone. Time is the union of a project's chats'
+     * turns (worktime.ts); the totals' time is the union over every log, so
+     * two projects worked at once count once. A project's cost is what its
+     * metered tokens cost at the known prices; subscription plans belong to
+     * no one project and reach the totals only, named in `cost.plans`.
+     */
+    register('/idealize/models/work', false, async (_req, res) => {
+      const now = Date.now()
+      const bounds = workBounds(now)
+      const { currency, classify, costOf } = await pricingFacts(now)
+      const projects = projectList()
+      const logs = await sessionLogs()
+      const byProject = new Map<string, { events: readonly SessionEvent[] }[]>(projects.map(project => [project.path, []]))
+      for (const log of logs) {
+        const owner = projects.find(project => project.sessionIds.has(log.id) || project.path === log.cwd)
+        if (owner !== undefined) byProject.get(owner.path)?.push(log)
+      }
+      const rows = projects.map((project) => {
+        const own = byProject.get(project.path) ?? []
+        const periods = emptyUsagePeriods()
+        for (const log of own) foldUsage(log.events, classify, now, periods)
+        const cost = costOf(periods.models)
+        return {
+          path: project.path,
+          label: project.label,
+          time: foldWorkTime(own.map(log => log.events), bounds),
+          cost: { month: cost.month.metered },
+          tokens: { month: periods.month.total },
+        }
+      })
+      // The projects worked most this month first, then by all-time work, then by name.
+      rows.sort((left, right) =>
+        right.time.month - left.time.month || right.time.all - left.time.all || left.label.localeCompare(right.label))
+      const periods = emptyUsagePeriods()
+      for (const log of logs) foldUsage(log.events, classify, now, periods)
+      const cost = costOf(periods.models)
+      sendJson(res, 200, {
+        projects: rows,
+        totals: {
+          time: foldWorkTime(logs.map(log => log.events), bounds),
+          cost: { month: cost.month.total, plans: cost.month.subscriptions },
+          tokens: { month: periods.month.total },
+        },
+        currency,
+        costConfigured: cost.configured,
       })
     })
 

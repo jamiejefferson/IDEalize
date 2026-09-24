@@ -4,7 +4,8 @@
  * instead of covering it. Reads the bar's view store; ctx.layout owns the
  * column width (the drag handle on its inner edge), this component owns the
  * content. Panes: Files, Service hatch (Service chat | Composition tabs),
- * Brains, Trajectory (the re-hosted event ledger), Schedule (the re-hosted
+ * Brains, Time & cost (each project's working time over the budget tables),
+ * Trajectory (the re-hosted event ledger), Schedule (the re-hosted
  * calendar), Feedback (the token-styled form pane), Terminal (the terminal
  * plugin's plain-shell grid, seated from `ctx.terminalMode`), and the
  * Appearance inspector seated from the appearance plugin's service.
@@ -23,6 +24,7 @@ import { BrainsPanel, type BrainsPanelHost } from './BrainsPanel.tsx'
 import { ServiceSection, type ServiceSectionInjected } from './ServiceSection.tsx'
 import { TrajectoryPane, type TrajectoryHost } from './TrajectoryPane.tsx'
 import { SchedulePane, type ScheduleHost } from './SchedulePane.tsx'
+import { WorkPanel } from './WorkPanel.tsx'
 import css from './DrawerPanel.module.css'
 
 /**
@@ -98,6 +100,7 @@ const PANEL_TITLE: Record<BarPanel, BarKey> = {
   terminal: 'bar.terminal',
   hatch: 'bar.hatch',
   models: 'bar.models',
+  work: 'bar.work',
   feedback: 'bar.feedback',
   appearance: 'bar.appearance',
   trajectory: 'bar.trajectory',
@@ -227,6 +230,7 @@ export function DrawerPanel(props: DrawerPanelProps) {
         {panel === 'models' && (
           <BrainsPanel host={modelsHost} request={brainsRequest} onRequestHandled={clearBrainsRequest} t={t} />
         )}
+        {panel === 'work' && <WorkPanel t={t} />}
         {panel === 'trajectory' && (
           <TrajectoryPane
             host={trajectoryHost}

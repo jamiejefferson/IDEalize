@@ -77,7 +77,18 @@ afterEach(async () => {
  * `mediaBackends` stands in for the generation runtime `@idealize/services`
  * registers its media services with; null composes no generation service at all.
  */
-async function boot(config: ModelsConfig = {}, mediaBackends: { backend: string; env: string }[] | null = [{ backend: 'fal', env: 'FAL_KEY' }]) {
+/** One stored session log as the work route reads it: its header and its events. */
+interface StoredLog {
+  id: string
+  cwd?: string
+  events: unknown[]
+}
+
+async function boot(
+  config: ModelsConfig = {},
+  mediaBackends: { backend: string; env: string }[] | null = [{ backend: 'fal', env: 'FAL_KEY' }],
+  logs: StoredLog[] = [],
+) {
   root = await mkdtemp(join(tmpdir(), 'idealize-models-routes-'))
   previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = root
@@ -126,7 +137,16 @@ async function boot(config: ModelsConfig = {}, mediaBackends: { backend: string;
   } as never)
   // A project and a signed-in subscription, so the payload's project list and
   // subscription classification run over something.
-  ctx.provide('workspaceRegistry', { list: () => [{ path: '/p/alpha', sessionIds: [] }] } as never)
+  ctx.provide('workspaceRegistry', { list: () => [{ path: '/p/alpha', sessionIds: [] }, { path: '/p/beta', sessionIds: ['s-beta'] }] } as never)
+  // Stored logs stand in for the session store: the work route reads them
+  // through the same `sessionPersistence` face the usage route does.
+  ctx.provide('sessionPersistence', {
+    list: () => Promise.resolve(logs.map(log => ({ id: log.id, ...log.cwd === undefined ? {} : { cwd: log.cwd } }))),
+    inspect: (id: string) => {
+      const log = logs.find(row => row.id === id)
+      return log === undefined ? Promise.reject(new Error('no such log')) : Promise.resolve({ events: log.events })
+    },
+  } as never)
   ctx.provide('idealizeOAuth', { status: () => Promise.resolve([{ id: 'openai-codex', stored: true }]) } as never)
   if (mediaBackends !== null) ctx.provide('generation', { credentials: () => mediaBackends } as never)
   // The section the route reads the OpenRouter profile from (llm-pi-ai owns the real one).
@@ -158,7 +178,7 @@ describe('the /idealize/models usage route and OpenRouter prices', () => {
     // No OpenRouter profile at all: nothing to price with, nothing fetched.
     const bare = await usage()
     expect(bare.openRouterPrices).toBeNull()
-    expect(bare.projects).toEqual([{ path: '/p/alpha', label: 'alpha' }])
+    expect(bare.projects).toEqual([{ path: '/p/alpha', label: 'alpha' }, { path: '/p/beta', label: 'beta' }])
     expect(bare.cost.unpricedSubscriptions).toEqual(['openai-codex'])
     // A profile whose key is not stored: still nothing.
     await ctx.settings.update(LLM_NS, { providers: { openrouter: { apiKeyEnv: 'OPENROUTER_API_KEY' } } })
@@ -297,4 +317,75 @@ describe('the /idealize/models/prices route', () => {
 
     expect((await post({ provider: 'anthropic', model: 'haiku', price: null }, { 'content-type': 'application/json' })).status).toBe(403)
   }, 30_000)
+})
+
+interface WorkPayload {
+  projects: {
+    path: string
+    label: string
+    time: { today: number; month: number; all: number }
+    cost: { month: number }
+    tokens: { month: number }
+  }[]
+  totals: { time: { today: number; month: number; all: number }; cost: { month: number; plans: number }; tokens: { month: number } }
+  currency: string
+  costConfigured: boolean
+}
+
+describe('the /idealize/models/work route', () => {
+  const MIN = 60_000
+  const turn = (start: number, end?: number): unknown[] => [
+    { type: 'turn/start', seq: 1, time: start, data: { turn: 1 } },
+    ...end === undefined ? [] : [{ type: 'turn/end', seq: 2, time: end, data: { turn: 1, reason: 'success' } }],
+  ]
+  const message = (time: number, provider: string, model: string, inputTokens: number): unknown => ({
+    type: 'assistant/message',
+    seq: 3,
+    time,
+    data: { turn: 1, step: 1, message: { role: 'assistant', content: [], source: { kind: 'model', provider, model } }, usage: { inputTokens, outputTokens: 0 } },
+  })
+
+  it('unions each project\u2019s chats into working time, prices its metered tokens, and keeps plan costs to the totals', async () => {
+    const now = Date.now()
+    const { origin } = await boot(
+      { tokenPrices: { anthropic: { claude: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } } }, subscriptionCosts: { 'openai-codex': { monthly: 20 } } },
+      null,
+      [
+        // Alpha, claimed by its working directory: two chats overlapping (30 min
+        // union), then a pause of 4 min bridged into a 5 min turn: 39 min.
+        { id: 's-a1', cwd: '/p/alpha', events: [...turn(now - 60 * MIN, now - 40 * MIN), message(now - 50 * MIN, 'anthropic', 'claude', 1_000_000)] },
+        { id: 's-a2', cwd: '/p/alpha', events: [...turn(now - 50 * MIN, now - 30 * MIN), ...turn(now - 26 * MIN, now - 21 * MIN)] },
+        // Beta, claimed by the registry's session id: one turn still open, counting to now (about 10 min), on the subscription.
+        { id: 's-beta', cwd: '/elsewhere', events: [...turn(now - 10 * MIN), message(now - 9 * MIN, 'openai-codex', 'gpt-5.5', 500)] },
+        // A chat no project claims: it counts in the totals alone.
+        { id: 's-loose', events: turn(now - 200 * MIN, now - 190 * MIN) },
+      ],
+    )
+    const payload = await (await fetch(`${origin}/idealize/models/work`)).json() as WorkPayload
+    expect(payload.currency).toBe('USD')
+    expect(payload.costConfigured).toBe(true)
+    expect(payload.projects.map(row => row.label)).toEqual(['alpha', 'beta'])
+    const [alpha, beta] = payload.projects
+    expect(alpha!.time.month).toBe(39 * 60)
+    expect(alpha!.time.all).toBe(39 * 60)
+    expect(alpha!.cost.month).toBe(1)
+    expect(alpha!.tokens.month).toBe(1_000_000)
+    expect(beta!.time.all).toBeGreaterThanOrEqual(10 * 60 - 5)
+    expect(beta!.time.all).toBeLessThanOrEqual(10 * 60 + 5)
+    // The subscription plan reaches no project row, only the totals.
+    expect(beta!.cost.month).toBe(0)
+    expect(beta!.tokens.month).toBe(500)
+    expect(payload.totals.time.all).toBeGreaterThanOrEqual(59 * 60 - 5)
+    expect(payload.totals.time.all).toBeLessThanOrEqual(59 * 60 + 5)
+    expect(payload.totals.cost).toEqual({ month: 21, plans: 20 })
+    expect(payload.totals.tokens.month).toBe(1_000_500)
+  })
+
+  it('reports zeros, not an error, with no logs at all', async () => {
+    const { origin } = await boot({}, null, [])
+    const payload = await (await fetch(`${origin}/idealize/models/work`)).json() as WorkPayload
+    expect(payload.projects.map(row => row.time)).toEqual([{ today: 0, month: 0, all: 0 }, { today: 0, month: 0, all: 0 }])
+    expect(payload.totals.time).toEqual({ today: 0, month: 0, all: 0 })
+    expect(payload.costConfigured).toBe(false)
+  })
 })

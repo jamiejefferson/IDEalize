@@ -11,6 +11,7 @@
   "files": [
     "src/announcement.ts",
     "src/chime-gate.ts",
+    "src/chime-sounds.ts",
     "src/client/AnnouncementBanner.tsx",
     "src/client/ChimeRow.tsx",
     "src/client/index.ts",

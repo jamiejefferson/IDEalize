@@ -1,6 +1,6 @@
 # @idealize/notify
 
-Everything that interrupts the person: the announcement banner, the done chime, and the Studio's alerts. The host registers the `idealize-notify` settings section, six loopback routes and the notification policy over `@idealize/studio`'s timeline; the browser renders the newest active announcement on the frame's `shell.banner` strip, plays the task-complete chime when an agent finishes, raises the Studio's alerts and reports what the person did with them, and adds the chime row to General settings. Mounted by the `idealize` profile as the `idealize-notify` row.
+Everything that interrupts the person: the announcement banner, the done chime, and the Studio's alerts. The host registers the `idealize-notify` settings section, eight loopback routes, the chime library and the notification policy over `@idealize/studio`'s timeline; the browser renders the newest active announcement on the frame's `shell.banner` strip, plays the task-complete chime when an agent finishes, raises the Studio's alerts and reports what the person did with them, and adds the chime row to General settings. Mounted by the `idealize` profile as the `idealize-notify` row.
 
 ## Three records, kept apart (FR-P0-19)
 
@@ -40,12 +40,18 @@ Each alerting event is recorded `sent` and pushed onto `@idealize/host-bridge` a
 
 ## Settings (`idealize-notify`)
 
-`chimeEnabled` (default `true`), `chimeVolume` (0 to 1, default `0.4`) and `lastSeenAnnouncementId` (default empty). The schema in `src/settings.ts` is shared by the host registration and the browser's settings scope.
+`chimeEnabled` (default `true`), `chimeVolume` (0 to 1, default `0.4`), `chimeSound` (a catalogue id, default `built-in`) and `lastSeenAnnouncementId` (default empty). The schema in `src/settings.ts` is shared by the host registration and the browser's settings scope.
+
+## The chime library
+
+The person picks the done chime from a catalogue (`src/sounds.ts`) that ships no new asset: the built-in chime plus the operating system's own alert sounds (feedback af0917f0). On macOS that is `/System/Library/Sounds/*.aiff` (Glass, Ping, Hero, Submarine and the rest); Chromium cannot decode AIFF, so each is transcoded once with the system's own `afconvert -f WAVE -d LEI16` into `<DSH_HOME>/idealize/notify/sounds/` and served as WAV, and a sound afconvert refuses is left out. On Windows it is the `Windows *.wav` files under 1 MB in `%SystemRoot%\Media` (the larger files there are start-up jingles and ringtones); on Linux the freedesktop stereo theme's `.oga` files when installed. Every catalogue id is `system:<name>`, the machine is read once per host lifetime, and a sound is served only by looking its id up in that catalogue, so no request ever names a path.
 
 ## Routes (loopback only; mutations need `x-idealize-auth: 1`)
 
 - `GET /idealize/notify/app` returns `{appVersion}` for the banner's version gate.
-- `GET /idealize/notify/chime.mp3` serves the chime asset (`assets/TaskComplete.mp3`).
+- `GET /idealize/notify/chime.mp3` serves the built-in chime asset (`assets/TaskComplete.mp3`).
+- `GET /idealize/notify/sounds` lists the chime catalogue as `{sounds: [{id, label}]}`, the built-in chime first.
+- `GET /idealize/notify/sound?id=…` serves one catalogue sound; 404 for any id the catalogue does not hold, including the built-in one, which keeps its own route.
 - `POST /idealize/notify/native` `{title, body}` raises a native notification through the desktop shell's `desktopActions.notify` when that service is composed; 409 otherwise, and the browser half falls back to Web Notifications.
 - `GET /idealize/notify/attention` serves the whole ledger: `{read, notifications}`.
 - `POST /idealize/notify/attention/read` `{project, seq}` moves a project's read position forward (the folder is resolved, as the Studio's own routes resolve it) and answers the stored position.
@@ -57,7 +63,7 @@ The banner reads `/idealize/announcements` (served by `@idealize/feedback`) and 
 
 The alerts listen to the same feed: an `attention` frame raises one notification through the browser's own Notifications API, because that is the half that reports a click back (in the packaged app it is a native macOS notification either way). Clicking it focuses the window, asks this window for that exact Studio event (`@idealize/askbar`'s `requestStudio`, which `@idealize/ui-bar` answers) and records `opened`; letting it go records `dismissed`. Without permission the host route still raises it, and that alert carries no way back to the event. The Askbar window runs the same bundle and skips alerts, so one event alerts once.
 
-The chime listens to `@idealize/host-bridge`'s event feed. Before reading live, it seeds a gate (`src/chime-gate.ts`) with the newest retained sequence from `/idealize/events/recent`, so work that finished before the page attached (app restore, tab reload) never chimes. Each fresh `agent-finished` event plays the chime at the settings volume and raises a notification. `ctx.idealizeNotify` (`notify(title, body)`, `chime()`) lets other plugins raise the same pair without importing this package's components. The chime row on `settings.general.item` (order 40) offers on/off, a volume slider and a preview.
+The chime listens to `@idealize/host-bridge`'s event feed. Before reading live, it seeds a gate (`src/chime-gate.ts`) with the newest retained sequence from `/idealize/events/recent`, so work that finished before the page attached (app restore, tab reload) never chimes. Each fresh `agent-finished` event plays the chosen sound at the settings volume and raises a notification. `ctx.idealizeNotify` (`notify(title, body)`, `chime()`) lets other plugins raise the same pair without importing this package's components. The chime row on `settings.general.item` (order 40) offers on/off, a sound picker over the host's catalogue (the built-in chime alone when the host cannot list any, and a stored id this machine does not list stays selectable so the row never shows a lie), a volume slider and a preview; choosing a sound saves it and plays it once, so the confirmation is the sound itself.
 
 ## Model Experience
 

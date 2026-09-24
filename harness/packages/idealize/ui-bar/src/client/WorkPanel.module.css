@@ -1,0 +1,83 @@
+/* Time & cost pane: the totals band and the projects table's own columns.
+   The tables, notes and section heads ride the Brains pane's sheet
+   (BrainsPanel.module.css) so both panes print figures the same way.
+   Colours ride the dsw aliases and type the --idealize-type-* scale. */
+
+.root {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 24px 24px;
+  color: var(--dsw-alias-label-primary, #24292f);
+  font-size: var(--idealize-type-body, 12.5px);
+  line-height: 1.45;
+}
+
+.totals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+}
+
+.totalLabel {
+  font-size: var(--idealize-type-caption, 10px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.totalValue {
+  font-family: var(--ds-font-family-code, 'DM Mono', ui-monospace, monospace);
+  font-size: var(--idealize-type-title, 14px);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.totalNote {
+  min-height: 1.3em;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.rule {
+  margin: 10px 2px 0;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.colTime,
+.colCost {
+  flex: 0 0 68px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-left: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  font-family: var(--ds-font-family-code, 'DM Mono', ui-monospace, monospace);
+  font-size: var(--idealize-type-body, 12.5px);
+  white-space: nowrap;
+}
+
+.colCost {
+  flex-basis: 76px;
+}
+
+/* A head-row cell reads in the sheet's caption face, as the Brains tables do. */
+.colHead {
+  font-family: inherit;
+  font-size: var(--idealize-type-caption, 10px);
+  white-space: normal;
+}

@@ -3,8 +3,10 @@
  * user's account cannot run (a ChatGPT sign-in lists Codex models its plan
  * does not serve), and only the provider's answer says so. A model that failed
  * a turn the router gave it is left out of the candidates for a week, so the
- * router learns the account's real list one refusal at a time. Kept in the
- * harness data folder so a restart does not repeat the lesson.
+ * router learns the account's real list one refusal at a time. A rate limit
+ * says only that the model is busy (a free OpenRouter model shares one pool
+ * with everyone), so that keeps it out for an hour. Kept in the harness data
+ * folder so a restart does not repeat the lesson.
  */
 
 import { readFile, writeFile } from 'node:fs/promises'
@@ -12,6 +14,10 @@ import { join } from 'node:path'
 
 export const REFUSED_FILE = 'router-refused.json'
 const REFUSED_FOR_MS = 7 * 24 * 60 * 60 * 1000
+const RATE_LIMITED_FOR_MS = 60 * 60 * 1000
+
+/** Why a model is left out: the account cannot run it, or it was only busy. */
+export type RefusalCause = 'refused' | 'rate-limited'
 
 /** Route key (`provider/model`) to the time the refusal lapses, in epoch milliseconds. */
 export type Refusals = Record<string, number>
@@ -39,11 +45,12 @@ export async function readRefusals(home: string, now = Date.now()): Promise<Refu
  * @param home - the harness data folder.
  * @param refusals - the refusals in force, changed in place.
  * @param model - the model that failed the turn.
+ * @param cause - a refusal holds for a week, a rate limit for an hour.
  * @param now - the current time.
  */
 export async function noteRefusal(
-  home: string, refusals: Refusals, model: { provider: string; model: string }, now = Date.now(),
+  home: string, refusals: Refusals, model: { provider: string; model: string }, cause: RefusalCause = 'refused', now = Date.now(),
 ): Promise<void> {
-  refusals[routeKey(model)] = now + REFUSED_FOR_MS
+  refusals[routeKey(model)] = now + (cause === 'rate-limited' ? RATE_LIMITED_FOR_MS : REFUSED_FOR_MS)
   await writeFile(join(home, REFUSED_FILE), JSON.stringify(refusals, null, 2), 'utf8').catch(() => undefined)
 }

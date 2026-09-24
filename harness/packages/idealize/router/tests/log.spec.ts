@@ -44,8 +44,17 @@ describe('refused models', () => {
     const { noteRefusal, readRefusals } = await import('../src/refused.ts')
     const home = await mkdtemp(join(tmpdir(), 'router-refused-'))
     const now = Date.parse('2026-09-21T12:00:00Z')
-    await noteRefusal(home, {}, { provider: 'openai-codex', model: 'gpt-5.4' }, now)
+    await noteRefusal(home, {}, { provider: 'openai-codex', model: 'gpt-5.4' }, 'refused', now)
     expect(Object.keys(await readRefusals(home, now + 60_000))).toEqual(['openai-codex/gpt-5.4'])
     expect(await readRefusals(home, now + 8 * 24 * 60 * 60 * 1000)).toEqual({})
+  })
+
+  it('forgets a rate-limited model after an hour, because it was only busy', async () => {
+    const { noteRefusal, readRefusals } = await import('../src/refused.ts')
+    const home = await mkdtemp(join(tmpdir(), 'router-busy-'))
+    const now = Date.parse('2026-09-24T12:00:00Z')
+    await noteRefusal(home, {}, { provider: 'openrouter', model: 'google/gemma-4-26b-a4b-it:free' }, 'rate-limited', now)
+    expect(Object.keys(await readRefusals(home, now + 30 * 60 * 1000))).toEqual(['openrouter/google/gemma-4-26b-a4b-it:free'])
+    expect(await readRefusals(home, now + 61 * 60 * 1000)).toEqual({})
   })
 })

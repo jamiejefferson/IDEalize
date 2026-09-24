@@ -10,6 +10,8 @@
  * Whoever holds the file holds the keys. It is neither encrypted nor kept.
  */
 
+import { fileFromArgv } from './opened-file.ts'
+
 /** The extension Launch Services and the argument scan recognise. */
 export const KEYS_FILE_EXTENSION = '.idealizekeys'
 
@@ -35,7 +37,7 @@ export function isKeysFilePath(path: string): boolean {
  * @returns the path, or undefined when the list carries none.
  */
 export function keysFileFromArgv(argv: readonly string[]): string | undefined {
-  return argv.find(argument => isKeysFilePath(argument))
+  return fileFromArgv(argv, isKeysFilePath)
 }
 
 /** The outcome of one import, in the words the notification shows. */

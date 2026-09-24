@@ -11,7 +11,9 @@
  *   `agent-finished` plays the chime at the settings volume and raises a
  *   notification (native through the host when the desktop shell offers it,
  *   Web Notifications otherwise).
- * - The chime row in General settings: on/off, volume slider, preview.
+ * - The chime row in General settings: on/off, the sound (the built-in
+ *   chime or one of the operating system's own alert sounds, listed by
+ *   `/idealize/notify/sounds`), volume slider, preview.
  * - The Studio's alerts: an `attention` frame on the same feed raises one
  *   notification the person can answer — clicking it opens that Studio event
  *   and records `opened`, letting it go records `dismissed`. The Askbar
@@ -27,6 +29,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { selectAnnouncement, type Announcement } from '../announcement.ts'
 import { createChimeGate, type GateEvent } from '../chime-gate.ts'
+import { BUILT_IN_CHIME, BUILT_IN_CHIME_SOUND, CHIME_SOUNDS_PATH, type ChimeSound, decodeChimeSounds } from '../chime-sounds.ts'
 import { NOTIFY_SETTINGS_NAMESPACE, type NotifySettings } from '../settings.ts'
 import { AnnouncementBanner, type AnnouncementBannerInjected } from './AnnouncementBanner.tsx'
 import { ChimeRow, type ChimePreference, type ChimeRowInjected } from './ChimeRow.tsx'
@@ -98,7 +101,7 @@ async function recordAlertState(studioEvent: string, state: 'opened' | 'dismisse
 const NS = 'idealize-notify'
 
 /** Schema defaults, mirrored for the moment before the settings scope loads. */
-const DEFAULTS: NotifySettings = { chimeEnabled: true, chimeVolume: 0.4, lastSeenAnnouncementId: '' }
+const DEFAULTS: NotifySettings = { chimeEnabled: true, chimeVolume: 0.4, chimeSound: BUILT_IN_CHIME_SOUND, lastSeenAnnouncementId: '' }
 
 /** Required services. */
 export const inject = ['slots', 'locale', 'settingsScope']
@@ -162,25 +165,43 @@ export function apply(ctx: ClientContext): void {
   }, AnnouncementBanner))
 
   // ── Chime preference ───────────────────────────────────────────────────
-  const chime = createSnapshotStore<ChimePreference>({ enabled: DEFAULTS.chimeEnabled, volume: DEFAULTS.chimeVolume })
+  const chime = createSnapshotStore<ChimePreference>({
+    enabled: DEFAULTS.chimeEnabled, volume: DEFAULTS.chimeVolume, sound: DEFAULTS.chimeSound,
+  })
   const adoptChime = (): void => {
     const settings = current()
     const snapshot = chime.getSnapshot()
-    if (snapshot.enabled !== settings.chimeEnabled || snapshot.volume !== settings.chimeVolume) {
-      chime.set({ enabled: settings.chimeEnabled, volume: settings.chimeVolume })
-    }
+    const next: ChimePreference = { enabled: settings.chimeEnabled, volume: settings.chimeVolume, sound: settings.chimeSound }
+    if (snapshot.enabled !== next.enabled || snapshot.volume !== next.volume || snapshot.sound !== next.sound) chime.set(next)
   }
   scope.subscribe(adoptChime)
   adoptChime()
+  /** The chosen sound at the chosen volume, when the chime is on. */
+  const playChosen = (): void => {
+    const preference = chime.getSnapshot()
+    if (preference.enabled) void playChime(preference.volume, preference.sound)
+  }
+
+  // The catalogue: the built-in chime alone until the host answers, and
+  // still that alone when it cannot (an older host, or none).
+  const sounds = createSnapshotStore<ChimeSound[]>([BUILT_IN_CHIME])
+  const fetchSounds = async (): Promise<void> => {
+    try {
+      const response = await fetch(CHIME_SOUNDS_PATH)
+      if (!response.ok) return
+      const body = (await response.json()) as { sounds?: unknown }
+      sounds.set(decodeChimeSounds(body.sounds))
+    } catch {
+      // offline or the route is absent: the built-in chime is always there
+    }
+  }
+  void fetchSounds()
 
   // The output devices as a service, so other plugins (the feedback pane's
   // submit confirmation) raise the same chime + notification pair.
   const outputs: IdealizeNotify = {
     notify: (title, body) => { void notify(title, body) },
-    chime: () => {
-      const preference = chime.getSnapshot()
-      if (preference.enabled) void playChime(preference.volume)
-    },
+    chime: playChosen,
   }
   ctx.effect(() => {
     const dispose = ctx.reflect.provide('idealizeNotify', outputs)
@@ -194,7 +215,7 @@ export function apply(ctx: ClientContext): void {
     order: 40,
     locale: NS,
     inject: (): ChimeRowInjected => ({
-      hooks: { chime },
+      hooks: { chime, sounds },
       setEnabled: (enabled) => {
         chime.set({ ...chime.getSnapshot(), enabled })
         void scope.set('chimeEnabled', enabled)
@@ -203,9 +224,16 @@ export function apply(ctx: ClientContext): void {
         chime.set({ ...chime.getSnapshot(), volume })
         void scope.set('chimeVolume', volume)
       },
+      setSound: (sound) => {
+        chime.set({ ...chime.getSnapshot(), sound })
+        void scope.set('chimeSound', sound)
+        // Heard at once: the choice is a sound, so the confirmation is the sound.
+        void playChime(chime.getSnapshot().volume, sound)
+      },
       preview: () => {
         requestNotificationPermission()
-        void playChime(chime.getSnapshot().volume)
+        const preference = chime.getSnapshot()
+        void playChime(preference.volume, preference.sound)
       },
     }),
   }, ChimeRow))
@@ -216,8 +244,7 @@ export function apply(ctx: ClientContext): void {
     let feed: BridgeFeedAttachment | undefined
     let closed = false
     const onAttention = (failed: boolean): void => {
-      const preference = chime.getSnapshot()
-      if (preference.enabled) void playChime(preference.volume)
+      playChosen()
       if (failed) void notify(t('chime.notification.failedTitle'), t('chime.notification.failedBody'))
       else void notify(t('chime.notification.title'), t('chime.notification.body'))
     }

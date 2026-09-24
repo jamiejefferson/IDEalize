@@ -892,16 +892,22 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Maps a requesting session to its project attribution header.',
     methods: [
       {
+        signature: 'warm(cwd: string | undefined): Promise<void>',
+        description: 'Resolve one cwd\'s label asynchronously into the cache `headersFor` reads. A label already cached, or one the sync path caches meanwhile, is kept.',
+        parameters: [{ name: 'cwd', description: 'The session cwd to resolve; empty or undefined is ignored.' }],
+        returns: 'a promise settled once the label is cached; it never rejects.',
+      },
+      {
+        signature: 'contribute(contributor: (sessionId: string) => Record<string, string> | undefined): () => void',
+        description: 'Let another plugin add headers to a session\'s requests: the model router sends the brain\'s priorities to the engine this way.',
+        parameters: [{ name: 'contributor', description: 'Returns the headers for one session, or undefined.' }],
+        returns: 'a function that removes the contributor.',
+      },
+      {
         signature: 'headersFor(sessionId: string | undefined): Record<string, string> | undefined',
         description: 'Headers for one request; undefined when nothing is known.',
         parameters: [{ name: 'sessionId', description: 'The requesting session, when the request has one.' }],
         returns: 'the `x-idealize-project` header and any contributed ones, or undefined when there are none.',
-      },
-      {
-        signature: 'contribute(contributor: (sessionId: string) => Record<string, string> | undefined): () => void',
-        description: 'Let another plugin add headers to a session\'s requests.',
-        parameters: [{ name: 'contributor', description: 'Returns the headers for one session, or undefined.' }],
-        returns: 'a function that removes the contributor.',
       },
     ],
   },
@@ -3374,11 +3380,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BridgeEvent',
-    declaration: 'export interface BridgeEvent {\n    seq: number;\n    at: string;\n    kind: BridgeEventKind;\n    title: string;\n    body: string;\n    sessionId?: string;\n    project?: string;\n    studioEvent?: string;\n    folder?: string;\n}',
+    declaration: 'export interface BridgeEvent {\n    seq: number;\n    at: string;\n    kind: BridgeEventKind;\n    title: string;\n    body: string;\n    sessionId?: string;\n    project?: string;\n    studioEvent?: string;\n    failed?: boolean;\n    folder?: string;\n    file?: string;\n}',
   },
   {
     name: 'BridgeEventKind',
-    declaration: 'export type BridgeEventKind = \'cron-run\' | \'cron-changed\' | \'agent-finished\' | \'agent-error\' | \'approval-pending\' | \'approval-decided\' | \'mail\' | \'notify\' | \'focus\' | \'reveal\' | \'open-studio\' | \'new-chat\' | \'open-folder\' | \'attention\';',
+    declaration: 'export type BridgeEventKind = \'cron-run\' | \'cron-changed\' | \'agent-finished\' | \'agent-error\' | \'approval-pending\' | \'approval-decided\' | \'mail\' | \'notify\' | \'focus\' | \'reveal\' | \'open-studio\' | \'new-chat\' | \'open-folder\' | \'open-file\' | \'attention\';',
   },
   {
     name: 'CancelOptions',

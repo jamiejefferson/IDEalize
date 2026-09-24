@@ -251,6 +251,34 @@ describe('ink on a surface\'s own ground', () => {
     // A layer token that is no colour at all is a broken resolver, named loudly.
     expect(() => surfaceInk(ground('#14233B'), { ...defaults, tokens: { ...defaults.tokens, '--dsw-alias-label-caption': 'currentColor' } }, [fill])).toThrow(/neither #RRGGBB nor rgba\(\)/)
   })
+
+  it('paints the caret in the card\'s readable ink whenever the chat writes its ink', () => {
+    // Feedback dbd36ed7: the caret kept the theme accent while the text around it took the person's ink.
+    const fill = requireHex(defaults.tokens['--dsw-specific-input-major'] ?? '')
+    const card = `${root} [${COMPOSER_ATTRIBUTE}]`
+    for (const surface of [
+      // Ink chosen for a dark ground: floored against the card, so the caret is what the text is.
+      { ...ground('#14233B'), textColorHex: '#E8EEF5' },
+      // Ink chosen over the theme's ground: written as chosen, and the caret takes it as is.
+      { ...EMPTY_SURFACE, textColorHex: '#102030', scheme: 'light' as const },
+      // A dark ground alone deepens the theme's ink, and the caret follows the deepened ink.
+      ground('#14233B'),
+    ]) {
+      const css = surfaceCss('chat', surface, defaults)
+      const cardRule = css.split('\n').find(line => line.startsWith(`${card} {`)) ?? ''
+      const primary = /--dsw-alias-label-primary: (#[0-9A-F]{6})/.exec(cardRule)?.[1] ?? ''
+      expect(primary).toMatch(/^#[0-9A-F]{6}$/)
+      expect(cardRule).toContain(`color: ${primary}; caret-color: ${primary}; }`)
+      expect(contrast(requireHex(primary), fill)).toBeGreaterThanOrEqual(floorOf('--dsw-alias-label-primary') - 0.001)
+      // The textarea sets caret-color on itself, so the card's value never reaches it by inheritance:
+      // three attributes and a type outrank the upstream `.input` class whatever the sheet order.
+      expect(css).toContain(`${card} textarea { caret-color: ${primary}; }`)
+    }
+    // With no ink written the caret is left to the accent token the action colour rewrites.
+    expect(surfaceCss('chat', ground('#FFFFFF'), defaults)).not.toContain('caret-color')
+    expect(surfaceCss('chat', { ...EMPTY_SURFACE, fontSize: 18 }, defaults)).not.toContain('caret-color')
+    expect(actionTokens({ ...EMPTY_ACTION, colorHex: '#FF74E7' }, '#0969DA', '#F5F5F6')['--dsw-alias-state-business-primary']).toBeDefined()
+  })
 })
 
 describe('the composer seat over a surface\'s own ground', () => {

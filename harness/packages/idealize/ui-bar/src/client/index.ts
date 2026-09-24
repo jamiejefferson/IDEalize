@@ -8,9 +8,11 @@
  *
  * Panes: Files; the Service hatch (V0's hatch chat under a Service tab, the
  * @idealize/hatch composition page under a Composition tab); Brains (usage,
- * budget and models; the Models settings page re-hosted through its plugin's
+ * models and the router; the Models settings page re-hosted through its plugin's
  * section service — its settings.section registration was removed, see
- * FORK.md); Trajectory (the event ledger, re-hosted the same way from
+ * FORK.md); Time & cost (WorkPanel: each project's working time from
+ * `GET /idealize/models/work` over the budget tables that were Brains'
+ * Budget tab); Trajectory (the event ledger, re-hosted the same way from
  * `trajectorySection` after it left the conversation view ring, and the
  * receiver of the chat's "inspect this call" handoff); Schedule (the Week
  * calendar, re-hosted from `scheduleSection` after its own ring exit);
@@ -922,12 +924,32 @@ export function apply(ctx: ClientContext): void {
       console.error(`idealize-bar: cannot idealize ${path}`, cause)
     }
   }
+  /**
+   * Show a file the operating system opened with this app: a Markdown file
+   * chosen under Finder's or Explorer's "Open with" (feedback 9583834d, 24 Sep
+   * 2026: "tried to set-up md files to open in idealize but it didn't work").
+   * The main process turns the hand-off into an `open-file` event; the viewer
+   * serves any file under home bare, and for one outside it the event names
+   * the folder to register as a project first, which `openFolder` does the
+   * way "Idealize this" would, before the viewer is asked for the file.
+   */
+  const openHandedFile = async (file: string, folder: string | undefined): Promise<void> => {
+    if (folder !== undefined && folder !== '') await openFolder(folder)
+    openFile(file)
+  }
+  /** A cold start's request from the feed tail: only one from the last half-minute counts. */
+  const freshArrival = (tail: readonly { kind?: string; at?: unknown }[], kind: string): Record<string, unknown> | undefined => {
+    const arrival = tail.findLast(event => event.kind === kind)
+    if (arrival === undefined) return undefined
+    return Date.now() - Date.parse(typeof arrival.at === 'string' ? arrival.at : '') < 30_000 ? arrival : undefined
+  }
   // The Askbar's Studio entry asks for the Studio two ways and this window
   // answers both with the one open: the floating bar through the host bridge
   // feed (`open-studio`), the sidebar rail through the in-window document
-  // event. The bar's New chat rides the same feed (`new-chat`), and Finder's
-  // "Idealize this" the same feed again (`open-folder`). Only feed events
-  // after attach count, so a reload never replays an old request.
+  // event. The bar's New chat rides the same feed (`new-chat`), Finder's
+  // "Idealize this" the same feed again (`open-folder`), and a file opened
+  // with the app likewise (`open-file`). Only feed events after attach count,
+  // so a reload never replays an old request.
   ctx.effect(() => {
     const offRequest = onStudioRequest((studioEvent) => { void openStudio(studioEvent) })
     let feed: BridgeFeedAttachment | undefined
@@ -935,27 +957,31 @@ export function apply(ctx: ClientContext): void {
     const attach = async (): Promise<void> => {
       // The window's one feed connection (`@idealize/askbar`'s bridge-feed).
       const attachment = await followBridgeFeed((frame) => {
-        const event = frame as { kind?: string; folder?: string }
+        const event = frame as { kind?: string; folder?: string; file?: string }
         if (event.kind === 'open-studio') void openStudio()
         // The bar's New chat: it has no chat surface of its own, so the
         // window it grows back into starts the chat (JJ, 13 Sep 2026).
         if (event.kind === 'new-chat') ctx.workspaces.startSession()
         // Finder's "Idealize this", carrying the folder it was invoked on.
         if (event.kind === 'open-folder' && (event.folder ?? '') !== '') void openFolder(event.folder ?? '')
+        // A file opened with the app, carrying the file and, when the viewer
+        // needs one, the folder to register first.
+        if (event.kind === 'open-file' && (event.file ?? '') !== '') void openHandedFile(event.file ?? '', event.folder)
       })
       // the bridge is absent in this composition: nothing to listen for
       if (attachment === undefined) return
       if (closed) { attachment.close(); return }
       feed = attachment
       // The tail is otherwise skipped, so a reload never replays an old
-      // request. One kind is the exception: Finder's "Idealize this" starts
-      // the app when it is not running, and that request is on the feed
-      // before this window can attach to it. Only a request from the last
-      // half-minute counts, which is a cold start and nothing older.
-      const arrival = attachment.tail.findLast(event => event.kind === 'open-folder') as { folder?: string; at?: string } | undefined
-      if (arrival !== undefined && (arrival.folder ?? '') !== '' && Date.now() - Date.parse(arrival.at ?? '') < 30_000) {
-        void openFolder(arrival.folder ?? '')
-      }
+      // request. Two kinds are the exception: Finder's "Idealize this" and a
+      // file opened with the app both start the app when it is not running,
+      // and that request is on the feed before this window can attach to it.
+      // Only a request from the last half-minute counts, which is a cold
+      // start and nothing older.
+      const folderArrival = freshArrival(attachment.tail, 'open-folder') as { folder?: string } | undefined
+      if (folderArrival !== undefined && (folderArrival.folder ?? '') !== '') void openFolder(folderArrival.folder ?? '')
+      const fileArrival = freshArrival(attachment.tail, 'open-file') as { file?: string; folder?: string } | undefined
+      if (fileArrival !== undefined && (fileArrival.file ?? '') !== '') void openHandedFile(fileArrival.file ?? '', fileArrival.folder)
     }
     void attach()
     return () => {

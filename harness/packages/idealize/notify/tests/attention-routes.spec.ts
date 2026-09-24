@@ -16,8 +16,28 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { apply as applyStudio, EVENT_PATH, STATE_PATH } from '@idealize/studio'
-import { apply as applyNotify, ATTENTION_PATH, ATTENTION_READ_PATH, ATTENTION_STATE_PATH } from '../src/index.ts'
+import { apply as applyNotify, ATTENTION_PATH, ATTENTION_READ_PATH, ATTENTION_STATE_PATH, chimeSoundCacheDir } from '../src/index.ts'
 import type { AttentionLedger } from '../src/attention-store.ts'
+import type { SoundSources } from '../src/sounds.ts'
+
+// The sound routes are exercised over a Mac with two alert sounds, one of
+// which afconvert refuses, whatever machine runs this suite.
+vi.mock('../src/sounds.ts', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/sounds.ts')>()
+  const fakeMachine = (): SoundSources => ({
+    platform: 'darwin',
+    env: {},
+    readdir: async dir => (dir === '/System/Library/Sounds' ? ['Glass.aiff', 'Odd.aiff'] : []),
+    size: async () => 0,
+    exists: async () => false,
+    mkdir: async (dir) => { await mkdir(dir, { recursive: true }) },
+    transcode: async (input, output) => {
+      if (input.endsWith('Odd.aiff')) throw new Error('afconvert refused')
+      await writeFile(output, 'RIFF fake wav')
+    },
+  })
+  return { ...original, createSoundLibrary: (cacheDir: string) => original.createSoundLibrary(cacheDir, fakeMachine()) }
+})
 
 type RouteHandler = (req: FakeRequest, res: FakeResponse) => Promise<void> | void
 
@@ -130,14 +150,16 @@ async function mount(options: {
   )
   await new Promise(resolve => setTimeout(resolve, 0))
 
-  const call = async (path: string, init: { body?: unknown; auth?: boolean; query?: string; host?: string } = {}) => {
+  interface CallInit { body?: unknown; auth?: boolean; query?: string; host?: string; bareRequest?: boolean }
+  const call = async (path: string, init: CallInit = {}) => {
     const handler = handlers.get(path)
     if (handler === undefined) throw new Error(`no route ${path}`)
     // An empty host stands for a request that carries no Host header at all.
     const headers: Record<string, string> = init.host === '' ? {} : { host: init.host ?? '127.0.0.1:3180' }
     if (init.auth !== false) headers['x-idealize-auth'] = '1'
+    // A bare request carries no url at all, as Node types allow.
     const req = new FakeRequest(
-      `${path}${init.query ?? ''}`,
+      init.bareRequest === true ? undefined as unknown as string : `${path}${init.query ?? ''}`,
       init.body === undefined ? 'GET' : 'POST',
       headers,
       init.body === undefined ? '' : (typeof init.body === 'string' ? init.body : JSON.stringify(init.body)),
@@ -329,6 +351,29 @@ describe('the notify surface’s other routes', () => {
     const reply = await call('/idealize/notify/chime.mp3')
     expect(reply.status).toBe(200)
     expect(reply.body.length).toBeGreaterThan(0)
+  })
+
+  it('lists the chime catalogue, the built-in chime first and the sounds this Mac could transcode after it', async () => {
+    const { call } = await mount()
+    expect((await call('/idealize/notify/sounds')).json()).toEqual({
+      sounds: [{ id: 'built-in', label: 'Built-in chime' }, { id: 'system:Glass', label: 'Glass' }],
+    })
+  })
+
+  it('serves one catalogue sound by id from the cache beside the ledger, and nothing by path or by a stranger\'s id', async () => {
+    const { call } = await mount()
+    const glass = await call('/idealize/notify/sound', { query: '?id=system%3AGlass' })
+    expect(glass.status).toBe(200)
+    expect(glass.body).toBe('RIFF fake wav')
+    const home = process.env['DSH_HOME'] ?? ''
+    expect(chimeSoundCacheDir(home)).toBe(join(home, 'idealize', 'notify', 'sounds'))
+    // The id is a catalogue lookup, never a path: the ledger beside the cache cannot be read out through it.
+    for (const id of ['system%3AOdd', '..%2Fattention.json', '%2Fetc%2Fpasswd', 'built-in', '']) {
+      const refused = await call('/idealize/notify/sound', { query: `?id=${id}` })
+      expect([refused.status, refused.json()]).toEqual([404, { error: 'no such sound' }])
+    }
+    expect((await call('/idealize/notify/sound')).status).toBe(404)
+    expect((await call('/idealize/notify/sound', { bareRequest: true })).status).toBe(404)
   })
 
   it('raises a native notification when a desktop shell is composed', async () => {

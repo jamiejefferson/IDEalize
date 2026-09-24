@@ -119,4 +119,15 @@ describe('the request waterfall', () => {
     const config = await ctx.waterfall('agent/request', payload, () => Promise.resolve({ provider: 'seed', model: 'seed' }))
     expect(config).toMatchObject({ provider: 'router', model: 'routed' })
   })
+
+  it('a prepended request-error listener answers before a retry policy registered earlier, so a routed failure is not retried', async () => {
+    const ctx = new Context()
+    const seen: string[] = []
+    ctx.on('agent/request-error', async (_payload, next) => { seen.push('retry-policy'); return next() })
+    ctx.on('agent/request-error', async () => { seen.push('router'); return { kind: 'retry' as const } }, { prepend: true })
+    const payload = { turn: 2, step: 1, provider: 'openrouter', failure: { code: 'RATE_LIMIT', message: '429' }, signal: new AbortController().signal } as never
+    const action = await ctx.waterfall('agent/request-error', payload, () => Promise.resolve(undefined))
+    expect(action).toEqual({ kind: 'retry' })
+    expect(seen).toEqual(['router'])
+  })
 })

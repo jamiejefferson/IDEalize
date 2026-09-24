@@ -1,7 +1,7 @@
 /**
  * Proof run (not a vitest spec): drive a booted IDEalize web app headlessly,
  * open the Brains pane from the tool rail, and screenshot each wireframe
- * state — Usage, the Edit Activity Agent sheet, Models, Budget — at the
+ * state — Usage, the Edit Activity Agent sheet, Models — at the
  * Paper frame's 1504×941.
  *
  * Usage: BASE_URL=http://127.0.0.1:3145 OUT=.idealize/proof pnpm exec tsx packages/idealize/ui-bar/proof/brains-proof.mts
@@ -49,18 +49,9 @@ await page.waitForTimeout(300)
 console.log('providers listed:', (await pane.locator('strong').allTextContents()).join(', '))
 await page.screenshot({ path: join(out, 'brains-models.png') })
 
-await pane.getByRole('tab', { name: 'Budget' }).click()
-await pane.getByRole('table', { name: 'Budget breakdown' }).waitFor()
-// The figures arrive from the usage route; wait for a non-placeholder total.
-await page.waitForFunction(() => {
-  const table = document.querySelector('[aria-label="Budget breakdown"]')
-  return table !== null && !/—/.test(table.textContent ?? '')
-}, undefined, { timeout: 30_000 })
-await page.screenshot({ path: join(out, 'brains-budget.png') })
-
 await browser.close()
 if (errors.length > 0) {
   console.error('page errors:', errors)
   process.exit(1)
 }
-console.log(`wrote brains-usage.png, brains-edit-activity.png, brains-models.png, brains-budget.png to ${out}`)
+console.log(`wrote brains-usage.png, brains-edit-activity.png, brains-models.png to ${out}`)

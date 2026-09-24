@@ -61,6 +61,16 @@ export function BarIconModels({ size }: IconProps) {
   ))
 }
 
+/** Clock face with a coin's rim: the Time & cost pane (24 Sep 2026). */
+export function BarIconWork({ size }: IconProps) {
+  return frame(size, (
+    <>
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M8 4.75V8l2.25 1.5" />
+    </>
+  ))
+}
+
 /** Cog: the Settings pane (JJ, 11 Sep 2026). */
 export function BarIconSettings({ size }: IconProps) {
   return frame(size, (

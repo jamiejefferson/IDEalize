@@ -301,23 +301,37 @@ export function surfaceInk(surface: SurfaceAppearance, theme: Pick<SurfaceDefaul
 }
 
 /**
- * The rule that keeps the composer card's text and icons readable when the
- * chat surface writes its ink. The card paints the theme's own
+ * The rules that keep the composer card's text, icons and caret readable
+ * when the chat surface writes its ink. The card paints the theme's own
  * `--dsw-specific-input-major`, so ink chosen or deepened for the surface's
  * ground can vanish on it: a pale ink over a dark chat ground left the
  * card's right-hand icons invisible on a light card (feedback cb68f5d5). Inside
  * the card the ink tokens are held to the same floors against the card's fill.
+ *
+ * The caret follows the same floored primary ink. Upstream paints it with
+ * `--dsw-alias-state-business-primary` (InputBar.module.css), the theme's
+ * accent held readable against the theme ground, so with the chat recoloured
+ * it stayed the accent while the text around it took the person's ink
+ * (feedback dbd36ed7). The textarea sets `caret-color` on itself, so the
+ * card's inherited value never reaches it; the second rule names the
+ * textarea under the card, and its three attributes and one type beat the
+ * upstream class whatever the sheet order. Without a written ink the caret
+ * is left to that accent token, which the Appearance action colour rewrites.
  * @param root - the chat surface's doubled selector.
  * @param surface - override.
  * @param theme - the scheme's ground and resolved layer.
- * @returns the card rule, or an empty string when the card fill is not a plain colour.
+ * @returns the card rule and the caret rule, or nothing when the card fill is not a plain colour.
  */
-function composerInkRule(root: string, surface: SurfaceAppearance, theme: Pick<SurfaceDefaults, 'ground' | 'tokens'>): string {
+function composerInkRules(root: string, surface: SurfaceAppearance, theme: Pick<SurfaceDefaults, 'ground' | 'tokens'>): string[] {
   const card = parseHex(theme.tokens['--dsw-specific-input-major'] ?? '')
-  if (card === undefined) return ''
+  if (card === undefined) return []
   const floored = surfaceInk(surface, theme, [card])
   const rules = INK_TOKENS.map(name => `${name}: ${floored[name].value}`)
-  return `${root} [${COMPOSER_ATTRIBUTE}] { ${rules.join('; ')}; color: ${floored['--dsw-alias-label-primary'].value}; }`
+  const primary = floored['--dsw-alias-label-primary'].value
+  return [
+    `${root} [${COMPOSER_ATTRIBUTE}] { ${rules.join('; ')}; color: ${primary}; caret-color: ${primary}; }`,
+    `${root} [${COMPOSER_ATTRIBUTE}] textarea { caret-color: ${primary}; }`,
+  ]
 }
 
 /**
@@ -400,7 +414,7 @@ export function surfaceCss(id: SurfaceId, surface: SurfaceAppearance, defaults: 
   // The chat surface is the only one holding a composer, so it is the only one
   // whose transcript can run under one.
   if (paintsOwnGround && id === 'chat') textRules.push(seatBlurRule(root))
-  if (written.length > 0 && id === 'chat') textRules.push(composerInkRule(root, surface, defaults))
+  if (written.length > 0 && id === 'chat') textRules.push(...composerInkRules(root, surface, defaults))
   if (rootRules.length === 0 && textRules.length === 0) return ''
   if (exemptRules.length > 0) textRules.push(`${root} [${SURFACE_EXEMPT_ATTRIBUTE}] { ${exemptRules.join('; ')}; }`)
   const rootBlock = rootRules.length === 0 ? '' : `${root} { ${rootRules.join('; ')}; }\n`

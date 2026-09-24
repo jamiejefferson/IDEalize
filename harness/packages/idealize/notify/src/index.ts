@@ -6,6 +6,9 @@
  *   through its settings scope.
  * - `GET  /idealize/notify/app` — `{appVersion}` for the banner's version gate.
  * - `GET  /idealize/notify/chime.mp3` — V0's TaskComplete chime asset.
+ * - `GET  /idealize/notify/sounds` — the chime catalogue: the built-in chime
+ *   plus the operating system's own alert sounds (`./sounds.ts`).
+ * - `GET  /idealize/notify/sound?id=…` — one catalogue sound, by id alone.
  * - `POST /idealize/notify/native` — `{title, body}` raised as a native
  *   notification through the desktop shell's `desktopActions.notify` when
  *   that service is composed and offers it; 409 otherwise, so the browser
@@ -28,7 +31,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -39,9 +42,13 @@ import type {} from '@idealize/studio'
 import { attentionNotice, notificationPolicyFor } from './attention.ts'
 import type { PolicyTask } from './attention.ts'
 import { AttentionStore, attentionLedgerPath } from './attention-store.ts'
+import { CHIME_SOUND_PATH, CHIME_SOUNDS_PATH } from './chime-sounds.ts'
 import { NOTIFY_SETTINGS_NAMESPACE, NotifySettingsSchema } from './settings.ts'
+import { createSoundLibrary } from './sounds.ts'
 
 export { NOTIFY_SETTINGS_NAMESPACE, NotifySettingsSchema, type NotifySettings } from './settings.ts'
+export { BUILT_IN_CHIME, BUILT_IN_CHIME_SOUND, CHIME_SOUND_PATH, CHIME_SOUNDS_PATH, chimeSoundUrl, decodeChimeSounds, type ChimeSound } from './chime-sounds.ts'
+export { createSoundLibrary, systemSoundSources, type SoundFile, type SoundLibrary, type SoundSources } from './sounds.ts'
 export { compareVersions, decodeAnnouncement, selectAnnouncement, versionInRange, type Announcement } from './announcement.ts'
 export { ATTENTION_KIND, createChimeGate, type ChimeGate, type GateEvent } from './chime-gate.ts'
 export { attentionNotice, notificationPolicyFor, USER_PARTICIPANT } from './attention.ts'
@@ -73,6 +80,15 @@ export const ATTENTION_PATH = '/idealize/notify/attention'
 export const ATTENTION_READ_PATH = '/idealize/notify/attention/read'
 /** The alert-state write path. */
 export const ATTENTION_STATE_PATH = '/idealize/notify/attention/state'
+
+/**
+ * Where transcoded system sounds are kept, beside the attention ledger.
+ * @param dshHome - the resolved harness home.
+ * @returns the cache folder.
+ */
+export function chimeSoundCacheDir(dshHome: string): string {
+  return join(dshHome, 'idealize', 'notify', 'sounds')
+}
 
 /** The desktop shell's notify face, present only when the Electron host offers it. */
 interface DesktopNotifyLike {
@@ -154,7 +170,9 @@ function bridgeFeed(ctx: Context): BridgeLike | undefined {
 
 export function apply(ctx: Context, config: Config): void {
   const appVersion = (config.appVersion ?? '').trim() || (process.env.IDEALIZE_APP_VERSION ?? '').trim() || V1_APP_VERSION
-  const store = new AttentionStore(attentionLedgerPath(resolveDshHome()))
+  const home = resolveDshHome()
+  const store = new AttentionStore(attentionLedgerPath(home))
+  const sounds = createSoundLibrary(chimeSoundCacheDir(home))
 
   ctx.inject(['settings'], (settingsCtx) => {
     settingsCtx.settings.register(settingsNamespace(NOTIFY_SETTINGS_NAMESPACE), NotifySettingsSchema)
@@ -222,6 +240,26 @@ export function apply(ctx: Context, config: Config): void {
       const body = await readFile(CHIME_URL)
       res.writeHead(200, {
         'content-type': 'audio/mpeg',
+        'content-length': body.length,
+        'cache-control': 'public, max-age=86400',
+      }).end(body)
+    })
+
+    register(CHIME_SOUNDS_PATH, false, async (_req, res) => {
+      sendJson(res, 200, { sounds: await sounds.list() })
+    })
+
+    register(CHIME_SOUND_PATH, false, async (req, res) => {
+      // The id is looked up, never joined onto a path: the catalogue is the fence.
+      const id = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('id') ?? ''
+      const found = await sounds.file(id)
+      if (found === undefined) {
+        sendJson(res, 404, { error: 'no such sound' })
+        return
+      }
+      const body = await readFile(found.path)
+      res.writeHead(200, {
+        'content-type': found.contentType,
         'content-length': body.length,
         'cache-control': 'public, max-age=86400',
       }).end(body)

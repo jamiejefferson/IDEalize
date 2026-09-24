@@ -1,6 +1,6 @@
 {
   "name": "@idealize/models",
-  "description": "IDEalize model management: the models panel (default model, auto-selection preferences, spend link) served by the host, the usage and price routes behind the Brains pane's Budget tab; the client-slot panel follows once the design settles",
+  "description": "IDEalize model management: the models panel (default model, auto-selection preferences, spend link) served by the host, the usage, work-time and price routes behind the Time & cost pane; the client-slot panel follows once the design settles",
   "version": "1.0.0-dev.0",
   "private": true,
   "repository": {

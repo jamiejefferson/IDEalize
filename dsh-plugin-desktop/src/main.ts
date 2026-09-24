@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -72,6 +72,7 @@ import { DesktopProfileService } from './profile-service.ts'
 import { DesktopActionsService } from './desktop-actions.ts'
 import { IDEALIZE_SCHEME, parseIdealizeUrl, requestFromArgv, type OpenProjectRequest } from './idealize-url.ts'
 import { importKeysFile, isKeysFilePath, keysFileFromArgv, keysFileNotification } from './keys-file.ts'
+import { isMarkdownFilePath, markdownFileFromArgv, openFileEvent, projectFolderFor } from './opened-file.ts'
 import { installFinderQuickAction, QUICK_ACTION_NAME } from './finder-quick-action.ts'
 import { DesktopTerminalsService } from './embedded-terminal.ts'
 import { DesktopPluginsService } from './desktop-plugins.ts'
@@ -231,10 +232,20 @@ async function start(): Promise<void> {
     process.platform === 'darwin' ? undefined : keysFileFromArgv(argv)
   let pendingKeysFile: string | undefined = keysFileFromArguments(process.argv)
   let deliverKeysFile: (path: string) => void = (path) => { pendingKeysFile = path }
+  // A Markdown file chosen under "Open with" arrives the same two ways and is
+  // held the same way, until there is a bridge feed to put it on.
+  const markdownFileFromArguments = (argv: readonly string[]): string | undefined =>
+    process.platform === 'darwin' ? undefined : markdownFileFromArgv(argv)
+  let pendingMarkdownFile: string | undefined = markdownFileFromArguments(process.argv)
+  let deliverMarkdownFile: (path: string) => void = (path) => { pendingMarkdownFile = path }
   app.on('open-file', (event, path) => {
-    if (!isKeysFilePath(path)) return
-    event.preventDefault()
-    deliverKeysFile(path)
+    if (isKeysFilePath(path)) {
+      event.preventDefault()
+      deliverKeysFile(path)
+    } else if (isMarkdownFilePath(path)) {
+      event.preventDefault()
+      deliverMarkdownFile(path)
+    }
   })
   if (!app.requestSingleInstanceLock()) {
     app.quit()
@@ -435,6 +446,8 @@ async function start(): Promise<void> {
     if (request !== undefined) deliverProject(request)
     const keysFile = keysFileFromArguments(argv)
     if (keysFile !== undefined) deliverKeysFile(keysFile)
+    const markdownFile = markdownFileFromArguments(argv)
+    if (markdownFile !== undefined) deliverMarkdownFile(markdownFile)
     if (startupRecoveryWindow !== undefined) startupRecoveryWindow.show()
     else runtime.show()
   })
@@ -760,6 +773,25 @@ async function start(): Promise<void> {
     if (pendingProject !== undefined) {
       deliverProject(pendingProject)
       pendingProject = undefined
+    }
+    // A Markdown file rides the same feed as `open-file`. The path is resolved
+    // first, because the viewer's fence resolves symlinks before it checks,
+    // and the folder decision below must see the same path the fence will.
+    deliverMarkdownFile = (path) => {
+      void realpath(path).catch(() => path).then((file) => {
+        const bridge = current?.get('idealizeBridge') as { buffer: { push(event: Record<string, unknown>): void } } | undefined
+        if (bridge === undefined) {
+          electronLogger.error(`${BIN_NAME}: no bridge to open ${file} on`)
+          return
+        }
+        const folder = projectFolderFor(file, { home: app.getPath('home'), exists: target => existsSync(target) })
+        bridge.buffer.push({ ...openFileEvent(file, folder) })
+        runtime.show()
+      })
+    }
+    if (pendingMarkdownFile !== undefined) {
+      deliverMarkdownFile(pendingMarkdownFile)
+      pendingMarkdownFile = undefined
     }
     deliverKeysFile = (path) => {
       // The profile's configured port is 0 (an ephemeral choice), so the

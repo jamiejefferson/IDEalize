@@ -201,8 +201,15 @@ async function plugin(summaries: Summary[], current?: string) {
   const entry = slots.entries('sidebar.workspaces.pinned')[0]
   if (entry === undefined) throw new Error('the Studio card is not seated')
   const face = (entry.inject as unknown as () => StudioCardInjected)()
-  return { face, fiber, open, create, startSession, connectWorkspace, noteSessionConfigured, sessionList, workspaceList }
+  return { ctx, face, fiber, open, create, startSession, connectWorkspace, noteSessionConfigured, sessionList, workspaceList }
 }
+
+/** A fetch stub whose feed tail holds one cold-start request, recorded at the instant given. */
+const respondWithTail = (event: Record<string, unknown>) => (at: string) => vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+  if (url.startsWith('/idealize/events/recent')) return Promise.resolve(new Response(JSON.stringify([{ seq: 4, ...event, at }])))
+  return Promise.resolve(new Response('{"ok":true}'))
+})
 
 describe('the Studio card in the plugin', () => {
   it('knows when the Studio chat is current and whether a project exists to hold one', async () => {
@@ -352,12 +359,7 @@ describe('the Studio card in the plugin', () => {
       close(): void {}
     }
     vi.stubGlobal('EventSource', FakeEventSource)
-    const tail = (at: string): string => JSON.stringify([{ seq: 4, kind: 'open-folder', folder: '/Users/jj/Cold', at }])
-    const respond = (at: string) => vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-      if (url.startsWith('/idealize/events/recent')) return Promise.resolve(new Response(tail(at)))
-      return Promise.resolve(new Response('{"ok":true}'))
-    })
+    const respond = respondWithTail({ kind: 'open-folder', folder: '/Users/jj/Cold' })
     // The Quick Action started the app, so the request is seconds old.
     let fetchSpy = respond(new Date().toISOString())
     try {
@@ -373,6 +375,77 @@ describe('the Studio card in the plugin', () => {
       const later = await plugin([])
       await new Promise(resolve => setTimeout(resolve, 10))
       expect(later.create).not.toHaveBeenCalled()
+      await later.fiber.dispose()
+    } finally {
+      fetchSpy.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('shows a file opened with the app in the viewer, registering its folder as a project first only when the event names one', async () => {
+    const sources: { url: string; onmessage: ((message: { data: string }) => void) | null }[] = []
+    class FakeEventSource {
+      onmessage: ((message: { data: string }) => void) | null = null
+      constructor(readonly url: string) { sources.push(this) }
+      close(): void {}
+    }
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (url.startsWith('/idealize/events/recent')) return Promise.resolve(new Response('[{"seq":3}]'))
+      return Promise.resolve(new Response('{"ok":true}'))
+    })
+    try {
+      const { ctx, create, startSession, fiber } = await plugin([])
+      const layout = ctx.get('layout') as unknown as { openDeck: ReturnType<typeof vi.fn> }
+      const bar = ctx.get('idealizeBar') as unknown as { state: { getSnapshot(): { file: string | null } } }
+      await vi.waitFor(() => { expect(sources).toHaveLength(1) })
+      // A file under home: the viewer serves it as it is, so no project is made.
+      sources[0]!.onmessage?.({ data: JSON.stringify({ kind: 'open-file', file: '/Users/jj/Documents/plan.md' }) })
+      await vi.waitFor(() => { expect(bar.state.getSnapshot().file).toBe('/Users/jj/Documents/plan.md') })
+      expect(layout.openDeck).toHaveBeenCalledTimes(1)
+      expect(create).not.toHaveBeenCalled()
+      // A file elsewhere: its folder becomes a project first, then the viewer shows it.
+      sources[0]!.onmessage?.({ data: JSON.stringify({ kind: 'open-file', file: '/Volumes/Work/site/README.md', folder: '/Volumes/Work/site' }) })
+      await vi.waitFor(() => { expect(bar.state.getSnapshot().file).toBe('/Volumes/Work/site/README.md') })
+      expect(create).toHaveBeenCalledWith({ path: '/Volumes/Work/site' })
+      expect(startSession).toHaveBeenCalledWith('ws-/Volumes/Work/site')
+      // An event with no file asks for nothing.
+      sources[0]!.onmessage?.({ data: JSON.stringify({ kind: 'open-file', file: '' }) })
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(layout.openDeck).toHaveBeenCalledTimes(2)
+      await fiber.dispose()
+    } finally {
+      fetchSpy.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('takes a file request that arrived while the window was still starting, and leaves a stale one alone', async () => {
+    class FakeEventSource {
+      onmessage: ((message: { data: string }) => void) | null = null
+      constructor(readonly url: string) {}
+      close(): void {}
+    }
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const respond = respondWithTail({ kind: 'open-file', file: '/Users/jj/Cold/plan.md' })
+    // "Open with" started the app, so the request is seconds old.
+    let fetchSpy = respond(new Date().toISOString())
+    try {
+      const fresh = await plugin([])
+      const bar = fresh.ctx.get('idealizeBar') as unknown as { state: { getSnapshot(): { file: string | null } } }
+      await vi.waitFor(() => { expect(bar.state.getSnapshot().file).toBe('/Users/jj/Cold/plan.md') })
+      await fresh.fiber.dispose()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+    // A reload an hour later must not open the same file again.
+    fetchSpy = respond(new Date(Date.now() - 3_600_000).toISOString())
+    try {
+      const later = await plugin([])
+      const bar = later.ctx.get('idealizeBar') as unknown as { state: { getSnapshot(): { file: string | null } } }
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(bar.state.getSnapshot().file).toBeNull()
       await later.fiber.dispose()
     } finally {
       fetchSpy.mockRestore()

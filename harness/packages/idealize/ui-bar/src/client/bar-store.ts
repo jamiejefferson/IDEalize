@@ -9,7 +9,7 @@
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** The drawer panes the rail opens. */
-export type BarPanel = 'files' | 'terminal' | 'hatch' | 'models' | 'feedback' | 'appearance' | 'trajectory' | 'schedule'
+export type BarPanel = 'files' | 'terminal' | 'hatch' | 'models' | 'work' | 'feedback' | 'appearance' | 'trajectory' | 'schedule'
 
 /** The Service hatch pane's tabs. */
 export type HatchTab = 'service' | 'composition'

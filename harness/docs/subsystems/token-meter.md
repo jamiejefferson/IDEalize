@@ -56,14 +56,30 @@ Maps a requesting session to its project attribution header.
 
 ```ts cordis-catalog
 /**
- * Attribution headers for one request; undefined when nothing is known.
+ * Resolve one cwd's label asynchronously into the cache `headersFor` reads.
+ * A label already cached, or one the sync path caches meanwhile, is kept.
+ * @param cwd - The session cwd to resolve; empty or undefined is ignored.
+ * @returns a promise settled once the label is cached; it never rejects.
+ */
+warm(cwd: string | undefined): Promise<void>
+
+/**
+ * Let another plugin add headers to a session's requests: the model router
+ * sends the brain's priorities to the engine this way.
+ * @param contributor - Returns the headers for one session, or undefined.
+ * @returns a function that removes the contributor.
+ */
+contribute(contributor: (sessionId: string) => Record<string, string> | undefined): () => void
+
+/**
+ * Headers for one request; undefined when nothing is known.
  * @param sessionId - The requesting session, when the request has one.
- * @returns the `x-idealize-project` header, or undefined without a session cwd.
+ * @returns the `x-idealize-project` header and any contributed ones, or undefined when there are none.
  */
 headersFor(sessionId: string | undefined): Record<string, string> | undefined
 ```
 
-Source: [`packages/idealize/freetokens/src/attribution.ts:42`](../../packages/idealize/freetokens/src/attribution.ts)
+Source: [`packages/idealize/freetokens/src/attribution.ts:60`](../../packages/idealize/freetokens/src/attribution.ts)
 
 <a id="ctxtokenmeter--tokenmeter"></a>
 

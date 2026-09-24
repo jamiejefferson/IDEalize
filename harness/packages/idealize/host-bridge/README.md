@@ -14,7 +14,7 @@ The notification feed behind `ctx.idealizeBridge`: one place where the host turn
 
 ## Buffer
 
-`BridgeBuffer` is a capped in-memory ring of 200 events with live subscriber fan-out. Each event carries a monotonic per-process `seq`, an ISO-8601 `at`, `kind`, `title`, `body`, the `sessionId` it belongs to when it has one, on an `attention` event the `studioEvent` it names, and on an `open-folder` event the `folder` the shell is asked to open as a project. A throwing subscriber is contained so the others still receive the event. Nothing persists: a restart begins at `seq` 1 with an empty ring.
+`BridgeBuffer` is a capped in-memory ring of 200 events with live subscriber fan-out. Each event carries a monotonic per-process `seq`, an ISO-8601 `at`, `kind`, `title`, `body`, the `sessionId` it belongs to when it has one, on an `attention` event the `studioEvent` it names, on an `open-folder` event the `folder` the shell is asked to open as a project, and on an `open-file` event the `file` the shell is asked to show in its viewer (with a `folder` to register as a project first when the file lies outside what the viewer serves bare). A throwing subscriber is contained so the others still receive the event. Nothing persists: a restart begins at `seq` 1 with an empty ring.
 
 ## Routes (loopback, read-only)
 

@@ -310,9 +310,12 @@ describe('published package surface', () => {
     expect(manifest.build?.productName).toBe('IDEalize V1')
     expect(manifest.build?.appId).toBe('ai.projject.idealize.v1')
     // A double-clicked keys file must reach the app, so Launch Services and
-    // the Windows registry learn the extension from the manifest.
+    // the Windows registry learn the extension from the manifest. A Markdown
+    // file is offered under "Open with" without taking the default from the
+    // editor the person already uses (feedback 9583834d, 24 Sep 2026).
     expect(manifest.build?.fileAssociations).toEqual([
       { ext: 'idealizekeys', name: 'IDEalize keys', description: 'API keys for IDEalize', role: 'Editor' },
+      { ext: ['md', 'markdown'], name: 'Markdown document', description: 'A Markdown document', role: 'Viewer', rank: 'Alternate' },
     ])
     expect(manifest.build?.asarUnpack).toEqual([
       'package.json',

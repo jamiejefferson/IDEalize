@@ -57,7 +57,7 @@ describe('IdealizeBar', () => {
     // entry any more (MinimodeButton sits in the sidebar header).
     const expected: [string, BarPanel][] = [
       ['Files', 'files'], ['Schedule', 'schedule'], ['Trajectory', 'trajectory'],
-      ['Brains', 'models'], ['Appearance', 'appearance'], ['Feedback', 'feedback'],
+      ['Brains', 'models'], ['Time & cost', 'work'], ['Appearance', 'appearance'], ['Feedback', 'feedback'],
       ['Service hatch', 'hatch'],
     ]
     const buttons = view.getAllByRole('button').map(button => button.getAttribute('aria-label'))
@@ -83,7 +83,7 @@ describe('IdealizeBar', () => {
     const { view } = rail(null, openSettings)
     const buttons = view.getAllByRole('button').map(button => button.getAttribute('aria-label'))
     expect(buttons).toEqual([
-      'Files', 'Schedule', 'Trajectory', 'Brains', 'Appearance', 'Feedback',
+      'Files', 'Schedule', 'Trajectory', 'Brains', 'Time & cost', 'Appearance', 'Feedback',
       'Settings', 'Service hatch',
     ])
     fireEvent.click(view.getByRole('button', { name: 'Settings' }))

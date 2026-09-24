@@ -194,7 +194,7 @@ async setDisposition(id: ArtefactId, disposition: ArtefactDisposition): Promise<
 resolve(id: ArtefactId): string
 ```
 
-Source: [`packages/idealize/artefacts/src/index.ts:221`](../../packages/idealize/artefacts/src/index.ts)
+Source: [`packages/idealize/artefacts/src/index.ts:237`](../../packages/idealize/artefacts/src/index.ts)
 
 <a id="ctxstorage--storage"></a>
 

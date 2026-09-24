@@ -1,6 +1,6 @@
 {
   "name": "@idealize/ui-bar",
-  "description": "IDEalize tool rail: right-edge icon column whose every entry opens a pane in the docked drawer (files, terminal, service hatch, brains, trajectory, schedule, feedback, appearance), plus the welcome card, the plan-mode icon and the composer heart",
+  "description": "IDEalize tool rail: right-edge icon column whose every entry opens a pane in the docked drawer (files, terminal, service hatch, brains, time & cost, trajectory, schedule, feedback, appearance), plus the welcome card, the plan-mode icon and the composer heart",
   "version": "1.0.0-dev.0",
   "private": true,
   "repository": {

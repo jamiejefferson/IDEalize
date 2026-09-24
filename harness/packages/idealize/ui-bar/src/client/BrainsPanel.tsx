@@ -1,6 +1,6 @@
 /**
  * The Brains drawer pane (Paper "models wires", frames 7A-0 / NX-0 / D5-0 /
- * 9D-0): three tabs under one header.
+ * 9D-0): three tabs under one header (Usage, Models, Router).
  *
  * - Usage — the brains, grouped by the space they work in: one section per
  *   declared space (Chat, Terminal, Gallery, Sound Stage, Motion, in the
@@ -51,19 +51,9 @@
  *   and the Free Token Use heading. The free-token engine has no controls
  *   here: it picks its provider on the priorities of the brain that asks,
  *   which the model router sends with each request (JJ, 21 Sep 2026).
- * - Budget — month-to-date and year-to-date tokens per billing category,
- *   overall or for one project, against the monthly token budget. When the
- *   host has token prices or subscription plan costs configured
- *   (idealize-models settings), each cell leads with the cost those prices
- *   compute and notes call out any usage they leave unpriced; costs are
- *   never estimated, so with nothing configured the cells stay token-only
- *   under a hint. Beneath, one row per model with usage this month: its
- *   tokens and, for a metered route, its cost where a price exists or a Set
- *   price action where none does. The action opens an inline editor for the
- *   input and output prices per million tokens (cache read and write under
- *   "more"), saved through `POST /idealize/models/prices`; a row OpenRouter
- *   priced from its published directory says so, and a typed price wins over
- *   it. The total sums the priced rows and counts the unpriced ones.
+ * - Budget left this pane on 24 Sep 2026 for the Time & cost pane
+ *   (WorkPanel.tsx, BudgetSection.tsx), where the token and cost tables sit
+ *   under each project's working time.
  *
  * Everything reads and writes the loopback /idealize routes of
  * @idealize/models, @idealize/activity-pills and @idealize/comm; the provider
@@ -76,11 +66,15 @@ import type { ModelsSettingsSectionHost, ModelsSectionInjected } from '@deepseek
 import type { SpaceId, SpaceRosterEntry } from '@idealize/spaces/client'
 import type { BrainsRequest } from './bar-store.ts'
 import { notifyBrainsChanged } from './brains-changed.ts'
+import { providerDisplayName, when } from './format.ts'
 import { SPACE_LABELS } from './HeroLauncher.tsx'
 import type { BarKey } from './locales.ts'
 import { mediaRecoveryText } from './media-recovery.ts'
 import { RouterTab } from './RouterTab.tsx'
+import { SectionHead } from './SectionHead.tsx'
 import css from './BrainsPanel.module.css'
+
+export { providerDisplayName } from './format.ts'
 
 /** Mutating /idealize routes require the auth marker (host route fence). */
 const HEADERS = { 'x-idealize-auth': '1', 'content-type': 'application/json' }
@@ -99,8 +93,8 @@ export interface BrainsPanelHost {
   followBrain: (brainId: string) => Promise<void>
 }
 
-type Tab = 'usage' | 'budget' | 'models' | 'router'
-const TABS: readonly Tab[] = ['usage', 'budget', 'models', 'router']
+type Tab = 'usage' | 'models' | 'router'
+const TABS: readonly Tab[] = ['usage', 'models', 'router']
 
 /** One provider route of the state payload. */
 interface ProviderState {
@@ -235,93 +229,6 @@ const SPACE_MEDIA: Partial<Record<SpaceId, string>> = {
   motion: 'motion',
 }
 
-type Totals = Record<'subscriptions' | 'metered' | 'free' | 'total', number>
-
-/**
- * The usage payload's cost half, computed by the host from user-configured
- * token prices and subscription plan costs only. `configured` false means
- * nothing is priced yet, and the tab shows a hint instead of zero costs;
- * the unpriced fields name what the shown costs leave out.
- */
-interface CostState {
-  currency: string
-  month: Totals
-  year: Totals
-  unpricedTokens: { month: number; year: number }
-  unpricedSubscriptions: string[]
-  configured: boolean
-}
-
-/** One model's token prices per million, with who supplied them. */
-interface PricedModel {
-  input: number
-  output: number
-  cacheRead: number
-  cacheWrite: number
-  source: 'user' | 'market' | 'catalogue'
-}
-
-/** One model with usage this month, as the usage payload lists it. */
-interface ModelCostRow {
-  provider: string
-  model: string
-  category: 'subscriptions' | 'metered' | 'free'
-  total: number
-  /** This month's cost; only a metered route with a price carries one. */
-  cost?: number
-  price?: PricedModel
-}
-
-/** The /idealize/models/usage payload. */
-interface UsageState {
-  scope: string
-  projects: { path: string; label: string }[]
-  month: Totals
-  year: Totals
-  monthlyTokenBudget: number
-  cost: CostState
-  models?: ModelCostRow[]
-  /** OpenRouter's published price list, when the route is connected: when it was read and how many models it prices. */
-  openRouterPrices?: { fetchedAt: string; models: number } | null
-  /** What was generated this month per endpoint, with what fal billed for it. */
-  generations?: GenerationState
-  /** fal's usage report, when a key for fal is stored: when it was read, and why a read failed. */
-  falUsage?: { fetchedAt: string | null; error?: string } | null
-}
-
-/** One endpoint's generations this month, as the usage payload lists them. */
-interface GenerationRow {
-  provider: string
-  /** The endpoint id (`fal-ai/flux/dev`). */
-  model: string
-  /** The artefacts' media type; absent for an endpoint only fal reported. */
-  mediaType?: string
-  /** Artefacts this app made this month. */
-  count: number
-  /** What fal billed this month, in fal's own currency. */
-  billed?: { quantity: number; unit: string; cost: number; currency: string }
-}
-
-/** The usage payload's generation half. */
-interface GenerationState {
-  rows: GenerationRow[]
-  /** Billed totals per currency, this month and year to date; absent while fal has reported nothing. */
-  billed?: { month: Record<string, number>; year: Record<string, number> }
-  /** The currency fal billed in, null while it has billed nothing. */
-  currency: string | null
-}
-
-/** The inline price editor's fields, as typed; `more` opens the cache prices. */
-interface PriceDraft {
-  provider: string
-  model: string
-  input: string
-  output: string
-  cacheRead: string
-  cacheWrite: string
-  more: boolean
-}
-
 /** The edit sheet's draft; `id` undefined = a new agent. */
 interface Draft {
   id?: string
@@ -377,56 +284,6 @@ interface RouterBrainsState {
   weights?: { cost: number; speed: number; intelligence: number }
   brains?: Record<string, Partial<RouterCriteria>>
   shippedBrains?: Record<string, Partial<RouterCriteria>>
-}
-
-const CATEGORIES = ['subscriptions', 'metered', 'free', 'total'] as const
-
-function tokens(value: number): string {
-  if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`
-  if (value >= 1e3) return `${(value / 1e3).toFixed(1)}k`
-  return String(value)
-}
-
-/** A cost in the viewer's locale; the currency code is host-validated ISO 4217 shaped, which Intl always formats. */
-function money(value: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value)
-}
-
-/**
- * The media kind a generation row names, from the artefact's media type: the
- * type before the slash, which the copy has a word for. A row fal reported
- * that this app did not make carries no media type and reads as items.
- */
-function mediaKind(mediaType: string | undefined): 'image' | 'video' | 'audio' | 'other' {
-  const top = (mediaType ?? '').split('/')[0]
-  if (top === 'image' || top === 'video' || top === 'audio') return top
-  return 'other'
-}
-
-/** An instant as a short day-and-time in the viewer's locale ("8 Sept, 10:12"). */
-function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-}
-
-/**
- * What a provider route is called, everywhere in this pane: the name its
- * directory gave it when that is a name, else its id with a capital. The
- * host already resolves catalogue routes through the services directory
- * (openai → OpenAI); this is the last resort for a route no table knows.
- * @param provider - the route id.
- * @param displayName - the name the state payload carries, when it does.
- * @returns the name to show.
- */
-export function providerDisplayName(provider: string, displayName?: string): string {
-  if (displayName !== undefined && displayName.trim() !== '' && displayName !== provider) return displayName
-  return `${provider.charAt(0).toUpperCase()}${provider.slice(1)}`
-}
-
-/** A price field as typed, to a non-negative number; undefined when it is not one. */
-function priceNumber(text: string): number | undefined {
-  if (text.trim() === '') return undefined
-  const value = Number(text)
-  return Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
 /** Alphabetical, case-blind, with digit runs compared by value so `gpt-5.10` follows `gpt-5.9`. */
@@ -497,23 +354,6 @@ async function post(url: string, body: unknown): Promise<boolean> {
 }
 
 /**
- * Section heading: title, an optional one-line detail, an optional trailing
- * action. The space groups carry a title alone — the space name says what the
- * group is, and five repeated detail lines would say nothing five times.
- */
-function SectionHead({ title, detail, action }: { title: string; detail?: string; action?: ReactNode }) {
-  return (
-    <div className={css.sectionHead}>
-      <div>
-        <div className={css.sectionTitle}>{title}</div>
-        {detail !== undefined && <div className={css.sectionDetail}>{detail}</div>}
-      </div>
-      {action}
-    </div>
-  )
-}
-
-/**
  * Render the Brains pane.
  * @param props.host - the provider editor face (index.ts).
  * @param props.t - bar copy.
@@ -532,8 +372,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   const [agents, setAgents] = useState<AgentRow[] | null>(null)
   const [terminalClis, setTerminalClis] = useState<TerminalCliRow[]>([])
   const [launches, setLaunches] = useState<TerminalLaunchesState | null>(null)
-  const [usage, setUsage] = useState<UsageState | null>(null)
-  const [scope, setScope] = useState('')
   const [media, setMedia] = useState<MediaPresetRow[] | null>(null)
   const [services, setServices] = useState<ServiceRow[] | null>(null)
   /** The service whose key field is open, and the key typed so far. */
@@ -543,9 +381,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   const [spaces, setSpaces] = useState<SpaceRosterEntry[] | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [providerEditor, setProviderEditor] = useState(false)
-  const [budgetDraft, setBudgetDraft] = useState<string | null>(null)
-  /** The model row whose price is being edited, and the figures typed so far. */
-  const [priceDraft, setPriceDraft] = useState<PriceDraft | null>(null)
   /** What the sheet's model filter field holds; cleared when the sheet closes. */
   const [modelFilter, setModelFilter] = useState('')
   const [status, setStatus] = useState('')
@@ -569,9 +404,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     const commands = await getJson<TerminalLaunchesState>('/idealize/terminal/launches')
     setLaunches(commands?.catalog === undefined ? null : commands)
   }, [])
-  const refreshUsage = useCallback(async (path: string) => {
-    setUsage(await getJson<UsageState>(`/idealize/models/usage?scope=${encodeURIComponent(path)}`))
-  }, [])
   const refreshMedia = useCallback(async () => {
     const [presets, list] = await Promise.all([
       getJson<{ presets: MediaPresetRow[] }>('/idealize/brains/media'),
@@ -593,7 +425,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     void refreshSpaces()
     void refreshRouterOff()
   }, [refreshState, refreshAgents, refreshMedia, refreshSpaces, refreshRouterOff])
-  useEffect(() => { if (tab === 'budget') void refreshUsage(scope) }, [tab, scope, refreshUsage])
   useEffect(() => { if (draft === null) setModelFilter('') }, [draft])
 
   // The welcome card's brain step hands this pane the space with no brains, or
@@ -799,81 +630,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   }
 
   // ── Models tab ─────────────────────────────────────────────────────────
-  // ── Budget tab ─────────────────────────────────────────────────────────
-  /** One period cell: the cost from configured prices over the token count, or tokens alone while nothing is priced. */
-  const periodCell = (period: 'month' | 'year', category: typeof CATEGORIES[number]): ReactNode => {
-    if (usage === null) return '—'
-    const count = tokens(usage[period][category])
-    if (!usage.cost.configured) return count
-    return (
-      <span className={css.cellCost} data-budget-cost={`${period}-${category}`}>
-        <strong>{money(usage.cost[period][category], usage.cost.currency)}</strong>
-        <small>{count}</small>
-      </span>
-    )
-  }
-  /**
-   * What the price editor says beneath its fields: where the price it shows
-   * came from, or, with no price yet, how to type one.
-   */
-  const priceHint = (row: ModelCostRow, cost: CostState, openRouterPrices: UsageState['openRouterPrices']): string => {
-    if (row.price?.source === 'market' && openRouterPrices != null) {
-      return t('brains.prices.source.openrouter', { time: when(openRouterPrices.fetchedAt) })
-    }
-    if (row.price?.source === 'catalogue') return t('brains.prices.source.catalogue')
-    return t('brains.prices.hint', { currency: cost.currency })
-  }
-  /** Open the inline editor on a model row, seeded with the price it has. */
-  const beginPrice = (row: ModelCostRow): void => {
-    const price = row.price
-    setPriceDraft({
-      provider: row.provider,
-      model: row.model,
-      input: price === undefined ? '' : String(price.input),
-      output: price === undefined ? '' : String(price.output),
-      cacheRead: price === undefined ? '' : String(price.cacheRead),
-      cacheWrite: price === undefined ? '' : String(price.cacheWrite),
-      more: false,
-    })
-  }
-  /**
-   * Save the editor's figures as the model's price. Input and output are
-   * required; a cache price left blank takes the input price, which is what
-   * a service with no cache discount charges — no kind is ever saved as free
-   * by omission.
-   */
-  const savePrice = async (): Promise<void> => {
-    if (priceDraft === null) return
-    const input = priceNumber(priceDraft.input)
-    const output = priceNumber(priceDraft.output)
-    if (input === undefined || output === undefined) {
-      setStatus(t('brains.prices.incomplete'))
-      return
-    }
-    const price = {
-      input,
-      output,
-      cacheRead: priceNumber(priceDraft.cacheRead) ?? input,
-      cacheWrite: priceNumber(priceDraft.cacheWrite) ?? input,
-    }
-    const ok = await post('/idealize/models/prices', { provider: priceDraft.provider, model: priceDraft.model, price })
-    setStatus(ok ? t('brains.prices.saved') : t('brains.prices.failed'))
-    if (ok) {
-      setPriceDraft(null)
-      await refreshUsage(scope)
-    }
-  }
-  const saveBudget = async (): Promise<void> => {
-    if (budgetDraft === null) return
-    const value = Number(budgetDraft.replace(/[^0-9]/g, ''))
-    const ok = await post('/idealize/models/budget', { monthlyTokenBudget: value })
-    setStatus(ok ? t('brains.budget.saved') : t('brains.budget.failed'))
-    if (ok) {
-      setBudgetDraft(null)
-      await refreshUsage(scope)
-    }
-  }
-
   // Signed-in subscriptions, or ones whose route is configured; the rest of
   // the OAuth catalogue waits behind "+" (the sign-in page).
   const subscriptions = state?.providers.filter(p => p.auth === 'oauth' && (p.connected || p.models.length > 0)) ?? []
@@ -1453,235 +1209,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
         )}
 
         {tab === 'router' && <RouterTab t={t} />}
-        {tab === 'budget' && (
-          <>
-            <SectionHead title={t('brains.budget.title')} detail={t('brains.budget.detail')} />
-            <label className={css.field}>
-              <span className={css.fieldLabel}>{t('brains.budget.view')}</span>
-              <select className={css.fieldSelect} value={scope} onChange={(event) => { setScope(event.target.value) }}>
-                <option value="">{t('brains.budget.overall')}</option>
-                {(usage?.projects ?? []).map(project => (
-                  <option key={project.path} value={project.path}>{project.label}</option>
-                ))}
-              </select>
-            </label>
-            <div className={css.table} role="table" aria-label={t('brains.budget.title')}>
-              <div className={css.tableHead} role="row">
-                <span className={css.colCategory}>{t('brains.budget.category')}</span>
-                <span className={css.colPeriod}>{t('brains.budget.month')}</span>
-                <span className={css.colPeriod}>{t('brains.budget.year')}</span>
-              </div>
-              {CATEGORIES.map(category => (
-                <div key={category} className={category === 'total' ? css.tableTotal : css.tableRow} role="row">
-                  <span className={css.colCategory}>
-                    <strong>{t(`brains.category.${category}`)}</strong>
-                    <small>{t(`brains.category.${category}.detail`)}</small>
-                  </span>
-                  <span className={css.colPeriod}>{periodCell('month', category)}</span>
-                  <span className={css.colPeriod}>{periodCell('year', category)}</span>
-                </div>
-              ))}
-            </div>
-            {usage !== null && !usage.cost.configured && (
-              <p className={css.note} data-budget-no-prices="">{t('brains.budget.noPrices')}</p>
-            )}
-            {usage !== null && usage.cost.configured && usage.cost.unpricedSubscriptions.length > 0 && (
-              <p className={css.note} data-budget-unpriced-subs="">
-                {t('brains.budget.unpricedSubs', { providers: usage.cost.unpricedSubscriptions.map(providerName).join(', ') })}
-              </p>
-            )}
-            {usage !== null && usage.cost.configured && usage.cost.unpricedTokens.year > 0 && (
-              <p className={css.note} data-budget-unpriced-tokens="">
-                {t('brains.budget.unpricedTokens', { tokens: tokens(usage.cost.unpricedTokens.year) })}
-              </p>
-            )}
-            {usage !== null && (
-              <>
-                <SectionHead title={t('brains.spend.title')} detail={t('brains.spend.detail')} />
-                <div className={css.table} role="table" aria-label={t('brains.spend.title')} data-spend-models="">
-                  <div className={css.tableHead} role="row">
-                    <span className={css.colCategory}>{t('brains.spend.model')}</span>
-                    <span className={css.colPeriod}>{t('brains.spend.tokens')}</span>
-                    <span className={css.colCost}>{t('brains.spend.cost')}</span>
-                  </div>
-                  {(usage.models ?? []).length === 0 && <div className={css.emptyRow}>{t('brains.spend.none')}</div>}
-                  {(usage.models ?? []).map((row) => {
-                    const key = `${row.provider} ${row.model}`
-                    const editing = priceDraft !== null && priceDraft.provider === row.provider && priceDraft.model === row.model
-                    return (
-                      <Fragment key={key}>
-                        <div className={css.tableRow} role="row" data-spend-model={key} data-spend-category={row.category}>
-                          <span className={css.colCategory}>
-                            <strong>{row.model === '' ? t('brains.agent.default') : row.model}</strong>
-                            <small>{providerName(row.provider)}</small>
-                          </span>
-                          <span className={css.colPeriod}>{tokens(row.total)}</span>
-                          <span className={css.colCost}>
-                            {row.category === 'subscriptions' && <small>{t('brains.spend.plan')}</small>}
-                            {row.category === 'free' && <small>{t('brains.spend.free')}</small>}
-                            {row.category === 'metered' && row.cost !== undefined && (
-                              <>
-                                <strong data-spend-cost={key}>{money(row.cost, usage.cost.currency)}</strong>
-                                <button type="button" className={css.priceLink} onClick={() => { beginPrice(row) }}>
-                                  {t('brains.spend.editPrice')}
-                                </button>
-                              </>
-                            )}
-                            {row.category === 'metered' && row.cost === undefined && (
-                              <>
-                                <span data-spend-unpriced={key}>—</span>
-                                <button type="button" className={css.priceLink} onClick={() => { beginPrice(row) }}>
-                                  {t('brains.spend.setPrice')}
-                                </button>
-                              </>
-                            )}
-                          </span>
-                        </div>
-                        {editing && (
-                          <div className={css.priceEditor} data-spend-price-editor={key}>
-                            <div className={css.priceFields}>
-                              {(['input', 'output', ...priceDraft.more ? ['cacheRead', 'cacheWrite'] as const : []] as const).map(kind => (
-                                <label key={kind} className={css.priceField}>
-                                  <span className={css.fieldHint}>{t(`brains.prices.${kind}`)}</span>
-                                  <input
-                                    className={css.budgetInput}
-                                    inputMode="decimal"
-                                    aria-label={`${row.model} ${t(`brains.prices.${kind}`)}`}
-                                    placeholder={kind === 'cacheRead' || kind === 'cacheWrite' ? priceDraft.input : ''}
-                                    value={priceDraft[kind]}
-                                    onChange={(event) => { setPriceDraft({ ...priceDraft, [kind]: event.target.value }) }}
-                                    onKeyDown={(event) => {
-                                      if (event.key === 'Enter') { event.preventDefault(); void savePrice() }
-                                      if (event.key === 'Escape') setPriceDraft(null)
-                                    }}
-                                  />
-                                </label>
-                              ))}
-                            </div>
-                            <span className={css.fieldHint} data-spend-price-source={row.price?.source ?? 'none'}>
-                              {priceHint(row, usage.cost, usage.openRouterPrices)}
-                            </span>
-                            <span className={css.keyActions}>
-                              <button type="button" className={css.secondary} onClick={() => { setPriceDraft({ ...priceDraft, more: !priceDraft.more }) }}>
-                                {t(priceDraft.more ? 'brains.prices.less' : 'brains.prices.more')}
-                              </button>
-                              <button type="button" className={css.secondary} onClick={() => { setPriceDraft(null) }}>{t('brains.cancel')}</button>
-                              <button type="button" className={css.primary} onClick={() => { void savePrice() }}>{t('brains.save')}</button>
-                            </span>
-                          </div>
-                        )}
-                      </Fragment>
-                    )
-                  })}
-                  {(usage.models ?? []).length > 0 && (() => {
-                    const rows = usage.models ?? []
-                    const priced = rows.filter(row => row.cost !== undefined)
-                    const unpriced = rows.filter(row => row.category === 'metered' && row.cost === undefined).length
-                    const sum = priced.reduce((total, row) => total + (row.cost ?? 0), 0)
-                    return (
-                      <div className={css.tableTotal} role="row" data-spend-total="">
-                        <span className={css.colCategory}><strong>{t('brains.spend.total')}</strong></span>
-                        <span className={css.colPeriod}>{tokens(rows.reduce((total, row) => total + row.total, 0))}</span>
-                        <span className={css.colCost}>
-                          <strong data-spend-total-cost="">{priced.length === 0 ? '—' : money(sum, usage.cost.currency)}</strong>
-                          {unpriced > 0 && <small data-spend-unpriced-count={String(unpriced)}>{t('brains.spend.unpricedCount', { count: unpriced })}</small>}
-                        </span>
-                      </div>
-                    )
-                  })()}
-                </div>
-                <SectionHead title={t('brains.generations.title')} detail={t('brains.generations.detail')} />
-                {(() => {
-                  const generations = usage.generations ?? { rows: [], currency: null }
-                  const madeTotal = generations.rows.reduce((sum, row) => sum + row.count, 0)
-                  const billedTotal = generations.rows.reduce((sum, row) => sum + (row.billed?.cost ?? 0), 0)
-                  return (
-                    <div className={css.table} role="table" aria-label={t('brains.generations.title')} data-generations="">
-                      <div className={css.tableHead} role="row">
-                        <span className={css.colCategory}>{t('brains.generations.endpoint')}</span>
-                        <span className={css.colPeriod}>{t('brains.generations.made')}</span>
-                        <span className={css.colCost}>{t('brains.generations.billed')}</span>
-                      </div>
-                      {generations.rows.length === 0 && <div className={css.emptyRow}>{t('brains.generations.none')}</div>}
-                      {generations.rows.map(row => (
-                        <div key={`${row.provider} ${row.model}`} className={css.tableRow} role="row" data-generation-row={row.model}>
-                          <span className={css.colCategory}>
-                            <strong>{row.model}</strong>
-                            <small>
-                              {row.mediaType === undefined
-                                ? providerName(row.provider)
-                                : t('brains.generations.of', {
-                                  provider: providerName(row.provider),
-                                  kind: t(`brains.generations.kind.${mediaKind(row.mediaType)}`),
-                                })}
-                            </small>
-                          </span>
-                          <span className={css.colPeriod}>{String(row.count)}</span>
-                          <span className={css.colCost}>
-                            {row.billed === undefined
-                              ? <small data-generation-unbilled={row.model}>{t('brains.generations.unbilled')}</small>
-                              : (
-                                <>
-                                  <strong data-generation-cost={row.model}>{money(row.billed.cost, row.billed.currency)}</strong>
-                                  <small>{t('brains.generations.units', { quantity: row.billed.quantity, unit: row.billed.unit })}</small>
-                                </>
-                              )}
-                          </span>
-                        </div>
-                      ))}
-                      {generations.rows.length > 0 && (
-                        <div className={css.tableTotal} role="row" data-generations-total="">
-                          <span className={css.colCategory}><strong>{t('brains.spend.total')}</strong></span>
-                          <span className={css.colPeriod}>{String(madeTotal)}</span>
-                          <span className={css.colCost}>
-                            <strong data-generations-total-cost="">
-                              {generations.currency === null ? '—' : money(billedTotal, generations.currency)}
-                            </strong>
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
-                {usage.falUsage == null && <p className={css.note} data-generations-connect="">{t('brains.generations.connect')}</p>}
-                {usage.falUsage?.error !== undefined && (
-                  <p className={css.note} data-generations-error="">{t('brains.generations.failed', { error: usage.falUsage.error })}</p>
-                )}
-              </>
-            )}
-            <div className={css.budgetRow}>
-              <span className={css.fieldLabel}>{t('brains.budget.monthly')}</span>
-              {budgetDraft === null
-                ? (
-                  <button type="button" className={css.budgetValue} onClick={() => { setBudgetDraft(String(usage?.monthlyTokenBudget ?? 0)) }}>
-                    {usage === null || usage.monthlyTokenBudget === 0
-                      ? t('brains.budget.unset')
-                      : `${tokens(usage.month.total)} / ${tokens(usage.monthlyTokenBudget)}`}
-                  </button>
-                )
-                : (
-                  <span className={css.budgetEdit}>
-                    <input
-                      className={css.budgetInput}
-                      inputMode="numeric"
-                      aria-label={t('brains.budget.monthly')}
-                      value={budgetDraft}
-                      onChange={(event) => { setBudgetDraft(event.target.value) }}
-                    />
-                    <button type="button" className={css.primary} onClick={() => { void saveBudget() }}>{t('brains.save')}</button>
-                    <button type="button" className={css.secondary} onClick={() => { setBudgetDraft(null) }}>{t('brains.cancel')}</button>
-                  </span>
-                )}
-            </div>
-            {usage !== null && usage.monthlyTokenBudget > 0 && (
-              <div className={css.track} aria-hidden="true">
-                <div className={css.fill} style={{ width: `${String(Math.min(100, Math.round(usage.month.total / usage.monthlyTokenBudget * 100)))}%` }} />
-              </div>
-            )}
-            <p className={css.note}>{t('brains.budget.note')}</p>
-          </>
-        )}
-
         {status !== '' && <p className={css.status} role="status">{status}</p>}
       </div>
 

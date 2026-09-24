@@ -379,6 +379,8 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
     }, { prepend: true })
 
     // The fallback: a model the router chose that cannot answer hands the turn back to the chat's own model, once.
+    // Prepended, so it answers before the host's retry policy: a routed model that is busy or broken is not
+    // retried on the person's time (each retry showed as a "Retry delay" notice); the chat's own model takes the turn at once.
     routeCtx.on('agent/request-error', async ({ agent, turn, failure, signal }, next) => {
       const routed = routedTurns.get(agent)
       const mine = routed !== undefined && routed.turn === turn && !routed.fellBack && !sameModel(routed.use, routed.resolved)
@@ -389,10 +391,11 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       }, { ignorable: true })
       routedTurns.set(agent, { ...routed, use: routed.resolved, fellBack: true })
       refusals ??= await readRefusals(home)
-      await noteRefusal(home, refusals, routed.use)
-      routeCtx.logger.warn(`idealize-router: ${routeKey(routed.use)} failed (${failure.code}: ${failure.message}); the turn returns to ${routeKey(routed.resolved)} and the router leaves that model alone for a week`)
+      const cause = failure.code === 'RATE_LIMIT' ? 'rate-limited' : 'refused'
+      await noteRefusal(home, refusals, routed.use, cause)
+      routeCtx.logger.warn(`idealize-router: ${routeKey(routed.use)} failed (${failure.code}: ${failure.message}); the turn returns to ${routeKey(routed.resolved)} and the router leaves that model alone for ${cause === 'rate-limited' ? 'an hour' : 'a week'}`)
       return { kind: 'retry' }
-    })
+    }, { prepend: true })
 
     // The free-token engine picks its provider on the brain's priorities: every request of a chat carries them.
     routeCtx.inject(['idealizeAttribution', 'sessions'], (engineCtx) => {
