@@ -26,6 +26,13 @@ export interface ShippedTokenPrice {
 export const SHIPPED_PRICE_CURRENCY = 'USD'
 
 /**
+ * Chat routes the harness names differently from the catalogue. DeepSeek's
+ * own API runs as `deepseek-official` (llm-deepseek), and the catalogue
+ * publishes DeepSeek's prices under `deepseek`.
+ */
+const CATALOGUE_NAME: Readonly<Record<string, string>> = { 'deepseek-official': 'deepseek' }
+
+/**
  * The catalogue prices for one chat route's models.
  *
  * Tiered prices (a higher rate above a token threshold) contribute their base
@@ -35,9 +42,10 @@ export const SHIPPED_PRICE_CURRENCY = 'USD'
  * @returns prices by model id; undefined for a route the catalogue does not ship or prices nowhere.
  */
 export function shippedTokenPrices(provider: string): Record<string, ShippedTokenPrice> | undefined {
-  if (!(getBuiltinProviders() as readonly string[]).includes(provider)) return undefined
+  const catalogue = CATALOGUE_NAME[provider] ?? provider
+  if (!(getBuiltinProviders() as readonly string[]).includes(catalogue)) return undefined
   const prices: Record<string, ShippedTokenPrice> = {}
-  for (const model of getBuiltinModels(provider as BuiltinProvider)) {
+  for (const model of getBuiltinModels(catalogue as BuiltinProvider)) {
     const { input, output, cacheRead, cacheWrite } = model.cost
     const parts = [input, output, cacheRead, cacheWrite]
     if (parts.some(part => !Number.isFinite(part) || part < 0)) continue

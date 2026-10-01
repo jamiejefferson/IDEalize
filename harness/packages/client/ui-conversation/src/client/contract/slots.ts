@@ -343,10 +343,32 @@ export interface ChatFileMentions {
   forClosing(owner: TurnTailOwnerProps): MarkdownFileMentions | undefined
 }
 
+/**
+ * Optional in-app file viewer, consumed via `ctx.get('chatFileViewer')`
+ * (optional-service convention). Files it claims open in the app instead of
+ * the OS default application, from tool rows, produced-file chips, and links
+ * in the assistant's prose. Absent service — no viewer composed in — leaves
+ * every file on the Host's `openPath` and prose links inert.
+ */
+export interface ChatFileViewer {
+  /**
+   * Whether this viewer shows the file.
+   * @param path - Absolute path, or one the Host resolves (`~/…`).
+   */
+  shows(path: string): boolean
+  /**
+   * Show the file in the viewer.
+   * @param path - Absolute path, or one the Host resolves (`~/…`).
+   */
+  open(path: string): void
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Prose file-mention provider (ui-deliverables); reach via ctx.get — optional. */
     chatFileMentions: ChatFileMentions
+    /** In-app file viewer (IDEalize's bar); reach via ctx.get — optional. */
+    chatFileViewer: ChatFileViewer
   }
 }
 
@@ -401,6 +423,8 @@ export interface ChatNodeOwnerProps {
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+  /** File paths in any assistant message's prose that the in-app viewer opens. */
+  fileLinks?: MarkdownFileMentions | undefined
 }
 
 /** Full props of one registered keyed Chat business renderer. */
@@ -730,8 +754,9 @@ export interface ChatViewInjected {
   /** Selection write + details panel opening in one gesture (store action + layout orchestration). */
   openDetails: (target: SelectionTarget) => void
   /**
-   * Open a tool-arg filesystem path with the host OS default application
-   * (relative paths resolve against the session cwd).
+   * Open a tool-arg filesystem path in the in-app viewer when one shows it,
+   * else with the host OS default application (relative paths resolve
+   * against the session cwd).
    */
   openFile: (path: string) => void
   loadOlder: () => void
@@ -767,6 +792,12 @@ export interface ChatViewInjected {
    * absent or the turn produced nothing worth linking.
    */
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+  /**
+   * Prose file links for every assistant message: link destinations and
+   * inline-code paths the optional {@link ChatFileViewer} shows open in it.
+   * Settled renders only, as with `fileMentions`.
+   */
+  fileLinks?: MarkdownFileMentions | undefined
 }
 
 /** Full chat-view component props: runtime & its Tool/command/tail render shares & store & injected & locale seat. */

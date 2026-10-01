@@ -13,7 +13,8 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { en } from '../src/client/locales.ts'
 import {
-  currentProjectDocs, currentProjectRoots, FilesPanel, isValidEntryName, opensInApp, projectDocsRoots, revealAncestors, viewOf,
+  currentProjectDocs, currentProjectRoots, DEFAULT_FILE_SORT, FilesPanel, isValidEntryName, opensInApp, projectDocsRoots, readFileSort,
+  revealAncestors, sortEntries, viewOf,
 } from '../src/client/FilesPanel.tsx'
 // Type-only: the locale-namespace merge the props type reads.
 import type {} from '../src/client/index.ts'
@@ -165,6 +166,76 @@ beforeEach(() => { fetchCalls.length = 0 })
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+})
+
+describe('sorting files (feedback 6689c3c0)', () => {
+  const listing = [
+    { name: 'b.md', kind: 'file' as const, mtime: 300 },
+    { name: 'Zed', kind: 'dir' as const, mtime: 50 },
+    { name: 'a10.md', kind: 'file' as const, mtime: 100 },
+    { name: 'a2.md', kind: 'file' as const, mtime: 100 },
+    { name: 'alpha', kind: 'dir' as const, mtime: 400 },
+  ]
+  const names = (sorted: { name: string }[]): string[] => sorted.map(entry => entry.name)
+
+  it('keeps folders first under every order', () => {
+    expect(names(sortEntries(listing, { key: 'name', direction: 'asc' }))).toEqual(['alpha', 'Zed', 'a2.md', 'a10.md', 'b.md'])
+    expect(names(sortEntries(listing, { key: 'name', direction: 'desc' }))).toEqual(['Zed', 'alpha', 'b.md', 'a10.md', 'a2.md'])
+    expect(names(sortEntries(listing, { key: 'modified', direction: 'desc' }))).toEqual(['alpha', 'Zed', 'b.md', 'a2.md', 'a10.md'])
+    expect(names(sortEntries(listing, { key: 'modified', direction: 'asc' }))).toEqual(['Zed', 'alpha', 'a2.md', 'a10.md', 'b.md'])
+  })
+
+  it('sorts an entry with no date as oldest', () => {
+    const sorted = sortEntries([{ name: 'old', kind: 'file' }, { name: 'new', kind: 'file', mtime: 5 }], { key: 'modified', direction: 'desc' })
+    expect(names(sorted)).toEqual(['new', 'old'])
+  })
+
+  it('falls back to Name, A to Z when nothing valid is stored', () => {
+    localStorage.removeItem('idealize.files.sort')
+    expect(readFileSort()).toEqual(DEFAULT_FILE_SORT)
+    localStorage.setItem('idealize.files.sort', '{"key":"size","direction":"asc"}')
+    expect(readFileSort()).toEqual(DEFAULT_FILE_SORT)
+    localStorage.setItem('idealize.files.sort', 'not json')
+    expect(readFileSort()).toEqual(DEFAULT_FILE_SORT)
+    localStorage.removeItem('idealize.files.sort')
+  })
+
+  it('reorders the tree from the toolbar menu and remembers the choice', async () => {
+    localStorage.removeItem('idealize.files.sort')
+    const { view } = mount({}, {
+      listing: path => jsonResponse({
+        path,
+        entries: [
+          { name: 'src', kind: 'dir', mtime: 1 },
+          { name: 'apple.md', kind: 'file', mtime: 10 },
+          { name: 'zebra.md', kind: 'file', mtime: 20 },
+        ],
+      }),
+    })
+    const rowNames = (): string[] => Array.from(view.container.querySelectorAll('[data-path]'))
+      .map(row => row.getAttribute('data-path') ?? '')
+      .filter(path => path.startsWith('/w/proj/'))
+    await waitFor(() => { expect(rowNames()).toEqual(['/w/proj/src', '/w/proj/apple.md', '/w/proj/zebra.md']) })
+
+    fireEvent.click(view.getByRole('button', { name: 'Sort' }))
+    fireEvent.click(view.getByRole('menuitemradio', { name: 'Date modified' }))
+    expect(rowNames()).toEqual(['/w/proj/src', '/w/proj/zebra.md', '/w/proj/apple.md'])
+    expect(JSON.parse(localStorage.getItem('idealize.files.sort') ?? '{}')).toEqual({ key: 'modified', direction: 'desc' })
+
+    fireEvent.click(view.getByRole('button', { name: 'Sort' }))
+    expect(view.getByRole('menuitemradio', { name: 'Newest first' }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(view.getByRole('menuitemradio', { name: 'Oldest first' }))
+    expect(rowNames()).toEqual(['/w/proj/src', '/w/proj/apple.md', '/w/proj/zebra.md'])
+
+    // A fresh mount reads the remembered order back.
+    cleanup()
+    const again = mount({}, {
+      listing: path => jsonResponse({ path, entries: [{ name: 'b', kind: 'file', mtime: 2 }, { name: 'a', kind: 'file', mtime: 1 }] }),
+    })
+    fireEvent.click(await again.view.findByRole('button', { name: 'Sort' }))
+    expect(again.view.getByRole('menuitemradio', { name: 'Oldest first' }).getAttribute('aria-checked')).toBe('true')
+    localStorage.removeItem('idealize.files.sort')
+  })
 })
 
 describe('isValidEntryName', () => {
@@ -350,6 +421,45 @@ describe('a reveal request', () => {
   })
 })
 
+describe('on a Windows host', () => {
+  const windowsTabs = {
+    tabs: [
+      { id: 'project', roots: [{ name: 'proj', path: 'C:\\w\\proj' }], state: 'ok' },
+      { id: 'projectsRoot', alias: 'projectsRoot', roots: [{ name: 'Projects', path: 'C:\\w' }], state: 'ok' },
+      { id: 'documentation', alias: 'documentation', roots: [{ name: 'vault', path: 'C:\\v' }], state: 'ok' },
+      { id: 'skills', alias: 'skills', roots: [{ name: 'skills', path: 'C:\\s' }], state: 'ok' },
+    ],
+    projectDocs: [],
+  }
+  const listing = (path: string): Response => jsonResponse({
+    path,
+    entries: path === 'C:\\w\\proj\\Images'
+      ? [{ name: 'a.png', kind: 'file' }]
+      : [{ name: 'Images', kind: 'dir' }, { name: 'notes.md', kind: 'file' }],
+  })
+
+  beforeEach(() => { Element.prototype.scrollIntoView = vi.fn() })
+
+  it('lists a folder by the host\'s own backslash path', async () => {
+    const { view } = mount({}, { aliases: () => jsonResponse(windowsTabs), listing })
+    fireEvent.click(await view.findByRole('button', { name: 'Images' }))
+    await view.findByText('a.png')
+    expect(fetchCalls.some(call => call.url === `/idealize/bar/files?path=${encodeURIComponent('C:\\w\\proj\\Images')}`)).toBe(true)
+    expect(fetchCalls.some(call => call.url.includes(encodeURIComponent('proj/Images')))).toBe(false)
+  })
+
+  it('reveals a file down its folders and lights its row', async () => {
+    const onRevealDone = vi.fn()
+    const { view } = mount(
+      { reveal: { path: 'C:\\w\\proj\\Images\\a.png', nonce: 1 }, onRevealDone },
+      { aliases: () => jsonResponse(windowsTabs), listing },
+    )
+    const row = await view.findByText('a.png')
+    expect(row.closest('[data-path]')!.hasAttribute('data-revealed')).toBe(true)
+    expect(onRevealDone).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('currentProjectRoots', () => {
   const roots = [{ name: 'a', path: '/w/a' }, { name: 'b', path: '/w/b' }]
 
@@ -360,6 +470,11 @@ describe('currentProjectRoots', () => {
     expect(currentProjectRoots(roots, '/elsewhere')).toEqual(roots)
     // A sibling with the same prefix is a different project, not a child.
     expect(currentProjectRoots([{ name: 'a', path: '/w/a' }], '/w/ab')).toEqual([{ name: 'a', path: '/w/a' }])
+  })
+
+  it('narrows on a Windows host, whose chat folder may differ in case', () => {
+    const windows = [{ name: 'a', path: 'C:\\w\\a' }, { name: 'b', path: 'C:\\w\\b' }]
+    expect(currentProjectRoots(windows, 'c:\\w\\b\\src')).toEqual([windows[1]])
   })
 })
 

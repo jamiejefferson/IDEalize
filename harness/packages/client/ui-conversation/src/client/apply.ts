@@ -30,6 +30,7 @@ import { ReturnToggle } from './input/ReturnToggle.tsx'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
 import type { ReturnToggleInjected } from './input/ReturnToggle.tsx'
 import { ChatView } from './chat/ChatView.tsx'
+import { proseFilePath } from './chat/prose-file-path.ts'
 import { HeroLauncherDefault } from './skeleton/HeroLauncherDefault.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
@@ -424,9 +425,29 @@ export function apply(ctx: Context): void {
           layout.openDetails()
         },
         fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
+        // Links and inline-code paths in the prose, for every assistant
+        // message: the ones the optional in-app viewer shows open there
+        // (JJ, 30 Sep 2026: "md file links in the chat should open in the
+        // file viewer inside idealize"). Viewer and folder are read per
+        // resolve, so composing the viewer in or out takes effect live.
+        fileLinks: {
+          resolve: (value) => {
+            const viewer = ctx.get('chatFileViewer')
+            const named = proseFilePath(value)
+            if (viewer === undefined || named === undefined) return undefined
+            const path = resolveWorkspacePath(sessions.list.getSnapshot().byId[sessionId]?.cwd, named)
+            if (!viewer.shows(path)) return undefined
+            return { open: () => { viewer.open(path) }, label: t('file.open', { name: named }), title: path }
+          },
+        },
         openFile: (path) => {
-          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
-          void workspaces.openPath(resolveWorkspacePath(cwd, path)).catch(() => {
+          const resolved = resolveWorkspacePath(sessions.list.getSnapshot().byId[sessionId]?.cwd, path)
+          const viewer = ctx.get('chatFileViewer')
+          if (viewer?.shows(resolved) === true) {
+            viewer.open(resolved)
+            return
+          }
+          void workspaces.openPath(resolved).catch(() => {
             // Host/OS open failures stay silent in the chat row; the native
             // app surfaces its own error dialog when the path is unusable.
           })

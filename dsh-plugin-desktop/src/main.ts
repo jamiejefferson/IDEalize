@@ -672,6 +672,8 @@ async function start(): Promise<void> {
           openTerminal: () => { runtime.openTerminal() },
           requestRestart: () => runtime.requestRestart(),
           trashItem: path => shell.trashItem(path),
+          showItemInFolder: (path) => { shell.showItemInFolder(path) },
+          openPath: path => shell.openPath(path),
           collapseToBar: () => { runtime.collapseToBar() },
           expandFromBar: () => { runtime.expandFromBar() },
           setBarWidth: (width) => { runtime.setBarWidth(width) },

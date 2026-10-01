@@ -10,7 +10,7 @@ import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-libra
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { en } from '../src/client/locales.ts'
-import { WorkPanel } from '../src/client/WorkPanel.tsx'
+import { parentFolder, WorkPanel } from '../src/client/WorkPanel.tsx'
 // Type-only: the locale-namespace merge the translate face reads.
 import type {} from '../src/client/index.ts'
 
@@ -55,6 +55,7 @@ const USAGE = {
     unpricedSubscriptions: ['anthropic'],
     configured: true,
   },
+  plans: { 'openai-codex': { monthly: 20, since: '2026-01' } } as Record<string, { monthly: number; since?: string }>,
   // One row per model with usage this month: a subscription row, an unpriced
   // metered row, a metered row OpenRouter priced from its directory, a free row.
   models: [
@@ -154,8 +155,52 @@ describe('WorkPanel', () => {
     await waitFor(() => { expect(view.container.querySelector('[data-work-cost]')?.textContent).toBe('—') })
     expect(view.container.querySelector('[data-work-project-cost]')?.textContent).toBe('—')
     expect(view.container.querySelector('[data-work-no-prices]')?.textContent)
-      .toBe('Costs appear once you set a model’s price below or a subscription cost in settings.')
+      .toBe('Costs appear once you set a model’s price or a subscription’s monthly cost below.')
     expect(view.queryByText(/subscription plans/)).toBeNull()
+  })
+
+  it('adds an Other chats row for chats no project claims, so the rows add up to the totals', async () => {
+    const other = { time: { today: 0, month: 4 * HOUR, all: 4 * HOUR }, cost: { month: 17 }, tokens: { month: 38_000_000 } }
+    workPayload = { ...WORK, other } as typeof WORK
+    const view = await mount()
+    const row = await waitFor(() => view.container.querySelector('[data-work-other]') as HTMLElement)
+    expect(within(row).getByText('Other chats')).toBeTruthy()
+    expect(within(row).getAllByText('4h 00m')).toHaveLength(2)
+    expect(within(row).getByText(usd(17))).toBeTruthy()
+  })
+
+  it('names the folder each project sits in, and keeps the whole path for hover', async () => {
+    const proposition = { ...WORK.projects[0]!, path: '/Users/jj/Documents/_EQTR/EQTR 2026/Proposition', label: 'Proposition' }
+    workPayload = { ...WORK, projects: [proposition] }
+    const view = await mount()
+    const row = await waitFor(() => view.container.querySelector('[data-work-project]') as HTMLElement)
+    expect(row.querySelector('[data-work-project-folder]')?.textContent).toBe('EQTR 2026')
+    expect(row.querySelector('[title]')?.getAttribute('title')).toBe('/Users/jj/Documents/_EQTR/EQTR 2026/Proposition')
+    expect(parentFolder('C:\\Users\\jj\\Work\\Site')).toBe('Work')
+    expect(parentFolder('/Site')).toBe('/Site')
+  })
+
+  it('sets, changes and removes a subscription\'s monthly cost', async () => {
+    const view = await mount()
+    const table = await waitFor(() => view.getByRole('table', { name: 'Subscriptions' }))
+    expect(table.querySelector('[data-budget-plan-cost="openai-codex"]')?.textContent).toBe(`${usd(20)}/month`)
+    expect(table.querySelector('[data-budget-plan-unset="anthropic"]')).toBeTruthy()
+
+    fireEvent.click(within(table.querySelector('[data-budget-plan="anthropic"]') as HTMLElement).getByRole('button', { name: 'Set monthly cost' }))
+    fireEvent.change(view.getByRole('textbox', { name: 'Anthropic monthly cost' }), { target: { value: 'lots' } })
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Save' })) })
+    expect(posts('/idealize/models/plan')).toHaveLength(0)
+    expect(view.getByRole('status').textContent).toBe('Enter a number of zero or more.')
+    fireEvent.change(view.getByRole('textbox', { name: 'Anthropic monthly cost' }), { target: { value: '90' } })
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Save' })) })
+    await waitFor(() => { expect(posts('/idealize/models/plan')).toHaveLength(1) })
+    expect(sent(posts('/idealize/models/plan')[0]!)).toEqual({ provider: 'anthropic', monthly: 90 })
+
+    fireEvent.click(within(table.querySelector('[data-budget-plan="openai-codex"]') as HTMLElement).getByRole('button', { name: 'Change' }))
+    expect((view.getByRole('textbox', { name: 'OpenAI (ChatGPT) monthly cost' }) as HTMLInputElement).value).toBe('20')
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Remove' })) })
+    await waitFor(() => { expect(posts('/idealize/models/plan')).toHaveLength(2) })
+    expect(sent(posts('/idealize/models/plan')[1]!)).toEqual({ provider: 'openai-codex', monthly: null })
   })
 
   it('says when there is no project yet, and when the route could not be read', async () => {
@@ -181,7 +226,7 @@ describe('WorkPanel', () => {
     expect(within(table).getByText(usd(160.5))).toBeTruthy()
     expect(within(table).getByText(usd(0.5))).toBeTruthy()
     // What the shown costs leave out is called out, not silently zeroed.
-    expect(view.getByText('No monthly cost set for Anthropic; those subscriptions are not counted in costs.')).toBeTruthy()
+    expect(view.getByText('No monthly cost set, so it is not counted')).toBeTruthy()
     expect(view.getByText('12 tokens this year have no price set and are not counted in costs.')).toBeTruthy()
     fireEvent.change(view.getByRole('combobox', { name: 'View' }), { target: { value: '/p/alpha' } })
     await waitFor(() => {
@@ -205,6 +250,7 @@ describe('WorkPanel', () => {
         unpricedSubscriptions: ['openai-codex'],
         configured: false,
       },
+      plans: {},
     }
     const view = await mount()
     await waitFor(() => { expect(view.getAllByText('1.5k').length).toBeGreaterThan(0) })
@@ -212,8 +258,9 @@ describe('WorkPanel', () => {
     // Never a made-up figure: no cost renders until the user supplies prices.
     expect(table.querySelectorAll('[data-budget-cost]')).toHaveLength(0)
     expect(view.container.querySelector('[data-budget-no-prices]')?.textContent)
-      .toBe('Costs appear once you set a model’s price below or a subscription cost in settings.')
-    expect(view.container.querySelector('[data-budget-unpriced-subs]')).toBeNull()
+      .toBe('Costs appear once you set a model’s price or a subscription’s monthly cost below.')
+    // A signed-in subscription with no plan still gets its row, so the first cost can be typed.
+    expect(view.container.querySelector('[data-budget-plan-unset="openai-codex"]')).toBeTruthy()
     expect(view.container.querySelector('[data-budget-unpriced-tokens]')).toBeNull()
   })
 

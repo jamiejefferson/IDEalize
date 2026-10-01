@@ -524,6 +524,9 @@
     padding: 4px;
     max-block-size: min(320px, calc(100vh - 24px));
     overflow-y: auto;
+    /* The list scrolls on the menu surface: step the thumb to l2. */
+    --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+    --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
     border: 1px solid var(--dsw-alias-border-l2, #c9cbce);
     border-radius: 12px;
     background: var(--dsw-specific-menu, var(--dsw-alias-bg-layer-1, #fff));
@@ -621,6 +624,13 @@
 .colCategory strong {
   font-size: var(--idealize-type-body, 12.5px);
   font-weight: 600;
+}
+
+/* A long name or folder path wraps inside the column, breaking mid-word
+   where it must, so it never runs under the figures beside it. */
+.colCategory strong,
+.colCategory small {
+  overflow-wrap: anywhere;
 }
 
 .colCategory small {

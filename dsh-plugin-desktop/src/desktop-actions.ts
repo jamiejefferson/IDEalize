@@ -10,6 +10,13 @@ export interface DesktopActions {
   requestRestart(): Promise<void>
   /** Move one absolute path to the OS trash (Electron `shell.trashItem`); the Host fences the path. */
   trashItem(path: string): Promise<void>
+  /** Show one absolute path selected in Finder or Explorer (Electron `shell.showItemInFolder`); the Host fences the path. */
+  showItemInFolder(path: string): void
+  /**
+   * Open one absolute path in its default application (Electron `shell.openPath`); the Host fences the path and refuses runnable types.
+   * @returns an empty string on success, or the platform's reason it could not open the file.
+   */
+  openPath(path: string): Promise<string>
   /** Collapse to the Askbar: show the bar and hide the main window (never torn down). */
   collapseToBar(): void
   /** Expand from the Askbar: show the main window on its remembered frame. */
@@ -49,6 +56,8 @@ export interface DesktopActionsBootstrap {
   openTerminal(): void
   requestRestart(): void | Promise<void>
   trashItem(path: string): Promise<void>
+  showItemInFolder(path: string): void
+  openPath(path: string): Promise<string>
   collapseToBar(): void
   expandFromBar(): void
   setBarWidth(width: number): void
@@ -56,7 +65,7 @@ export interface DesktopActionsBootstrap {
   notify(notification: { title: string; body: string }): void
 }
 
-/** Publish only terminal-open, restart, trash, bar (transform, width, keyboard) and notification operations for one Cordis generation. */
+/** Publish only terminal-open, restart, trash, show-in-folder, open-file, bar (transform, width, keyboard) and notification operations for one Cordis generation. */
 export class DesktopActionsService extends Service implements DesktopActions {
   private disposed = false
   private restartCompleted = false
@@ -103,6 +112,16 @@ export class DesktopActionsService extends Service implements DesktopActions {
   trashItem(path: string): Promise<void> {
     this.assertActive()
     return this.bootstrap.trashItem(path)
+  }
+
+  showItemInFolder(path: string): void {
+    this.assertActive()
+    this.bootstrap.showItemInFolder(path)
+  }
+
+  openPath(path: string): Promise<string> {
+    this.assertActive()
+    return this.bootstrap.openPath(path)
   }
 
   requestRestart(): Promise<void> {

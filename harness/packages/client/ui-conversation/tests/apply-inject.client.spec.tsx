@@ -240,6 +240,39 @@ describe('conversation slot inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('openFile hands a file the in-app viewer shows to it, and every other file to the Host', async () => {
+    const b = await bench()
+    const opened: string[] = []
+    b.runtime.provide('chatFileViewer', { shows: (path: string) => path.endsWith('.md'), open: (path: string) => { opened.push(path) } })
+    const { injected } = b.chatViewApi(ROOT)
+    injected.openFile('docs/plan.md')
+    injected.openFile('src/a.ts')
+    expect(opened).toEqual(['/proj/docs/plan.md'])
+    await vi.waitFor(() => {
+      expect(b.runtime.workspaces.calls.filter(c => c.method === 'openPath')).toEqual([{ method: 'openPath', args: ['/proj/src/a.ts'] }])
+    })
+    await b.runtime.dispose()
+  })
+
+  it('fileLinks links prose paths the viewer shows, resolved against the session folder', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    const links = injected.fileLinks!
+    // No viewer composed in: nothing resolves.
+    expect(links.resolve('docs/plan.md')).toBeUndefined()
+    const opened: string[] = []
+    b.runtime.provide('chatFileViewer', { shows: (path: string) => path.endsWith('.md'), open: (path: string) => { opened.push(path) } })
+    const plan = links.resolve('./docs/plan.md#goals')
+    expect(plan).toMatchObject({ title: '/proj/./docs/plan.md', label: '打开 ./docs/plan.md' })
+    plan!.open()
+    expect(opened).toEqual(['/proj/./docs/plan.md'])
+    // A URL, a file the viewer does not show, and a command stay unlinked.
+    expect(links.resolve('https://example.com/a.md')).toBeUndefined()
+    expect(links.resolve('src/a.ts')).toBeUndefined()
+    expect(links.resolve('cat notes.md')).toBeUndefined()
+    await b.runtime.dispose()
+  })
+
   it('routes workspace switching through the runtime owner, carrying the draft', async () => {
     const b = await bench()
     const resident = b.residentApi(ROOT)

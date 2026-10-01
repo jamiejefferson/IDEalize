@@ -32,9 +32,13 @@ import {
   type BrainAgent, type BrainSessionSummary, type TerminalLaunchTable,
 } from './brain-switcher.ts'
 import { en, zh, type ActivityKey } from './locales.ts'
+import { routerNoteDefinition } from './router-node.ts'
+import { routerNoteView } from './RouterNote.tsx'
 
 export { BrainSwitcher, brainMeta } from './BrainSwitcher.tsx'
 export { ComposerOverflow } from './ComposerOverflow.tsx'
+export { routerNoteDefinition } from './router-node.ts'
+export { routerNoteText, routerNoteView } from './RouterNote.tsx'
 export type { ComposerBlockSource, ComposerOverflowInjected, ComposerOverflowProps } from './ComposerOverflow.tsx'
 export type { BrainSwitcherInjected, BrainSwitcherProps } from './BrainSwitcher.tsx'
 export { BrainSwitcherController, composeBrains, launchOf } from './brain-switcher.ts'
@@ -113,6 +117,17 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'sessions']
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'idealize-activity: dictionaries')
+
+  // The router's line in the transcript. Scoped, so a surface without the
+  // conversation (the Askbar's frame) still gets the switcher.
+  ctx.inject(['conversationEvents'], (conversationCtx) => {
+    conversationCtx.conversationEvents.register(routerNoteDefinition)
+  })
+  ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
+    name: 'conversation.chat.node',
+    key: 'router-note',
+    locale: 'conversation',
+  }, routerNoteView(ctx.locale.bind(NS) as Parameters<typeof routerNoteView>[0])))
 
   const { api } = ctx.get('connection') as ConnectionHandle
   // ctx.get, not the Context property: this package compiles host and client

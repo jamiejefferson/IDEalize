@@ -27,6 +27,11 @@ describe('shippedTokenPrices', () => {
     expect(SHIPPED_PRICE_CURRENCY).toBe('USD')
   })
 
+  it('prices DeepSeek\'s own API route from the catalogue\'s DeepSeek entry', () => {
+    expect(shippedTokenPrices('deepseek-official')).toEqual(shippedTokenPrices('deepseek'))
+    expect(shippedTokenPrices('deepseek-official')?.['deepseek-v4-flash']).toBeDefined()
+  })
+
   it('answers nothing for a route the catalogue does not ship, or ships with every cost at zero', () => {
     expect(shippedTokenPrices('freetokens')).toBeUndefined()
     expect(shippedTokenPrices('acme-gateway')).toBeUndefined()

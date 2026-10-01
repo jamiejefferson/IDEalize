@@ -25,6 +25,7 @@ import { FitAddon } from '@xterm/addon-fit'
 // bundle purity gate forbids cross-plugin value imports).
 import type { TerminalPaint } from '@idealize/appearance/client'
 import { XTERM_CSS } from './xterm-css.ts'
+import { markdownPathLinks, type TerminalFileViewer } from './file-links.ts'
 import css from './TerminalView.module.css'
 
 const STYLE_ID = 'idealize-xterm-css'
@@ -158,9 +159,22 @@ interface Attachment {
   transport: TerminalTransport | undefined
   /** The pending refit's animation frame; undefined when none is queued. */
   frame: number | undefined
+  /** The folder the shell opened in; relative Markdown paths in its output resolve here. */
+  cwd: string | undefined
 }
 
 const attachments = new Map<string, Attachment>()
+
+/** Reads the app's file viewer when a Markdown path is hovered; unset links nothing. */
+let fileViewer: () => TerminalFileViewer | undefined = () => undefined
+
+/**
+ * Point every grid's Markdown path links at the app's file viewer.
+ * @param read - reads the viewer at the time of a hover (it may come and go).
+ */
+export function setTerminalFileViewer(read: () => TerminalFileViewer | undefined): void {
+  fileViewer = read
+}
 
 /**
  * The brain a restarted shell reopens on, keyed by session.
@@ -223,6 +237,24 @@ export async function closeTerminal(sessionId: string): Promise<void> {
   discard(attachment)
   const { id, transport } = attachment
   if (id !== undefined) await (transport ?? httpTransport).close(id)
+}
+
+/**
+ * Type paths at one chat's live prompt, the way a drop on the grid does, and
+ * leave them unsent (feedback 877df87f: the Files pane's Add to chat did
+ * nothing in a Terminal chat, because it only wrote the hidden composer).
+ * @param sessionId - the chat whose shell receives the paths.
+ * @param paths - absolute paths, in order.
+ * @returns false when the chat has no connected, running shell here.
+ */
+export function typePaths(sessionId: string, paths: readonly string[]): boolean {
+  const attachment = attachments.get(sessionId)
+  if (attachment?.id === undefined || attachment.exited !== undefined) return false
+  const text = dropText(paths)
+  if (text === '') return false
+  attachment.terminal.paste(text)
+  attachment.terminal.focus()
+  return true
 }
 
 /** End one grid: its queued refit, its stream and keys, and the xterm instance. */
@@ -298,7 +330,7 @@ function createAttachment(): Attachment {
   })
   const fit = new FitAddon()
   terminal.loadAddon(fit)
-  return {
+  const attachment: Attachment = {
     terminal,
     fit,
     id: undefined,
@@ -308,7 +340,10 @@ function createAttachment(): Attachment {
     listeners: new Set(),
     transport: undefined,
     frame: undefined,
+    cwd: undefined,
   }
+  terminal.registerLinkProvider(markdownPathLinks(terminal, () => attachment.cwd, () => fileViewer()))
+  return attachment
 }
 
 // ── appearance paint ─────────────────────────────────────────────────────
@@ -632,6 +667,7 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
       attachments.set(sessionId, attachment)
     }
     const current = attachment
+    current.cwd = cwd
     const rerender = (): void => { bump(n => n + 1) }
     current.listeners.add(rerender)
     // xterm ignores a second open(); a cached grid moves its element by hand.

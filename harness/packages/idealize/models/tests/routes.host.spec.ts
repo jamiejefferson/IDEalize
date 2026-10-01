@@ -319,6 +319,31 @@ describe('the /idealize/models/prices route', () => {
   }, 30_000)
 })
 
+describe('the /idealize/models/plan route', () => {
+  it('stores a subscription\'s monthly cost from this month, keeps its start on a change, and clears it on null', async () => {
+    const { ctx, origin } = await boot()
+    const post = (body: unknown, headers: Record<string, string> = HEADERS): Promise<Response> =>
+      fetch(`${origin}/idealize/models/plan`, { method: 'POST', headers, body: JSON.stringify(body) })
+    const plans = (): Record<string, { monthly: number; since?: string }> | undefined =>
+      (ctx.settings.get(NS) as ModelsConfig | undefined)?.subscriptionCosts
+    const at = new Date()
+    const thisMonth = `${String(at.getUTCFullYear())}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`
+
+    expect((await post({ provider: 'openai-codex', monthly: 20 })).status).toBe(200)
+    expect(plans()).toEqual({ 'openai-codex': { monthly: 20, since: thisMonth } })
+    await ctx.settings.update(NS, { subscriptionCosts: { 'openai-codex': { monthly: 20, since: '2026-01' } } })
+    expect((await post({ provider: 'openai-codex', monthly: 200 })).status).toBe(200)
+    expect(plans()).toEqual({ 'openai-codex': { monthly: 200, since: '2026-01' } })
+
+    expect((await post({ provider: 'openai-codex', monthly: -1 })).status).toBe(400)
+    expect((await post({ provider: '', monthly: 5 })).status).toBe(400)
+    expect((await post({ provider: 'openai-codex', monthly: 5 }, { 'content-type': 'application/json' })).status).toBe(403)
+
+    expect((await post({ provider: 'openai-codex', monthly: null })).status).toBe(200)
+    expect(plans()).toEqual({})
+  }, 30_000)
+})
+
 interface WorkPayload {
   projects: {
     path: string
@@ -327,6 +352,7 @@ interface WorkPayload {
     cost: { month: number }
     tokens: { month: number }
   }[]
+  other: { time: { today: number; month: number; all: number }; cost: { month: number }; tokens: { month: number } }
   totals: { time: { today: number; month: number; all: number }; cost: { month: number; plans: number }; tokens: { month: number } }
   currency: string
   costConfigured: boolean
@@ -379,6 +405,9 @@ describe('the /idealize/models/work route', () => {
     expect(payload.totals.time.all).toBeLessThanOrEqual(59 * 60 + 5)
     expect(payload.totals.cost).toEqual({ month: 21, plans: 20 })
     expect(payload.totals.tokens.month).toBe(1_000_500)
+    // The loose chat's ten minutes get their own row, so the rows add up to the totals.
+    expect(payload.other.time.all).toBe(10 * 60)
+    expect(payload.other.tokens.month).toBe(0)
   })
 
   it('reports zeros, not an error, with no logs at all', async () => {

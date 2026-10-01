@@ -51,7 +51,7 @@ import type {} from '@idealize/appearance/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: the ui-conversation SlotMap merge (the composer seats) and the
 // conversation service face the files panel's add-to-chat goes through.
-import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ChatFileViewer, IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: the ui-settings SlotMap merge (the settings.trigger seat).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: the ui-sidebar SlotMap merge (the sidebar.header.action seat).
@@ -68,9 +68,11 @@ import { createBarViewStore, type BarPanel, type BarViewState, type BrainsReques
 import { IdealizeBar, MARKET_LAUNCHER_SELECTOR, type IdealizeBarInjected } from './IdealizeBar.tsx'
 import { BarIconModels, BarIconPlugins } from './BarIcons.tsx'
 import { IconSkillOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { viewsInBar } from './chat-viewer.ts'
 import { MinimodeButton } from './MinimodeButton.tsx'
 import { DrawerPanel, type AppearanceHost, type DrawerPanelInjected, type TerminalHost } from './DrawerPanel.tsx'
 import { FILE_DRAG_TYPE } from './FilesPanel.tsx'
+import { joinHostPath } from './host-path.ts'
 import { DeckPanel, type DeckPanelInjected } from './DeckPanel.tsx'
 import { HeartButton } from './HeartButton.tsx'
 import { HatchTrigger, NoLanguageRow, NoProviderDialog } from './HatchChrome.tsx'
@@ -220,6 +222,8 @@ const SPACE_RECORD_ATTEMPTS = 20
 interface TerminalModeLike {
   embedded(): Promise<boolean>
   open(sessionId: string): boolean
+  /** Types paths at the chat's prompt when it shows its Terminal view; absent on older terminal plugins. */
+  addPaths?(sessionId: string, paths: readonly string[]): boolean
   Pane: TerminalHost['Pane']
 }
 
@@ -310,6 +314,12 @@ export function apply(ctx: ClientContext): void {
     barView.update((draft) => { draft.file = null })
     ctx.layout.closeDeck()
   }
+  // Markdown named in a chat opens here rather than in the OS default app
+  // (JJ, 30 Sep 2026: "md file links in the chat should open in the file
+  // viewer inside idealize"): links and inline-code paths in the prose, tool
+  // rows, produced-file chips, and paths in a terminal chat's output.
+  const chatFileViewer: ChatFileViewer = { shows: viewsInBar, open: openFile }
+  ctx.provide('chatFileViewer', chatFileViewer)
 
   // Requests the Brains pane picks up when it next renders: the welcome
   // card's brain step hands the pane a space to add for, or the missing
@@ -718,14 +728,19 @@ export function apply(ctx: ClientContext): void {
       : undefined
   }
 
-  // Add-to-chat: append the path to the CURRENT session's composer draft
-  // through the conversation input face (plain text — the @-reference chip
-  // path needs a registered source codec, which no file source provides yet).
+  // Add-to-chat: a chat showing its Terminal view takes the path at its
+  // shell's prompt, unsent, as a drop on the grid would (feedback 877df87f:
+  // the composer is hidden there, so a draft write looked like nothing
+  // happened). Any other view appends the path to the CURRENT session's
+  // composer draft through the conversation input face (plain text — the
+  // @-reference chip path needs a registered source codec, which no file
+  // source provides yet).
   const addToChat = (path: string): boolean => {
-    const conversation: IConversation | undefined = ctx.get('conversation')
-    if (conversation === undefined) return false
     const current = sessionsFace.list.getSnapshot().current
     if (current === undefined) return false
+    if (terminalMode()?.addPaths?.(current, [path]) === true) return true
+    const conversation: IConversation | undefined = ctx.get('conversation')
+    if (conversation === undefined) return false
     const binding = sessionsFace.binding(current)
     if (binding === undefined) return false
     const input = conversation.input.for(binding.ctx)
@@ -765,7 +780,7 @@ export function apply(ctx: ClientContext): void {
         ctx.logger.warn(`idealize-bar: cannot reveal "${relPath}" with no project open`)
         return
       }
-      revealFile(`${root}/${relPath}`)
+      revealFile(joinHostPath(root, relPath))
     })
   }, 'idealize-bar: reveal an artefact in the Files pane')
 

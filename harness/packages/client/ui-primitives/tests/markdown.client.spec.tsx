@@ -191,6 +191,38 @@ describe('MarkdownText', () => {
     expect(streamed.container.querySelector('button')).toBeNull()
   })
 
+  it('opens a refused link destination through the file-mention resolver, keeping allowlisted links as anchors', () => {
+    const opened: string[] = []
+    const fileMentions = {
+      resolve: (value: string) => value.endsWith('.md')
+        ? { open: () => { opened.push(value) }, label: `Open ${value}`, title: `/work/${value}` }
+        : undefined,
+    }
+    const source = [
+      '[the plan](docs/plan.md)',
+      '[ref plan][plan]',
+      '[plan]: notes/ref.md',
+      '[elsewhere](docs/plan.txt)',
+      '[site](https://example.com/readme.md)',
+    ].join('\n\n')
+    const { container } = render(<MarkdownText text={source} fileMentions={fileMentions} />)
+
+    const inline = screen.getByRole('button', { name: 'the plan' })
+    expect(inline.getAttribute('title')).toBe('/work/docs/plan.md')
+    fireEvent.click(inline)
+    fireEvent.click(screen.getByRole('button', { name: 'ref plan' }))
+    expect(opened).toEqual(['docs/plan.md', 'notes/ref.md'])
+    // An unclaimed relative destination unwraps as before; an HTTP(S) one
+    // stays an anchor even when it ends in .md.
+    expect(screen.getByText('elsewhere').closest('a, button')).toBeNull()
+    expect(screen.getByText('site').closest('a')?.getAttribute('href')).toBe('https://example.com/readme.md')
+    expect(container.querySelectorAll('button')).toHaveLength(2)
+
+    // Without a resolver the relative link unwraps, as the DOM fixtures pin.
+    const bare = render(<MarkdownText text="[the plan](docs/plan.md)" />)
+    expect(bare.container.querySelector('a, button')).toBeNull()
+  })
+
   it('exposes the CJK strong syntax as a micromark extension needing CommonMark attention markers', () => {
     const extension = cjkFriendlyStrong()
     expect(cjkFriendlyStrong()).toBe(extension)

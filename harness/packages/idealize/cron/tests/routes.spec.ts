@@ -59,6 +59,7 @@ async function mount(options: {
   flushThrows?: unknown
   home?: string
   notifierThrows?: unknown
+  projects?: Record<string, string[]>
 } = {}) {
   const root = options.home ?? await mkdtemp(join(tmpdir(), 'idealize-cron-routes-'))
   if (options.home === undefined) roots.push(root)
@@ -101,6 +102,15 @@ async function mount(options: {
       flush: async () => {
         if (options.flushThrows !== undefined) throw options.flushThrows
       },
+    } as never)
+  }
+
+  if (options.projects !== undefined) {
+    const projects = options.projects
+    ctx.provide('workspaceRegistry', {
+      resolveByPath: async (path: string) => projects[path] === undefined
+        ? undefined
+        : { attachSession: async (id: string) => { projects[path]!.push(id) } },
     } as never)
   }
 
@@ -204,6 +214,19 @@ describe('what a fire runs', () => {
     expect(prompts).toEqual(['Write the brief.'])
     expect(run.status).toBe('ok')
     expect(typeof run.sessionId).toBe('string')
+  })
+
+  it('lists the run’s chat under the project that owns its folder', async () => {
+    const projects: Record<string, string[]> = { '/work/demo': [] }
+    const { call } = await mount({ projects })
+    const id = String((await call('/idealize/cron/tasks', {
+      method: 'POST',
+      body: reminder({ remind: false, prompt: 'Write the brief.', cwd: '/work/demo' }),
+    })).json().id)
+
+    const run = (await call('/idealize/cron/run-now', { query: `?id=${id}` })).json()
+    expect(run.status).toBe('ok')
+    expect(projects['/work/demo']).toEqual([run.sessionId])
   })
 
   it('records the turn’s own error as the run’s detail', async () => {

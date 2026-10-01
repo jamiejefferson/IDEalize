@@ -111,6 +111,33 @@ describe('ui-bar apply', () => {
     expect(ctx.idealizeBar.state.getSnapshot().terminalAvailable).toBe(false)
   })
 
+  it('sends Add to chat to the terminal prompt when the current chat shows its Terminal view', async () => {
+    const { ctx, slots } = await bench({ sessions: { current: 's1', ids: ['s1'], byId: { s1: { id: 's1' } } } })
+    declareRoot(slots)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    let showingTerminal = true
+    const addPaths = vi.fn(() => showingTerminal)
+    await ctx.plugin({
+      inject: [],
+      apply: (scope: typeof ctx) => {
+        scope.provide('terminalMode', {
+          embedded: () => Promise.resolve(true), open: () => true, restart: () => Promise.resolve(), addPaths, Pane: () => null,
+        } as never)
+      },
+    }).await()
+    const deck = slots.entries('shell.deck')[0] as unknown as { inject: () => { addToChat: (path: string) => boolean } }
+    const { addToChat } = deck.inject()
+
+    expect(addToChat('/w/proj/notes.md')).toBe(true)
+    expect(addPaths).toHaveBeenCalledWith('s1', ['/w/proj/notes.md'])
+
+    // On the bubbles the terminal declines and the composer path answers
+    // (the bench's sessions hold no binding, so that path reports false).
+    showingTerminal = false
+    expect(addToChat('/w/proj/notes.md')).toBe(false)
+    expect(addPaths).toHaveBeenCalledTimes(2)
+  })
+
   it('drives the drawer pane and column through one closure set', async () => {
     const { ctx, slots, layout } = await bench()
     declareRoot(slots)
@@ -164,6 +191,19 @@ describe('ui-bar apply', () => {
     // Closing an empty deck moves nothing.
     bar.closeFile()
     expect(layout.closeDeck).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers the deck to chats as their viewer for Markdown, and for nothing else', async () => {
+    const { ctx, slots, layout } = await bench()
+    declareRoot(slots)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const viewer = ctx.get('chatFileViewer')!
+
+    expect(['/p/plan.md', '/p/NOTES.MARKDOWN', '/p/a.ts', '/p/plan.md.bak', '/p/a.mdx'].map(path => viewer.shows(path)))
+      .toEqual([true, true, false, false, false])
+    viewer.open('/p/plan.md')
+    expect(ctx.idealizeBar.state.getSnapshot().file).toBe('/p/plan.md')
+    expect(layout.openDeck).toHaveBeenCalledTimes(1)
   })
 
   it('marks the chat as configured before the brain write, and lifts the mark when that write fails', async () => {

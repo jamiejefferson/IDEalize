@@ -5,11 +5,11 @@
  * framework's instance cache and writes the Terminal view.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { openTerminalView, type ErasedSlots } from '../src/client/index.ts'
+import { addPathsToTerminal, openTerminalView, type ErasedSlots } from '../src/client/index.ts'
 
 function slotsWith(options: {
   chatStore?: unknown
-  instance?: { actions: { setView: (view: string) => void } } | undefined
+  instance?: { actions: { setView: (view: string) => void }; getSnapshot?: () => unknown } | undefined
 }): { slots: ErasedSlots; storeOf: ReturnType<typeof vi.fn> } {
   const storeOf = vi.fn(() => options.instance)
   const entries = options.chatStore === undefined
@@ -43,5 +43,31 @@ describe('openTerminalView', () => {
   it('reports false when the framework holds no instance for the entry', () => {
     const { slots } = slotsWith({ chatStore: { spec: {} }, instance: undefined })
     expect(openTerminalView(slots, 's1')).toBe(false)
+  })
+})
+
+describe('addPathsToTerminal', () => {
+  const instance = (view: string | null) => ({ actions: { setView: vi.fn() }, getSnapshot: () => ({ view }) })
+
+  it('types the paths when the chat shows its Terminal view', () => {
+    const type = vi.fn(() => true)
+    const { slots } = slotsWith({ chatStore: { spec: {} }, instance: instance('terminal') })
+    expect(addPathsToTerminal(slots, 's1', ['/w/a.md'], type)).toBe(true)
+    expect(type).toHaveBeenCalledWith('s1', ['/w/a.md'])
+  })
+
+  it('leaves the paths for the composer when the chat shows another view', () => {
+    const type = vi.fn(() => true)
+    for (const view of ['chat', null]) {
+      const { slots } = slotsWith({ chatStore: { spec: {} }, instance: instance(view) })
+      expect(addPathsToTerminal(slots, 's1', ['/w/a.md'], type)).toBe(false)
+    }
+    expect(type).not.toHaveBeenCalled()
+  })
+
+  it('reports false when the shell is not running, and before the chat entry exists', () => {
+    const { slots } = slotsWith({ chatStore: { spec: {} }, instance: instance('terminal') })
+    expect(addPathsToTerminal(slots, 's1', ['/w/a.md'], () => false)).toBe(false)
+    expect(addPathsToTerminal(slotsWith({}).slots, 's1', ['/w/a.md'])).toBe(false)
   })
 })

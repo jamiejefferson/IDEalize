@@ -30,14 +30,14 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // forbids cross-plugin value imports; the service is the channel).
 import type {} from '@idealize/appearance/client'
 import { CHAT_VIEW, ModeShortcut, TERMINAL_VIEW } from './ModeShortcut.tsx'
-import { applyTerminalPaint, closeTerminal, disposeTerminals, restartTerminal, TerminalView } from './TerminalView.tsx'
+import { applyTerminalPaint, closeTerminal, disposeTerminals, restartTerminal, setTerminalFileViewer, TerminalView, typePaths } from './TerminalView.tsx'
 import { en, NS, type TerminalKey, zh } from './locales.ts'
 import { createTerminalPane, type TerminalPaneProps } from './TerminalPane.tsx'
 
 export { ModeShortcut, isToggleShortcut, toggledView } from './ModeShortcut.tsx'
 export {
   applyTerminalPaint, counterZoom, currentTerminalPaint, httpTransport, reservedGutter, restartTerminal, SURFACE_EXEMPT, TerminalView,
-  withAlpha, xtermTheme,
+  typePaths, withAlpha, xtermTheme,
 } from './TerminalView.tsx'
 export type { TerminalTransport, StreamEvent } from './TerminalView.tsx'
 export type { TerminalKey } from './locales.ts'
@@ -88,7 +88,7 @@ interface ErasedStoreHost {
   storeOf(
     entry: { options: { id?: string }; store?: unknown },
     scopeKey?: string,
-  ): { actions: ChatViewActions } | undefined
+  ): { actions: ChatViewActions; getSnapshot?: () => unknown } | undefined
 }
 
 /** Type-erased slot registry face used where the typed overloads cannot see a foreign store. */
@@ -124,6 +124,28 @@ export function openTerminalView(slots: ErasedSlots, sessionId: string): boolean
   return true
 }
 
+/**
+ * Type paths into one chat's shell when that chat is showing its Terminal
+ * view; a chat on its bubbles keeps them for the composer.
+ * @param slots - the erased slot registry.
+ * @param sessionId - the chat the paths are for.
+ * @param paths - absolute paths, in order.
+ * @param type - the grid writer; injected for tests.
+ * @returns whether the paths reached a live prompt.
+ */
+export function addPathsToTerminal(
+  slots: ErasedSlots,
+  sessionId: string,
+  paths: readonly string[],
+  type: (sessionId: string, paths: readonly string[]) => boolean = typePaths,
+): boolean {
+  const entry = chatEntry(slots)
+  if (entry?.store === undefined) return false
+  const snapshot = slots.hostFace().storeOf(entry, sessionId)?.getSnapshot?.() as { view?: string | null } | undefined
+  if (snapshot?.view !== TERMINAL_VIEW) return false
+  return type(sessionId, paths)
+}
+
 /** The Chat⇄Terminal service other plugins launch the terminal through. */
 export interface TerminalModeHost {
   /**
@@ -151,6 +173,14 @@ export interface TerminalModeHost {
    * @returns once the old shell is gone and the reopen has been asked for.
    */
   restart(sessionId: string, brainId: string): Promise<void>
+  /**
+   * Type paths at the chat's prompt, unsent, when the chat is showing its
+   * Terminal view (the Files pane's Add to chat).
+   * @param sessionId - the chat the paths are for.
+   * @param paths - absolute paths, in order.
+   * @returns false when the chat is on another view or has no running shell.
+   */
+  addPaths(sessionId: string, paths: readonly string[]): boolean
   /**
    * The grid over one plain shell, for a pane outside the conversation
    * column (the tool rail's Terminal pane). One shell for the whole app,
@@ -188,6 +218,12 @@ export function apply(ctx: ClientContext): void {
       seen = new Set(next)
     })
   }, 'idealize-terminal: archived chats close their shells')
+  // Markdown paths in a terminal chat's output open in the app's file viewer
+  // while one is composed in; it is read per hover, so it may come and go.
+  ctx.effect(() => {
+    setTerminalFileViewer(() => ctx.get('chatFileViewer'))
+    return () => { setTerminalFileViewer(() => undefined) }
+  }, 'idealize-terminal: Markdown paths open in the file viewer')
   const t = ctx.locale.bind(NS)
   const slots = ctx.slots as unknown as ErasedSlots
   // The host session service merges the same name into Context in this
@@ -218,6 +254,7 @@ export function apply(ctx: ClientContext): void {
     embedded: () => probed.then(capabilities => capabilities.embedded),
     open: (sessionId: string) => openTerminalView(slots, sessionId),
     restart: (sessionId: string, brainId: string) => restartTerminal(sessionId, brainId),
+    addPaths: (sessionId: string, paths: readonly string[]) => addPathsToTerminal(slots, sessionId, paths),
     Pane: createTerminalPane(t),
   })
 

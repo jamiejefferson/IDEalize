@@ -109,6 +109,7 @@ export class WorkspaceRegistry extends Service {
       this.sessionPaths.set(id, path)
       this.invalidSessionPaths.delete(id)
     },
+    sessionsAt: path => this.sessionsAt(path),
   }
 
   constructor(ctx: Context) {
@@ -610,6 +611,19 @@ export class WorkspaceRegistry extends Service {
         )
       }
     }
+  }
+
+  private sessionsAt(path: string): SessionId[] {
+    const matches: SessionHeader[] = []
+    for (const [id, sessionPath] of this.sessionPaths) {
+      if (sessionPath !== path) continue
+      const header = this.headers.get(id)
+      if (header === undefined || header.origin === 'subagent') continue
+      matches.push(header)
+    }
+    return matches
+      .sort((left, right) => right.createdAt - left.createdAt || (left.id < right.id ? -1 : 1))
+      .map(header => header.id)
   }
 
   private async readSessionHeader(id: SessionId): Promise<SessionHeader> {

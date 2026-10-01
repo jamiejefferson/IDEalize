@@ -496,7 +496,9 @@ describe('WorkspaceRegistry create and lookup', () => {
     const reregistered = await result.registry.create(dir)
     expect(reregistered.id).not.toBe(workspace.id)
     expect(reregistered.path).toBe(dir)
-    expect(reregistered.sessionIds).toEqual([])
+    // The retained chat shows under the re-added project without a write.
+    expect(reregistered.sessionIds).toEqual(['kept-session'])
+    expect(storedRecord(result.pool, reregistered.id).sessionIds).toEqual([])
   })
 
   it('rolls registry order and cache back when record deletion fails', async () => {
@@ -745,14 +747,53 @@ describe('header-validated membership projection', () => {
       ],
     })
     const workspace = result.registry.list()[0]!
-    expect(workspace.sessionIds).toEqual(['good'])
-    expect(result.registry.list()[0]!.sessionIds).toEqual(['good'])
+    expect(workspace.sessionIds).toEqual(['good', 'cwd-only'])
+    expect(result.registry.list()[0]!.sessionIds).toEqual(['good', 'cwd-only'])
     expect(result.list).toHaveBeenCalledTimes(1)
     expect(storedRecord(pool, id).sessionIds).toEqual(['good', 'mismatch', 'missing'])
 
     await workspace.setTitle('pruned')
     expect(storedRecord(pool, id).sessionIds).toEqual(['good'])
-    expect(workspace.sessionIds).not.toContain('cwd-only')
+    expect(workspace.sessionIds).toEqual(['good', 'cwd-only'])
+  })
+
+  it('lists unrecorded chats in its folder after the account, newest first, never subagents', async () => {
+    const owned = await makeDir('folder-owned')
+    const elsewhere = await makeDir('folder-elsewhere')
+    const id = WorkspaceId('00000000-0000-4000-8000-000000000002')
+    const pool = storedPool(
+      [[id, record(owned, ['recorded'])]],
+      { initialized: true, workspaceIds: [id] },
+    )
+    const result = await harness({
+      pool,
+      sessions: [
+        header('recorded', owned, 1),
+        header('older', owned, 10),
+        header('newer', owned, 20),
+        { ...header('child', owned, 30), origin: 'subagent', parentSession: SessionId('newer') },
+        header('other', elsewhere, 40),
+      ],
+    })
+    const workspace = result.registry.get(id)!
+    expect(workspace.sessionIds).toEqual(['recorded', 'newer', 'older'])
+    expect(storedRecord(pool, id).sessionIds).toEqual(['recorded'])
+  })
+
+  it('writes a folder-listed chat into the account when a person moves it', async () => {
+    const dir = await makeDir('folder-move')
+    const id = WorkspaceId('00000000-0000-4000-8000-000000000003')
+    const pool = storedPool(
+      [[id, record(dir, ['a'])]],
+      { initialized: true, workspaceIds: [id] },
+    )
+    const result = await harness({ pool, sessions: [header('a', dir, 1), header('loose', dir, 2)] })
+    const workspace = result.registry.get(id)!
+    expect(workspace.sessionIds).toEqual(['a', 'loose'])
+
+    await workspace.insertSessionBefore(SessionId('loose'), SessionId('a'))
+    expect(workspace.sessionIds).toEqual(['loose', 'a'])
+    expect(storedRecord(pool, id).sessionIds).toEqual(['loose', 'a'])
   })
 
   it('rejects duplicate candidate ownership, duplicate paths, and initialized order drift', async () => {

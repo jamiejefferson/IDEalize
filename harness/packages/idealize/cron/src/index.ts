@@ -322,6 +322,23 @@ export class IdealizeCron extends Service {
   }
 
   /** The dsh-headless recipe, in-process, in the task's workspace. */
+  /**
+   * List a run's chat under the project that owns its folder, as a chat the
+   * person starts would be. A run outside every project, or a registry that
+   * refuses, leaves the chat where it is: the run itself never fails on it.
+   */
+  private async fileUnderProject(sessionId: SessionId, cwd: string): Promise<void> {
+    // The workspace registry is not a declared dependency; narrow the probe.
+    const registry = (this.ctx as unknown as { get(name: string): unknown }).get('workspaceRegistry') as {
+      resolveByPath(path: string): Promise<{ attachSession(id: SessionId): Promise<void> } | undefined>
+    } | undefined
+    try {
+      await (await registry?.resolveByPath(cwd))?.attachSession(sessionId)
+    } catch (error) {
+      this.ctx.logger.warn(`idealize-cron: ${String(sessionId)} could not join its project: ${String(error)}`)
+    }
+  }
+
   private async runAgent(task: CronTask): Promise<{ sessionId: string; errorDetail?: string }> {
     // The loader service (cordis-loader) is not a declared dependency; narrow the probe.
     await (this.ctx.get('loader') as { await(): Promise<void> } | undefined)?.await()
@@ -346,6 +363,7 @@ export class IdealizeCron extends Service {
         installModelSelection(agentCtx, selected)
       },
     })
+    await this.fileUnderProject(sessionId, task.cwd)
     await agent.whenIdle()
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: task.prompt }],

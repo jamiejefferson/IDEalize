@@ -10,7 +10,8 @@
  * person reading and typing between turns is counted and a lunch break is
  * not. Then one row per project: its working time this month and all time,
  * and its month cost, which is what its metered tokens cost at the known
- * prices; subscription plans belong to no one project, so they reach the
+ * prices, and an Other chats row for chats no project claims, so the rows
+ * add up to the totals; subscription plans belong to no one project, so they reach the
  * total alone and a note says so when they are in it. Cost is never
  * estimated: with no price or plan cost known the cost cells stay a dash
  * under a hint.
@@ -38,6 +39,8 @@ interface WorkTime {
 /** The GET /idealize/models/work payload (host half of @idealize/models). */
 interface WorkState {
   projects: { path: string; label: string; time: WorkTime; cost: { month: number }; tokens: { month: number } }[]
+  /** Chats no project claims; absent from a host older than 30 Sep 2026. */
+  other?: { time: WorkTime; cost: { month: number }; tokens: { month: number } }
   totals: { time: WorkTime; cost: { month: number; plans: number }; tokens: { month: number } }
   currency: string
   costConfigured: boolean
@@ -46,6 +49,17 @@ interface WorkState {
 /** The slice of GET /idealize/models/state the pane reads: each route's display name. */
 interface NamesState {
   providers: { provider: string; displayName?: string }[]
+}
+
+/**
+ * The folder a project sits in, which tells two same-named projects apart in
+ * a column too narrow for the whole path; the row's title holds the path.
+ * @param path - the project's folder, with either separator.
+ * @returns the parent folder's name, or the path itself at a root.
+ */
+export function parentFolder(path: string): string {
+  const segments = path.split(/[\\/]/).filter(segment => segment !== '')
+  return segments.at(-2) ?? path
 }
 
 async function getJson<T>(url: string): Promise<T | null> {
@@ -113,15 +127,26 @@ export function WorkPanel({ t }: { t: (key: BarKey, params?: Record<string, stri
         {state !== null && state.projects.length === 0 && <div className={brains.emptyRow}>{t('work.projects.none')}</div>}
         {(state?.projects ?? []).map(project => (
           <div key={project.path} className={brains.tableRow} role="row" data-work-project={project.path}>
-            <span className={brains.colCategory}>
+            <span className={brains.colCategory} title={project.path}>
               <strong>{project.label}</strong>
-              <small>{project.path}</small>
+              <small data-work-project-folder="">{parentFolder(project.path)}</small>
             </span>
             <span className={css.colTime} data-work-project-month="">{duration(project.time.month)}</span>
             <span className={css.colTime} data-work-project-all="">{duration(project.time.all)}</span>
             <span className={css.colCost} data-work-project-cost="">{cost(project.cost.month)}</span>
           </div>
         ))}
+        {state?.other !== undefined && (state.other.time.all > 0 || state.other.tokens.month > 0) && (
+          <div className={brains.tableRow} role="row" data-work-other="">
+            <span className={brains.colCategory}>
+              <strong>{t('work.other')}</strong>
+              <small>{t('work.other.detail')}</small>
+            </span>
+            <span className={css.colTime}>{duration(state.other.time.month)}</span>
+            <span className={css.colTime}>{duration(state.other.time.all)}</span>
+            <span className={css.colCost}>{cost(state.other.cost.month)}</span>
+          </div>
+        )}
       </div>
       {state !== null && !state.costConfigured && <p className={brains.note} data-work-no-prices="">{t('work.noPrices')}</p>}
 

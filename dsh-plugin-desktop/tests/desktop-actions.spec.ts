@@ -18,7 +18,9 @@ describe('desktop actions Host service', () => {
     const openTerminal = vi.fn<() => void>()
     const requestRestart = vi.fn<() => Promise<void>>(async () => {})
     const trashItem = vi.fn<(path: string) => Promise<void>>(async () => {})
-    const mounted = await mount({ openTerminal, requestRestart, trashItem, collapseToBar: vi.fn(), expandFromBar: vi.fn(), setBarWidth: vi.fn(), focusBar: vi.fn(), notify: vi.fn() })
+    const showItemInFolder = vi.fn<(path: string) => void>()
+    const openPath = vi.fn<(path: string) => Promise<string>>(async () => '')
+    const mounted = await mount({ openTerminal, requestRestart, trashItem, showItemInFolder, openPath, collapseToBar: vi.fn(), expandFromBar: vi.fn(), setBarWidth: vi.fn(), focusBar: vi.fn(), notify: vi.fn() })
 
     mounted.service.openTerminal()
     await expect(mounted.service.requestRestart()).resolves.toBeUndefined()
@@ -27,13 +29,17 @@ describe('desktop actions Host service', () => {
     expect(requestRestart).toHaveBeenCalledWith()
     await expect(mounted.service.trashItem('/tmp/x')).resolves.toBeUndefined()
     expect(trashItem).toHaveBeenCalledWith('/tmp/x')
+    mounted.service.showItemInFolder('C:\\w\\a.md')
+    expect(showItemInFolder).toHaveBeenCalledWith('C:\\w\\a.md')
+    await expect(mounted.service.openPath('C:\\w\\a.pdf')).resolves.toBe('')
+    expect(openPath).toHaveBeenCalledWith('C:\\w\\a.pdf')
     expect(Object.keys(mounted.service).sort()).not.toContain('runCommand')
   })
 
   it('coalesces a restart request and rejects retained references after disposal', async () => {
     let finishRestart!: () => void
     const requestRestart = vi.fn(() => new Promise<void>(resolve => { finishRestart = resolve }))
-    const mounted = await mount({ openTerminal: vi.fn(), requestRestart, trashItem: vi.fn(async () => {}), collapseToBar: vi.fn(), expandFromBar: vi.fn(), setBarWidth: vi.fn(), focusBar: vi.fn(), notify: vi.fn() })
+    const mounted = await mount({ openTerminal: vi.fn(), requestRestart, trashItem: vi.fn(async () => {}), showItemInFolder: vi.fn(), openPath: vi.fn(async () => ''), collapseToBar: vi.fn(), expandFromBar: vi.fn(), setBarWidth: vi.fn(), focusBar: vi.fn(), notify: vi.fn() })
 
     const first = mounted.service.requestRestart()
     const second = mounted.service.requestRestart()
@@ -50,7 +56,7 @@ describe('desktop actions Host service', () => {
   it('passes a notification through to the launcher, and refuses one after disposal', async () => {
     const notify = vi.fn<(notification: { title: string; body: string }) => void>()
     const mounted = await mount({
-      openTerminal: vi.fn(), requestRestart: vi.fn(async () => {}), trashItem: vi.fn(async () => {}),
+      openTerminal: vi.fn(), requestRestart: vi.fn(async () => {}), trashItem: vi.fn(async () => {}), showItemInFolder: vi.fn(), openPath: vi.fn(async () => ''),
       collapseToBar: vi.fn(), expandFromBar: vi.fn(), setBarWidth: vi.fn(), focusBar: vi.fn(), notify,
     })
 

@@ -350,6 +350,19 @@
   cursor: pointer;
 }
 
+/* A chosen sort option carries a check in its leading gutter. */
+.menuItem[role='menuitemradio'] {
+  position: relative;
+  padding-left: 24px;
+}
+
+.menuItem[data-checked]::before {
+  content: '✓';
+  position: absolute;
+  left: 9px;
+  color: var(--dsw-alias-state-business-primary, #0b76d1);
+}
+
 .menuItem:hover {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
 }

@@ -37,6 +37,7 @@ vi.mock('@xterm/xterm', () => ({
     loadAddon(addon: { terminal?: unknown }): void { addon.terminal = this }
     open(host: HTMLElement): void { this.element = host.appendChild(document.createElement('div')) }
     focus(): void {}
+    registerLinkProvider(): { dispose: () => void } { return { dispose: () => {} } }
     write(): void {}
     dispose(): void {}
     onData(): { dispose: () => void } { return { dispose: () => {} } }

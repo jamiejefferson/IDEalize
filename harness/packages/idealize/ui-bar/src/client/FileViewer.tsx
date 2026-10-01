@@ -21,6 +21,7 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { BarIconClose, BarIconOutline } from './BarIcons.tsx'
 import { activeHeading } from './outline-active.ts'
 import css from './FileViewer.module.css'
+import { fileManagerKey } from './host-path.ts'
 
 type BarTranslate = PropsLocale<'idealize-bar'>['t']
 
@@ -390,8 +391,8 @@ export function FileViewer({ path, canReveal, onClose, onAddToChat, t }: {
             </button>
           </Tooltip>
           {canReveal && (
-            <Tooltip label={t('files.reveal')} delayMs={400}>
-              <button type="button" className={css.iconAction} aria-label={t('files.reveal')} onClick={reveal}>
+            <Tooltip label={t(fileManagerKey('files.reveal'))} delayMs={400}>
+              <button type="button" className={css.iconAction} aria-label={t(fileManagerKey('files.reveal'))} onClick={reveal}>
                 <IconRightUpOutline14 size={13} />
               </button>
             </Tooltip>
@@ -413,7 +414,7 @@ export function FileViewer({ path, canReveal, onClose, onAddToChat, t }: {
         </span>
       </div>
       {truncated && <div className={css.truncated}>{t('viewer.truncated')}</div>}
-      {revealFailed && <div className={css.revealError}>{t('files.revealFailed')}</div>}
+      {revealFailed && <div className={css.revealError}>{t(fileManagerKey('files.revealFailed'))}</div>}
       {notice !== null && <div className={css.revealError} data-level={notice.level} role="status">{notice.text}</div>}
       <div className={css.split}>
         <div className={css.body} ref={bodyRef} data-viewer-body="">{body}</div>

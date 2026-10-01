@@ -523,7 +523,8 @@ describe('Host Workspace increments', () => {
     const reregistered = expectOk(await api.workspace.create(request({ path: workspace.path }))).workspace
     expect(reregistered.workspaceId).not.toBe(workspace.workspaceId)
     expect(reregistered.path).toBe(workspace.path)
-    expect(reregistered.sessionIds).toEqual([])
+    // Adding the folder back lists its retained chat under it again.
+    expect(reregistered.sessionIds).toEqual([sessionId])
     expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
     abort.abort()
   })

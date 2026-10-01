@@ -34,6 +34,8 @@
  *   tokens cost this month at the known prices; the totals union every log
  *   and add the subscription plans, which belong to no one project.
  * - POST /idealize/models/budget — {monthlyTokenBudget} (0 clears it).
+ * - POST /idealize/models/plan — {provider, monthly} sets one subscription's monthly
+ *   cost (null clears it); a new plan counts from this month.
  * - POST /idealize/models/prices — {provider, model, price} stores one
  *   model's token prices; `price: null` clears it.
  */
@@ -555,6 +557,7 @@ export function apply(ctx: Context, config: ModelsConfig): void {
         year: periods.year,
         monthlyTokenBudget: config.monthlyTokenBudget ?? 0,
         cost: costOf(periods.models),
+        plans: config.subscriptionCosts ?? {},
         models: modelRows(periods.models.month, classify, prices),
         openRouterPrices: openRouter === undefined
           ? null
@@ -592,9 +595,11 @@ export function apply(ctx: Context, config: ModelsConfig): void {
       const projects = projectList()
       const logs = await sessionLogs()
       const byProject = new Map<string, { events: readonly SessionEvent[] }[]>(projects.map(project => [project.path, []]))
+      const unclaimed: { events: readonly SessionEvent[] }[] = []
       for (const log of logs) {
         const owner = projects.find(project => project.sessionIds.has(log.id) || project.path === log.cwd)
-        if (owner !== undefined) byProject.get(owner.path)?.push(log)
+        if (owner === undefined) unclaimed.push(log)
+        else byProject.get(owner.path)?.push(log)
       }
       const rows = projects.map((project) => {
         const own = byProject.get(project.path) ?? []
@@ -612,11 +617,21 @@ export function apply(ctx: Context, config: ModelsConfig): void {
       // The projects worked most this month first, then by all-time work, then by name.
       rows.sort((left, right) =>
         right.time.month - left.time.month || right.time.all - left.time.all || left.label.localeCompare(right.label))
+      // Chats no project claims (the Askbar's, and chats opened outside any
+      // project folder) get their own row, so the rows add up to the totals.
+      const otherPeriods = emptyUsagePeriods()
+      for (const log of unclaimed) foldUsage(log.events, classify, now, otherPeriods)
+      const other = {
+        time: foldWorkTime(unclaimed.map(log => log.events), bounds),
+        cost: { month: costOf(otherPeriods.models).month.metered },
+        tokens: { month: otherPeriods.month.total },
+      }
       const periods = emptyUsagePeriods()
       for (const log of logs) foldUsage(log.events, classify, now, periods)
       const cost = costOf(periods.models)
       sendJson(res, 200, {
         projects: rows,
+        other,
         totals: {
           time: foldWorkTime(logs.map(log => log.events), bounds),
           cost: { month: cost.month.total, plans: cost.month.subscriptions },
@@ -640,6 +655,30 @@ export function apply(ctx: Context, config: ModelsConfig): void {
         await webCtx.settings.update(NS, { tokenPrices: { [provider]: { [model]: price } } })
       }
       sendJson(res, 200, { ok: true, ...parsed.write })
+    })
+
+    register('/idealize/models/plan', true, async (req, res) => {
+      const body = JSON.parse(await readBody(req)) as { provider?: unknown; monthly?: unknown }
+      const { provider, monthly } = body
+      if (typeof provider !== 'string' || provider === '') {
+        sendJson(res, 400, { error: 'provider must name a subscription route' })
+        return
+      }
+      if (monthly === null) {
+        await webCtx.settings.mutate(NS, [{ op: 'unset', path: ['subscriptionCosts', provider] }])
+        sendJson(res, 200, { ok: true, provider, monthly: null })
+        return
+      }
+      if (typeof monthly !== 'number' || !Number.isFinite(monthly) || monthly < 0) {
+        sendJson(res, 400, { error: 'monthly must be a non-negative number, or null to clear the plan' })
+        return
+      }
+      // A plan keeps the month it started; a new one counts from this month.
+      const at = new Date()
+      const thisMonth = `${String(at.getUTCFullYear())}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`
+      const since = current().subscriptionCosts?.[provider]?.since ?? thisMonth
+      await webCtx.settings.update(NS, { subscriptionCosts: { [provider]: { monthly, since } } })
+      sendJson(res, 200, { ok: true, provider, monthly, since })
     })
 
     register('/idealize/models/budget', true, async (req, res) => {

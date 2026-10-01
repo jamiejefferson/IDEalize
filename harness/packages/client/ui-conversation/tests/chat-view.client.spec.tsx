@@ -334,6 +334,34 @@ function installScrollMetrics(element: HTMLElement, initialHeight: number, clien
 
 describe('Chat node rendering', () => {
 
+  it('links prose file paths in every assistant message, the closing turn\'s produced files first', () => {
+    const h = makeHarness({
+      nodes: [
+        user(1, 'plan it'),
+        assistant(2, 'Drafting [the plan](docs/plan.md) now.', 1),
+        assistant(3, 'Done: `report.md` and [plan](docs/plan.md).', 1),
+      ],
+      turnEnds: new Map([[1, 3]]),
+    })
+    const opened: string[] = []
+    h.props.fileLinks = {
+      resolve: value => value.endsWith('.md')
+        ? { open: () => { opened.push(`link:${value}`) }, label: `Open ${value}`, title: value }
+        : undefined,
+    }
+    h.props.fileMentions = () => ({
+      resolve: value => value === 'report.md'
+        ? { open: () => { opened.push('produced:report.md') }, label: 'Open out/report.md', title: 'out/report.md' }
+        : undefined,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // The mid-turn narration links too: prose links are not the closing turn's alone.
+    fireEvent.click(view.getByRole('button', { name: 'the plan' }))
+    fireEvent.click(view.getByRole('button', { name: 'Open out/report.md' }))
+    fireEvent.click(view.getByRole('button', { name: 'plan' }))
+    expect(opened).toEqual(['link:docs/plan.md', 'produced:report.md', 'link:docs/plan.md'])
+  })
+
   it('threads the injected file-mention vocabulary into the closing prose only', () => {
     const wrote = (seq: number, callId: string, path: string): ToolResultNode => ({
       ...toolResult(seq, callId, 'write'),

@@ -60,6 +60,16 @@ export interface WorkspaceEntityHost {
    * @param path - Canonical existing directory from the immutable header cwd.
    */
   rememberSessionPath(id: SessionId, path: string): void
+
+  /**
+   * Sessions whose indexed canonical cwd is `path`, subagent children left
+   * out, newest first. A workspace shows the ones its account lacks: chats
+   * left behind when a project was removed and added again, or started in
+   * its folder by a path that never attached them.
+   * @param path - Canonical workspace directory.
+   * @returns matching session ids, newest first.
+   */
+  sessionsAt(path: string): readonly SessionId[]
 }
 
 /** Chain-slot abort sentinel thrown by the update fn when the record needs no change; only `mutate` observes it. */
@@ -99,7 +109,20 @@ export class WorkspaceEntity implements Workspace {
   }
 
   get sessionIds(): readonly SessionId[] {
-    return this.record.sessionIds.filter(id => this.host.sessionPath(id) === this.record.path)
+    return this.account(this.record)
+  }
+
+  /**
+   * The account a record shows: its validated candidates in their order,
+   * then the sessions in its folder that it never recorded, newest first.
+   * Nothing is written for the second part, so the stored account stays as
+   * it was until a person moves one of those chats.
+   */
+  private account(record: WorkspaceRecord): SessionId[] {
+    const own = record.sessionIds.filter(id => this.host.sessionPath(id) === record.path)
+    const recorded = new Set(record.sessionIds)
+    const loose = this.host.sessionsAt(record.path).filter(id => !recorded.has(id))
+    return [...own, ...loose]
   }
 
   async setTitle(title: string): Promise<void> {
@@ -149,7 +172,10 @@ export class WorkspaceEntity implements Workspace {
   }
 
   async insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void> {
-    await this.mutate((record) => {
+    await this.mutate((current) => {
+      // A chat shown by folder alone joins the stored account when moved,
+      // so the order a person sets is the order that persists.
+      const record = { ...current, sessionIds: this.account(current) }
       if (!record.sessionIds.includes(sessionId)) {
         throw new WorkspaceMoveInvalidError(
           `cannot move session '${sessionId}' in workspace '${record.path}': the session is not accounted`,
@@ -161,13 +187,14 @@ export class WorkspaceEntity implements Workspace {
           + 'the anchor session is not accounted',
         )
       }
-      if (beforeSessionId === sessionId) return record
+      if (beforeSessionId === sessionId) return current
       const without = record.sessionIds.filter(id => id !== sessionId)
       const at = beforeSessionId === undefined ? without.length : without.indexOf(beforeSessionId)
       const sessionIds = [...without.slice(0, at), sessionId, ...without.slice(at)]
-      return sessionIds.every((id, index) => id === record.sessionIds[index])
-        ? record
-        : { ...record, sessionIds }
+      return sessionIds.length === current.sessionIds.length
+        && sessionIds.every((id, index) => id === current.sessionIds[index])
+        ? current
+        : { ...current, sessionIds }
     })
   }
 

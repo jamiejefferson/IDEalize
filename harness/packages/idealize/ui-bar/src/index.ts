@@ -61,6 +61,10 @@ interface DesktopActionsLike {
   openTerminal(): void
   /** Move a path to the OS trash (Electron's `shell.trashItem`); absent on older shells. */
   trashItem?(path: string): Promise<void>
+  /** Show a path selected in Finder or Explorer (Electron's `shell.showItemInFolder`); absent on older shells. */
+  showItemInFolder?(path: string): void
+  /** Open a path in its default application (Electron's `shell.openPath`): '' on success, else the reason; absent on older shells. */
+  openPath?(path: string): Promise<string>
   /** Collapse the main window to the Askbar (the maxi→mini transform); absent on shells without the bar. */
   collapseToBar?(): Promise<void> | void
 }
@@ -78,6 +82,15 @@ function refuse(req: IncomingMessage, res: ServerResponse, mutating: boolean): b
   return false
 }
 
+/**
+ * A `~/` path as a chat's prose spells it, read from home; any other path as given.
+ * @param raw - The requested path.
+ * @returns The path the fences resolve.
+ */
+function fromHome(raw: string): string {
+  return raw.startsWith('~/') ? join(homedir(), raw.slice(2)) : raw
+}
+
 /** The host skill registry's face this package reads (structural: no dependency edge on dsh-skill). */
 interface SkillRegistryLike {
   list(): Promise<readonly { name: string; description: string; provider: string; invocation: { userInvocable: boolean } }[]>
@@ -93,10 +106,15 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString('utf8')
 }
 
-/** One listed entry: directories first, then files, both name-sorted. */
+/**
+ * One listed entry: directories first, then files, both name-sorted. `mtime`
+ * (epoch milliseconds, 0 where the entry cannot be read) lets the panel sort
+ * by date modified.
+ */
 interface FileEntry {
   name: string
   kind: 'dir' | 'file'
+  mtime: number
 }
 
 /** Viewer text cap: past this the envelope truncates rather than balloons. */
@@ -168,10 +186,14 @@ interface ProjectDocsEntry {
 }
 
 /**
- * Extensions macOS runs when asked to open them. The open route refuses
- * them, so a click in the Files pane never executes a script.
+ * Extensions macOS or Windows runs when asked to open them. The open route
+ * refuses them, so a click in the Files pane never executes a program or script.
  */
-const RUNS_WHEN_OPENED = new Set(['.command', '.tool', '.app', '.workflow', '.action', '.terminal', '.scpt', '.scptd', '.applescript', '.pkg', '.mpkg'])
+const RUNS_WHEN_OPENED = new Set([
+  '.command', '.tool', '.app', '.workflow', '.action', '.terminal', '.scpt', '.scptd', '.applescript', '.pkg', '.mpkg',
+  '.exe', '.com', '.bat', '.cmd', '.ps1', '.psm1', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh', '.hta', '.msi', '.msp',
+  '.scr', '.pif', '.cpl', '.lnk', '.url', '.reg', '.jar', '.appref-ms', '.application', '.msc', '.inf',
+])
 
 /** Extensions that are binary but not images: no text preview attempted. */
 const BINARY_EXT = new Set([
@@ -240,7 +262,7 @@ export function apply(ctx: Context): void {
     const fencedPath = async (raw: string): Promise<string | undefined> => {
       let resolved: string
       try {
-        resolved = await realpath(raw)
+        resolved = await realpath(fromHome(raw))
       } catch {
         return undefined
       }
@@ -257,7 +279,7 @@ export function apply(ctx: Context): void {
     const viewFencedPath = async (raw: string): Promise<string | undefined> => {
       let resolved: string
       try {
-        resolved = await realpath(raw)
+        resolved = await realpath(fromHome(raw))
       } catch {
         return undefined
       }
@@ -272,10 +294,15 @@ export function apply(ctx: Context): void {
     /** Directory entries, dotfiles hidden, directories first. */
     const listEntries = async (target: string): Promise<FileEntry[]> => {
       const listed = await readdir(target, { withFileTypes: true })
-      return listed
+      const entries = await Promise.all(listed
         .filter(entry => !entry.name.startsWith('.'))
-        .map(entry => ({ name: entry.name, kind: entry.isDirectory() ? 'dir' as const : 'file' as const }))
-        .sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'dir' ? -1 : 1)
+        .map(async entry => ({
+          name: entry.name,
+          kind: entry.isDirectory() ? 'dir' as const : 'file' as const,
+          // A dangling link or a racing delete has no date; it sorts as oldest.
+          mtime: await stat(join(target, entry.name)).then(info => info.mtimeMs, () => 0),
+        })))
+      return entries.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'dir' ? -1 : 1)
     }
 
     type RouteHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void> | void
@@ -316,8 +343,8 @@ export function apply(ctx: Context): void {
     register('/idealize/bar/capabilities', false, (_req, res) => {
       sendJson(res, 200, {
         terminal: desktopActions() !== undefined,
-        reveal: process.platform === 'darwin',
-        openExternal: process.platform === 'darwin',
+        reveal: typeof desktopActions()?.showItemInFolder === 'function' || process.platform === 'darwin',
+        openExternal: typeof desktopActions()?.openPath === 'function' || process.platform === 'darwin',
         trash: typeof desktopActions()?.trashItem === 'function' || process.platform === 'darwin',
         shellMode: shellMode() ?? null,
       })
@@ -347,8 +374,9 @@ export function apply(ctx: Context): void {
     })
 
     register('/idealize/bar/reveal', true, async (req, res) => {
-      if (process.platform !== 'darwin') {
-        sendJson(res, 409, { error: 'reveal is macOS only' })
+      const actions = desktopActions()
+      if (typeof actions?.showItemInFolder !== 'function' && process.platform !== 'darwin') {
+        sendJson(res, 409, { error: 'no file manager to reveal in on this platform outside the desktop shell' })
         return
       }
       const body = JSON.parse(await readBody(req)) as { path?: string }
@@ -359,13 +387,16 @@ export function apply(ctx: Context): void {
         sendJson(res, 403, { error: 'path outside home and workspace roots' })
         return
       }
-      spawn('/usr/bin/open', ['-R', target], { stdio: 'ignore', detached: true }).unref()
+      // The desktop shell reveals in Finder or Explorer; outside it, macOS still has `open -R`.
+      if (typeof actions?.showItemInFolder === 'function') actions.showItemInFolder(target)
+      else spawn('/usr/bin/open', ['-R', target], { stdio: 'ignore', detached: true }).unref()
       sendJson(res, 200, { ok: true })
     })
 
     register('/idealize/bar/open', true, async (req, res) => {
-      if (process.platform !== 'darwin') {
-        sendJson(res, 409, { error: 'opening in the default application is macOS only' })
+      const actions = desktopActions()
+      if (typeof actions?.openPath !== 'function' && process.platform !== 'darwin') {
+        sendJson(res, 409, { error: 'no default application launcher on this platform outside the desktop shell' })
         return
       }
       const body = JSON.parse(await readBody(req)) as { path?: string }
@@ -382,9 +413,11 @@ export function apply(ctx: Context): void {
         sendJson(res, 422, { error: 'not a file the default application can safely open' })
         return
       }
-      const code = await defaultApplication.open(target)
-      // `open` exits non-zero when no application claims the file type.
-      if (code !== 0) {
+      // `open` exits non-zero, and the shell's openPath names a reason, when no application claims the file type.
+      const opened = typeof actions?.openPath === 'function'
+        ? await actions.openPath(target) === ''
+        : await defaultApplication.open(target) === 0
+      if (!opened) {
         sendJson(res, 422, { error: 'no application opens this file' })
         return
       }

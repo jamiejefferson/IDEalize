@@ -99,6 +99,16 @@ export function BarIconRefresh({ size }: IconProps) {
   ))
 }
 
+/** Three shortening bars beside a down arrow: the Files sort menu. */
+export function BarIconSort({ size }: IconProps) {
+  return frame(size, (
+    <>
+      <path d="M2.25 4h6.5M2.25 8h4.5M2.25 12h2.5" />
+      <path d="M12 3v10M10 11l2 2 2-2" />
+    </>
+  ))
+}
+
 /** Tray with an inbound arrow (V0's browse glyph): the browse-pane toggle. */
 export function BarIconBrowse({ size }: IconProps) {
   return frame(size, (

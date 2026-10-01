@@ -74,6 +74,8 @@ interface UsageState {
   year: Totals
   monthlyTokenBudget: number
   cost: CostState
+  /** Each subscription's configured plan; absent from a host older than 30 Sep 2026. */
+  plans?: Record<string, { monthly: number; since?: string }>
   models?: ModelCostRow[]
   /** OpenRouter's published price list, when the route is connected: when it was read and how many models it prices. */
   openRouterPrices?: { fetchedAt: string; models: number } | null
@@ -168,6 +170,8 @@ export function BudgetSection({ providerName, t }: {
   const [budgetDraft, setBudgetDraft] = useState<string | null>(null)
   /** The model row whose price is being edited, and the figures typed so far. */
   const [priceDraft, setPriceDraft] = useState<PriceDraft | null>(null)
+  /** The subscription whose monthly cost is being edited, and the figure typed so far. */
+  const [planDraft, setPlanDraft] = useState<{ provider: string; monthly: string } | null>(null)
   const [status, setStatus] = useState('')
 
   const refreshUsage = useCallback(async (path: string) => {
@@ -238,6 +242,29 @@ export function BudgetSection({ providerName, t }: {
       await refreshUsage(scope)
     }
   }
+  /** Save or clear one subscription's monthly cost; `null` clears it. */
+  const savePlan = async (provider: string, monthly: number | null): Promise<void> => {
+    const ok = await post('/idealize/models/plan', { provider, monthly })
+    setStatus(ok ? t('brains.plans.saved') : t('brains.plans.failed'))
+    if (ok) {
+      setPlanDraft(null)
+      await refreshUsage(scope)
+    }
+  }
+  const submitPlan = async (): Promise<void> => {
+    if (planDraft === null) return
+    const monthly = priceNumber(planDraft.monthly)
+    if (monthly === undefined) {
+      setStatus(t('brains.plans.incomplete'))
+      return
+    }
+    await savePlan(planDraft.provider, monthly)
+  }
+  /** Every subscription the pane can price: the signed-in ones with no plan, and every configured plan. */
+  const subscriptionRows = (): string[] => usage === null
+    ? []
+    : [...new Set([...usage.cost.unpricedSubscriptions, ...Object.keys(usage.plans ?? {})])]
+
   const saveBudget = async (): Promise<void> => {
     if (budgetDraft === null) return
     const value = Number(budgetDraft.replace(/[^0-9]/g, ''))
@@ -281,10 +308,66 @@ export function BudgetSection({ providerName, t }: {
       {usage !== null && !usage.cost.configured && (
         <p className={css.note} data-budget-no-prices="">{t('brains.budget.noPrices')}</p>
       )}
-      {usage !== null && usage.cost.configured && usage.cost.unpricedSubscriptions.length > 0 && (
-        <p className={css.note} data-budget-unpriced-subs="">
-          {t('brains.budget.unpricedSubs', { providers: usage.cost.unpricedSubscriptions.map(providerName).join(', ') })}
-        </p>
+      {usage !== null && subscriptionRows().length > 0 && (
+        <>
+          <SectionHead title={t('brains.plans.title')} detail={t('brains.plans.detail')} />
+          <div className={css.table} role="table" aria-label={t('brains.plans.title')} data-budget-plans="">
+            {subscriptionRows().map((provider) => {
+              const plan = usage.plans?.[provider]
+              const editing = planDraft?.provider === provider
+              return (
+                <Fragment key={provider}>
+                  <div className={css.tableRow} role="row" data-budget-plan={provider}>
+                    <span className={css.colCategory}>
+                      <strong>{providerName(provider)}</strong>
+                      <small>{plan === undefined ? t('brains.plans.unset') : t('brains.plans.counted')}</small>
+                    </span>
+                    <span className={css.colCost}>
+                      {plan === undefined
+                        ? <span data-budget-plan-unset={provider}>—</span>
+                        : <strong data-budget-plan-cost={provider}>{t('brains.plans.perMonth', { amount: money(plan.monthly, usage.cost.currency) })}</strong>}
+                      <button
+                        type="button"
+                        className={css.priceLink}
+                        onClick={() => { setPlanDraft({ provider, monthly: plan === undefined ? '' : String(plan.monthly) }) }}
+                      >
+                        {t(plan === undefined ? 'brains.plans.set' : 'brains.plans.change')}
+                      </button>
+                    </span>
+                  </div>
+                  {editing && (
+                    <div className={css.priceEditor} data-budget-plan-editor={provider}>
+                      <div className={css.priceFields}>
+                        <label className={css.priceField}>
+                          <span className={css.fieldHint}>{t('brains.plans.monthly', { currency: usage.cost.currency })}</span>
+                          <input
+                            className={css.budgetInput}
+                            inputMode="decimal"
+                            aria-label={t('brains.plans.monthlyFor', { provider: providerName(provider) })}
+                            value={planDraft.monthly}
+                            onChange={(event) => { setPlanDraft({ provider, monthly: event.target.value }) }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') { event.preventDefault(); void submitPlan() }
+                              if (event.key === 'Escape') setPlanDraft(null)
+                            }}
+                          />
+                        </label>
+                      </div>
+                      <span className={css.fieldHint}>{t('brains.plans.hint')}</span>
+                      <span className={css.keyActions}>
+                        {plan !== undefined && (
+                          <button type="button" className={css.secondary} onClick={() => { void savePlan(provider, null) }}>{t('brains.plans.remove')}</button>
+                        )}
+                        <button type="button" className={css.secondary} onClick={() => { setPlanDraft(null) }}>{t('brains.cancel')}</button>
+                        <button type="button" className={css.primary} onClick={() => { void submitPlan() }}>{t('brains.save')}</button>
+                      </span>
+                    </div>
+                  )}
+                </Fragment>
+              )
+            })}
+          </div>
+        </>
       )}
       {usage !== null && usage.cost.configured && usage.cost.unpricedTokens.year > 0 && (
         <p className={css.note} data-budget-unpriced-tokens="">

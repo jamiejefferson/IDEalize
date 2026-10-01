@@ -100,14 +100,15 @@ export function collectReferenceTargets(
 }
 
 /**
- * File-mention affordance for inline code: the owner resolves an authored
- * token to the file it names, using its own vocabulary of real files — the
- * renderer never guesses at what looks like a path.
+ * File-mention affordance for inline code and for link destinations the URL
+ * allowlist refuses: the owner resolves an authored token to the file it
+ * names, using its own vocabulary of real files — the renderer never guesses
+ * at what looks like a path.
  */
 export interface MarkdownFileMentions {
   /**
-   * Resolve one inline-code token.
-   * @param value - The authored token, exactly as written.
+   * Resolve one inline-code token or refused link destination.
+   * @param value - The authored token or destination, exactly as written.
    * @returns The opener with its accessible label and full-path title, or
    * undefined when the token names no known file — it then stays inert code.
    */
@@ -123,7 +124,7 @@ export interface MarkdownRenderContext {
   readonly streaming: boolean
   /** Localized fence copy-button labels. */
   readonly codeLabels: MarkdownCodeLabels | undefined
-  /** Inline-code file mentions; absent wherever no opener vocabulary exists. */
+  /** Inline-code and link-destination file mentions; absent wherever no opener vocabulary exists. */
   readonly fileMentions: MarkdownFileMentions | undefined
   /** Inside an anchor's children: interactive mentions must not nest there. */
   readonly inLink?: boolean
@@ -275,7 +276,7 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
     case 'table':
       return renderTable(node, key, context)
     case 'link':
-      return renderAnchor(node.url, renderChildren(node.children, { ...context, inLink: true }), key)
+      return renderAnchor(node.url, renderChildren(node.children, { ...context, inLink: true }), key, context)
     case 'linkReference':
       return renderLinkReference(node, key, context)
     case 'image':
@@ -448,9 +449,24 @@ function renderSafeLink(href: string, children: ReactNode[], key: Key): ReactNod
   )
 }
 
-/** Anchor over a parsed markdown destination, which hast normalized before the allowlist saw it. */
-function renderAnchor(url: string, children: ReactNode[], key: Key): ReactNode {
-  return renderSafeLink(normalizeUri(url), children, key)
+/**
+ * Anchor over a parsed markdown destination, which hast normalized before the
+ * allowlist saw it. A destination the allowlist refuses (a relative path, a
+ * `file:` URL) goes to the owner's file-mention resolver first: one it
+ * recognizes becomes a button that opens the file, its text unchanged and the
+ * resolved path on its title; anything else unwraps as before.
+ */
+function renderAnchor(url: string, children: ReactNode[], key: Key, context: MarkdownRenderContext): ReactNode {
+  const href = normalizeUri(url)
+  const file = sanitizeUrl(href) === '' ? context.fileMentions?.resolve(url) : undefined
+  if (file !== undefined) {
+    return (
+      <button key={key} type="button" className={css.fileMention} title={file.title} onClick={file.open}>
+        {children}
+      </button>
+    )
+  }
+  return renderSafeLink(href, children, key)
 }
 
 /**
@@ -506,7 +522,7 @@ function renderLinkReference(
     // not an anchor, so mentions inside it stay live.
     return <Fragment key={key}>{'['}{renderChildren(node.children, context)}{referenceSuffix(node)}</Fragment>
   }
-  return renderAnchor(definition.url, renderChildren(node.children, { ...context, inLink: true }), key)
+  return renderAnchor(definition.url, renderChildren(node.children, { ...context, inLink: true }), key, context)
 }
 
 function renderImageReference(

@@ -37,8 +37,9 @@ import {
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BarKey } from './locales.ts'
 import type { RevealRequest } from './bar-store.ts'
-import { BarIconBrowse, BarIconFilePlus, BarIconFolderPlus, BarIconRefresh } from './BarIcons.tsx'
+import { BarIconBrowse, BarIconFilePlus, BarIconFolderPlus, BarIconRefresh, BarIconSort } from './BarIcons.tsx'
 import { SessionFilesToggle } from './SessionFilesToggle.tsx'
+import { fileManagerKey, isAtOrBeneath, isBeneath, joinHostPath } from './host-path.ts'
 import css from './FilesPanel.module.css'
 
 /** The bar namespace's bound translate seat, passed down as a plain prop. */
@@ -64,6 +65,76 @@ interface RootEntry {
 interface ListEntry {
   name: string
   kind: 'dir' | 'file'
+  /** Epoch milliseconds; absent from an older host, which sorts it as oldest. */
+  mtime?: number
+}
+
+/** How the trees order a folder's contents; folders always come first. */
+export interface FileSort {
+  key: 'name' | 'modified'
+  direction: 'asc' | 'desc'
+}
+
+/** Name, A to Z: the order the host lists in. */
+export const DEFAULT_FILE_SORT: FileSort = { key: 'name', direction: 'asc' }
+
+/** Per-viewer memory of the chosen order, shared by every view and both trees. */
+const FILE_SORT_KEY = 'idealize.files.sort'
+
+const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/**
+ * Order one folder's entries: folders first, then files, each group by the
+ * chosen key. Ties on date fall back to name so the order is stable.
+ * @param entries - one folder's listing.
+ * @param sort - the key and direction.
+ * @returns a new, sorted array.
+ */
+export function sortEntries(entries: readonly ListEntry[], sort: FileSort): ListEntry[] {
+  const sign = sort.direction === 'asc' ? 1 : -1
+  return [...entries].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1
+    if (sort.key === 'modified') {
+      const byDate = (a.mtime ?? 0) - (b.mtime ?? 0)
+      if (byDate !== 0) return sign * byDate
+      return nameCollator.compare(a.name, b.name)
+    }
+    return sign * nameCollator.compare(a.name, b.name)
+  })
+}
+
+/**
+ * The remembered order, or the default when unset, unreadable or malformed.
+ * @returns the sort to apply on mount.
+ */
+export function readFileSort(): FileSort {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FILE_SORT_KEY) ?? 'null') as Partial<FileSort> | null
+    if ((parsed?.key === 'name' || parsed?.key === 'modified') && (parsed.direction === 'asc' || parsed.direction === 'desc')) {
+      return { key: parsed.key, direction: parsed.direction }
+    }
+  } catch {
+    // Storage access denied (private mode) or a corrupt value: the default.
+  }
+  return DEFAULT_FILE_SORT
+}
+
+/**
+ * Remember the order the viewer chose.
+ * @param sort - the order to keep.
+ */
+function writeFileSort(sort: FileSort): void {
+  try {
+    localStorage.setItem(FILE_SORT_KEY, JSON.stringify(sort))
+  } catch {
+    // Storage access denied (private mode): the order still applies to this mount.
+  }
+}
+
+/** The locale key naming one key-and-direction pair, e.g. "Newest first". */
+function sortOrderKey(sort: FileSort): 'files.sort.nameAsc' | 'files.sort.nameDesc' | 'files.sort.modifiedAsc' | 'files.sort.modifiedDesc' {
+  if (sort.key === 'name') return sort.direction === 'asc' ? 'files.sort.nameAsc' : 'files.sort.nameDesc'
+  return sort.direction === 'asc' ? 'files.sort.modifiedAsc' : 'files.sort.modifiedDesc'
 }
 
 /** One folder set the host reports under `tabs`. */
@@ -195,11 +266,6 @@ function lastSeparator(path: string): number {
   return Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
 }
 
-/** The separator a host path is written with. */
-function separatorOf(path: string): string {
-  return path.includes('\\') && !path.includes('/') ? '\\' : '/'
-}
-
 /** A path's last segment. */
 function baseName(path: string): string {
   return path.slice(lastSeparator(path) + 1)
@@ -219,12 +285,12 @@ function dirName(path: string): string {
  * @returns the ancestor directories, outermost first.
  */
 export function revealAncestors(root: string, path: string): string[] {
-  const segments = path.slice(root.length + 1).split(/[\\/]/)
+  const segments = path.slice(root.length).split(/[\\/]/).filter(segment => segment !== '')
   segments.pop()
   const ancestors: string[] = []
   let current = root
   for (const segment of segments) {
-    current = `${current}${separatorOf(root)}${segment}`
+    current = joinHostPath(current, segment)
     ancestors.push(current)
   }
   return ancestors
@@ -252,9 +318,11 @@ export function isValidEntryName(raw: string): boolean {
  */
 function LazyTree({
   endpoint, roots, canReveal, selectedDir, refresh, reloadNonce, reveal, onRevealed,
-  onOpenFile, onReveal, onAddToChat, onRowMenu, onDropEntry, onSelectDir, t,
+  onOpenFile, onReveal, onAddToChat, onRowMenu, onDropEntry, onSelectDir, sort, t,
 }: {
   endpoint: string
+  /** The viewer's chosen order, applied to every listed folder. */
+  sort: FileSort
   roots: RootEntry[]
   /** Show the reveal action on rows (macOS only). */
   canReveal: boolean
@@ -338,7 +406,7 @@ function LazyTree({
   useEffect(() => {
     if (refresh === undefined) return
     const { path } = refresh
-    if (!roots.some(root => path === root.path || path.startsWith(`${root.path}/`))) return
+    if (!roots.some(root => isAtOrBeneath(root.path, path))) return
     setExpanded(previous => previous.has(path) ? previous : new Set(previous).add(path))
     void list(path)
   }, [refresh, roots, list])
@@ -356,7 +424,7 @@ function LazyTree({
   }, [])
   useEffect(() => {
     if (reveal === null || handledReveal.current === reveal.nonce) return
-    const root = roots.find(candidate => reveal.path.startsWith(`${candidate.path}/`))
+    const root = roots.find(candidate => isBeneath(candidate.path, reveal.path))
     if (root === undefined) return
     handledReveal.current = reveal.nonce
     const ancestors = revealAncestors(root.path, reveal.path)
@@ -369,7 +437,8 @@ function LazyTree({
     })
     void list(parent).then(() => {
       if (!alive.current) return
-      setRevealed(reveal.path)
+      // The row key the tree built, which a Windows host may spell in another case.
+      setRevealed(joinHostPath(parent, baseName(reveal.path)))
       onRevealed()
     })
   }, [reveal, roots, list, onRevealed])
@@ -439,11 +508,11 @@ function LazyTree({
         </Tooltip>
       )}
       {canReveal && (
-        <Tooltip label={t('files.reveal')} delayMs={400}>
+        <Tooltip label={t(fileManagerKey('files.reveal'))} delayMs={400}>
           <button
             type="button"
             className={css.rowAction}
-            aria-label={t('files.reveal')}
+            aria-label={t(fileManagerKey('files.reveal'))}
             onClick={(event) => { event.stopPropagation(); onReveal(path) }}
           >
             <IconRightUpOutline14 size={12} />
@@ -459,13 +528,13 @@ function LazyTree({
     if (listing === 'error') {
       return <div className={css.error} style={{ paddingLeft: `${12 + depth * 14}px` }}>{t('files.error')}</div>
     }
-    return renderEntries(path, listing, depth)
+    return renderEntries(path, sortEntries(listing, sort), depth)
   }
 
   const renderEntries = (parent: string, entries: ListEntry[], depth: number) => (
     <div>
       {entries.map((entry) => {
-        const path = `${parent}/${entry.name}`
+        const path = joinHostPath(parent, entry.name)
         if (entry.kind === 'file') {
           return (
             <div
@@ -589,7 +658,7 @@ function LazyTree({
  */
 export function currentProjectRoots(roots: RootEntry[], cwd: string | undefined): RootEntry[] {
   if (cwd === undefined) return roots
-  const owning = roots.filter(root => cwd === root.path || cwd.startsWith(`${root.path}/`))
+  const owning = roots.filter(root => isAtOrBeneath(root.path, cwd))
   return owning.length === 0 ? roots : owning
 }
 
@@ -639,6 +708,14 @@ export function FilesPanel({
   const [status, setStatus] = useState<{ level: 'info' | 'error'; text: string } | null>(null)
   const [refresh, setRefresh] = useState<RefreshSignal | undefined>(undefined)
   const [reloadNonce, setReloadNonce] = useState(0)
+  /** The viewer's file order, remembered across launches. */
+  const [sort, setSort] = useState<FileSort>(readFileSort)
+  const [sortMenu, setSortMenu] = useState<{ x: number; y: number } | null>(null)
+  const chooseSort = (next: FileSort): void => {
+    setSort(next)
+    writeFileSort(next)
+    setSortMenu(null)
+  }
   const [menu, setMenu] = useState<{ path: string; kind: 'dir' | 'file'; x: number; y: number } | null>(null)
 
   const loadTabs = useCallback(async (): Promise<AliasTab[] | undefined> => {
@@ -705,7 +782,7 @@ export function FilesPanel({
   useEffect(() => {
     if (reveal === null || !Array.isArray(tabs) || handledReveal.current === reveal.nonce) return
     handledReveal.current = reveal.nonce
-    const owner = REVEAL_ORDER.find(({ view }) => rootsOfView(view).some(root => reveal.path.startsWith(`${root.path}/`)))
+    const owner = REVEAL_ORDER.find(({ view }) => rootsOfView(view).some(root => isBeneath(root.path, reveal.path)))
     if (owner === undefined) {
       setStatus({ level: 'error', text: t('files.revealMissing') })
       onRevealDone()
@@ -744,9 +821,9 @@ export function FilesPanel({
       body: JSON.stringify({ path }),
     })
       .then((response) => {
-        if (!response.ok) setStatus({ level: 'error', text: t('files.revealFailed') })
+        if (!response.ok) setStatus({ level: 'error', text: t(fileManagerKey('files.revealFailed')) })
       })
-      .catch(() => { setStatus({ level: 'error', text: t('files.revealFailed') }) })
+      .catch(() => { setStatus({ level: 'error', text: t(fileManagerKey('files.revealFailed')) }) })
   }, [t])
 
   const addToChat = useCallback((path: string) => {
@@ -808,7 +885,7 @@ export function FilesPanel({
     }
     setTrashArmed(null)
     setMenu(null)
-    void operate('trash', { path }, 'files.trashed', 'files.trashFailed', parentOf(path))
+    void operate('trash', { path }, fileManagerKey('files.trashed'), fileManagerKey('files.trashFailed'), parentOf(path))
   }, [operate, trashArmed])
   const renameEntry = useCallback(async (): Promise<void> => {
     if (renaming === null || creating || !isValidEntryName(draftName)) return
@@ -1045,6 +1122,7 @@ export function FilesPanel({
         onRowMenu={openRowMenu}
         onDropEntry={moveEntry}
         onSelectDir={setTarget}
+        sort={sort}
         t={t}
       />
     )
@@ -1124,6 +1202,22 @@ export function FilesPanel({
             <BarIconRefresh size={15} />
           </button>
         </Tooltip>
+        <Tooltip label={t('files.sortBy', { order: `${t(sort.key === 'name' ? 'files.sort.name' : 'files.sort.modified')}, ${t(sortOrderKey(sort))}` })} delayMs={400}>
+          <button
+            type="button"
+            className={css.toolButton}
+            aria-label={t('files.sort')}
+            aria-haspopup="menu"
+            aria-expanded={sortMenu !== null}
+            data-active={sortMenu !== null ? '' : undefined}
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect()
+              setSortMenu(open => open === null ? { x: box.right, y: box.bottom + 4 } : null)
+            }}
+          >
+            <BarIconSort size={15} />
+          </button>
+        </Tooltip>
         <Tooltip label={t('files.browse')} delayMs={400}>
           <button
             type="button"
@@ -1193,6 +1287,50 @@ export function FilesPanel({
       {status !== null && (
         <div className={css.status} data-level={status.level} role="status">{status.text}</div>
       )}
+      {sortMenu !== null && (
+        <div
+          className={css.menuOverlay}
+          onClick={() => { setSortMenu(null) }}
+          onContextMenu={(event) => { event.preventDefault(); setSortMenu(null) }}
+        >
+          <div
+            className={css.menu}
+            role="menu"
+            aria-label={t('files.sort')}
+            style={{ left: Math.max(4, sortMenu.x - 170), top: sortMenu.y }}
+            onClick={(event) => { event.stopPropagation() }}
+          >
+            {(['name', 'modified'] as const).map(key => (
+              <button
+                key={key}
+                type="button"
+                role="menuitemradio"
+                aria-checked={sort.key === key}
+                className={css.menuItem}
+                data-checked={sort.key === key ? '' : undefined}
+                // Date opens newest first, name A to Z; a key already chosen keeps its direction.
+                onClick={() => { chooseSort(sort.key === key ? sort : { key, direction: key === 'name' ? 'asc' : 'desc' }) }}
+              >
+                {t(key === 'name' ? 'files.sort.name' : 'files.sort.modified')}
+              </button>
+            ))}
+            <div className={css.menuRule} role="separator" />
+            {(sort.key === 'name' ? ['asc', 'desc'] as const : ['desc', 'asc'] as const).map(direction => (
+              <button
+                key={direction}
+                type="button"
+                role="menuitemradio"
+                aria-checked={sort.direction === direction}
+                className={css.menuItem}
+                data-checked={sort.direction === direction ? '' : undefined}
+                onClick={() => { chooseSort({ key: sort.key, direction }) }}
+              >
+                {t(sortOrderKey({ key: sort.key, direction }))}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {menu !== null && (
         <div
           className={css.menuOverlay}
@@ -1226,7 +1364,7 @@ export function FilesPanel({
             )}
             {canReveal && (
               <button type="button" role="menuitem" className={css.menuItem} onClick={() => { revealInFinder(menu.path); closeMenu() }}>
-                {t('files.reveal')}
+                {t(fileManagerKey('files.reveal'))}
               </button>
             )}
             <button type="button" role="menuitem" className={css.menuItem} onClick={() => { copyPath(menu.path); closeMenu() }}>
@@ -1264,7 +1402,7 @@ export function FilesPanel({
                 data-armed={trashArmed === menu.path ? '' : undefined}
                 onClick={() => { trashEntry(menu.path) }}
               >
-                {t(trashArmed === menu.path ? 'files.trashConfirm' : 'files.trash')}
+                {t(fileManagerKey(trashArmed === menu.path ? 'files.trashConfirm' : 'files.trash'))}
               </button>
             )}
           </div>
@@ -1298,6 +1436,7 @@ export function FilesPanel({
                 onRowMenu={openRowMenu}
                 onDropEntry={moveEntry}
                 onSelectDir={setTarget}
+                sort={sort}
                 t={t}
               />
             </div>

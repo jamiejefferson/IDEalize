@@ -70,7 +70,7 @@ afterEach(async () => {
  * realpath-resolved up front so the temp directory's own symlink (macOS puts
  * `/var/folders` behind `/private/var`) cannot be mistaken for a fence bug.
  */
-async function boot() {
+async function boot(options: { desktopActions?: Record<string, unknown> } = {}) {
   root = await realpath(await mkdtemp(join(tmpdir(), 'idealize-bar-aliases-')))
   const projects = join(root, 'projects')
   const project = join(projects, 'Alpha')
@@ -89,6 +89,7 @@ async function boot() {
   const workspaces: { title: string; path: string }[] = []
   await ctx.plugin(MemorySettings)
   ctx.provide('workspaceRegistry', { list: () => workspaces } as never)
+  if (options.desktopActions !== undefined) ctx.provide('desktopActions', options.desktopActions as never)
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
   await ctx.plugin(setup)
   await ctx.plugin(uiBar)
@@ -256,6 +257,18 @@ describe('the listing fence', () => {
     expect((await list('/')).status).toBe(403)
   }, 30_000)
 
+  it('reads a ~/ path from home in the viewer, as a chat\'s prose spells it', async () => {
+    const { origin } = await boot()
+    vi.stubEnv('HOME', root)
+    try {
+      const viewer = await fetch(`${origin}/idealize/bar/file?path=${encodeURIComponent('~/vault/CONVENTIONS.md')}`)
+      expect(viewer.status).toBe(200)
+      expect(((await viewer.json()) as { text: string }).text).toBe('# vault\n')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  }, 30_000)
+
   it('stays closed while no alias is captured', async () => {
     const { origin, docs } = await boot()
     const response = await fetch(`${origin}/idealize/bar/files?path=${encodeURIComponent(docs)}`)
@@ -407,5 +420,45 @@ describe('POST /idealize/bar/open', () => {
     } finally {
       launcher.mockRestore()
     }
+  }, 30_000)
+})
+
+describe('the desktop shell\'s reveal and open', () => {
+  // Windows has no /usr/bin/open: under the desktop shell both routes go
+  // through Electron, on every platform, behind the same fence and refusals.
+  it('reveals and opens through the shell, and still refuses what Windows would run', async () => {
+    const shown: string[] = []
+    const opened: string[] = []
+    const desktopActions = {
+      openTerminal: vi.fn(),
+      showItemInFolder: (path: string) => { shown.push(path) },
+      openPath: (path: string) => {
+        opened.push(path)
+        return Promise.resolve(path.endsWith('.nothing') ? 'No application is associated with the specified file' : '')
+      },
+    }
+    const { ctx, workspaces, projects, project, docs, skills, outside, origin } = await boot({ desktopActions })
+    await captureFirstRun(ctx, workspaces, { project, projects, docs, skills })
+    const post = (route: string, path: string) =>
+      fetch(`${origin}/idealize/bar/${route}`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-idealize-auth': '1' }, body: JSON.stringify({ path }),
+      })
+    await writeFile(join(project, 'brief.pdf'), '%PDF')
+    await writeFile(join(project, 'setup.exe'), 'MZ')
+    await writeFile(join(project, 'run.bat'), 'echo hi')
+    await writeFile(join(project, 'odd.nothing'), '')
+
+    const capabilities = await (await fetch(`${origin}/idealize/bar/capabilities`)).json() as { reveal: boolean; openExternal: boolean }
+    expect(capabilities).toMatchObject({ reveal: true, openExternal: true })
+
+    expect((await post('reveal', join(project, 'brief.pdf'))).status).toBe(200)
+    expect(shown).toEqual([join(project, 'brief.pdf')])
+    expect((await post('reveal', join(outside, 'secret.txt'))).status).toBe(403)
+
+    expect((await post('open', join(project, 'brief.pdf'))).status).toBe(200)
+    expect((await post('open', join(project, 'setup.exe'))).status).toBe(422)
+    expect((await post('open', join(project, 'run.bat'))).status).toBe(422)
+    expect((await post('open', join(project, 'odd.nothing'))).status).toBe(422)
+    expect(opened).toEqual([join(project, 'brief.pdf'), join(project, 'odd.nothing')])
   }, 30_000)
 })

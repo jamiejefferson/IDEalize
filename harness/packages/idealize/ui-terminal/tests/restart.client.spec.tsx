@@ -9,13 +9,15 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import {
-  closeTerminal, disposeTerminals, restartTerminal, SURFACE_EXEMPT, TerminalView, type StreamEvent, type TerminalTransport,
+  closeTerminal, disposeTerminals, restartTerminal, SURFACE_EXEMPT, TerminalView, typePaths, type StreamEvent, type TerminalTransport,
 } from '../src/client/TerminalView.tsx'
 import { SURFACE_EXEMPT_ATTRIBUTE } from '@idealize/appearance/src/surface-css.ts'
 
 // jsdom paints nothing, so xterm's renderer has no dimensions and its fit
 // addon throws on the first measure. The grid itself is not under test here —
 // which shell is open, and on which brain, is.
+const pasted = vi.hoisted((): string[] => [])
+
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     cols = 80
@@ -25,7 +27,9 @@ vi.mock('@xterm/xterm', () => ({
     loadAddon(): void {}
     open(host: HTMLElement): void { this.element = host.appendChild(document.createElement('div')) }
     focus(): void {}
+    registerLinkProvider(): { dispose: () => void } { return { dispose: () => {} } }
     write(): void {}
+    paste(text: string): void { pasted.push(text) }
     dispose(): void {}
     onData(): { dispose: () => void } { return { dispose: () => {} } }
     onResize(): { dispose: () => void } { return { dispose: () => {} } }
@@ -139,5 +143,23 @@ describe('closeTerminal', () => {
     const { closed } = recorder()
     await act(async () => { await closeTerminal('never') })
     expect(closed).toEqual([])
+  })
+})
+
+describe('typePaths', () => {
+  it('types the escaped paths at a live prompt without a newline', async () => {
+    pasted.length = 0
+    const { transport } = recorder()
+    await act(async () => {
+      render(<TerminalView sessionId="s1" cwd="/tmp" activity="coding" transport={transport} t={t as never} />)
+    })
+    expect(typePaths('s1', ['/w/proj/my notes.md'])).toBe(true)
+    expect(pasted).toEqual(['/w/proj/my\\ notes.md '])
+  })
+
+  it('reports false for a chat with no shell here', () => {
+    pasted.length = 0
+    expect(typePaths('never', ['/w/a.md'])).toBe(false)
+    expect(pasted).toEqual([])
   })
 })

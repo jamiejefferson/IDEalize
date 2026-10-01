@@ -46,7 +46,13 @@ export interface Workspace {
    * `insertSessionBefore`, and activity never reorders. The durable candidate
    * account is filtered synchronously: missing headers, invalid cwd values,
    * and canonical cwd mismatches are never returned. A subsequent workspace
-   * mutation prunes those filtered candidates durably.
+   * mutation prunes those filtered candidates durably. After the account come
+   * the indexed sessions whose canonical cwd is this path but which the
+   * account never recorded (subagent children excluded), newest first: a
+   * project removed and added again gets its chats back, and a chat started
+   * in the folder without an attach still lists under it. Those trailing ids
+   * are read-time only; `insertSessionBefore` on one writes it into the
+   * account.
    */
   readonly sessionIds: readonly SessionId[]
 

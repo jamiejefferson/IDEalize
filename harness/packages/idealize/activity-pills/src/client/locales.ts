@@ -31,6 +31,8 @@ export const zh = {
   'router.back': '切换回 {from}',
   'router.accept': '使用 {to}',
   'router.lock': '让此聊天保持当前模型',
+  'router.note.switched': '本次回复改用 {to}（原为 {from}）。',
+  'router.note.back': '此聊天回到 {to}。',
 } as const
 
 /** Dictionary key set. */
@@ -67,4 +69,6 @@ export const en: Record<ActivityKey, string> = {
   'router.back': 'Switch back to {from}',
   'router.accept': 'Use {to}',
   'router.lock': 'Keep this chat on its model',
+  'router.note.switched': 'Switched from {from} to {to} for this reply.',
+  'router.note.back': 'Back on {to}.',
 }
