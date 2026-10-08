@@ -166,6 +166,8 @@ export interface TerminalAppearanceSettings {
   fontSize: number
   /** Line height as a multiple of the font's natural height, 1–3 (V0 `terminalLineSpacing`). */
   lineSpacing: number
+  /** Extra space between letters in px, -4–8; below zero closes up a proportional face, whose cell is its widest letter. */
+  letterSpacing: number
   /** Padding around the grid in px, 0–80, painted in the terminal ground (V0 `terminalMargin`). */
   margin: number
 }
@@ -177,6 +179,7 @@ export const TERMINAL_DEFAULTS: TerminalAppearanceSettings = Object.freeze({
   fontName: 'DM Mono',
   fontSize: 14,
   lineSpacing: 1,
+  letterSpacing: 0,
   margin: 36,
 })
 
@@ -357,6 +360,7 @@ const TerminalSchema: z<TerminalAppearanceSettings> = z.object({
   fontName: z.string().default(TERMINAL_DEFAULTS.fontName),
   fontSize: z.number().min(9).max(28).default(TERMINAL_DEFAULTS.fontSize),
   lineSpacing: z.number().min(1).max(3).default(TERMINAL_DEFAULTS.lineSpacing),
+  letterSpacing: z.number().min(-4).max(8).default(TERMINAL_DEFAULTS.letterSpacing),
   margin: z.number().min(0).max(80).default(TERMINAL_DEFAULTS.margin),
 })
 

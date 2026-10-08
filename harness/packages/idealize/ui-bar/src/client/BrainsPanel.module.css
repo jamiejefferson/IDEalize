@@ -876,3 +876,60 @@
   min-width: 0;
   padding-bottom: 12px;
 }
+
+/* The Budget section's own width, which its narrow rules below read (a
+   container name is scoped to its module, so the section names its own). */
+.budget {
+  container: budget / inline-size;
+}
+
+/* The Budget tables at a narrow width (feedback c258f030). Under 400px the
+   name column was squeezed to a word a line beside the fixed figure
+   columns, so each row puts its name on its own line with the figures in
+   equal columns beneath, and the head row keeps only the figure labels,
+   naming the first column to screen readers alone. */
+@container budget (max-width: 399px) {
+  .tableHead,
+  .tableRow,
+  .tableTotal {
+    flex-wrap: wrap;
+    min-height: 0;
+  }
+
+  .tableRow > .colCategory,
+  .tableTotal > .colCategory {
+    flex: 1 0 100%;
+    padding: 10px 12px 4px;
+  }
+
+  .tableHead > .colCategory {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .colPeriod,
+  .colCost {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 12px 10px;
+    border-left: 0;
+  }
+
+  /* Figures line up on their first line, even where a cost has its price action beneath. */
+  .colPeriod {
+    align-items: flex-start;
+  }
+
+  .colCost {
+    justify-content: flex-start;
+  }
+
+  .tableHead .colPeriod,
+  .tableHead .colCost {
+    padding: 9px 12px;
+  }
+}

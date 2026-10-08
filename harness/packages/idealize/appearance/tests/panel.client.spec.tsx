@@ -335,6 +335,8 @@ describe('AppearancePanel', () => {
     expect(face.setTerminal).toHaveBeenCalledWith({ fontSize: 18 })
     fireEvent.change(screen.getByLabelText('Line-spacing'), { target: { value: '1.4' } })
     expect(face.setTerminal).toHaveBeenCalledWith({ lineSpacing: 1.4 })
+    fireEvent.change(screen.getByLabelText('Letter-spacing'), { target: { value: '-1.5' } })
+    expect(face.setTerminal).toHaveBeenCalledWith({ letterSpacing: -1.5 })
     fireEvent.change(screen.getByLabelText('Margins'), { target: { value: '20' } })
     expect(face.setTerminal).toHaveBeenCalledWith({ margin: 20 })
   })

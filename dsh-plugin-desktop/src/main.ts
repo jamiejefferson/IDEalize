@@ -33,6 +33,7 @@ import {
   installDesktopPnpmRuntime,
 } from './desktop-runtime-environment.ts'
 import { desktopProductVersion, ElectronDesktopRuntime } from './electron-runtime.ts'
+import { openStartupIdent, type StartupIdent } from './startup-ident-window.ts'
 import {
   ElectronStderrLogger,
   installDesktopChildProcessLogging,
@@ -451,8 +452,12 @@ async function start(): Promise<void> {
     if (startupRecoveryWindow !== undefined) startupRecoveryWindow.show()
     else runtime.show()
   })
+  let startupIdent: StartupIdent | undefined
   try {
     await app.whenReady()
+    // The ident plays until the first real window shows, which it notices
+    // itself; a failure below closes it explicitly.
+    startupIdent = openStartupIdent(desktopProductVersion())
     // Detached: the clear runs in Chromium's cache thread while the Host boots.
     void clearPreviousLaunchHttpCache(
       session.defaultSession,
@@ -889,6 +894,7 @@ async function start(): Promise<void> {
       )
     }
   } catch (cause) {
+    startupIdent?.close()
     runtime.stopRendererBootMonitoring()
     electronLogger.errorCause(cause)
     let exitCode = 1

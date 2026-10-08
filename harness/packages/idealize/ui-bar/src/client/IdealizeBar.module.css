@@ -1,8 +1,7 @@
-/* Tool rail: a 48px column docked at the inner edge of the open deck/drawer
-   columns (the window edge while both are closed), icons stacked from the
-   top. Geometry from the "Dock launcher" Paper frame: 18px top/bottom and
-   13px side padding, 10px gap, 22px hit boxes, 1px left border, page ground.
-   The divider on the rail's other side is the open pane's own border-left.
+/* Tool rail: a 48px column on the window edge, right of the deck/drawer
+   columns, icons stacked from the top. Geometry from the "Dock launcher"
+   Paper frame: 18px top/bottom and 13px side padding, 10px gap, 22px hit
+   boxes, 1px left border (the divider against an open pane), page ground.
    Colours ride the dsw semantic aliases so the skin and theme both apply. */
 .root {
   box-sizing: border-box;

@@ -277,7 +277,7 @@ export function BudgetSection({ providerName, t }: {
   }
 
   return (
-    <>
+    <div className={css.budget} data-budget-section="">
       <SectionHead title={t('brains.budget.title')} detail={t('brains.budget.detail')} />
       <label className={css.field}>
         <span className={css.fieldLabel}>{t('brains.budget.view')}</span>
@@ -559,6 +559,6 @@ export function BudgetSection({ providerName, t }: {
       )}
       <p className={css.note}>{t('brains.budget.note')}</p>
       {status !== '' && <p className={css.status} role="status">{status}</p>}
-    </>
+    </div>
   )
 }

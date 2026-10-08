@@ -1,9 +1,8 @@
 /**
  * The IDEalize tool rail: a 48px column on the shell.rail seat (per the
- * "Dock launcher" Paper frame), icons stacked from the top. The seat docks at
- * the inner edge of the open deck/drawer columns, on the window edge while
- * both are closed. Every button opens a pane in the docked drawer column at
- * the window edge (DrawerPanel on shell.drawer) — nothing on the rail opens a
+ * "Dock launcher" Paper frame), icons stacked from the top. The seat stays on
+ * the window edge whatever is open. Every button opens a pane in the docked
+ * drawer column beside the rail (DrawerPanel on shell.drawer) — nothing on the rail opens a
  * modal. The Terminal entry opens a plain shell in the drawer for running
  * commands beside a chat (JJ, 15 Sep 2026); it shows only where the host
  * serves an embedded terminal. Which space a chat runs in is chosen in the

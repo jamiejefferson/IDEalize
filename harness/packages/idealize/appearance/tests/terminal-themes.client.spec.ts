@@ -113,7 +113,12 @@ describe('resolveTerminalPaint', () => {
     expect(paint.fontFamily).toMatch(/^"DM Mono", ui-monospace/)
     expect(paint.fontSize).toBe(14)
     expect(paint.lineHeight).toBe(1)
+    expect(paint.letterSpacing).toBe(0)
     expect(paint.margin).toBe(36)
+  })
+
+  it('carries the letter spacing through to the grid', () => {
+    expect(resolveTerminalPaint({ ...TERMINAL_DEFAULTS, letterSpacing: -2 }).letterSpacing).toBe(-2)
   })
 
   it('layers a custom background over any theme and re-derives the selection from it', () => {

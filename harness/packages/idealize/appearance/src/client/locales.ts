@@ -101,6 +101,7 @@ export const zh = {
   'terminal.bgHint': '你自己的背景色，覆盖任何主题。清除即可恢复主题背景。',
   'terminal.typeCard': '终端文字',
   'terminal.fontSize': '字号',
+  'terminal.letterSpacingHint': '非等宽字体的每个字符格都和最宽的字母一样宽。把字距调到零以下可以收紧字母间隙。',
 } as const
 
 /** Dictionary key set. */
@@ -207,4 +208,5 @@ export const en: Record<AppearanceKey, string> = {
   'terminal.bgHint': 'Your own background colour, over any theme. Clear it to go back to the theme’s.',
   'terminal.typeCard': 'Terminal type',
   'terminal.fontSize': 'Font size',
+  'terminal.letterSpacingHint': 'A font that isn’t monospaced gives every letter a cell as wide as its widest one. Set letter-spacing below zero to close the gaps.',
 }

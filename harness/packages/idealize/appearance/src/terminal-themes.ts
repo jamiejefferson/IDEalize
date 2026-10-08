@@ -185,6 +185,8 @@ export interface TerminalPaint {
   fontSize: number
   /** Line height as a multiple of the font's natural height (xterm `lineHeight`). */
   lineHeight: number
+  /** Extra space between letters in CSS px; negative closes the cell up. */
+  letterSpacing: number
   /** Padding around the grid in px, painted in {@link background}. */
   margin: number
 }
@@ -289,6 +291,7 @@ export function resolveTerminalPaint(settings: TerminalAppearanceSettings = TERM
     fontFamily: terminalFontStack(settings.fontName),
     fontSize: settings.fontSize,
     lineHeight: settings.lineSpacing,
+    letterSpacing: settings.letterSpacing,
     margin: settings.margin,
   }
 }

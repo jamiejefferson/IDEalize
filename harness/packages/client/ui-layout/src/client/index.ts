@@ -109,18 +109,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'shell.dock': { kind: 'list'; scope: 'root' }
     /**
-     * The rail: a fixed-content column docked at the inner (left) edge of the
-     * open deck/drawer columns — on the window edge while both are closed.
+     * The rail: a fixed-content column on the window edge, right of the
+     * deck/drawer columns, so it never moves as they open or close.
      * The occupant sizes it — an empty rail has no width — and the concession
      * solve never counts it; the banner and dock strips span past it.
      * Root-scoped: the tool rail renders with or without a current session.
      */
     'shell.rail': { kind: 'single'; scope: 'root'; owner: RailOwnerProps }
     /**
-     * The aside: a fixed-content column immediately left of the rail. The
+     * The aside: a fixed-content column left of the deck/drawer columns. The
      * occupant sizes it — an empty aside has no width — and the concession
-     * solve never counts it, so a full-height panel here sits beside the tool
-     * rail rather than covering conversation content or floating over it.
+     * solve never counts it, so a full-height panel here sits beside the
+     * panes rather than covering conversation content or floating over it.
      *
      * Current-session-optional: the occupant stays mounted across a session
      * switch, keeping its own fold state, and reads the current session

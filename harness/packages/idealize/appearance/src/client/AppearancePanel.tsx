@@ -660,6 +660,8 @@ function TerminalTab({ t, settings, fonts, monospaced, face }: TabContext & { mo
         <FontPicker label={t('typography.font')} value={terminal.fontName} fonts={ordered} emptyLabel={t('font.system')} loadingLabel={t('font.loading')} findLabel={t('font.find')} onChange={(family) => { set({ fontName: family }) }} />
         <SliderRow label={t('terminal.fontSize')} min={9} max={28} step={0.5} value={terminal.fontSize} display={v => v.toFixed(1)} onChange={(next) => { set({ fontSize: next }) }} />
         <SliderRow label={t('typography.lineSpacing')} min={1} max={3} step={0.1} value={terminal.lineSpacing} display={v => v.toFixed(1)} onChange={(next) => { set({ lineSpacing: Math.round(next * 10) / 10 }) }} />
+        <SliderRow label={t('typography.tracking')} min={-4} max={8} step={0.5} value={terminal.letterSpacing} display={v => `${v.toFixed(1)}px`} onChange={(next) => { set({ letterSpacing: Math.round(next * 2) / 2 }) }} />
+        <span className={css.hint}>{t('terminal.letterSpacingHint')}</span>
         <SliderRow label={t('chat.margins')} min={0} max={80} step={2} value={terminal.margin} display={v => `${v}px`} onChange={(next) => { set({ margin: next }) }} />
       </section>
     </>

@@ -1,9 +1,8 @@
 /**
  * IDEalize tool rail, browser half: the 48px icon column on the shell.rail
- * seat (docked at the inner edge of the open deck/drawer columns), its panes
- * in the docked shell.drawer column at the window edge (so nothing covers the
- * conversation — no rail entry opens a modal), the file viewer in the
- * shell.deck column between them, and the
+ * seat (on the window edge), its panes in the docked shell.drawer column
+ * beside it (so nothing covers the conversation — no rail entry opens a
+ * modal), the file viewer in the shell.deck column beside the drawer, and the
  * thank-you heart on the composer's conversation.input.right seat.
  *
  * Panes: Files; the Service hatch (V0's hatch chat under a Service tab, the

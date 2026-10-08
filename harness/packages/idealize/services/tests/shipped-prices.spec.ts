@@ -27,6 +27,12 @@ describe('shippedTokenPrices', () => {
     expect(SHIPPED_PRICE_CURRENCY).toBe('USD')
   })
 
+  it('prices the addendum\'s newer Claude models at their published rates', () => {
+    expect(shippedTokenPrices('anthropic')?.['claude-opus-5-5']).toEqual({ input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 })
+    expect(shippedTokenPrices('anthropic')?.['claude-sonnet-5-5']).toEqual({ input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 })
+    expect(shippedTokenPrices('openrouter')?.['anthropic/claude-opus-5.5']?.output).toBe(20)
+  })
+
   it('prices DeepSeek\'s own API route from the catalogue\'s DeepSeek entry', () => {
     expect(shippedTokenPrices('deepseek-official')).toEqual(shippedTokenPrices('deepseek'))
     expect(shippedTokenPrices('deepseek-official')?.['deepseek-v4-flash']).toBeDefined()

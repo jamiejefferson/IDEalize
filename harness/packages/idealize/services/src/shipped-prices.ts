@@ -7,12 +7,15 @@
  * list. Two costs mean "no figure" rather than a rate: every component zero
  * (a hand-declared model, a free tier), and a negative component, which pi-ai
  * writes for a router whose price depends on the model it picks
- * (`openrouter/auto` carries -1000000). Both read here as no price.
+ * (`openrouter/auto` carries -1000000). Both read here as no price. Models
+ * newer than the installed catalogue come from the adapter's addendum, so the
+ * tab prices them the same way.
  * @module @idealize/services/shipped-prices
  */
 
 import { getBuiltinModels, getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
 import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
+import { catalogAddendum } from '@deepseek-ai/dsh-llm-pi-ai'
 
 /** One model's token prices in USD per million tokens, every kind explicit. */
 export interface ShippedTokenPrice {
@@ -45,7 +48,9 @@ export function shippedTokenPrices(provider: string): Record<string, ShippedToke
   const catalogue = CATALOGUE_NAME[provider] ?? provider
   if (!(getBuiltinProviders() as readonly string[]).includes(catalogue)) return undefined
   const prices: Record<string, ShippedTokenPrice> = {}
-  for (const model of getBuiltinModels(catalogue as BuiltinProvider)) {
+  const installed = getBuiltinModels(catalogue as BuiltinProvider)
+  const newer = catalogAddendum(catalogue, new Set(installed.map(model => model.id)))
+  for (const model of [...installed, ...newer]) {
     const { input, output, cacheRead, cacheWrite } = model.cost
     const parts = [input, output, cacheRead, cacheWrite]
     if (parts.some(part => !Number.isFinite(part) || part < 0)) continue

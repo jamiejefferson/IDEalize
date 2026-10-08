@@ -433,6 +433,23 @@ describe('catalog routes with per-model configuration', () => {
     }
   })
 
+  it('lists Claude Opus 5.5 and Sonnet 5.5 from the addendum on the Anthropic and OpenRouter routes', async () => {
+    // The installed pi-ai predates both models; the addendum supplies them
+    // until a pi-ai bump ships them itself (feedback 32d1ec28).
+    const ctx = await harness({ providers: { anthropic: { apiKeyEnv: KEY_ENV }, openrouter: { apiKeyEnv: KEY_ENV } } })
+
+    const anthropic = (await ctx.llm.listModels('anthropic')).map(model => model.id)
+    expect(anthropic).toEqual(expect.arrayContaining(['claude-opus-5', 'claude-opus-5-5', 'claude-sonnet-5-5']))
+    const openrouter = (await ctx.llm.listModels('openrouter')).map(model => model.id)
+    expect(openrouter).toEqual(expect.arrayContaining(['anthropic/claude-opus-5.5', 'anthropic/claude-sonnet-5.5']))
+
+    const opus = await ctx.llm.resolveModelInfo('anthropic', 'claude-opus-5-5')
+    expect(opus.name).toBe('Claude Opus 5.5')
+    expect(opus.context).toEqual({ contextWindow: 1_000_000 })
+    // Thinking cannot be turned off on either model, so `off` is not offered.
+    expect(opus.reasoning?.efforts.map(effort => effort.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+  })
+
   it('overrides one catalog model field and defaults the rest from the catalog', async () => {
     const server = await mockServer([])
     const [catalogModel] = getBuiltinModels('deepseek')

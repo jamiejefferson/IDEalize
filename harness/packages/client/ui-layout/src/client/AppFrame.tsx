@@ -1,9 +1,8 @@
 /**
  * Column shell frame, registered into the built-in 'root' slot (the web
  * shell renders only 'root'). Owns the grid tracks (sidebar | center |
- * details | aside | rail | deck | drawer, under a top banner strip and over a
- * bottom dock strip; the rail rides the inner edge of whichever deck/drawer
- * columns are open), the drag handles
+ * details | aside | deck | drawer | rail, under a top banner strip and over a
+ * bottom dock strip; the rail stays on the window edge), the drag handles
  * (pointer capture + rAF throttle), the concession
  * chain (columns.ts), and the child-slot render decisions: the sidebar slot
  * renders HERE with live parameters from the concession solve, and the
@@ -47,11 +46,10 @@ function DeckColumn(props: { children?: ReactNode }) {
 }
 
 /**
- * Rail column grid item: an auto-sized track between details and the deck, so
- * the rail rides the inner (left) edge of whichever right-side panes are open
- * while the deck/drawer content sits flush against the window edge. With both
- * closed their tracks are 0 wide and the rail lands on the window edge. Its
- * measured width is taken off the concession viewport.
+ * Rail column grid item: an auto-sized track, the last in the frame, so the
+ * tool rail stays on the window edge whichever panes are open (user feedback,
+ * 8 Oct 2026: it moved as panes opened). Its measured width is taken off the
+ * concession viewport.
  */
 function RailColumn(props: { railRef: React.Ref<HTMLDivElement>; children?: ReactNode }) {
   return <div ref={props.railRef} className={css.railCol}>{props.children}</div>
@@ -248,7 +246,7 @@ export function AppFrame({
     <div
       ref={frameRef}
       className={css.frame}
-      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px auto ${cols.deck}px auto ${cols.drawer}px` }}
+      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px auto ${cols.deck}px ${cols.drawer}px auto` }}
       data-sidebar-collapsed={sidebarRail || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
       data-deck-collapsed={cols.deck === 0 || undefined}
@@ -279,12 +277,13 @@ export function AppFrame({
         <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
         <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
         <AsideColumn asideRef={asideRef}>{renderSlot('shell.aside', {})}</AsideColumn>
-        {/* The document pane opens on the conversation's side of the rail, so
-            the tool rail keeps the same screen position whether a document is
-            open or not (JJ, 10 Sep 2026). The drawer stays beyond the rail. */}
+        {/* The tool rail is the last column, on the window edge, and both
+            panes open on the conversation's side of it, so the rail keeps the
+            same screen position whatever is open (JJ, 10 Sep 2026 for the
+            document; user feedback, 8 Oct 2026, for the drawer). */}
         <DeckColumn>{renderSlot('shell.deck', {})}</DeckColumn>
-        <RailColumn railRef={railRef}>{renderSlot('shell.rail', {})}</RailColumn>
         <DrawerColumn>{renderSlot('shell.drawer', {})}</DrawerColumn>
+        <RailColumn railRef={railRef}>{renderSlot('shell.rail', {})}</RailColumn>
       </>
       {/* Strip under every column, the rail track included: dock content owns its ground. */}
       <div className={css.dockRow} data-shell-dock>
@@ -296,19 +295,16 @@ export function AppFrame({
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
       {!sidebarRail && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {/* Every handle offsets from the frame width, because the columns it
-          measures sit at the window edge. Each one sits on its own column's
-          left border, which is the border a person sees and the one that
-          moves when they drag (JJ, 2026-08-28 and again 1 Sep 2026: "there
-          are drag handles but they're misplaced"). The drawer's therefore
-          sits right of the rail rather than left of it: with a document open
-          the rail's left border is the DOCUMENT's right edge, and a handle
-          there moved the wrong pane. Nothing resizes the rail, so its left
-          border carries no handle at all. The details border is rail-free
-          arithmetic either way: frameWidth − rail − aside − details − deck −
-          drawer ≡ viewport − details − deck − drawer. */}
+          measures sit against the rail on the window edge. Each one sits on
+          its own column's left border, which is the border a person sees and
+          the one that moves when they drag (JJ, 2026-08-28 and again 1 Sep
+          2026: "there are drag handles but they're misplaced"). Nothing
+          resizes the rail, so its left border carries no handle at all. The
+          details border is rail-free arithmetic either way: frameWidth − rail
+          − aside − details − deck − drawer ≡ viewport − details − deck − drawer. */}
       {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details - cols.deck - cols.drawer} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
       {cols.deck > 0 && <DragHandle side="deck" left={frameWidth - railWidth - cols.deck - cols.drawer} onStart={onDeckStart} onDrag={onDeckDrag} onEnd={onDragEnd} />}
-      {cols.drawer > 0 && <DragHandle side="drawer" left={frameWidth - cols.drawer} onStart={onDrawerStart} onDrag={onDrawerDrag} onEnd={onDragEnd} />}
+      {cols.drawer > 0 && <DragHandle side="drawer" left={frameWidth - railWidth - cols.drawer} onStart={onDrawerStart} onDrag={onDrawerDrag} onEnd={onDragEnd} />}
     </div>
   )
 }

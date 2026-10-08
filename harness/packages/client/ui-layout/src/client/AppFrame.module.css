@@ -55,7 +55,7 @@
 }
 
 .drawerCol {
-  grid-column: 7;
+  grid-column: 6;
   grid-row: 2;
   min-width: 0;
   overflow: hidden;
@@ -88,11 +88,10 @@
   overflow: hidden;
 }
 
-/* The rail: an auto track the occupant sizes (empty = no width), seated
-   between the aside and the deck so it rides the inner edge of whichever
-   deck/drawer panes are open; with both closed it lands on the window edge. */
+/* The rail: an auto track the occupant sizes (empty = no width), seated last
+   so it stays on the window edge whichever deck/drawer panes are open. */
 .railCol {
-  grid-column: 6;
+  grid-column: 7;
   grid-row: 2;
   min-width: 0;
   overflow: hidden;

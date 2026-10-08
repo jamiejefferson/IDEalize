@@ -326,6 +326,7 @@ function createAttachment(): Attachment {
     fontFamily: paint?.fontFamily ?? 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
     fontSize: paint?.fontSize ?? 13,
     lineHeight: paint?.lineHeight ?? 1.2,
+    letterSpacing: deviceLetterSpacing(paint?.letterSpacing ?? 0),
     scrollback: 5000,
     theme: paint === undefined ? themeFromPage() : xtermTheme(paint),
   })
@@ -478,6 +479,27 @@ function styleTerminal(terminal: Terminal): void {
   terminal.options.fontFamily = paint.fontFamily
   terminal.options.fontSize = paint.fontSize
   terminal.options.lineHeight = paint.lineHeight
+  terminal.options.letterSpacing = deviceLetterSpacing(paint.letterSpacing)
+}
+
+/**
+ * xterm adds `letterSpacing` to the cell in device pixels, so on a 2x screen
+ * the setting's 1px would add half a CSS pixel. The paint's value is CSS px;
+ * this scales it to the screen the page is on.
+ * @param css - letter spacing in CSS px.
+ * @returns whole device pixels for xterm.
+ */
+export function deviceLetterSpacing(css: number): number {
+  const ratio = typeof window === 'undefined' || !(window.devicePixelRatio > 0) ? 1 : window.devicePixelRatio
+  return Math.round(css * ratio)
+}
+
+/** Rescale every grid's letter spacing when the window moves to a screen of another pixel density. */
+function restyleForDensity(): void {
+  for (const attachment of attachments.values()) {
+    styleTerminal(attachment.terminal)
+    if (attachment.terminal.element !== undefined) scheduleRefit(attachment)
+  }
 }
 
 /**
@@ -663,6 +685,22 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
     if (fonts === undefined) return
     fonts.addEventListener('loadingdone', remeasureTerminals)
     return () => { fonts.removeEventListener('loadingdone', remeasureTerminals) }
+  }, [])
+
+  // Letter spacing is held in device pixels, so a move to a screen of another
+  // density rescales it. The query matches the current ratio only; it is
+  // renewed each time it stops matching.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    let query: MediaQueryList | undefined
+    const watch = (): void => {
+      query?.removeEventListener('change', changed)
+      query = window.matchMedia(`(resolution: ${String(window.devicePixelRatio)}dppx)`)
+      query.addEventListener('change', changed)
+    }
+    const changed = (): void => { restyleForDensity(); watch() }
+    watch()
+    return () => { query?.removeEventListener('change', changed) }
   }, [])
 
   // The ground's reach across the scroller's reserved gutter. Measured rather

@@ -75,6 +75,7 @@ const PAINT: TerminalPaint = {
   fontFamily: '"DM Mono", monospace',
   fontSize: 14,
   lineHeight: 1,
+  letterSpacing: 0,
   margin: 36,
 }
 
@@ -183,6 +184,17 @@ describe('grid size', () => {
     frame()
     expect(grid.fits).toBe(mounted + 1)
     expect(resizes).toEqual([{ cols: 52, rows: 15 }])
+  })
+
+  it('refits after a letter-spacing change, which widens or narrows every cell', async () => {
+    const { transport, resizes } = recorder()
+    await mount(transport)
+    resizes.length = 0
+
+    grid.next = { cols: 96, rows: 24 }
+    act(() => { applyTerminalPaint({ ...PAINT, letterSpacing: -1 }) })
+    frame()
+    expect(resizes).toEqual([{ cols: 96, rows: 24 }])
   })
 
   it('leaves the grid alone while its host has no box, and fits when the box returns', async () => {

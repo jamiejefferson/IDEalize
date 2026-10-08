@@ -117,7 +117,7 @@ export function WorkPanel({ t }: { t: (key: BarKey, params?: Record<string, stri
       {work === 'failed' && <p className={brains.note} role="status" data-work-failed="">{t('work.failed')}</p>}
 
       <SectionHead title={t('work.projects.title')} detail={t('work.projects.detail')} />
-      <div className={brains.table} role="table" aria-label={t('work.projects.title')} data-work-projects="">
+      <div className={`${brains.table} ${css.projects}`} role="table" aria-label={t('work.projects.title')} data-work-projects="">
         <div className={brains.tableHead} role="row">
           <span className={brains.colCategory}>{t('work.col.project')}</span>
           <span className={`${css.colTime} ${css.colHead}`}>{t('work.col.month')}</span>

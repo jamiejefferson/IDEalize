@@ -23,6 +23,7 @@ import type {
   Provider,
   ThinkingLevelMap,
 } from '@earendil-works/pi-ai'
+import { catalogAddendum } from './catalog-addendum.ts'
 
 /**
  * Pricing for a model the installed catalog does not describe. The harness
@@ -175,14 +176,17 @@ export function catalogProviderOffersOAuth(provider: string): boolean {
 }
 
 /**
- * The installed catalog models for one route, indexed by model id.
+ * The installed catalog models for one route, indexed by model id, plus the
+ * IDEalize addendum's newer models the installed catalog lacks.
  * @param provider - provider route key.
  * @returns catalog models by id; empty for a route pi-ai does not ship.
  */
 export function catalogModels(provider: string): Map<string, Model<Api>> {
   if (!catalogProviders().has(provider)) return new Map()
   const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
-  return new Map(models.map(model => [model.id, model]))
+  const installed = new Map(models.map(model => [model.id, model]))
+  for (const model of catalogAddendum(provider, new Set(installed.keys()))) installed.set(model.id, model)
+  return installed
 }
 
 /**

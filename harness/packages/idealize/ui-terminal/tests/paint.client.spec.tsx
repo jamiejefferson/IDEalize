@@ -7,6 +7,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TerminalPaint } from '@idealize/appearance/client'
 import { apply, applyTerminalPaint, counterZoom, currentTerminalPaint, reservedGutter, withAlpha, xtermTheme } from '../src/client/index.ts'
+import { deviceLetterSpacing } from '../src/client/TerminalView.tsx'
 
 const PAINT: TerminalPaint = {
   background: '#F7F5F0',
@@ -21,6 +22,7 @@ const PAINT: TerminalPaint = {
   fontFamily: '"DM Mono", monospace',
   fontSize: 14,
   lineHeight: 1,
+  letterSpacing: 0,
   margin: 36,
 }
 
@@ -51,6 +53,16 @@ describe('xtermTheme', () => {
     expect(theme.white).toBe('#111111')
     expect(theme.brightBlack).toBe('#220000')
     expect(theme.brightWhite).toBe('#333333')
+  })
+})
+
+describe('deviceLetterSpacing', () => {
+  it('turns CSS px into the whole device pixels xterm adds to each cell', () => {
+    vi.stubGlobal('devicePixelRatio', 2)
+    expect(deviceLetterSpacing(-1.5)).toBe(-3)
+    expect(deviceLetterSpacing(0)).toBe(0)
+    vi.stubGlobal('devicePixelRatio', 1)
+    expect(deviceLetterSpacing(2.5)).toBe(3)
   })
 })
 

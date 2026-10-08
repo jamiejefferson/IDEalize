@@ -12,6 +12,9 @@
   color: var(--dsw-alias-label-primary, #24292f);
   font-size: var(--idealize-type-body, 12.5px);
   line-height: 1.45;
+  /* The narrow rules below and the Budget tables' (BrainsPanel.module.css)
+     read the pane's own width, so they follow a dragged drawer. */
+  container: work-pane / inline-size;
 }
 
 .totals {
@@ -80,4 +83,51 @@
   font-family: inherit;
   font-size: var(--idealize-type-caption, 10px);
   white-space: normal;
+}
+
+/* Narrow pane (feedback c258f030). Under 480px the project column was
+   squeezed to a few letters beside three fixed figure columns, so each row
+   puts the project on its own line and its three figures in equal columns
+   beneath; the head row keeps only the figure labels, which line up over
+   them, and names the project column to screen readers alone. */
+@container work-pane (max-width: 479px) {
+  .projects > [role='row'] {
+    flex-wrap: wrap;
+    min-height: 0;
+  }
+
+  .projects > [role='row'] > :first-child {
+    flex: 1 0 100%;
+    padding: 10px 12px 4px;
+  }
+
+  .projects > [role='row']:first-child > :first-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .colTime,
+  .colCost {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 12px 10px;
+    border-left: 0;
+  }
+
+  .colHead {
+    padding: 9px 12px;
+  }
+}
+
+/* Under 380px the two totals sit one above the other, so each note reads
+   on as few lines as it can. */
+@container work-pane (max-width: 379px) {
+  .totals {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
 }

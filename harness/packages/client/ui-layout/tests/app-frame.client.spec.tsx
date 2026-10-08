@@ -99,8 +99,8 @@ function mountFrame() {
 function tracks(frame: HTMLElement): number[] {
   // [sidebar, details] — the deck/drawer tracks are asserted where a case
   // opens them; the two `auto` tracks are the aside's and the rail's, each
-  // sized by its occupant, and the deck sits between them.
-  const m = /^(\d+)px minmax\(0, 1fr\) (\d+)px auto (\d+)px auto (\d+)px$/.exec(frame.style.gridTemplateColumns)
+  // sized by its occupant, with the deck and drawer between them.
+  const m = /^(\d+)px minmax\(0, 1fr\) (\d+)px auto (\d+)px (\d+)px auto$/.exec(frame.style.gridTemplateColumns)
   if (m === null) throw new Error(`unexpected template: ${frame.style.gridTemplateColumns}`)
   return [Number(m[1]), Number(m[2])]
 }
@@ -303,41 +303,40 @@ describe('AppFrame', () => {
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
   })
 
-  it('seats the document deck inside the rail and the drawer beyond it; both handles offset past the rail', () => {
+  it('keeps the rail on the window edge with the deck and drawer inside it; both handles offset past the rail', () => {
     frameWidth = 1280
     railWidth = 48
     const { frame, instance } = mountFrame()
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) }) // measure the rail
     act(() => { instance.actions.openDeck(); instance.actions.openDrawer() })
-    // DOM order matches the visual order: … details | deck | rail | drawer.
-    // JJ, 10 Sep 2026: the document opens on the conversation's side of the
-    // rail, so the rail keeps its screen position whatever is open.
+    // DOM order matches the visual order: … details | deck | drawer | rail.
+    // The rail is last, so it keeps its screen position whatever is open
+    // (JJ, 10 Sep 2026 for the document; user feedback, 8 Oct 2026, for the
+    // drawer).
     const order = Array.from(frame.children).map(el => el.className)
     const at = (name: string) => order.findIndex(c => c.includes(name))
     expect(at('deckCol')).toBeGreaterThan(at('detailsCol'))
-    expect(at('railCol')).toBeGreaterThan(at('deckCol'))
-    expect(at('drawerCol')).toBeGreaterThan(at('railCol'))
+    expect(at('drawerCol')).toBeGreaterThan(at('deckCol'))
+    expect(at('railCol')).toBeGreaterThan(at('drawerCol'))
     // 1232 beside the rail: the sidebar concedes (SIDEBAR_COLLAPSED, 108 in
     // the IDEalize fork), the deck floors at 360 and the drawer shrinks so the
     // centre keeps its 480.
-    const m = /^(\d+)px minmax\(0, 1fr\) (\d+)px auto (\d+)px auto (\d+)px$/.exec(frame.style.gridTemplateColumns)!
+    const m = /^(\d+)px minmax\(0, 1fr\) (\d+)px auto (\d+)px (\d+)px auto$/.exec(frame.style.gridTemplateColumns)!
     expect(Number(m[1])).toBe(SIDEBAR_COLLAPSED)
     expect(Number(m[3])).toBe(360)
     expect(Number(m[4])).toBe(320)
-    // Both panes sit at the window edge, so their handles offset from the
-    // frame width rather than the concession viewport. Each handle is on its
-    // own column's left border: the deck's against the centre content, the
-    // drawer's on the far side of the rail. The rail's own left border is the
-    // deck's right edge and carries no handle, so a drag there cannot move the
-    // wrong pane (JJ, 1 Sep 2026: the handles were misplaced).
+    // Each handle is on its own column's left border, offset from the frame
+    // width past the rail. The rail's own left border is the drawer's right
+    // edge and carries no handle, so a drag there cannot move the wrong pane
+    // (JJ, 1 Sep 2026: the handles were misplaced).
     const deckHandle = frame.querySelector<HTMLElement>('[data-side="deck"]')!
     const drawerHandle = frame.querySelector<HTMLElement>('[data-side="drawer"]')!
     expect(deckHandle.style.left).toBe(`${1280 - 48 - 360 - 320}px`)
-    expect(drawerHandle.style.left).toBe(`${1280 - 320}px`)
-    // Drawer alone: still its own left border, past the rail.
+    expect(drawerHandle.style.left).toBe(`${1280 - 48 - 320}px`)
+    // Drawer alone: still its own left border, inside the rail.
     act(() => { instance.actions.closeDeck() })
-    const drawerOnly = /(\d+)px$/.exec(frame.style.gridTemplateColumns)!
-    expect(frame.querySelector<HTMLElement>('[data-side="drawer"]')!.style.left).toBe(`${1280 - Number(drawerOnly[1])}px`)
+    const drawerOnly = /(\d+)px auto$/.exec(frame.style.gridTemplateColumns)!
+    expect(frame.querySelector<HTMLElement>('[data-side="drawer"]')!.style.left).toBe(`${1280 - 48 - Number(drawerOnly[1])}px`)
   })
 })
 

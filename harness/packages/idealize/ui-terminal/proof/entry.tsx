@@ -42,6 +42,7 @@ const PAINT: TerminalPaint = {
   fontFamily: 'Menlo, monospace',
   fontSize: 14,
   lineHeight: 1.2,
+  letterSpacing: 0,
   margin: 16,
 }
 

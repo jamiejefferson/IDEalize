@@ -12,7 +12,9 @@
  *   - the grid's last row ends inside the visible frame;
  *   - the frame has nothing to scroll (the view area did not outgrow it);
  *   - the ask bar sits on the grid's last row (the PTY drew for this size);
- *   - the last size the PTY was told equals the grid's rows and columns.
+ *   - the last size the PTY was told equals the grid's rows and columns;
+ *   - after a letter-spacing step, the cell is wider or narrower than the
+ *     unspaced cell by the setting, in CSS px (the deviceScaleFactor is 2).
  *
  * Usage: OUT=.idealize/proof/terminal-resize pnpm exec tsx packages/idealize/ui-terminal/proof/resize-proof.mts
  */
@@ -88,6 +90,7 @@ interface Reading {
   askRow: number
   pty: { cols: number; rows: number } | undefined
   resizeCalls: number
+  cell: number
 }
 
 interface Check { layout: string; step: string; pass: boolean; failures: string[]; reading: Reading }
@@ -124,16 +127,20 @@ async function read(): Promise<Reading> {
       askRow: rows.findIndex(row => (row.textContent ?? '').includes('ASK-BAR')) + 1,
       pty: proof.resizes.at(-1) ?? proof.opened,
       resizeCalls: proof.resizes.length,
+      cell,
     }
   })
 }
 
 const checks: Check[] = []
 
-async function check(layout: string, step: string): Promise<void> {
+async function check(layout: string, step: string, cellFrom?: { base: number; spacing: number }): Promise<void> {
   await settle()
   const reading = await read()
   const failures: string[] = []
+  if (cellFrom !== undefined && Math.abs(reading.cell - (cellFrom.base + cellFrom.spacing)) > 0.05) {
+    failures.push(`cell is ${reading.cell.toFixed(2)}px, expected ${cellFrom.base.toFixed(2)} + ${String(cellFrom.spacing)}`)
+  }
   if (reading.lastRowBottom > reading.frameBottom + 0.5) {
     failures.push(`last row ends ${(reading.lastRowBottom - reading.frameBottom).toFixed(1)}px below the visible frame`)
   }
@@ -183,6 +190,16 @@ for (const layout of ['chat', 'pane']) {
   await check(layout, 'line height 1.2 to 1.6')
   await paint({ margin: 48 })
   await check(layout, 'margin 16 to 48')
+
+  await paint({})
+  await settle()
+  const base = (await read()).cell
+  await paint({ letterSpacing: -1.5 })
+  await check(layout, 'letter spacing 0 to -1.5', { base, spacing: -1.5 })
+  await paint({ letterSpacing: 3 })
+  await check(layout, 'letter spacing -1.5 to 3', { base, spacing: 3 })
+  await paint({})
+  await check(layout, 'letter spacing back to 0', { base, spacing: 0 })
 
   await stageStyle({ display: 'none' })
   await page.setViewportSize({ width: 1000, height: 600 })
