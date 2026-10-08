@@ -254,6 +254,7 @@
     { "path": "./packages/idealize/studio" },
     { "path": "./packages/idealize/transcribe" },
     { "path": "./packages/idealize/askbar/tsconfig.host.json" },
+    { "path": "./packages/idealize/powell/tsconfig.host.json" },
     { "path": "./packages/idealize/doc-policy" },
     { "path": "./packages/idealize/vault" },
     { "path": "./packages/idealize/skills" },

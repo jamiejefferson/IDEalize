@@ -101,7 +101,9 @@ const electron = vi.hoisted(() => {
     off: vi.fn(),
     setZoomLevel: vi.fn((level: number) => { zoomLevel = level }),
     setWindowOpenHandler: vi.fn(),
+    send: vi.fn(),
   }
+  const ipcMain = { on: vi.fn(), off: vi.fn() }
   const nativeTheme = { themeSource: 'system' }
 
   class BrowserWindow {
@@ -158,6 +160,9 @@ const electron = vi.hoisted(() => {
     readonly isVisible = vi.fn(() => this.visible)
     readonly hide = vi.fn(() => { this.visible = false })
     readonly setVisibleOnAllWorkspaces = vi.fn()
+    readonly setIgnoreMouseEvents = vi.fn()
+    readonly getPosition = vi.fn(() => [this.bounds.x, this.bounds.y])
+    readonly setPosition = vi.fn((x: number, y: number) => { this.bounds = { ...this.bounds, x, y } })
   }
 
   const display = { workArea: { x: 0, y: 25, width: 1728, height: 1055 } }
@@ -207,6 +212,7 @@ const electron = vi.hoisted(() => {
       dock: { setIcon: vi.fn() },
       focus: vi.fn(),
       hide: vi.fn(),
+      show: vi.fn(),
       getLocale: vi.fn(() => 'en-US'),
       getPath: vi.fn((name: string): string => {
         if (name === 'crashDumps') return '/tmp/dsh-desktop-user-data/Crashpad'
@@ -222,6 +228,7 @@ const electron = vi.hoisted(() => {
     blueIcon,
     BrowserWindow,
     browserWindowOptions,
+    ipcMain,
     askbarWindowOptions,
     askbarWindows,
     browserWindowThemeSources,
@@ -264,6 +271,7 @@ vi.mock('electron', () => ({
   app: electron.app,
   BrowserWindow: electron.BrowserWindow,
   dialog: electron.dialog,
+  ipcMain: electron.ipcMain,
   Menu: electron.Menu,
   nativeImage: electron.nativeImage,
   nativeTheme: electron.nativeTheme,
@@ -341,121 +349,135 @@ describe('Electron compatibility runtime', () => {
     vi.restoreAllMocks()
   })
 
-  it('mounts the Askbar hidden and runs the collapse/expand transform', async () => {
+  it('mounts Powell hidden at the bottom of the screen and runs the collapse/expand transform', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     vi.useFakeTimers()
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
-    const { ASKBAR_TRANSFORM_MS, ASKBAR_WIDTH } = await import('../src/askbar-window.ts')
+    const { ASKBAR_TRANSFORM_MS } = await import('../src/askbar-window.ts')
+    const { POWELL_HEIGHT, POWELL_WIDTH } = await import('../src/powell-window.ts')
     const runtime = new ElectronDesktopRuntime(async () => {})
     const release = runtime.schedule(spec)
     await runtime.mountScheduled()
 
-    // The bar mounts beside the main window: frameless, floating, docked to
-    // the preferred (right) edge, loading the askbar-marked renderer URL.
+    // Powell mounts beside the main window: a frameless, transparent,
+    // floating box at the bottom centre of the screen, loading the floating
+    // window's renderer URL, and letting clicks through until the owl is hit.
     expect(electron.askbarWindows).toHaveLength(1)
-    const bar = electron.askbarWindows[0]!
+    const owl = electron.askbarWindows[0]!
     expect(electron.askbarWindowOptions[0]).toEqual(expect.objectContaining({
-      frame: false, alwaysOnTop: true, minimizable: true, width: ASKBAR_WIDTH, show: false,
+      frame: false, transparent: true, alwaysOnTop: true, width: POWELL_WIDTH, height: POWELL_HEIGHT, show: false,
     }))
-    expect(bar.setAlwaysOnTop).toHaveBeenCalledWith(true, 'floating')
-    expect(bar.setVisibleOnAllWorkspaces).toHaveBeenCalledWith(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
+    expect(owl.setAlwaysOnTop).toHaveBeenCalledWith(true, 'floating')
+    expect(owl.setVisibleOnAllWorkspaces).toHaveBeenCalledWith(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
+    expect(owl.setIgnoreMouseEvents).toHaveBeenCalledWith(true, { forward: true })
     const workArea = electron.screen.getPrimaryDisplay().workArea
-    expect(bar.getBounds()).toEqual({
-      x: workArea.x + workArea.width - ASKBAR_WIDTH, y: workArea.y, width: ASKBAR_WIDTH, height: workArea.height,
+    expect(owl.getBounds()).toEqual({
+      x: Math.round(workArea.x + (workArea.width - POWELL_WIDTH) / 2),
+      y: workArea.y + workArea.height - POWELL_HEIGHT - 8,
+      width: POWELL_WIDTH,
+      height: POWELL_HEIGHT,
     })
-    expect(bar.loadURL).toHaveBeenCalledWith(spec.askbarUrl)
+    expect(owl.loadURL).toHaveBeenCalledWith(spec.askbarUrl)
 
-    // The page loading does not show the bar: it stays hidden until a collapse.
-    const readyToShow = bar.once.mock.calls.find(([event]) => event === 'ready-to-show')?.[1] as (() => void) | undefined
+    // The page loading does not show Powell: it stays hidden until a collapse.
+    const readyToShow = owl.once.mock.calls.find(([event]) => event === 'ready-to-show')?.[1] as (() => void) | undefined
     expect(readyToShow).toBeDefined()
     readyToShow!()
-    expect(bar.show).not.toHaveBeenCalled()
+    expect(owl.showInactive).not.toHaveBeenCalled()
     const trayLabels = (): string[] => (electron.menuTemplates.at(-1) as Array<{ label?: string }>).map(item => item.label ?? '')
-    expect(trayLabels()).toContain('Collapse to Askbar')
-    expect(trayLabels()).not.toContain('Expand from Askbar')
+    expect(trayLabels()).toContain('Show Powell')
+    expect(trayLabels()).not.toContain('Open IDEalize')
 
-    // Collapse: the bar shows, the main window glides to the bar's column and
-    // hides on the transform timer with its frame remembered.
+    // Collapse: Powell shows without taking activation, the main window glides
+    // to the owl and hides on the transform timer with its frame remembered.
     const main = electron.browserWindows[0]!
     main.visible = true
     const frame = main.getBounds()
     runtime.collapseToBar()
-    expect(bar.show).toHaveBeenCalledOnce()
-    expect(trayLabels()).toContain('Expand from Askbar')
+    expect(owl.showInactive).toHaveBeenCalledOnce()
+    expect(trayLabels()).toContain('Open IDEalize')
     vi.advanceTimersByTime(ASKBAR_TRANSFORM_MS)
     expect(main.hide).toHaveBeenCalled()
     expect(main.getBounds()).toEqual(frame)
-    // Once the main window has hidden the app hands activation to the app
-    // behind and the bar comes back without taking it: an active app with no
-    // regular window leaves Stage Manager an empty stage.
     expect(electron.app.hide).toHaveBeenCalledOnce()
-    expect(bar.showInactive).toHaveBeenCalledOnce()
+    // The app hides to hand activation on, then unhides at once: only Powell
+    // comes back, because the main window is already hidden.
+    vi.runOnlyPendingTimers()
+    expect(electron.app.show).toHaveBeenCalledOnce()
+    expect(owl.showInactive).toHaveBeenCalledTimes(2)
 
-    // Toggle takes activation back, expands onto the remembered frame and hides the bar; never a restart.
+    // Toggle takes activation back, expands onto the remembered frame and hides Powell.
     runtime.toggleAskbarTransform()
     expect(electron.app.focus).toHaveBeenCalledWith({ steal: true })
     expect(main.show).toHaveBeenCalled()
-    expect(bar.hide).toHaveBeenCalledOnce()
-    expect(trayLabels()).toContain('Collapse to Askbar')
+    expect(owl.hide).toHaveBeenCalledOnce()
+    expect(trayLabels()).toContain('Show Powell')
     expect(spec.requestModeChange).not.toHaveBeenCalled()
 
     await release()
-    expect(bar.destroy).toHaveBeenCalled()
+    expect(owl.destroy).toHaveBeenCalled()
   })
 
-  it('defers a collapse-time show until the Askbar page is ready', async () => {
+  it('defers a collapse-time show until Powell\'s page is ready', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
     const runtime = new ElectronDesktopRuntime(async () => {})
     const release = runtime.schedule(spec)
     await runtime.mountScheduled()
-    const bar = electron.askbarWindows[0]!
+    const owl = electron.askbarWindows[0]!
     const main = electron.browserWindows[0]!
     main.visible = true
 
     runtime.collapseToBar()
-    expect(bar.show).not.toHaveBeenCalled()
-    const readyToShow = bar.once.mock.calls.find(([event]) => event === 'ready-to-show')?.[1] as () => void
+    expect(owl.showInactive).not.toHaveBeenCalled()
+    const readyToShow = owl.once.mock.calls.find(([event]) => event === 'ready-to-show')?.[1] as () => void
     readyToShow()
-    expect(bar.show).toHaveBeenCalledOnce()
+    // Shown once its frame is applied (a microtask later).
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(owl.showInactive).toHaveBeenCalledOnce()
 
     await release()
   })
 
-  it('offers the Askbar edge radios in the tray and re-docks the bar on a change', async () => {
+  it('brings Powell up while the main window is minimised and puts it away on restore', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
-    const { ASKBAR_WIDTH } = await import('../src/askbar-window.ts')
-    const requestAskbarSide = vi.fn(async () => {})
-    let side: 'left' | 'right' = 'left'
     const runtime = new ElectronDesktopRuntime(async () => {})
-    const release = runtime.schedule({ ...spec, readAskbarSide: () => side, requestAskbarSide })
+    const release = runtime.schedule(spec)
     await runtime.mountScheduled()
-    const bar = electron.askbarWindows[0]!
-    expect(bar.getBounds()).toEqual(expect.objectContaining({ x: 0, width: ASKBAR_WIDTH }))
-
-    type Item = { label?: string, submenu?: Array<{ label?: string, type?: string, checked?: boolean, click?: () => void }> }
-    const edgeMenu = (electron.menuTemplates[0] as Item[]).find(candidate => candidate.label === 'Askbar edge')
-    expect(edgeMenu?.submenu).toEqual([
-      expect.objectContaining({ label: 'Left', type: 'radio', checked: true }),
-      expect.objectContaining({ label: 'Right', type: 'radio', checked: false }),
-    ])
-    expect((electron.menuTemplates[0] as Item[]).find(candidate => candidate.label === 'Window Mode')?.submenu).toEqual([
-      expect.objectContaining({ label: 'Standard', type: 'radio', checked: true }),
-      expect.objectContaining({ label: 'Advanced', type: 'radio', checked: false }),
-    ])
-    edgeMenu?.submenu?.find(candidate => candidate.label === 'Right')?.click?.()
-    await vi.waitFor(() => { expect(requestAskbarSide).toHaveBeenCalledWith('right') })
-
-    // The settings notification re-docks the bar and rebuilds the tray.
-    side = 'right'
-    runtime.refreshAskbar()
-    const workArea = electron.screen.getPrimaryDisplay().workArea
-    expect(bar.getBounds()).toEqual(expect.objectContaining({ x: workArea.x + workArea.width - ASKBAR_WIDTH }))
-    const rebuilt = (electron.menuTemplates.at(-1) as Item[]).find(candidate => candidate.label === 'Askbar edge')
-    expect(rebuilt?.submenu?.find(candidate => candidate.label === 'Right')?.checked).toBe(true)
+    const owl = electron.askbarWindows[0]!
+    const main = electron.browserWindows[0]!
+    const readyToShow = owl.once.mock.calls.find(([event]) => event === 'ready-to-show')?.[1] as () => void
+    readyToShow()
+    const handler = (event: string) => main.on.mock.calls.find(([name]) => name === event)?.[1] as () => void
+    handler('minimize')()
+    expect(owl.showInactive).toHaveBeenCalledOnce()
+    handler('restore')()
+    expect(owl.hide).toHaveBeenCalledOnce()
 
     await release()
+  })
+
+  it('brings Powell up for a global key and hands it the command', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule(spec)
+    await runtime.mountScheduled()
+    const owl = electron.askbarWindows[0]!
+    const readyToShow = owl.once.mock.calls.find(([event]) => event === 'ready-to-show')?.[1] as () => void
+    readyToShow()
+    const main = electron.browserWindows[0]!
+    main.visible = true
+
+    runtime.powellCommand('listen')
+    expect(owl.showInactive).toHaveBeenCalled()
+    expect(electron.webContents.send).toHaveBeenCalledWith('powell:command', 'listen')
+    // Powell's renderer messages are wired, and unwired on release.
+    expect(electron.ipcMain.on).toHaveBeenCalledWith('powell:hit', expect.any(Function))
+    await release()
+    expect(electron.ipcMain.off).toHaveBeenCalledWith('powell:hit', expect.any(Function))
   })
 
   it('opens a second window from File > New Window and the tray, and carries it through a collapse', async () => {
@@ -1011,7 +1033,7 @@ describe('Electron compatibility runtime', () => {
       'Open DSH Desktop', 'New Window', undefined,
       'Earlier Tool', 'Later Tool', undefined,
       'Check for Updates…', undefined,
-      'Collapse to Askbar', 'Askbar edge', 'Window Mode', undefined,
+      'Show Powell', 'Window Mode', undefined,
       'Quit',
     ])
     expect(electron.menuTemplates.at(-1)).toEqual(expect.arrayContaining([

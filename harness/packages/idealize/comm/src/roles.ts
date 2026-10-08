@@ -8,6 +8,9 @@
  * project folder and is found by that folder. `studio-agent` runs the Studio
  * itself: it takes every untagged Studio post and works through the project
  * coordinators, and it is found by the role alone because there is one.
+ * Since 2.0.0 the Studio manager is Powell, the desktop owl (JJ, 2 Oct 2026:
+ * "it should be working as the studio manager agent"), so the role rides
+ * Powell's preset and carries Powell's name.
  */
 
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -27,13 +30,16 @@ export interface RoleConfig {
 /** The mapping in force when the settings section names no preset. */
 export const DEFAULT_ROLE_CONFIG: RoleConfig = {
   projectAgentPreset: 'project-agent',
-  studioAgentPreset: 'studio-agent',
+  studioAgentPreset: 'powell',
 }
+
+/** The fixed agent name of the Studio manager: no pool draw, so the owl and its chat share one name. */
+export const STUDIO_AGENT_NAME = 'Powell'
 
 /** The task label a role's chat carries instead of a brief-derived title. */
 export const ROLE_TITLES: Readonly<Record<CommRole, string>> = {
   'project-agent': 'Project Coordinator',
-  'studio-agent': 'Studio Coordinator',
+  'studio-agent': 'Powell',
 }
 
 /**
@@ -72,11 +78,11 @@ const PERSONAS: Readonly<Record<CommRole, { name: string; description: string; p
       + 'Other chats each do a piece of the work in this folder; you coordinate them and keep the user informed in plain language.',
   },
   'studio-agent': {
-    name: 'Studio Coordinator',
-    description: 'Runs the Studio: takes what the user says there, works through each project\'s coordinator, and answers in one voice.',
-    persona: 'You are the Studio Coordinator, powered by the {{model}} model. The user talks to you in the Studio, '
-      + 'which watches every project at once. You hold the picture across all of them, work through each project\'s '
-      + 'coordinator rather than doing the work yourself, and answer in the Studio in plain language.',
+    name: 'Powell',
+    description: 'The desk-buddy owl and Studio manager. Acts across every project, the docs and connected apps, and speaks in one short line.',
+    persona: 'You are Powell, the IDEalize owl and the Studio manager, powered by the {{model}} model. You sit on the '
+      + 'user\'s desktop, act across every project, the documentation vault and the connected apps, run the Studio '
+      + 'through each project\'s coordinator, and speak in one short line.',
   },
 }
 

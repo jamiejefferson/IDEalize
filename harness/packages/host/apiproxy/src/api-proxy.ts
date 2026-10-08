@@ -2314,7 +2314,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async fork(request) {
-        const { sessionId, atSeq } = request.payload
+        const { sessionId, atSeq, workspaceId: targetId } = request.payload
+        // A move names its destination project up front, so a missing one
+        // fails before any child exists.
+        const target = targetId === undefined ? undefined : ctx.workspaceRegistry.get(brandWorkspaceId(targetId))
+        if (targetId !== undefined && target === undefined) return workspaceNotFound(request, targetId)
         let source: SessionReadState
         try {
           source = await readSessionState(sessionId)
@@ -2355,9 +2359,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // right after the boundary turn.
         let cut = boundary.seq + 1
         while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
-        let workspace: Workspace | undefined
+        let workspace: Workspace | undefined = target
         try {
-          workspace = await forkWorkspace(source)
+          if (workspace === undefined) workspace = await forkWorkspace(source)
         } catch (error: unknown) {
           return err(request, {
             code: 'internal',
@@ -2377,7 +2381,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             sessionId: childId,
             seed: events.slice(0, cut),
             meta: {
-              ...source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
+              ...target !== undefined
+                ? { cwd: target.path }
+                : source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
               parentSession: source.id,
               seedLength: cut,
               ...forkComposition.agentPreset === undefined

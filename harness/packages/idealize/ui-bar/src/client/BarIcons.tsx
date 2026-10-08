@@ -34,6 +34,17 @@ export function BarIconFiles({ size }: IconProps) {
   ))
 }
 
+/** Notepad: a page with a folded corner and two lines, the Notes scratchpad. */
+export function BarIconNotes({ size }: IconProps) {
+  return frame(size, (
+    <>
+      <path d="M3.25 2.75c0-.55.45-1 1-1h5.5l3 3v8.5c0 .55-.45 1-1 1h-7.5c-.55 0-1-.45-1-1v-10.5Z" />
+      <path d="M9.75 1.75v3h3" />
+      <path d="M5.75 8.25h4.5M5.75 10.75h3" />
+    </>
+  ))
+}
+
 /** Terminal: a prompt chevron and an underscore in a rounded frame, the Terminal pane. */
 export function BarIconTerminal({ size }: IconProps) {
   return frame(size, (
@@ -131,12 +142,14 @@ export function BarIconFeedback({ size }: IconProps) {
 }
 
 
-/** Big window shrinking to a pip: minimode. */
+/** A small owl: minimode, which collapses the app to Powell (JJ, 2 Oct 2026). */
 export function BarIconMinimode({ size }: IconProps) {
   return frame(size, (
     <>
-      <path d="M13.25 6.5v-2.25c0-.83-.67-1.5-1.5-1.5H4.25c-.83 0-1.5.67-1.5 1.5v7.5c0 .83.67 1.5 1.5 1.5H6.5" />
-      <rect x="8.75" y="8.75" width="5.5" height="4.5" rx="1.2" />
+      <path d="M3.25 2.5 8 5.25l4.75-2.75V9c0 2.75-2.15 4.75-4.75 4.75S3.25 11.75 3.25 9V2.5Z" />
+      <circle cx="5.9" cy="7.9" r="1.3" />
+      <circle cx="10.1" cy="7.9" r="1.3" />
+      <path d="m7.4 10.2.6.8.6-.8" />
     </>
   ))
 }
@@ -256,5 +269,16 @@ export function BarIconSchedule({ size }: IconProps) {
       <path d="M1.75 6.75h12.5" />
       <path d="M5.25 1.75v3M10.75 1.75v3" />
     </>
+  ))
+}
+
+/**
+ * Reveal in Finder: an arrow out to the upper right, centred on the grid. The
+ * upstream right-up glyph is drawn on an 8x14 box, so in a square button it
+ * sat low and left of its neighbours (JJ, 8 Oct 2026).
+ */
+export function BarIconReveal({ size }: IconProps) {
+  return frame(size, (
+    <path d="M4.5 11.5 11.5 4.5M6 4.5h5.5V10" />
   ))
 }

@@ -26,6 +26,9 @@
  * - `POST /idealize/bar/open` — open a fenced file in its default macOS
  *   application; a file the system would run instead of open is refused.
  * - `POST /idealize/bar/write` — overwrite a fenced text file (409 when its size moved).
+ * - `POST /idealize/bar/notes` — the rail's Notes scratchpad: the current
+ *   note's path, created on first use (`{ fresh: true }` starts a new one),
+ *   in the vault's `Notes/` folder or `~/Documents/IDEalize Notes/` without one.
  * - `POST /idealize/bar/rename`, `/duplicate`, `/move`, `/trash` — the Files
  *   pane's entry operations, every path checked against the viewer fence.
  * - `POST /idealize/bar/create` — create one file or folder inside a fenced
@@ -49,6 +52,7 @@ import type {} from '@idealize/setup'
 import type { ProjectDocumentation, WorkspaceAlias, WorkspaceAliasName } from '@idealize/setup'
 import { SKILLS_PROVIDER_NAME, type IdealizeSkillsService } from '@idealize/skills'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { currentNote, FALLBACK_NOTES_FOLDER, NOTES_FOLDER } from './notes.ts'
 
 /** The desktop shell's settings section (restated; dsh-plugin-desktop owns the schema). */
 const DESKTOP_NS = settingsNamespace('dsh-desktop')
@@ -478,6 +482,21 @@ export function apply(ctx: Context): void {
       }
       await writeFile(target, body.text, 'utf8')
       sendJson(res, 200, { ok: true, size: Buffer.byteLength(body.text, 'utf8') })
+    })
+
+    /**
+     * The Notes scratchpad's current note, outside every project: the vault's
+     * `Notes/` folder while the documentation alias is reachable, the
+     * Documents folder's `IDEalize Notes/` otherwise (inside home, so the
+     * viewer's fence admits it either way).
+     */
+    register('/idealize/bar/notes', true, async (req, res) => {
+      const body = JSON.parse(await readBody(req) || '{}') as { fresh?: unknown }
+      const vault = await webCtx.get('workspaceAliases')?.resolve('documentation')
+      const folder = vault?.accessState === 'ok'
+        ? join(vault.path, NOTES_FOLDER)
+        : join(homedir(), 'Documents', FALLBACK_NOTES_FOLDER)
+      sendJson(res, 200, { path: await currentNote(folder, body.fresh === true) })
     })
 
     /** Rename a fenced entry in place; the new name is one component. */

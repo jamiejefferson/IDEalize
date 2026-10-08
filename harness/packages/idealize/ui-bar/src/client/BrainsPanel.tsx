@@ -125,6 +125,18 @@ interface ModelsState {
 const MODEL_FILTER_FROM = 12
 
 /** One row of /idealize/activity/agents. */
+/** Powell's brain id (the `powell` preset): it lists in its own section. */
+const POWELL_ID = 'powell'
+
+/**
+ * Brains whose role moved elsewhere: the Studio Coordinator's preset stays on
+ * disk with the person's edits, but Powell holds the Studio manager role
+ * since 2.0.0, so the pane no longer lists it.
+ */
+const RETIRED = new Set(['studio-agent'])
+
+const listed = (row: AgentRow): boolean => row.id !== POWELL_ID && !RETIRED.has(row.id)
+
 interface AgentRow {
   id: string
   name: string
@@ -705,8 +717,11 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
 
   // A brain works in the spaces its `spaces` list names, and lists under each
   // of them; a brain naming none is an agent role, which answers to the person.
-  const brainsIn = (space: SpaceId): AgentRow[] => (agents ?? []).filter(row => row.spaces.includes(space))
-  const roleAgents = (agents ?? []).filter(row => row.spaces.length === 0)
+  // Powell (the desktop owl and Studio manager) is no space's brain and no
+  // role another agent calls: it lists on its own (JJ, 2 Oct 2026).
+  const brainsIn = (space: SpaceId): AgentRow[] => (agents ?? []).filter(row => listed(row) && row.spaces.includes(space))
+  const roleAgents = (agents ?? []).filter(row => listed(row) && row.spaces.length === 0)
+  const powellAgent = (agents ?? []).find(row => row.id === POWELL_ID)
   /** What the open sheet's model field is picking: a space's generation model, or a chat model. */
   const sheetGeneration = draft === null ? undefined : mediaForSpaces(draft.spaces)
   /** The chat catalogue as a sheet field lists it: the default first, then every provider's models the filter leaves. */
@@ -986,6 +1001,15 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                 </div>
               )
             })}
+
+            {powellAgent !== undefined && (
+              <div data-brains-powell="">
+                <SectionHead title={t('brains.powell.title')} detail={t('brains.powell.detail')} />
+                <div className={css.list} role="table" aria-label={t('brains.powell.title')}>
+                  {agentRow(powellAgent, 'powell')}
+                </div>
+              </div>
+            )}
 
             <SectionHead title={t('brains.otherAgents.title')} detail={t('brains.otherAgents.detail')} />
             <div className={css.list} role="table" aria-label={t('brains.otherAgents.title')}>

@@ -36,6 +36,7 @@ function mount(prepare?: (draft: AppearanceState) => void) {
     setSurface: vi.fn(),
     setScalars: vi.fn(),
     setTerminal: vi.fn(),
+    setChatTitle: vi.fn(),
     resetSection: vi.fn(),
   }
   const props: AppearancePanelComponentProps = { useAppearance: bindSnapshotSelector(store), t, ...face }

@@ -1,0 +1,26 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
+  },
+  "files": [
+    "src/client/css-modules.d.ts",
+    "src/client/desktop.ts",
+    "src/client/gestures.ts",
+    "src/client/index.ts",
+    "src/client/owl.ts",
+    "src/client/PowellRoot.tsx",
+    "src/client/store.ts",
+    "src/client/voice.ts",
+    "src/speech-text.ts",
+    "src/switch.ts",
+    "src/types.ts"
+  ],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../client/runtime" },
+    { "path": "../../client/ui-slots" }
+  ]
+}

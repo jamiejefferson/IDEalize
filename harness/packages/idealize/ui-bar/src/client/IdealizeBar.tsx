@@ -15,7 +15,7 @@ import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BarPanel, BarViewStore } from './bar-store.ts'
 import {
-  BarIconAppearance, BarIconFeedback, BarIconFiles, BarIconHatch, BarIconModels,
+  BarIconAppearance, BarIconFeedback, BarIconFiles, BarIconHatch, BarIconModels, BarIconNotes,
   BarIconPlugins, BarIconSchedule, BarIconSettings, BarIconTerminal, BarIconTrajectory, BarIconWork,
 } from './BarIcons.tsx'
 import css from './IdealizeBar.module.css'
@@ -31,6 +31,8 @@ export interface IdealizeBarInjected {
   }
   /** Open the pane, or close the drawer when it is already the open pane. */
   togglePanel: (panel: BarPanel) => void
+  /** Show the Notes scratchpad in the deck, or close the deck when it already shows it. */
+  toggleNotes: () => void
   /**
    * Open the upstream settings dialog, or undefined in a composition without
    * `settingsOpen` — the rail then carries no Settings button.
@@ -46,8 +48,9 @@ export type IdealizeBarProps = PropsRuntime<'shell.rail'>
 export const MARKET_LAUNCHER_SELECTOR = '.dshMarketLauncher'
 
 export function IdealizeBar(props: IdealizeBarProps) {
-  const { useBarView, togglePanel, openSettings, t } = props
+  const { useBarView, togglePanel, toggleNotes, openSettings, t } = props
   const panel = useBarView(state => state.panel)
+  const notesShowing = useBarView(state => state.file !== null && state.file === state.notesFile)
   const terminalAvailable = useBarView(state => state.terminalAvailable)
   const [marketPresent, setMarketPresent] = useState(false)
 
@@ -105,9 +108,12 @@ export function IdealizeBar(props: IdealizeBarProps) {
   // only pane either side of it that it could be confused with. The mini-mode
   // toggle left the rail for the sidebar header, beside the other
   // window-level controls (MinimodeButton on `sidebar.header.action`).
+  // Notes (6 Oct 2026) sits under Files: it opens in the deck beside the
+  // files tree, the same viewer every Markdown file opens in.
   return (
     <nav className={css.root} aria-label={t('rail.label')}>
       {paneButton('files', t('bar.files'), <BarIconFiles size={ICON} />)}
+      {barButton(t('bar.notes'), toggleNotes, <BarIconNotes size={ICON} />, notesShowing)}
       {terminalAvailable && paneButton('terminal', t('bar.terminal'), <BarIconTerminal size={ICON} />)}
       {paneButton('schedule', t('bar.schedule'), <BarIconSchedule size={ICON} />)}
       {paneButton('trajectory', t('bar.trajectory'), <BarIconTrajectory size={ICON} />)}

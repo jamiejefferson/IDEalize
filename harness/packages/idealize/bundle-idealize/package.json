@@ -42,6 +42,7 @@
     "@idealize/appearance": "workspace:^",
     "@idealize/artefacts": "workspace:^",
     "@idealize/askbar": "workspace:^",
+    "@idealize/powell": "workspace:^",
     "@idealize/comm": "workspace:^",
     "@idealize/cron": "workspace:^",
     "@idealize/doc-policy": "workspace:^",

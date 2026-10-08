@@ -47,6 +47,8 @@ export interface ElectronShellGenerationOptions {
   readonly stopRendererBootMonitoring: () => void
   readonly failRendererBoot: (error: string) => void
   readonly logError: (message: string) => void
+  /** The main window was minimised (true) or restored (false). */
+  readonly onMinimiseChange?: (minimised: boolean) => void
 }
 
 /** Own one BrowserWindow and Tray generation, including every native listener. */
@@ -111,8 +113,12 @@ export class ElectronShellGeneration {
       }
     }
 
+    const minimised = (): void => { this.options.onMinimiseChange?.(true) }
+    const restored = (): void => { this.options.onMinimiseChange?.(false) }
     app.on('activate', show)
     window.on('close', close)
+    window.on('minimize', minimised)
+    window.on('restore', restored)
     const releaseGuards = this.guardWindow(window, origin)
     window.webContents.on('render-process-gone', rendererGone)
     window.webContents.on('did-fail-load', loadFailed)
@@ -121,6 +127,8 @@ export class ElectronShellGeneration {
     this.cleanupListeners = () => {
       app.off('activate', show)
       window.off('close', close)
+      window.off('minimize', minimised)
+      window.off('restore', restored)
       releaseGuards()
       window.off('ready-to-show', show)
       window.webContents.off('render-process-gone', rendererGone)
@@ -278,7 +286,8 @@ export class ElectronShellGeneration {
   /** Whether the app window is on screen: the transform toggle's answer. */
   isWindowVisible(): boolean {
     const window = this.window
-    if (window !== undefined && !window.isDestroyed() && window.isVisible()) return true
+    // A minimised window counts as away: Powell stands in for it then.
+    if (window !== undefined && !window.isDestroyed() && window.isVisible() && !window.isMinimized()) return true
     return [...this.extraWindows].some(extra => !extra.isDestroyed() && extra.isVisible())
   }
 

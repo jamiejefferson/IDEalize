@@ -27,6 +27,23 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@idealize/cron'
 
 import { BridgeBuffer } from './buffer.ts'
+
+/** The Activity Agent whose chat answers aloud (`@idealize/powell`). */
+const SPEAKING_PRESET = 'powell'
+
+/**
+ * Whether a chat runs on Powell's Activity Agent: the latest preset choice,
+ * else the one it was created with (the agent-presets fold, restated so the
+ * bridge does not depend on that package).
+ * @param agent - the agent that finished.
+ * @returns true for Powell's chat.
+ */
+function speaksForItself(agent: Agent): boolean {
+  const events = agent.session.events as readonly { type: string; data?: { agentPreset?: string } }[]
+  const selected = events.findLast(event => event.type === 'agent-preset/selected')
+  const preset = selected?.data?.agentPreset ?? (agent.session.header as { agentPreset?: string }).agentPreset
+  return preset === SPEAKING_PRESET
+}
 import type { BridgeEvent } from './buffer.ts'
 
 export { BridgeBuffer } from './buffer.ts'
@@ -81,6 +98,9 @@ export class IdealizeBridge extends Service {
         body: '',
         sessionId: String(agent.session.header.id),
         ...failed ? { failed: true } : {},
+        // Powell answers out loud the moment it finishes, so a chime and a
+        // system notification on top of its voice only repeat it.
+        ...speaksForItself(agent) ? { quiet: true } : {},
       })
     })
 

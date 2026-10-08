@@ -8,9 +8,11 @@
 import { useEffect, useState } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  actionCustomised, APPEARANCE_DEFAULTS, FILL_MODES, FONT_WEIGHTS, fontStack, GRADIENT_TYPES, PRESETS, SURFACES,
-  surfaceColoured, surfaceCustomised, surfaceScheme, terminalCustomised, UI_SIZE_MAX, UI_SIZE_MIN,
-  type ActionAppearance, type AppearanceSettings, type FillMode, type GradientStop, type GradientType, type PresetId,
+  actionCustomised, APPEARANCE_DEFAULTS, CHAT_TITLE_DEFAULTS, CHAT_TITLE_SIZE_MAX, CHAT_TITLE_SIZE_MIN, FILL_MODES, FONT_WEIGHTS,
+  fontStack, GRADIENT_TYPES, PRESETS, SURFACES,
+  parseTitleWeight, surfaceColoured, surfaceCustomised, surfaceScheme, terminalCustomised, UI_SIZE_MAX, UI_SIZE_MIN,
+  type ActionAppearance, type AppearanceSettings, type ChatTitleAppearance, type FillMode, type GradientStop, type GradientType,
+  type PresetId,
   type SurfaceAppearance, type SurfaceId, type TerminalAppearanceSettings,
 } from '../appearance-settings.ts'
 import { TERMINAL_THEMES, terminalTheme } from '../terminal-themes.ts'
@@ -49,6 +51,8 @@ export interface AppearancePanelInjected {
   setScalars: (patch: Partial<PanelScalars>) => void
   /** Patch the terminal grid's appearance. */
   setTerminal: (patch: Partial<TerminalAppearanceSettings>) => void
+  /** Patch the chat title's appearance. */
+  setChatTitle: (patch: Partial<ChatTitleAppearance>) => void
   /** Restore one tab's settings to their defaults (the Theme tab includes the mode). */
   resetSection: (section: SectionId) => void
 }
@@ -114,6 +118,10 @@ function chatCustomised(settings: AppearanceSettings): boolean {
   return settings.chatInputOpacity !== APPEARANCE_DEFAULTS.chatInputOpacity
     || settings.chatShadowOpacity !== APPEARANCE_DEFAULTS.chatShadowOpacity
     || settings.chatMargin !== APPEARANCE_DEFAULTS.chatMargin
+    || settings.chatTitle.fontName !== CHAT_TITLE_DEFAULTS.fontName
+    || settings.chatTitle.fontSize !== CHAT_TITLE_DEFAULTS.fontSize
+    || settings.chatTitle.fontWeight !== CHAT_TITLE_DEFAULTS.fontWeight
+    || settings.chatTitle.colorHex !== CHAT_TITLE_DEFAULTS.colorHex
 }
 
 /** Whether the document panel's own scalars differ from the defaults. */
@@ -726,6 +734,25 @@ function SurfaceTab({ t, settings, palette, surfaceHex, tokens, fonts, face, id,
         <section className={css.card} aria-label={t('doc.card')}>
           <span className={css.cardTitle}>{t('doc.card')}</span>
           <SliderRow label={t('doc.margins')} min={0} max={64} step={1} value={settings.docMargin} display={v => `${v}px`} onChange={(next) => { face.setScalars({ docMargin: next }) }} />
+        </section>
+      )}
+
+      {id === 'chat' && (
+        // The chat's own title, "Kitchen quotes in Casa Madrigal" (JJ, 7 Oct
+        // 2026: its styling comes from these controls). Its labels say
+        // "Title …" because the typography card above already owns Size and Weight.
+        <section className={css.card} aria-label={t('title.card')}>
+          <span className={css.cardTitle}>{t('title.card')}</span>
+          <FontPicker label={t('title.font')} value={settings.chatTitle.fontName} fonts={fonts} emptyLabel={t('font.inherit')} loadingLabel={t('font.loading')} findLabel={t('font.find')} onChange={(family) => { face.setChatTitle({ fontName: family }) }} />
+          <div className={css.row}>
+            <span className={css.rowLabel}>{t('title.weight')}</span>
+            <select className={css.select} aria-label={t('title.weight')} value={parseTitleWeight(settings.chatTitle.fontWeight)} onChange={(event) => { face.setChatTitle({ fontWeight: FONT_WEIGHTS.indexOf(event.currentTarget.value as typeof FONT_WEIGHTS[number]) }) }}>
+              {FONT_WEIGHTS.filter(option => option !== 'inherit').map(option => <option key={option} value={option}>{t(WEIGHT_LABEL[option])}</option>)}
+            </select>
+          </div>
+          <SliderRow label={t('title.size')} min={CHAT_TITLE_SIZE_MIN} max={CHAT_TITLE_SIZE_MAX} step={1} value={settings.chatTitle.fontSize} display={v => `${v}px`} onChange={(next) => { face.setChatTitle({ fontSize: next }) }} />
+          <HexRow label={t('title.colour')} value={settings.chatTitle.colorHex} fallback={surface.textColorHex !== '' ? surface.textColorHex : palette.ink} placeholder={t('colour.placeholder')} clearLabel={t('colour.clear')} onChange={(hex) => { face.setChatTitle({ colorHex: hex }) }} />
+          <span className={css.hint}>{t('title.hint')}</span>
         </section>
       )}
 

@@ -99,6 +99,21 @@ export function apply(ctx: ClientContext): void {
       }
       ctx.sessions.open(childId)
     },
+    moveSession: async (sessionId, workspaceId) => {
+      // The copy keeps the chat's own title: it is the same chat, moved.
+      const t = ctx.locale.bind(NS)
+      let childId
+      try {
+        childId = await ctx.sessions.fork({ sessionId, workspaceId })
+      } catch (reason) {
+        if (reason instanceof SessionForkError) {
+          throw new Error(reason.rpcError.code === 'fork-unavailable' ? t('move.unavailable') : reason.rpcError.message)
+        }
+        throw reason
+      }
+      ctx.sessions.open(childId)
+      await ctx.workspaces.archiveSession(sessionId)
+    },
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
     deleteWorkspace: async (workspaceId) => { await ctx.workspaces.delete(workspaceId) },
     insertWorkspaceBefore: async (workspaceId, beforeWorkspaceId) => {

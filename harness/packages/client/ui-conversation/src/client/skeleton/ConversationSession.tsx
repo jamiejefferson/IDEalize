@@ -1,6 +1,6 @@
 /** Strict per-session header/body content inserted into the resident conversation layout. */
 
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
@@ -54,49 +54,125 @@ function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrum
 }
 
 /**
- * Renders Session header chrome above the resident conversation scrollport.
- * The view ring has no tab row: a chat's active view is fixed by the space it
- * was launched into and is written into the shared chat store by the plugin
- * that owns that fact, so the header carries only the title row and its two
- * action seats.
+ * The Session title strip (JJ, 7 Oct 2026: "Kitchen quotes in Casa
+ * Madrigal", so a glance says which chat and which project a prompt goes
+ * to). The chat's name leads at title size; a deployment adds where the
+ * chat lives through `conversation.session.header.context`. Clicking the
+ * name renames the chat in place.
+ *
+ * The strip floats over the top of the scrollport, so a chat's transcript
+ * scrolls up under it, blurred and faded; it writes its own height to the
+ * root as `--dsh-session-header-height`, the scrollport's top padding, so
+ * nothing starts hidden. A terminal view's grid fits below that padding, and
+ * the strip turns opaque in the terminal's own colours
+ * (`--dsh-terminal-bg` / `--dsh-terminal-fg`), since nothing scrolls under
+ * it there. A blank chat still hides it behind the hero; a blank non-chat
+ * view (a terminal chat) keeps it, so a terminal chat says where it is too.
  * @param props - Strict Session store, navigation, render, and locale shares.
  * @returns the hidden blank-session header or the visible title row.
  */
 export function ConversationSessionHeader({
-  sessionId, useSession, useSessions, renderSlot, open, t,
+  sessionId, useSession, useSessions, useStore, views, renderSlot, open, rename, t,
 }: ConversationSessionHeaderProps) {
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), equalBreadcrumbs)
   const composerPhase = useSession(s => s.composerPhase)
   const blank = useSession(s => s.blank)
-  const hideChrome = blank && composerPhase === 'blank'
+  useSyncExternalStore(views.subscribe, views.version)
+  const selectedId = useStore(s => s.view)
+  const viewId = resolveActiveView(views.list(), selectedId)?.id ?? DEFAULT_VIEW_ID
+  const hideChrome = blank && composerPhase === 'blank' && viewId === DEFAULT_VIEW_ID
+  const headerRef = useRef<HTMLElement>(null)
+  const [editing, setEditing] = useState(false)
+
+  // The scrollport's top padding follows the strip's height, so the first
+  // message (or the terminal's first row) starts below the title.
+  useLayoutEffect(() => {
+    const header = headerRef.current
+    const root = header?.parentElement
+    if (header === null || root === null || root === undefined) return
+    const write = (): void => {
+      root.style.setProperty('--dsh-session-header-height', `${String(Math.round(header.getBoundingClientRect().height))}px`)
+    }
+    write()
+    // jsdom and older embedders ship no ResizeObserver; the first measure stands there.
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(write)
+    observer.observe(header)
+    return () => {
+      observer.disconnect()
+      root.style.removeProperty('--dsh-session-header-height')
+    }
+  }, [])
+
+  useEffect(() => { setEditing(false) }, [sessionId])
+
+  // A chat with no title of its own says what it is ("Terminal", "New chat")
+  // instead of its folder's name, which the project context already gives.
+  const ownTitle = useSessions(s => s.byId[sessionId]?.title)
+  const title = ownTitle ?? (viewId === 'terminal' ? t('session.untitledTerminal') : t('session.untitled'))
+  const parents = ancestry.slice(0, -1)
+
+  const commit = (next: string): void => {
+    setEditing(false)
+    const trimmed = next.trim()
+    if (trimmed === '' || trimmed === title) return
+    void rename(sessionId, trimmed)
+  }
 
   return (
     <header
+      ref={headerRef}
       className={clsx(css.header, hideChrome && css.headerHidden)}
+      data-view={viewId}
       aria-hidden={hideChrome || undefined}
     >
       {!hideChrome && (
         <div className={css.titleRow}>
           <div className={css.titleCluster}>
-            <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
-              {ancestry.map((summary, index) => {
-                const last = index === ancestry.length - 1
-                return (
+            {parents.length > 0 && (
+              <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
+                {parents.map(summary => (
                   <span key={summary.id} className={css.crumbSeg}>
-                    {index > 0 && <span className={css.crumbSep}>/</span>}
-                    <button
-                      type="button"
-                      className={clsx(css.crumb, last && css.crumbCurrent)}
-                      disabled={last}
-                      onClick={() => { open(summary.id) }}
-                    >
+                    <button type="button" className={css.crumb} onClick={() => { open(summary.id) }}>
                       {summary.displayTitle}
                     </button>
+                    <span className={css.crumbSep}>/</span>
                   </span>
+                ))}
+              </nav>
+            )}
+            <h1 className={css.title} data-session-title="">
+              {editing
+                ? (
+                  <input
+                    className={css.titleInput}
+                    data-session-title-part="name"
+                    aria-label={t('session.rename')}
+                    defaultValue={title}
+                    autoFocus
+                    onFocus={(event) => { event.currentTarget.select() }}
+                    onBlur={(event) => { commit(event.currentTarget.value) }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') commit(event.currentTarget.value)
+                      else if (event.key === 'Escape') setEditing(false)
+                    }}
+                  />
                 )
-              })}
-              {ancestry.length === 0 && <span className={css.crumbCurrent}>{sessionId}</span>}
-            </nav>
+                : (
+                  <button
+                    type="button"
+                    className={css.titleName}
+                    data-session-title-part="name"
+                    title={t('session.rename')}
+                    onClick={() => { setEditing(true) }}
+                  >
+                    {title}
+                  </button>
+                )}
+              {/* A real space between the runs, so the title reads as one phrase to a screen reader; the flex gap draws it. */}
+              {' '}
+              <span className={css.titleContext}>{renderSlot('conversation.session.header.context', {})}</span>
+            </h1>
             <div className={css.headerActions}>
               {renderSlot('conversation.session.header.actions', {})}
             </div>

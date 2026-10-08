@@ -44,14 +44,28 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { gatherKnowledge, promptChannel, withKnowledge, writeKnowledgeFile } from './knowledge.ts'
 import { LAUNCHES_PATH, launchCommandFor, type TerminalCliOption, type TerminalLaunches } from './launches.ts'
 import { TerminalActivity } from './activity.ts'
+import { programOf, TerminalNudges } from './nudge.ts'
+import { PromptLines } from './client/prompt-line.ts'
+import { resolveSessionTitleLlmConfig, suggestSessionTitle } from '@deepseek-ai/dsh-session-title-llm'
 
 export { LAUNCHES_PATH, launchCommandFor } from './launches.ts'
 export type { TerminalCliOption, TerminalLaunches } from './launches.ts'
 export { gatherKnowledge, KNOWLEDGE_PREAMBLE, KNOWLEDGE_SERVICES, PROMPT_CHANNELS, promptChannel, withKnowledge } from './knowledge.ts'
 export type { PromptChannel } from './knowledge.ts'
+export { AGENT_PROGRAMS, isAgentProgram, programOf, showsChoice, TerminalNudges } from './nudge.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'idealize-ui-terminal'
+
+/** The chat-name rule (the profile's session-title-llm config), for terminal chats. */
+const TERMINAL_TITLE_CONFIG = resolveSessionTitleLlmConfig({
+  targetWords: 3,
+  targetCjkCharacters: 8,
+  maxCharacters: 32,
+  maxInputBytes: 4096,
+  maxOutputTokens: 64,
+  timeoutMs: 30_000,
+})
 
 /** Plugin config. */
 export interface Config {
@@ -133,6 +147,8 @@ export interface DesktopTerminalLike {
   resize(cols: number, rows: number): void
   subscribe(listener: (event: EmbeddedTerminalEvent) => void): () => void
   close(): void
+  /** The program in front of the shell (`claude`, `zsh`); absent on a desktop shell older than 8 Oct 2026. */
+  foreground?(): string | undefined
 }
 
 /** What a terminal agent's run is reported to; probed, never injected. */
@@ -152,6 +168,15 @@ export interface IdealizeTerminals {
    * @returns the session ids of every terminal chat whose CLI is working.
    */
   working(): string[]
+  /**
+   * Type a line into a Terminal chat's agent and press Enter, now if it is at
+   * its prompt, or when its terminal next falls quiet (see `nudge.ts`).
+   * @param sessionId - the chat.
+   * @param text - one line.
+   * @param wanted - asked before a held line is typed; false drops it.
+   * @returns false when the chat has no open terminal here.
+   */
+  nudge(sessionId: string, text: string, wanted?: () => boolean): boolean
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -371,7 +396,18 @@ export function apply(ctx: Context, config?: Config): void {
   // and posted nothing to the project's group chat when it stopped (JJ,
   // 10 Sep 2026).
   const chats = new Map<string, { session: string; cwd: string }>()
+  // What the nudger reads: each shell, the program its launch ran, and the
+  // line the person has typed into it and not sent.
+  const opened = new Map<string, DesktopTerminalLike>()
+  const programs = new Map<string, string>()
+  const drafts = new Map<string, PromptLines>()
+  const nudges = new TerminalNudges({
+    busy: id => activity.busy(id),
+    draft: id => drafts.get(id)?.draft ?? '',
+    program: id => programs.get(id),
+  })
   const activity = new TerminalActivity({
+    onQuiet: (id) => { nudges.quiet(id) },
     onWorking: (id) => {
       ctx.emit('idealize/terminal-activity', { id, working: true })
     },
@@ -406,6 +442,13 @@ export function apply(ctx: Context, config?: Config): void {
       const chat = chats.get(id)
       return chat === undefined ? [] : [chat.session]
     }),
+    nudge: (sessionId: string, text: string, wanted?: () => boolean) => {
+      const id = [...chats.entries()].find(([, chat]) => chat.session === sessionId)?.[0]
+      const terminal = id === undefined ? undefined : opened.get(id)
+      if (terminal === undefined || terminal.exit !== undefined) return false
+      nudges.nudge(terminal, text, wanted)
+      return true
+    },
   }), 'idealize-ui-terminal: idealizeTerminals')
   // The Brains pane's launch choice: a per-brain override, or the default when
   // no activity is named. Registered only where a settings provider exists,
@@ -453,9 +496,14 @@ export function apply(ctx: Context, config?: Config): void {
   const watch = (terminal: DesktopTerminalLike): void => {
     if (watched.has(terminal.id)) return
     watched.add(terminal.id)
+    opened.set(terminal.id, terminal)
     const off = terminal.subscribe((event) => {
       if (event.kind === 'exit') {
         activity.closed(terminal.id)
+        nudges.closed(terminal.id)
+        opened.delete(terminal.id)
+        programs.delete(terminal.id)
+        drafts.delete(terminal.id)
         chats.delete(terminal.id)
         watched.delete(terminal.id)
         off()
@@ -561,6 +609,8 @@ export function apply(ctx: Context, config?: Config): void {
       const fresh = terminal.exit === undefined && terminal.replay() === '' && !autoLaunched.has(terminal.id)
       if (fresh && command !== '') {
         autoLaunched.add(terminal.id)
+        const program = programOf(command)
+        if (program !== undefined) programs.set(terminal.id, program)
         scheduleLaunch(terminal, await typedLaunch(terminal, command, cwd))
       }
       // The chat this shell belongs to, and the project it runs in, so a run
@@ -605,11 +655,45 @@ export function apply(ctx: Context, config?: Config): void {
       req.on('close', detach)
     })
 
+    /**
+     * A name for a terminal chat from the first prompt typed into it (JJ,
+     * 7 Oct 2026). Terminal keystrokes never become `user/message` events,
+     * so the automatic title never runs for a terminal chat; the browser half
+     * sends the first real prompt here and renames the chat with the reply,
+     * through the same rename the sidebar uses. Asks the default model,
+     * under the same 2-4 word, 32-character rule as a chat's own title.
+     */
+    register('/idealize/terminal/title', true, async (req, res) => {
+      const body = JSON.parse(await readBody(req)) as { text?: unknown }
+      const text = typeof body.text === 'string' ? body.text.trim() : ''
+      // ctx.get() is the sanctioned probe for services this plugin does not inject.
+      const probe = webCtx as unknown as { get(name: string): unknown }
+      const llm = probe.get('llm')
+      const defaults = probe.get('agentDefaultModel') as { currentSelection?: () => { provider: string; model: string } } | undefined
+      if (text === '' || llm === undefined || typeof defaults?.currentSelection !== 'function') {
+        sendJson(res, 422, { error: 'no prompt, or no model to name it with' })
+        return
+      }
+      const { provider, model } = defaults.currentSelection()
+      const signal = AbortSignal.timeout(TERMINAL_TITLE_CONFIG.timeoutMs)
+      // The probed service, never webCtx itself: suggestSessionTitle reads
+      // ctx.llm, and that read throws on a context that did not inject llm.
+      // Every terminal chat stayed "Terminal" until this (JJ, 8 Oct 2026).
+      const title = await suggestSessionTitle({ llm: llm as Context['llm'] }, TERMINAL_TITLE_CONFIG, text, { provider, model }, signal)
+      sendJson(res, title === '' ? 422 : 200, title === '' ? { error: 'the model gave no title' } : { title })
+    })
+
     register('/idealize/terminal/input', true, async (req, res) => {
       const body = JSON.parse(await readBody(req)) as { id?: unknown; data?: unknown }
       const terminal = named(res, body)
       if (terminal === undefined) return
-      if (typeof body.data === 'string') terminal.write(body.data)
+      if (typeof body.data === 'string') {
+        terminal.write(body.data)
+        // Read back as lines, so a nudge never lands on a line the person is still typing.
+        let lines = drafts.get(terminal.id)
+        if (lines === undefined) drafts.set(terminal.id, lines = new PromptLines())
+        lines.push(body.data)
+      }
       sendJson(res, 200, { ok: true })
     })
 

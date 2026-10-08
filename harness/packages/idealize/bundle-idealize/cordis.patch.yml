@@ -75,6 +75,24 @@
     - id: idealize-web-search-openrouter
       name: '@idealize/web-search-openrouter'
 
+# Short chat names (JJ, 7 Oct 2026): the chat title reads "Kitchen quotes in
+# Casa Madrigal" at the top of every chat, so a name runs 2 to 4 words and
+# never past 32 characters. The first-prompt fallback holds to the same
+# ceiling; a person's own rename keeps the base 80 bytes.
+- id: session-title
+  config:
+    fallbackMaxWords: 4
+    fallbackMaxBytes: 32
+    maxTitleBytes: 80
+- id: session-title-llm
+  config:
+    targetWords: 3
+    targetCjkCharacters: 8
+    maxCharacters: 32
+    maxInputBytes: 4096
+    maxOutputTokens: 64
+    timeoutMs: 60000
+
 # S4 — pre-seeded login-first route: ChatGPT subscription via Codex OAuth.
 # A catalog route naming no apiKeyEnv defers to the provider's own auth,
 # which resolves from the stored OAuth credential. The settings document's
@@ -203,6 +221,16 @@
 - insert:
     - id: idealize-askbar
       name: '@idealize/askbar'
+
+# 2.0.0 — Powell, the desk-buddy owl MiniMode collapses to (JJ, 2 Oct 2026:
+# "Powell is the interface"). Host: Powell's own workspace-level agent
+# session on the `powell` Activity Agent, its active project, the voice
+# routes (fal speech-to-text and streamed ElevenLabs speech, keys host-side)
+# and its permission prompts answered in the bubble. Client: the owl takes
+# the floating window's root, so the Askbar column no longer renders there.
+- insert:
+    - id: idealize-powell
+      name: '@idealize/powell'
 
 # A5 — the transcription seam and the on-device whisper provider the Askbar's
 # hold gesture speaks through. Out of the product for now (JJ, 18 Sep 2026):

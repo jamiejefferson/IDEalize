@@ -21,6 +21,9 @@
       "path": "../activity-pills"
     },
     {
+      "path": "../../session/session-title-llm"
+    },
+    {
       "path": "../appearance/tsconfig.client.json"
     },
     {

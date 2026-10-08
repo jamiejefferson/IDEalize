@@ -125,6 +125,12 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
    * Host's own message.
    */
   forkSession: (sessionId: SessionId) => Promise<void>
+  /**
+   * Continue a chat in another project: a copy carrying its history starts in
+   * that project's folder and opens, and the original is archived. Rejects
+   * with an Error whose message is the localised notice for the person.
+   */
+  moveSession: (sessionId: SessionId, workspaceId: WorkspaceId) => Promise<void>
   /** Rename a Host Workspace (rejects on name conflict; resolves on durability). */
   renameWorkspace: (workspaceId: WorkspaceId, title: string) => Promise<void>
   /** Delete only a Host Workspace registration; directory and Session logs remain. */

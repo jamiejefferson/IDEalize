@@ -63,6 +63,15 @@
   font-size: var(--idealize-type-small, 11.5px);
 }
 
+/* A note's "Saving…" / "Saved": quieter than the actions beside it. */
+.saveState {
+  flex: none;
+  padding: 0 6px;
+  color: var(--dsw-alias-label-tertiary, #8c8f94);
+  font-size: var(--idealize-type-small, 11.5px);
+  white-space: nowrap;
+}
+
 .textActionPrimary {
   composes: button sm from './controls.module.css';
   flex: none;

@@ -111,32 +111,12 @@ describe('askbar client apply', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('marks the Askbar window, registers its copy, and polls the roster for every project’s rows', async () => {
+  it('leaves the floating window to Powell: no root surface and no roster poll', async () => {
     const { ctx, fetchMock } = await bench('?dsh-desktop-mode=askbar')
-    expect(document.body.dataset['dshDesktopMode']).toBe('askbar')
-    expect(fetchMock).toHaveBeenCalledWith('/idealize/askbar/roster?project=%2Fwork%2Fdemo&sessions=s-juno%2Cs-nova%2Cs-rye&all=1')
     const slots = ctx.get('slots') as SlotRegistry
-    const entry = slots.entriesOfSlot('root')[0]
-    expect(entry?.locale).toBe('idealize-askbar')
-    const injected = entry?.inject?.() as { store: { getSnapshot: () => { project: string } } } | undefined
-    expect(injected?.store.getSnapshot().project).toBe('/work/demo')
-    expect((ctx.get('locale') as LocaleRuntime).bind('idealize-askbar')('studio.title')).toBe('Studio')
+    expect(slots.entriesOfSlot('root')).toHaveLength(0)
+    expect(fetchMock).not.toHaveBeenCalled()
     await ctx.fiber.dispose()
-    expect(document.body.dataset['dshDesktopMode']).toBeUndefined()
-  })
-
-  it('follows the main window to another project, keeping every row, and stops following on dispose', async () => {
-    const { ctx, fetchMock, sessions } = await bench('?dsh-desktop-mode=askbar')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    vi.useFakeTimers()
-    sessions.set(sessionsOf('s-rye', ['s-juno', 's-nova', 's-rye']))
-    await vi.advanceTimersByTimeAsync(150)
-    // The rows are the same set; only the project the panel names moves.
-    expect(fetchMock).toHaveBeenLastCalledWith('/idealize/askbar/roster?project=%2Fwork%2Fother&sessions=s-juno%2Cs-nova%2Cs-rye&all=1')
-    await ctx.fiber.dispose()
-    sessions.set(sessionsOf('s-juno', ['s-juno', 's-nova', 's-rye']))
-    await vi.advanceTimersByTimeAsync(150)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('walks the rail on ⌥⌘↑ / ⌥⌘↓ and on ⇧↑ / ⇧↓, wrapping at both ends', async () => {
@@ -174,10 +154,5 @@ describe('askbar client apply', () => {
   it('carries no shortcut where no keybind catalogue is mounted', async () => {
     const { binds } = await bench('', undefined, undefined, { declareRail: true })
     expect(binds).toHaveLength(0)
-  })
-
-  it('polls with an empty project when no session or workspace names a folder', async () => {
-    const { fetchMock } = await bench('?dsh-desktop-mode=askbar', sessionsOf(undefined, []), { items: [], archivedSessionIds: [] })
-    expect(fetchMock).toHaveBeenCalledWith('/idealize/askbar/roster?project=&all=1')
   })
 })

@@ -1142,6 +1142,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
         returns: 'the session ids of every terminal chat whose CLI is working.',
       },
+      {
+        signature: 'nudge(sessionId: string, text: string, wanted?: () => boolean): boolean',
+        description: 'Type a line into a Terminal chat\'s agent and press Enter, now if it is at its prompt, or when its terminal next falls quiet (see `nudge.ts`).',
+        parameters: [{ name: 'sessionId', description: 'the chat.' }, { name: 'text', description: 'one line.' }, { name: 'wanted', description: 'asked before a held line is typed; false drops it.' }],
+        returns: 'false when the chat has no open terminal here.',
+      },
     ],
   },
   {

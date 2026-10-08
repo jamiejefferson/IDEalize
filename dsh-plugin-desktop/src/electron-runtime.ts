@@ -16,7 +16,8 @@ import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-te
 import { desktopInstallRecoveryStatePath } from './install-recovery.ts'
 import { packagedDependencyPath } from './packaged-runtime-path.ts'
 import { ElectronShellGeneration } from './electron-shell-generation.ts'
-import { AskbarWindow, ASKBAR_TRANSFORM_MS, type AskbarSide } from './askbar-window.ts'
+import { ASKBAR_TRANSFORM_MS } from './askbar-window.ts'
+import { PowellWindow, type PowellCommand } from './powell-window.ts'
 import { electronPlatformStrategy, type ElectronPlatformStrategy } from './electron-platform.ts'
 import {
   desktopViewStatePath,
@@ -105,7 +106,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
   readonly updates: DesktopUpdateAdapter
 
   private generation: ElectronShellGeneration | undefined
-  private askbar: AskbarWindow | undefined
+  private askbar: PowellWindow | undefined
   private currentLocale: DesktopLocale = 'en'
   private scheduled: DesktopShellSpec | undefined
   private mountTask: Promise<void> | undefined
@@ -231,6 +232,10 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         stopRendererBootMonitoring: () => { this.stopRendererBootMonitoring() },
         failRendererBoot: error => { this.failRendererBoot('renderer-failed', error) },
         logError: message => { this.logError(message) },
+        onMinimiseChange: (minimised) => {
+          this.askbar?.mainMinimised(minimised)
+          this.rebuildTrayMenu()
+        },
       })
       this.generation = generation
       this.mountTask = generation.mount(beforeInteractive).then(() => {
@@ -259,13 +264,15 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
    */
   private mountAskbar(spec: DesktopShellSpec): void {
     if (this.askbar !== undefined) return
-    const askbar = new AskbarWindow({
+    // Powell took the floating window in 2.0.0 (JJ, 2 Oct 2026: "Powell is
+    // the interface"); the column's placement settings carry over.
+    const askbar = new PowellWindow({
       url: spec.askbarUrl,
       iconPath: spec.iconPath,
       preloadPath: desktopPreloadPath(),
-      readSide: () => spec.readAskbarSide(),
       readPosition: () => spec.readAskbarPosition(),
       savePosition: position => spec.requestAskbarPosition(position),
+      openMain: () => { this.expandFromBar() },
       isQuitting: () => this.quitting,
       logError: message => { this.logError(message) },
     })
@@ -316,9 +323,20 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     else this.expandFromBar()
   }
 
+  /**
+   * A global key for Powell: listen (toggle) or open the thought pill. With
+   * the main window up, Powell takes over first so the owl can answer.
+   * @param command - what to do.
+   */
+  powellCommand(command: PowellCommand): void {
+    if (this.askbar === undefined) return
+    if (this.generation?.isWindowVisible() === true) this.collapseToBar()
+    this.askbar.command(command)
+  }
+
   /** @inheritdoc */
   refreshAskbar(): void {
-    this.askbar?.place()
+    void this.askbar?.place()
     this.rebuildTrayMenu()
   }
 
@@ -898,27 +916,6 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         click: () => { selectMode('advanced') },
       },
     ]
-    const askbarSide = spec.readAskbarSide()
-    const selectAskbarSide = (side: AskbarSide): void => {
-      if (side === askbarSide) return
-      void spec.requestAskbarSide(side).catch((cause: unknown) => {
-        this.logError(`dsh-plugin-desktop: failed to change the Askbar edge: ${cause instanceof Error ? cause.message : String(cause)}`)
-      })
-    }
-    const askbarEdgeItems: Electron.MenuItemConstructorOptions[] = [
-      {
-        label: desktopTrayLabel(this.locale, 'askbarEdgeLeft'),
-        type: 'radio',
-        checked: askbarSide === 'left',
-        click: () => { selectAskbarSide('left') },
-      },
-      {
-        label: desktopTrayLabel(this.locale, 'askbarEdgeRight'),
-        type: 'radio',
-        checked: askbarSide === 'right',
-        click: () => { selectAskbarSide('right') },
-      },
-    ]
     const collapsed = this.askbar?.isShown() === true
     template.push(
       { type: 'separator' },
@@ -926,7 +923,6 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
         label: desktopTrayLabel(this.locale, collapsed ? 'expandFromAskbar' : 'collapseToAskbar'),
         click: () => { this.toggleAskbarTransform() },
       },
-      { label: desktopTrayLabel(this.locale, 'askbarEdge'), submenu: askbarEdgeItems },
       { label: desktopTrayLabel(this.locale, 'shellMode'), submenu: modeItems },
       { type: 'separator' },
       { label: desktopTrayLabel(this.locale, 'quit'), click: () => { spec.requestQuit(0) } },

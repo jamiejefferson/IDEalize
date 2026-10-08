@@ -20,8 +20,8 @@ import {
   type Rgb,
 } from './colour.ts'
 import {
-  type ActionAppearance, type GradientStop, type GradientType, type SurfaceAppearance, type SurfaceId, fontStack,
-  FONT_WEIGHTS, SURFACES, surfaceScheme,
+  type ActionAppearance, type ChatTitleAppearance, type GradientStop, type GradientType, type SurfaceAppearance, type SurfaceId, fontStack,
+  CHAT_TITLE_DEFAULTS, FONT_WEIGHTS, parseTitleWeight, SURFACES, surfaceScheme,
 } from './appearance-settings.ts'
 import { onFill, type Tokens } from './presets.ts'
 
@@ -538,6 +538,45 @@ export function panelScalarsCss(panels: PanelScalars): string {
   return rules.join('\n')
 }
 
+/** Attribute the conversation header's title carries; its parts carry {@link TITLE_PART_ATTRIBUTE}. */
+export const TITLE_ATTRIBUTE = 'data-session-title'
+
+/** Attribute on each run of the title: `name` (the chat and the project) or `joiner` ("in"). */
+export const TITLE_PART_ATTRIBUTE = 'data-session-title-part'
+
+/**
+ * The chat title's stylesheet. Always written, because the Chat tab's own
+ * typography reaches every element in the chat column with a stronger
+ * selector than the header's: these rules restate the title's family and
+ * weight at the same strength, later in the sheet, and undo the Chat tab's
+ * size zoom so the title's size is the Title card's alone. The colour and
+ * size travel as variables, so a terminal chat can swap the colour for the
+ * terminal's own text colour.
+ * @param title - the Title card's settings.
+ * @param chat - the Chat tab's surface override, which an empty font or colour follows.
+ * @returns CSS text.
+ */
+export function chatTitleCss(title: ChatTitleAppearance, chat: SurfaceAppearance): string {
+  const root = `${surfaceSelector('chat')} [${TITLE_ATTRIBUTE}]`
+  const family = title.fontName.trim() !== ''
+    ? fontStack(title.fontName)
+    : chat.fontName.trim() !== '' ? fontStack(chat.fontName) : 'var(--dsw-font-family)'
+  const colour = parseHex(title.colorHex)
+  const variables = [
+    `--dsh-session-title-size: ${title.fontSize}px`,
+    `--dsh-session-title-color: ${colour === undefined ? 'var(--dsw-alias-label-primary)' : toHex(colour)}`,
+  ]
+  if (chat.fontSize > 0) {
+    variables.push(`zoom: ${Math.round((SURFACE_BASE_SIZE.chat / chat.fontSize) * 1000) / 1000}`)
+  }
+  return [
+    `${root} { ${variables.join('; ')}; }`,
+    `${root} [${TITLE_PART_ATTRIBUTE}] { font-family: ${family}; letter-spacing: -0.02em; }`,
+    `${root} [${TITLE_PART_ATTRIBUTE}='name'] { font-weight: ${parseTitleWeight(title.fontWeight)}; }`,
+    `${root} [${TITLE_PART_ATTRIBUTE}='joiner'] { font-weight: 400; letter-spacing: 0; }`,
+  ].join('\n')
+}
+
 /**
  * The whole per-surface + chat stylesheet.
  * @param surfaces - every surface's override.
@@ -549,6 +588,8 @@ export function appearanceStylesheet(
   surfaces: Readonly<Record<SurfaceId, SurfaceAppearance>>,
   panels: PanelScalars,
   defaults: SurfaceDefaults,
+  title: ChatTitleAppearance = CHAT_TITLE_DEFAULTS,
 ): string {
-  return [...SURFACES.map(id => surfaceCss(id, surfaces[id], defaults)), panelScalarsCss(panels)].filter(text => text !== '').join('\n')
+  return [...SURFACES.map(id => surfaceCss(id, surfaces[id], defaults)), panelScalarsCss(panels), chatTitleCss(title, surfaces.chat)]
+    .filter(text => text !== '').join('\n')
 }

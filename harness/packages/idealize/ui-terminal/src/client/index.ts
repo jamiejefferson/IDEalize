@@ -21,6 +21,7 @@
  * Views whose prompts go through the composer (Gallery, Sound Stage) keep it.
  */
 import type React from 'react'
+import { namesAChat } from './prompt-line.ts'
 import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -258,6 +259,32 @@ export function apply(ctx: ClientContext): void {
     Pane: createTerminalPane(t),
   })
 
+  // A terminal chat's name comes from the first real prompt typed into it
+  // (JJ, 7 Oct 2026): its keystrokes never reach the automatic title, so
+  // until then it carries its folder's name. Once per chat per window; a
+  // chat that already has a title, from the person or from chat mode, keeps it.
+  const askedToName = new Set<string>()
+  const nameFromPrompt = (sessionId: SessionId, line: string): void => {
+    if (askedToName.has(sessionId)) return
+    if (sessions.list.getSnapshot().byId[sessionId]?.title !== undefined) {
+      askedToName.add(sessionId)
+      return
+    }
+    if (!namesAChat(line)) return
+    askedToName.add(sessionId)
+    void fetch('/idealize/terminal/title', {
+      method: 'POST',
+      headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ text: line }),
+    })
+      .then(async response => response.ok ? (await response.json() as { title: string }).title : undefined)
+      .then(async (title) => {
+        if (title === undefined) return
+        await sessions.binding(sessionId)?.session.rename(title)
+      })
+      .catch((error: unknown) => { console.warn('idealize-ui-terminal: the chat was not named', error) })
+  }
+
   void probed.then((capabilities) => {
     if (!live || !capabilities.embedded) return
 
@@ -269,6 +296,7 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       label: () => t('view.terminal'),
       inject: (sessionId: SessionId) => ({
+        onPrompt: (line: string) => { nameFromPrompt(sessionId, line) },
         cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
         // The chat's activity preset (the pill it launched on) selects the
         // fresh shell's launch command on the host.

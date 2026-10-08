@@ -50,6 +50,12 @@ export interface ActivityOptions {
    * @param ranForMs - how long the run lasted.
    */
   onDone(id: string, ranForMs: number): void
+  /**
+   * A terminal fell quiet after any run, announced or not, so a nudge held
+   * back while it was printing can be tried again.
+   * @param id - the terminal's id.
+   */
+  onQuiet?(id: string): void
   /** The clock, injectable so a test can drive it. */
   now?: () => number
 }
@@ -81,6 +87,16 @@ export class TerminalActivity {
    */
   working(): string[] {
     return [...this.#runs.entries()].filter(([, run]) => run.announced).map(([id]) => id)
+  }
+
+  /**
+   * Whether a terminal has printed within the last {@link QUIET_MS}, announced
+   * or not: a nudge typed then could land in the middle of a redraw.
+   * @param id - the terminal's id.
+   * @returns true while a run stands.
+   */
+  busy(id: string): boolean {
+    return this.#runs.has(id)
   }
 
   /**
@@ -143,6 +159,7 @@ export class TerminalActivity {
       this.#runs.delete(id)
       // A run nobody was told about started never finished, so nothing to say.
       if (run.announced) this.#options.onDone(id, this.#now() - run.startedAt)
+      this.#options.onQuiet?.(id)
     }, ms)
     // The watcher must never hold the process open on its own account.
     timer.unref()

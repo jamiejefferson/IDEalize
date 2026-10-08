@@ -71,14 +71,17 @@ describe('blank session view area', () => {
     expect(view.container.querySelector('header')!.getAttribute('aria-hidden')).toBe('true')
   })
 
-  it('renders a non-chat view with data-blank-view, header still hidden and no tab row', async () => {
+  it('renders a non-chat view with data-blank-view, its title showing and no tab row', async () => {
     const { view, chat } = mountBlank()
     await act(async () => { chat.actions.setView('terminal') })
     const body = view.getByTestId('view-terminal')
     // The mark carries the ACTIVE VIEW'S ID: a view that owns its whole column
     // suppresses the composer seat from its own package by matching on it.
     expect(body.parentElement!.getAttribute('data-blank-view')).toBe('terminal')
-    expect(view.container.querySelector('header')!.getAttribute('aria-hidden')).toBe('true')
+    // A terminal chat says where it is (JJ, 7 Oct 2026): the title strip shows, in the terminal's colours.
+    const header = view.container.querySelector('header')!
+    expect(header.getAttribute('aria-hidden')).toBeNull()
+    expect(header.getAttribute('data-view')).toBe('terminal')
     expect(view.queryAllByRole('tab')).toHaveLength(0)
     expect(view.container.querySelector('[role="tablist"]')).toBeNull()
 

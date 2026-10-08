@@ -15,8 +15,10 @@ describe('role mapping', () => {
   })
 
   it('maps the Studio preset to the Studio role and back, independently of the project one', () => {
-    expect(roleOfPreset('studio-agent', DEFAULT_ROLE_CONFIG)).toBe('studio-agent')
-    expect(presetOfRole('studio-agent', DEFAULT_ROLE_CONFIG)).toBe('studio-agent')
+    // Powell is the Studio manager since 2.0.0 (JJ, 2 Oct 2026).
+    expect(roleOfPreset('powell', DEFAULT_ROLE_CONFIG)).toBe('studio-agent')
+    expect(roleOfPreset('studio-agent', DEFAULT_ROLE_CONFIG)).toBeUndefined()
+    expect(presetOfRole('studio-agent', DEFAULT_ROLE_CONFIG)).toBe('powell')
     expect(presetOfRole('studio-agent', { projectAgentPreset: 'pm', studioAgentPreset: 'chief' })).toBe('chief')
   })
 })

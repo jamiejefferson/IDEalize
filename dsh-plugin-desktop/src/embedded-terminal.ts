@@ -20,6 +20,8 @@ import { win32 } from 'node:path'
 /** The node-pty surface this service uses (kept narrow so tests fake it). */
 export interface EmbeddedPtyProcess {
   readonly pid: number
+  /** node-pty's name for the program in front of the shell (`claude`, `zsh`). */
+  readonly process?: string
   write(data: string): void
   resize(columns: number, rows: number): void
   kill(signal?: string): void
@@ -65,6 +67,12 @@ export interface DesktopEmbeddedTerminal {
   subscribe(listener: (event: EmbeddedTerminalEvent) => void): () => void
   /** End the shell and forget the terminal. */
   close(): void
+  /**
+   * The program in front of the shell, so the host only types a note's wake
+   * line into a command-line agent and never into a bare shell (8 Oct 2026).
+   * @returns its name, or undefined once the shell has ended or the pty cannot say.
+   */
+  foreground(): string | undefined
 }
 
 /** Inputs for opening (or reattaching to) one embedded terminal. */
@@ -216,6 +224,17 @@ class EmbeddedTerminal implements DesktopEmbeddedTerminal {
   write(data: string): void {
     if (this.exit !== undefined) return
     this.process.write(data)
+  }
+
+  foreground(): string | undefined {
+    if (this.exit !== undefined) return undefined
+    try {
+      const name = this.process.process
+      return typeof name === 'string' && name !== '' ? name : undefined
+    } catch {
+      // node-pty reads the foreground process on demand; a pty mid-teardown can throw.
+      return undefined
+    }
   }
 
   resize(cols: number, rows: number): void {

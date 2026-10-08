@@ -745,7 +745,19 @@ async function start(): Promise<void> {
     if (!globalShortcut.register('Control+Alt+A', () => { runtime.toggleAskbarTransform() })) {
       process.stderr.write(`${BIN_NAME}: the Askbar transform shortcut (Ctrl+Alt+A) is taken by another application\n`)
     }
-    app.on('will-quit', () => { globalShortcut.unregister('Control+Alt+A') })
+    // ⌃⌥Space: Powell listens (press again to stop; it also stops on its own
+    // after a pause). ⌃⌥T: Powell's thought pill, ready to type. Both bring
+    // Powell up first when the main window is showing.
+    const powellKeys: [string, 'listen' | 'type'][] = [['Control+Alt+Space', 'listen'], ['Control+Alt+T', 'type']]
+    for (const [accelerator, command] of powellKeys) {
+      if (!globalShortcut.register(accelerator, () => { runtime.powellCommand(command) })) {
+        process.stderr.write(`${BIN_NAME}: Powell's shortcut (${accelerator}) is taken by another application\n`)
+      }
+    }
+    app.on('will-quit', () => {
+      globalShortcut.unregister('Control+Alt+A')
+      for (const [accelerator] of powellKeys) globalShortcut.unregister(accelerator)
+    })
     // The Finder right-click entry. The app is copied into /Applications by
     // hand, so there is no installer to put this in place and the app does it
     // on each launch, rewriting only when the shipped text has changed.

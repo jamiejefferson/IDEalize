@@ -32,12 +32,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type React from 'react'
 import {
   IconChevronDownOutline14, IconChevronRightOutline14, IconFolderClose16, IconFolderOpen16,
-  IconPlusOutline16, IconRightUpOutline14, Tooltip,
+  IconPlusOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BarKey } from './locales.ts'
 import type { RevealRequest } from './bar-store.ts'
-import { BarIconBrowse, BarIconFilePlus, BarIconFolderPlus, BarIconRefresh, BarIconSort } from './BarIcons.tsx'
+import { BarIconBrowse, BarIconFilePlus, BarIconFolderPlus, BarIconRefresh, BarIconReveal, BarIconSort } from './BarIcons.tsx'
 import { SessionFilesToggle } from './SessionFilesToggle.tsx'
 import { fileManagerKey, isAtOrBeneath, isBeneath, joinHostPath } from './host-path.ts'
 import css from './FilesPanel.module.css'
@@ -515,7 +515,7 @@ function LazyTree({
             aria-label={t(fileManagerKey('files.reveal'))}
             onClick={(event) => { event.stopPropagation(); onReveal(path) }}
           >
-            <IconRightUpOutline14 size={12} />
+            <BarIconReveal size={12} />
           </button>
         </Tooltip>
       )}

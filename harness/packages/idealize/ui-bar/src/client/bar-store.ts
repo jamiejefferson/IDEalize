@@ -57,6 +57,12 @@ export interface BarViewState {
   hatchTab: HatchTab
   /** File open in the deck's viewer panel (null = deck empty). */
   file: string | null
+  /**
+   * The Notes scratchpad's current note, once the rail has asked the host for
+   * it (null until then). The deck opens this file editable and saving as
+   * you type, and the rail's Notes entry reads as pressed while it shows.
+   */
+  notesFile: string | null
   /** A pending request for the Brains pane (null = nothing outstanding). */
   brainsRequest: BrainsRequest | null
   /** A pending inspect handoff for the Trajectory pane (null = nothing outstanding). */
@@ -82,6 +88,6 @@ export type BarViewStore = SnapshotStore<BarViewState>
  */
 export function createBarViewStore(): BarViewStore {
   return createSnapshotStore<BarViewState>({
-    panel: null, hatchTab: 'service', file: null, brainsRequest: null, inspect: null, filesReload: 0, reveal: null, terminalAvailable: false,
+    panel: null, hatchTab: 'service', file: null, notesFile: null, brainsRequest: null, inspect: null, filesReload: 0, reveal: null, terminalAvailable: false,
   })
 }

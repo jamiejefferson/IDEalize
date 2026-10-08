@@ -207,6 +207,44 @@ export interface ActionAppearance {
   gradientStops: GradientStop[]
 }
 
+/**
+ * The chat title ("Kitchen quotes in Casa Madrigal") at the top of every
+ * chat and terminal chat (JJ, 7 Oct 2026: its styling comes from the
+ * appearance controls). The project name and "in" scale from `fontSize`.
+ */
+export interface ChatTitleAppearance {
+  /** Font family; empty follows the Chat tab's font, then the interface font. */
+  fontName: string
+  /** The chat name's size in px. */
+  fontSize: number
+  /** Index into {@link FONT_WEIGHTS}; 0 (inherit) reads as the default 800. */
+  fontWeight: number
+  /** Text colour as `#RRGGBB`; empty follows the Chat tab's text colour. Terminal chats always use the terminal's own text colour. */
+  colorHex: string
+}
+
+/** The title as designed (Paper, 7 Oct 2026): 36px extra-bold in the chat's own ink. */
+export const CHAT_TITLE_DEFAULTS: ChatTitleAppearance = Object.freeze({
+  fontName: '',
+  fontSize: 36,
+  fontWeight: 8,
+  colorHex: '',
+})
+
+/**
+ * The CSS weight a title weight index stands for.
+ * @param index - index into {@link FONT_WEIGHTS}.
+ * @returns the weight; `inherit` and an index out of range read as the designed 800.
+ */
+export function parseTitleWeight(index: number): string {
+  const weight = FONT_WEIGHTS[index]
+  return weight === undefined || weight === 'inherit' ? '800' : weight
+}
+
+/** The title size slider's range. */
+export const CHAT_TITLE_SIZE_MIN = 18
+export const CHAT_TITLE_SIZE_MAX = 56
+
 /** Durable appearance section. */
 export interface AppearanceSettings {
   /** Selected app preset. */
@@ -231,6 +269,8 @@ export interface AppearanceSettings {
   chatMargin: number
   /** Document view margins in px, 0–64. */
   docMargin: number
+  /** The chat title at the top of every chat. */
+  chatTitle: ChatTitleAppearance
 }
 
 /** V0's interface size default (AppearanceDefaults.uiFontSize). */
@@ -287,6 +327,7 @@ export const APPEARANCE_DEFAULTS: AppearanceSettings = Object.freeze({
   chatShadowOpacity: 0.4,
   chatMargin: 18,
   docMargin: 14,
+  chatTitle: CHAT_TITLE_DEFAULTS,
 })
 
 const GradientStopSchema: z<GradientStop> = z.object({
@@ -317,6 +358,13 @@ const TerminalSchema: z<TerminalAppearanceSettings> = z.object({
   fontSize: z.number().min(9).max(28).default(TERMINAL_DEFAULTS.fontSize),
   lineSpacing: z.number().min(1).max(3).default(TERMINAL_DEFAULTS.lineSpacing),
   margin: z.number().min(0).max(80).default(TERMINAL_DEFAULTS.margin),
+})
+
+const ChatTitleSchema: z<ChatTitleAppearance> = z.object({
+  fontName: z.string().default(''),
+  fontSize: z.number().min(CHAT_TITLE_SIZE_MIN).max(CHAT_TITLE_SIZE_MAX).default(CHAT_TITLE_DEFAULTS.fontSize),
+  fontWeight: z.natural().max(9).default(CHAT_TITLE_DEFAULTS.fontWeight),
+  colorHex: z.string().default(''),
 })
 
 const ActionSchema: z<ActionAppearance> = z.object({
@@ -351,6 +399,7 @@ export const AppearanceSettingsSchema: z<AppearanceSettings> = z.object({
   chatShadowOpacity: z.number().min(0).max(0.8).default(APPEARANCE_DEFAULTS.chatShadowOpacity),
   chatMargin: z.number().min(8).max(40).default(APPEARANCE_DEFAULTS.chatMargin),
   docMargin: z.number().min(0).max(64).default(APPEARANCE_DEFAULTS.docMargin),
+  chatTitle: ChatTitleSchema.default({ ...CHAT_TITLE_DEFAULTS }),
 })
 
 /** The platform UI stack ui-theme's base sheet declares (what an empty `uiFont` means). */

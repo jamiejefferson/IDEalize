@@ -40,6 +40,8 @@ export interface BridgeEvent {
   studioEvent?: string
   /** On `agent-finished`: the turn the agent stopped on ended in an error, so no reply is waiting. */
   failed?: boolean
+  /** On `agent-finished`: the chat answered aloud itself (Powell), so surfaces skip the chime and the notification. */
+  quiet?: boolean
   /**
    * The absolute folder an `open-folder` event asks the shell to register as a
    * project and open; on an `open-file` event, the folder to register first

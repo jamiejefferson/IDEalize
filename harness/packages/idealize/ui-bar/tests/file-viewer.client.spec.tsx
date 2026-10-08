@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { en } from '../src/client/locales.ts'
-import { FileViewer } from '../src/client/FileViewer.tsx'
+import { FileViewer, NOTE_SAVE_DELAY_MS } from '../src/client/FileViewer.tsx'
 // Type-only: the locale-namespace merge the props type reads.
 import type {} from '../src/client/index.ts'
 
@@ -134,5 +134,60 @@ describe('FileViewer', () => {
     const view = mount({ path: '/w/proj/big.log' })
     await view.findByText('head')
     expect(view.queryByRole('button', { name: 'Edit' })).toBeNull()
+  })
+})
+
+describe('FileViewer as the Notes scratchpad', () => {
+  it('opens in the editor, saves as you type, and previews after the last write', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const writes: unknown[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith('/idealize/bar/file?')) return Promise.resolve(jsonResponse({ name: 'Notes.md', kind: 'text', size: 9, text: '# Notes\n\n' }))
+      if (url === '/idealize/bar/write') {
+        const body = JSON.parse(init?.body as string) as { text: string }
+        writes.push(body)
+        return Promise.resolve(jsonResponse({ ok: true, size: body.text.length }))
+      }
+      throw new Error(`unrouted fetch: ${url}`)
+    }))
+    const onNewNote = vi.fn()
+    const view = mount({ path: '/vault/Notes/Notes.md', onNewNote })
+    // No Edit to press: the note is already in the editor, with no Save or Cancel.
+    const editor = await view.findByRole('textbox', { name: 'Edit' }) as HTMLTextAreaElement
+    expect(editor.value).toBe('# Notes\n\n')
+    expect(view.queryByRole('button', { name: 'Save' })).toBeNull()
+    expect(view.queryByRole('button', { name: 'Cancel' })).toBeNull()
+    fireEvent.change(editor, { target: { value: '# Notes\n\nidea' } })
+    fireEvent.change(editor, { target: { value: '# Notes\n\nidea one' } })
+    expect(writes).toEqual([])
+    await vi.advanceTimersByTimeAsync(NOTE_SAVE_DELAY_MS)
+    // One write once typing pauses, carrying the size it was loaded at.
+    await waitFor(() => { expect(writes).toEqual([{ path: '/vault/Notes/Notes.md', text: '# Notes\n\nidea one', expectedSize: 9 }]) })
+    expect(await view.findByText('Saved')).toBeTruthy()
+    fireEvent.change(editor, { target: { value: '# Notes\n\nidea one, two' } })
+    // Preview writes what the pause has not yet saved, then shows the rendered note.
+    fireEvent.click(view.getByRole('button', { name: 'Preview' }))
+    await waitFor(() => { expect(view.queryByRole('textbox')).toBeNull() })
+    expect(writes[1]).toEqual({ path: '/vault/Notes/Notes.md', text: '# Notes\n\nidea one, two', expectedSize: 17 })
+    expect(view.getByText('idea one, two')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: 'New note' }))
+    expect(onNewNote).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+  })
+
+  it('writes the last keystrokes when the note closes mid-pause', async () => {
+    const writes: unknown[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith('/idealize/bar/file?')) return Promise.resolve(jsonResponse({ name: 'Notes.md', kind: 'text', size: 0, text: '' }))
+      if (url === '/idealize/bar/write') {
+        writes.push(JSON.parse(init?.body as string))
+        return Promise.resolve(jsonResponse({ ok: true, size: 4 }))
+      }
+      throw new Error(`unrouted fetch: ${url}`)
+    }))
+    const view = mount({ path: '/vault/Notes/Notes.md', onNewNote: vi.fn() })
+    fireEvent.change(await view.findByRole('textbox', { name: 'Edit' }), { target: { value: 'gone' } })
+    view.unmount()
+    await waitFor(() => { expect(writes).toEqual([{ path: '/vault/Notes/Notes.md', text: 'gone', expectedSize: 0 }]) })
   })
 })

@@ -16,6 +16,7 @@ interface FakePty extends EmbeddedPtyProcess {
   readonly written: string[]
   readonly resized: Array<[number, number]>
   killed: boolean
+  process?: string
   emitData(data: string): void
   emitExit(exitCode: number): void
 }
@@ -78,6 +79,17 @@ describe('embedded terminals Host service', () => {
     expect(ptys[0]!.options.env.TERM).toBe('xterm-256color')
     expect(ptys[0]!.options.env.ELECTRON_RUN_AS_NODE).toBeUndefined()
     expect(service.get(terminal.id)).toBe(terminal)
+  })
+
+  it('names the program in front of the shell, and nothing once the shell has ended', async () => {
+    const { spawn, ptys } = fakeSpawn()
+    const { service } = await mount(spawn)
+    const terminal = service.open({ key: 'chat-1', cwd: '/tmp' })
+    expect(terminal.foreground()).toBeUndefined()
+    ptys[0]!.process = 'claude'
+    expect(terminal.foreground()).toBe('claude')
+    ptys[0]!.emitExit(0)
+    expect(terminal.foreground()).toBeUndefined()
   })
 
   it('reattaches to the live terminal of the same key and replays its output', async () => {

@@ -1,0 +1,39 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
+  },
+  "files": [
+    "src/guide.ts",
+    "src/index.ts",
+    "src/invariant.ts",
+    "src/projects.ts",
+    "src/speech.ts",
+    "src/speech-text.ts",
+    "src/status.ts",
+    "src/switch.ts",
+    "src/types.ts"
+  ],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../core/agent" },
+    { "path": "../../core/agent-default-model" },
+    { "path": "../../preset/agent-presets" },
+    { "path": "../../credentials/credentials" },
+    { "path": "../../util/home-paths" },
+    { "path": "../../host/webserver" },
+    { "path": "../../llm/llm" },
+    { "path": "../../core/session" },
+    { "path": "../../session/session-title" },
+    { "path": "../../settings/settings" },
+    { "path": "../../core/system-prompt" },
+    { "path": "../../core/tools" },
+    { "path": "../../interaction/user-approval" },
+    { "path": "../../workspace/workspace" },
+    { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../skin" }
+  ]
+}

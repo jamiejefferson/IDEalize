@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-desktop",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "IDEalize: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "license": "MIT",
   "publishConfig": {
@@ -322,7 +322,10 @@
       "icon": "build/app-icon-mac.png",
       "mergeASARs": false,
       "notarize": true,
-      "x64ArchFiles": "**/node_modules/{node-pty/prebuilds/darwin-*/**,node-addon-require-builtin-darwin-*/**,@vscode/ripgrep-darwin-*/**,@img/sharp-darwin-*/**,@img/sharp-libvips-darwin-*/**,@koromix/koffi-darwin-*/**,onnxruntime-node/bin/napi-v6/darwin/**}"
+      "x64ArchFiles": "**/node_modules/{node-pty/prebuilds/darwin-*/**,node-addon-require-builtin-darwin-*/**,@vscode/ripgrep-darwin-*/**,@img/sharp-darwin-*/**,@img/sharp-libvips-darwin-*/**,@koromix/koffi-darwin-*/**,onnxruntime-node/bin/napi-v6/darwin/**}",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Powell listens while you hold it or press Control-Option-Space, and sends that audio to a cloud service to turn it into text."
+      }
     },
     "win": {
       "target": [

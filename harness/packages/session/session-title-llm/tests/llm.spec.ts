@@ -7,9 +7,11 @@ import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleProviderRequest } from '@deepseek-ai/dsh-session-title'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
+  clampTitleCharacters,
   generateSessionTitleWithLlm,
   resolveSessionTitleLlmConfig,
   SESSION_TITLE_TIMEOUT_CODE,
+  suggestSessionTitle,
 } from '@deepseek-ai/dsh-session-title-llm'
 import type { SessionTitleLlmConfig } from '@deepseek-ai/dsh-session-title-llm'
 
@@ -361,5 +363,34 @@ describe('generateSessionTitleWithLlm', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('clampTitleCharacters', () => {
+  it('cuts back to whole words within the ceiling and trims a dangling joiner', () => {
+    expect(clampTitleCharacters('Kitchen quotes', 32)).toBe('Kitchen quotes')
+    expect(clampTitleCharacters('Kitchen quotes for the Casa Madrigal flat', 32)).toBe('Kitchen quotes for the Casa')
+    expect(clampTitleCharacters('Quotes, kitchen and bathroom refurbishment', 16)).toBe('Quotes, kitchen')
+    expect(clampTitleCharacters('Supercalifragilisticexpialidocious', 10)).toBe('Supercalif')
+    expect(clampTitleCharacters('Anything at all', undefined)).toBe('Anything at all')
+  })
+})
+
+describe('suggestSessionTitle', () => {
+  it('titles free text through one call on the given route, within the character ceiling', async () => {
+    const { ctx, adapter } = await withScript([
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: 'Kitchen quotes for the Casa Madrigal flat' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ])
+    const config = resolveSessionTitleLlmConfig({ ...CONFIG, maxCharacters: 32 })
+    const title = await suggestSessionTitle(
+      ctx, config, 'get me three kitchen quotes', { provider: 'current-route', model: 'current-model' }, new AbortController().signal,
+    )
+    expect(title).toBe('Kitchen quotes for the Casa')
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.model).toBe('current-model')
+    expect(adapter.requests[0]?.system).toContain('Never exceed 32 characters')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('get me three kitchen quotes')
   })
 })

@@ -6,7 +6,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { describe, expect, it, vi } from 'vitest'
-import { apply, COMMANDS_SECTION } from '../src/index.ts'
+import { apply, COMMANDS_SECTION, IdealizeComm, Wire } from '../src/index.ts'
 
 describe('the idealize commands section', () => {
   it('reaches the assembled prompt in the tool-guidance band and says how to ask a tagged agent', async () => {
@@ -30,8 +30,15 @@ describe('the idealize commands section', () => {
       // A note from another chat is acted on, and a handoff names the next step.
       expect(prompt).toContain('carry on with that now without waiting for the person to repeat it')
       expect(prompt).toContain('the exact next step')
+      // A note is cut at the wire's limit, so detail goes in a documentation note the message points at.
+      expect(prompt).toContain(`at most ${String(Wire.maxBodyCharacters)} characters`)
+      expect(prompt).toContain('into a note in the project\'s documentation folder first, then send a short note that gives its path')
     } finally {
       await ctx.fiber.dispose()
     }
+  })
+
+  it('reaches a terminal agent as the same text, through the service\'s terminal knowledge', () => {
+    expect(IdealizeComm.prototype.terminalKnowledge()).toBe(COMMANDS_SECTION.text)
   })
 })

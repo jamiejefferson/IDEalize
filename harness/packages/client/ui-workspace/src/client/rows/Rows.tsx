@@ -14,8 +14,9 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
+import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
-import { relativeTime } from '../tree.ts'
+import { POWELL_KEY, relativeTime } from '../tree.ts'
 import { SpaceGlyph } from './SpaceGlyph.tsx'
 import css from './Rows.module.css'
 
@@ -123,7 +124,8 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, archiveAll,
 }) {
   const row = group
   // The ungrouped bucket has no workspace title: its label is dictionary copy.
-  const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
+  // Powell's group carries Powell's name, which no locale translates.
+  const label = row.workspaceId === undefined && row.key !== POWELL_KEY ? t('group.ungrouped') : row.label
   const active = group.expanded && group.containsCurrent
   const [menuOpen, setMenuOpen] = useState(false)
   // Neither row is destructive (the folder and chat logs remain; archive only
@@ -400,7 +402,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.t - the browser root's locale seat.
  * @returns the session row.
  */
-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t }: {
+export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, moveTargets, onMove, drag, flat = false, t }: {
   node: SessionNode
   currentId: string | undefined
   now: number
@@ -411,6 +413,13 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   onFork: (id: SessionNode['id']) => void
   /** Archive this session (row menu action; commits without a dialog). */
   onArchive: (id: SessionNode['id']) => void
+  /**
+   * Projects this chat can move to: every project but its own. Absent or
+   * empty (Powell's own chat), the row has no Move to project item.
+   */
+  moveTargets?: readonly { workspaceId: WorkspaceId; label: string }[] | undefined
+  /** Continue this chat in another project (row menu action). */
+  onMove?: ((id: SessionNode['id'], workspaceId: WorkspaceId) => void) | undefined
   /** Present only on draggable rows (workspace-group sessions outside search). */
   drag?: RowDragProps | undefined
   /** The row is rendered without a parent Workspace header. */
@@ -430,6 +439,18 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const sessionMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
+    // A chat's folder is fixed when it starts, so moving one continues it in
+    // the chosen project's folder: a copy carrying its history, the original
+    // archived. A Terminal chat's history lives in the program running in
+    // its shell, which cannot follow it, so Terminal rows have no Move item.
+    ...moveTargets === undefined || moveTargets.length === 0 || onMove === undefined || node.space === 'terminal'
+      ? []
+      : [{
+        id: 'move',
+        label: t('menu.move'),
+        icon: <IconFolderClose16 />,
+        submenu: moveTargets.map(target => ({ id: `move:${target.workspaceId}`, label: target.label })),
+      }],
     // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
     { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
   ]
@@ -521,6 +542,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
               if (id === 'rename') onRename(node.id, row.title)
               if (id === 'fork') onFork(node.id)
               if (id === 'archive') onArchive(node.id)
+              if (id.startsWith('move:')) onMove?.(node.id, id.slice('move:'.length) as WorkspaceId)
             }}
             portal
             closeOnPointerLeave

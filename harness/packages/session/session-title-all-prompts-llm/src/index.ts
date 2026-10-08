@@ -18,6 +18,7 @@ export type Config = SessionTitleLlmConfig
 export const Config: z<Config> = z.object({
   targetWords: SessionTitleLlmConfigFields.targetWords,
   targetCjkCharacters: SessionTitleLlmConfigFields.targetCjkCharacters,
+  maxCharacters: SessionTitleLlmConfigFields.maxCharacters,
   maxInputBytes: SessionTitleLlmConfigFields.maxInputBytes,
   maxOutputTokens: SessionTitleLlmConfigFields.maxOutputTokens,
   timeoutMs: SessionTitleLlmConfigFields.timeoutMs,

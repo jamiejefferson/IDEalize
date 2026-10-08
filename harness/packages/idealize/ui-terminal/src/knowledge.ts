@@ -25,7 +25,7 @@ interface KnowledgeProviderLike {
 }
 
 /** The services asked for terminal knowledge, in the order their text appears. */
-export const KNOWLEDGE_SERVICES = ['docPolicy'] as const
+export const KNOWLEDGE_SERVICES = ['docPolicy', 'idealizeComm'] as const
 
 /** The line the knowledge file opens with, so the agent knows whose rules these are. */
 export const KNOWLEDGE_PREAMBLE = 'Standing instructions from IDEalize, the app this terminal runs in. They hold for the whole session.'

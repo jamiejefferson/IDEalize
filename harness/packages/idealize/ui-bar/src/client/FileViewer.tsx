@@ -14,11 +14,15 @@
  * scrolls that heading to the top of the document scroller. The outline
  * auto-collapses while the deck is narrower than 520px; the toolbar toggle
  * works at any width and its manual preference persists.
+ *
+ * The Notes scratchpad opens here too (`onNewNote` set): it starts in the
+ * editor and saves as you type, so there is no Save or Cancel, only Preview
+ * and New note (JJ, 6 Oct 2026: "editable by default").
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { CodeBlock, IconPlusOutline16, IconRightUpOutline14, MarkdownText, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { CodeBlock, IconPlusOutline16, MarkdownText, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import { BarIconClose, BarIconOutline } from './BarIcons.tsx'
+import { BarIconClose, BarIconOutline, BarIconReveal } from './BarIcons.tsx'
 import { activeHeading } from './outline-active.ts'
 import css from './FileViewer.module.css'
 import { fileManagerKey } from './host-path.ts'
@@ -54,6 +58,8 @@ const OUTLINE_AUTO_COLLAPSE_WIDTH = 520
 const OUTLINE_WIDTH_MIN = 120
 const OUTLINE_WIDTH_MAX = 420
 const OUTLINE_WIDTH_DEFAULT = 176
+/** How long typing in a note pauses before it is written to disk. */
+export const NOTE_SAVE_DELAY_MS = 600
 
 /**
  * Hold a width inside the outline's range.
@@ -116,14 +122,17 @@ function fileExtension(name: string): string | undefined {
   return name.slice(dot + 1).toLowerCase()
 }
 
-export function FileViewer({ path, canReveal, onClose, onAddToChat, t }: {
+export function FileViewer({ path, canReveal, onClose, onAddToChat, onNewNote, t }: {
   path: string
   canReveal: boolean
   onClose: () => void
   /** Hand the file's path to the active chat's composer; false = no active chat. */
   onAddToChat: (path: string) => boolean
+  /** Set while the file is the Notes scratchpad: start a fresh note in its place. */
+  onNewNote?: () => void
   t: BarTranslate
 }) {
+  const isNote = onNewNote !== undefined
   const [envelope, setEnvelope] = useState<FileEnvelope | 'error' | undefined>(undefined)
   const [revealFailed, setRevealFailed] = useState(false)
   /** The editor's text while editing; null while reading. */
@@ -138,6 +147,16 @@ export function FileViewer({ path, canReveal, onClose, onAddToChat, t }: {
   const [outlineOpen, setOutlineOpen] = useState(readOutlinePref)
   const [outlineWidth, setOutlineWidth] = useState(readOutlineWidth)
   const [narrow, setNarrow] = useState(false)
+  /** A note's save state, shown in the toolbar in place of Save. */
+  const [noteSave, setNoteSave] = useState<'idle' | 'saving' | 'saved'>('idle')
+  /** The note's size on disk as last read or written: the next write's expectedSize. */
+  const diskSize = useRef(0)
+  /** The note's text as last written, so an unchanged editor writes nothing. */
+  const diskText = useRef<string | null>(null)
+  /** Writes run one after another, so each carries the size the one before left. */
+  const writeChain = useRef<Promise<void>>(Promise.resolve())
+  /** The note's editor opens once per load; Preview then stays put. */
+  const autoEdited = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -145,6 +164,9 @@ export function FileViewer({ path, canReveal, onClose, onAddToChat, t }: {
     setRevealFailed(false)
     setEditing(null)
     setNotice(null)
+    setNoteSave('idle')
+    autoEdited.current = false
+    diskText.current = null
     void fetch(`/idealize/bar/file?path=${encodeURIComponent(path)}`)
       .then(response => response.ok
         ? response.json() as Promise<FileEnvelope>
@@ -209,6 +231,77 @@ export function FileViewer({ path, canReveal, onClose, onAddToChat, t }: {
     scroller.addEventListener('scroll', measure, { passive: true })
     return () => { scroller.removeEventListener('scroll', measure) }
   }, [headings])
+
+  // A note opens in the editor once its text has loaded: complete text only,
+  // since a truncated read would save a truncated file.
+  useEffect(() => {
+    if (!isNote || autoEdited.current || envelope === undefined || envelope === 'error') return
+    if (envelope.kind !== 'text' || envelope.truncated === true) return
+    autoEdited.current = true
+    diskSize.current = envelope.size
+    diskText.current = envelope.text ?? ''
+    setEditing(envelope.text ?? '')
+  }, [isNote, envelope])
+
+  /**
+   * Write a note's text behind any write still in flight. A 409 means
+   * something else (an agent, another editor) changed the note since it was
+   * read; the editor keeps its text and says so rather than overwrite it.
+   */
+  const writeNote = useCallback((text: string): Promise<void> => {
+    const run = async (): Promise<void> => {
+      if (text === diskText.current) return
+      setNoteSave('saving')
+      try {
+        const response = await fetch('/idealize/bar/write', {
+          method: 'POST',
+          headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' },
+          body: JSON.stringify({ path, text, expectedSize: diskSize.current }),
+          keepalive: true,
+        })
+        if (response.status === 409) {
+          setNoteSave('idle')
+          setNotice({ level: 'error', text: t('viewer.changedOnDisk') })
+          return
+        }
+        if (!response.ok) throw new Error(String(response.status))
+        const body = await response.json() as { size: number }
+        diskSize.current = body.size
+        diskText.current = text
+        setEnvelope(previous => previous === undefined || previous === 'error'
+          ? previous
+          : { ...previous, text, size: body.size, truncated: false })
+        setNoteSave('saved')
+      } catch {
+        // The host is unreachable or refused the write: the text stays in the editor.
+        setNoteSave('idle')
+        setNotice({ level: 'error', text: t('viewer.saveFailed') })
+      }
+    }
+    writeChain.current = writeChain.current.then(run)
+    return writeChain.current
+  }, [path, t])
+
+  // A note saves itself once typing pauses.
+  useEffect(() => {
+    if (!isNote || editing === null || editing === diskText.current) return
+    const timer = setTimeout(() => { void writeNote(editing) }, NOTE_SAVE_DELAY_MS)
+    return () => { clearTimeout(timer) }
+  }, [isNote, editing, writeNote])
+
+  // Closing the deck or switching file mid-pause still writes what was typed.
+  const latestEdit = useRef<string | null>(null)
+  latestEdit.current = editing
+  useEffect(() => () => {
+    if (isNote && latestEdit.current !== null) void writeNote(latestEdit.current)
+  }, [isNote, writeNote])
+
+  /** Leave a note's editor for the rendered note, after its last keystrokes are written. */
+  const previewNote = (): void => {
+    if (editing === null) return
+    const text = editing
+    void writeNote(text).then(() => { setEditing(null) })
+  }
 
   const reveal = (): void => {
     setRevealFailed(false)
@@ -303,8 +396,9 @@ export function FileViewer({ path, canReveal, onClose, onAddToChat, t }: {
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 's') {
             event.preventDefault()
-            save()
-          } else if (event.key === 'Escape') {
+            if (isNote) void writeNote(editing)
+            else save()
+          } else if (event.key === 'Escape' && !isNote) {
             setEditing(null)
           }
         }}
@@ -373,18 +467,28 @@ export function FileViewer({ path, canReveal, onClose, onAddToChat, t }: {
       <div className={css.toolbar}>
         <span className={css.name}>{name}</span>
         <span className={css.toolbarActions}>
-          {editing !== null
-            ? (
-              <>
-                <button type="button" className={css.textAction} onClick={() => { setEditing(null) }}>{t('viewer.cancel')}</button>
-                <button type="button" className={css.textActionPrimary} data-viewer-save="" disabled={saving} onClick={save}>{t('viewer.save')}</button>
-              </>
-            )
-            : editable && (
-              <button type="button" className={css.textAction} data-viewer-edit="" onClick={() => { setEditing(envelope.text ?? '') }}>
-                {t('viewer.edit')}
-              </button>
-            )}
+          {isNote && noteSave !== 'idle' && (
+            <span className={css.saveState} role="status" data-note-save={noteSave}>
+              {t(noteSave === 'saving' ? 'viewer.saving' : 'viewer.saved')}
+            </span>
+          )}
+          {isNote && editing !== null && (
+            <button type="button" className={css.textAction} data-note-preview="" onClick={previewNote}>{t('viewer.preview')}</button>
+          )}
+          {isNote && (
+            <button type="button" className={css.textAction} data-note-new="" onClick={onNewNote}>{t('viewer.newNote')}</button>
+          )}
+          {editing !== null && !isNote && (
+            <>
+              <button type="button" className={css.textAction} onClick={() => { setEditing(null) }}>{t('viewer.cancel')}</button>
+              <button type="button" className={css.textActionPrimary} data-viewer-save="" disabled={saving} onClick={save}>{t('viewer.save')}</button>
+            </>
+          )}
+          {editing === null && editable && (
+            <button type="button" className={css.textAction} data-viewer-edit="" onClick={() => { setEditing(envelope.text ?? '') }}>
+              {t('viewer.edit')}
+            </button>
+          )}
           <Tooltip label={t('viewer.addToChat')} delayMs={400}>
             <button type="button" className={css.iconAction} aria-label={t('viewer.addToChat')} onClick={addToChat}>
               <IconPlusOutline16 size={13} />
@@ -393,7 +497,7 @@ export function FileViewer({ path, canReveal, onClose, onAddToChat, t }: {
           {canReveal && (
             <Tooltip label={t(fileManagerKey('files.reveal'))} delayMs={400}>
               <button type="button" className={css.iconAction} aria-label={t(fileManagerKey('files.reveal'))} onClick={reveal}>
-                <IconRightUpOutline14 size={13} />
+                <BarIconReveal size={13} />
               </button>
             </Tooltip>
           )}

@@ -77,6 +77,8 @@ interface FeedEvent extends GateEvent {
   studioEvent?: string
   /** On `agent-finished`: the turn ended in an error, so no reply is waiting. */
   failed?: boolean
+  /** On `agent-finished`: the chat answers aloud itself (Powell), so no chime and no notification. */
+  quiet?: boolean
 }
 
 /**
@@ -265,7 +267,7 @@ export function apply(ctx: ClientContext): void {
       const attachment = await followBridgeFeed((frame) => {
         const event = frame as unknown as FeedEvent
         if (event.kind === 'attention') onAlert(event)
-        if (gate.consider(event)) onAttention(event.failed === true)
+        if (gate.consider(event) && event.quiet !== true) onAttention(event.failed === true)
       })
       // the bridge is absent in this composition: nothing to chime for
       if (attachment === undefined) return

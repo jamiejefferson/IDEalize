@@ -4,7 +4,7 @@
 // owned draft, and the hero workspace picker (switching = retargetWorkspace).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { ComposerMenuEntry } from '../src/client/composer-menu.ts'
 import {
@@ -106,7 +106,7 @@ function mount(
   const root = sid('root')
   const rootRow = { id: root, displayTitle: 'Root', running: false, blank: false, updatedAt: 1 }
   const childRow = {
-    id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one',
+    id: SID, displayTitle: 'Child', title: 'Child', parentId: root, cwd: '/projects/one',
     running: false, blank: options.summaryBlank ?? false, updatedAt: 2,
     ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
   }
@@ -127,6 +127,7 @@ function mount(
   const inputActions = wiring.actions
   const stop = vi.fn()
   const open = vi.fn()
+  const rename = vi.fn(() => Promise.resolve(true))
   const slotCalls: string[] = []
   const viewTabs = options.viewTabs ?? [
     { id: 'chat', label: 'Chat' },
@@ -172,6 +173,7 @@ function mount(
           renderSlot={renderSlot as never}
           views={views}
           open={open}
+          rename={rename}
           t={t}
         />
       )
@@ -265,7 +267,7 @@ function mount(
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, chat, sink, retargetWorkspace, session, slotCalls, seatOwners, open,
+    view, chat, sink, retargetWorkspace, session, slotCalls, seatOwners, open, rename,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
@@ -324,16 +326,32 @@ describe('ConversationRoot resident composer', () => {
     expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(b.sink).toHaveBeenCalledWith('ordinary revised', [], 'queue')
-    expect((b.view.getByRole('button', { name: 'Child' }) as HTMLButtonElement).disabled).toBe(true)
+    // The chat's own name is the title, and only a subagent shows its owner.
+    expect(within(b.view.getByRole('heading')).getByRole('button', { name: 'Child' })).toBeTruthy()
     expect(b.view.queryByText('Root')).toBeNull()
   })
 
   it('shows hierarchy only for subagents and opens their ordinary owner', () => {
     const b = mount(conversationSnapshot(), undefined, undefined, { summaryOrigin: 'subagent' })
-    const root = b.view.getByRole('button', { name: 'Root' })
-    expect((b.view.getByRole('button', { name: 'Child' }) as HTMLButtonElement).disabled).toBe(true)
+    const root = within(b.view.getByRole('navigation')).getByRole('button', { name: 'Root' })
+    expect(within(b.view.getByRole('heading')).getByRole('button', { name: 'Child' })).toBeTruthy()
     fireEvent.click(root)
     expect(b.open).toHaveBeenCalledWith(sid('root'))
+  })
+
+  it('renames the chat from its title: Enter keeps the edit, Escape drops it', async () => {
+    const b = mount(conversationSnapshot())
+    fireEvent.click(within(b.view.getByRole('heading')).getByRole('button', { name: 'Child' }))
+    const field = within(b.view.getByRole('heading')).getByRole('textbox') as HTMLInputElement
+    expect(field.value).toBe('Child')
+    fireEvent.change(field, { target: { value: '  Kitchen quotes ' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(b.rename).toHaveBeenCalledWith(SID, 'Kitchen quotes')
+    fireEvent.click(within(b.view.getByRole('heading')).getByRole('button', { name: 'Child' }))
+    fireEvent.change(within(b.view.getByRole('heading')).getByRole('textbox'), { target: { value: 'Discarded' } })
+    fireEvent.keyDown(within(b.view.getByRole('heading')).getByRole('textbox'), { key: 'Escape' })
+    expect(b.rename).toHaveBeenCalledTimes(1)
+    expect(within(b.view.getByRole('heading')).queryByRole('textbox')).toBeNull()
   })
 
   it('active phase: fixed header outside the scrollport; sticky composer seat inside it', () => {

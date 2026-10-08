@@ -1,11 +1,15 @@
 /* The terminal fills the conversation's view area on the shell's own paper. */
 
-/* The terminal owns its whole column and carries its own input, so on a still
-   blank chat (the welcome card's Terminal launch) it retires the composer
-   seat. ui-conversation keeps that seat for every other blank non-chat view —
-   Gallery and Sound Stage take their prompts through it — and publishes the
-   active view id on `data-blank-view` so this rule can name only its own. */
-:global([data-phase='hero']):has(:global([data-blank-view='terminal'])) :global([data-composer-seat]) {
+/* The terminal owns its whole column and carries its own input, so it retires
+   the composer seat whenever it is the active view. ui-conversation keeps that
+   seat for every other non-chat view (Gallery and Sound Stage take their
+   prompts through it) and names the active view on `data-blank-view` while the
+   chat is blank and on the header's `data-view` once it is not. The second
+   rule covers a Terminal chat that holds turns of its own: an agent note woke
+   the chat's own agent behind the terminal, and the composer and its stats
+   came back and squeezed the terminal (JJ, 8 Oct 2026). */
+:global([data-phase='hero']):has(:global([data-blank-view='terminal'])) :global([data-composer-seat]),
+:global([data-idealize-surface='chat']):has(:global(header[data-view='terminal'])) :global([data-composer-seat]) {
   display: none;
 }
 

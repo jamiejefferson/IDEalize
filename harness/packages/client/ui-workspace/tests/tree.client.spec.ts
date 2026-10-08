@@ -139,6 +139,14 @@ describe('deriveGroups', () => {
     expect(groups[0]!.sessions.find(session => session.id === real.id)!.shellOnly).toBe(false)
   })
 
+  it('shows a Terminal chat by the name typed into it once it has one', () => {
+    const named = { ...summary('term', 6), blank: true, title: 'Bathroom tile options', displayTitle: 'Bathroom tile options', projectionValues: { space: { space: 'terminal' as const } } }
+    const groups = deriveGroups(list(named), [workspace('first', ['term'])], noArchive, view())
+    const node = groups[0]!.sessions[0]!
+    expect(node.shellOnly).toBe(false)
+    expect(node.title).toBe('Bathroom tile options')
+  })
+
   it('never lists a project\'s Studio chat, current or not: the pinned card is how it opens', () => {
     const studio = { ...summary('studio', 6), blank: true, projectionValues: { space: { space: 'studio' as const } } }
     const real = summary('shown', 3)

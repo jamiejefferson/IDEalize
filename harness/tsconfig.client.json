@@ -79,6 +79,7 @@
     { "path": "./packages/client/ui-goal" },
     { "path": "./packages/idealize/artefacts/tsconfig.client.json" },
     { "path": "./packages/idealize/askbar/tsconfig.client.json" },
+    { "path": "./packages/idealize/powell/tsconfig.client.json" },
     { "path": "./packages/idealize/ui-bar" },
     { "path": "./packages/idealize/ui-tour" },
     { "path": "./packages/idealize/ui-launch" },

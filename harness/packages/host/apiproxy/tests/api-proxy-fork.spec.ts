@@ -28,7 +28,10 @@ async function composed(workspaces: readonly Workspace[] = []): Promise<Context>
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(UserQuestionService)
-  ctx.provide('workspaceRegistry', { list: () => workspaces } as never)
+  ctx.provide('workspaceRegistry', {
+    list: () => workspaces,
+    get: (id: string) => workspaces.find(workspace => workspace.id === id),
+  } as never)
   ctx.agents.setFactory({
     createAgent: async (ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> => {
       const session = ctx.sessions.create(options.sessionId, {
@@ -99,6 +102,40 @@ describe('sessions.fork', () => {
     ])
     expect(child?.header.parentSession).toBe(source.id)
     expect(child?.header.cwd).toBe('/proj')
+    await ctx.fiber.dispose()
+  })
+
+  it('moves the child into a named project: its folder and its account, not the source\'s', async () => {
+    const homeAttach = vi.fn<(sessionId: SessionId) => Promise<void>>().mockResolvedValue(undefined)
+    const targetAttach = vi.fn<(sessionId: SessionId) => Promise<void>>().mockResolvedValue(undefined)
+    const accounted: SessionId[] = []
+    const home = { id: 'ws-home', path: '/proj', sessionIds: accounted, attachSession: homeAttach } as unknown as Workspace
+    const target = { id: 'ws-target', path: '/elsewhere', sessionIds: [], attachSession: targetAttach } as unknown as Workspace
+    const ctx = await composed([home, target])
+    const source = liveAgent(ctx, 'session-source', 1)
+    accounted.push(source.id)
+
+    const response = await api(ctx).sessions.fork(request({ sessionId: source.id, workspaceId: 'ws-target' as never }))
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) return
+    expect(ctx.sessions.get(response.result.value.sessionId)?.header.cwd).toBe('/elsewhere')
+    expect(targetAttach).toHaveBeenCalledWith(response.result.value.sessionId)
+    expect(homeAttach).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses a move to a project that is gone, before any child exists', async () => {
+    const ctx = await composed()
+    const source = liveAgent(ctx, 'session-source', 1)
+    const before = ctx.sessions.list?.().length
+
+    const response = await api(ctx).sessions.fork(request({ sessionId: source.id, workspaceId: 'ws-gone' as never }))
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) return
+    expect(response.result.error.code).toBe('workspace-not-found')
+    expect(ctx.sessions.list?.().length).toBe(before)
     await ctx.fiber.dispose()
   })
 

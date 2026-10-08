@@ -578,13 +578,18 @@ export class SessionManager {
    * @returns the fork result (the child session id).
    */
   async fork(
-    opts: { sessionId: SessionId; atSeq?: number },
+    opts: { sessionId: SessionId; atSeq?: number; workspaceId?: WorkspaceId },
   ): Promise<RpcResult<{ sessionId: SessionId }>> {
     try {
-      const source = this.summaries.find(s => s.sessionId === opts.sessionId)
+      // A moved child runs in its new project's folder, so the source cwd
+      // would be wrong; the list refresh fills the real one.
+      const source = opts.workspaceId === undefined
+        ? this.summaries.find(s => s.sessionId === opts.sessionId)
+        : undefined
       const { result } = await this.api.sessions.fork({
         sessionId: opts.sessionId,
         ...opts.atSeq === undefined ? {} : { atSeq: opts.atSeq },
+        ...opts.workspaceId === undefined ? {} : { workspaceId: opts.workspaceId },
       })
       const childId = result.ok
         ? result.value.sessionId

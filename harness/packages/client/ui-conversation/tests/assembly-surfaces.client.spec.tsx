@@ -221,17 +221,18 @@ describe('prompt rejection through the assembled composer', () => {
 })
 
 describe('title projection across assembled surfaces', () => {
-  it('one summary update re-labels the current-session crumb', async () => {
+  it('one summary update re-labels the current chat title', async () => {
     const runtime = await bench()
     const view = runtime.renderRoot()
-    const hierarchy = view.getByRole('navigation', { name: '会话层级' })
-    expect(within(hierarchy).getByRole('button', { name: 'S' }).hasAttribute('disabled')).toBe(true)
+    // The current chat's name is the title row's heading (JJ, 7 Oct 2026), no longer a crumb.
+    const title = view.getByRole('heading')
+    expect(within(title).getByRole('button', { name: 'S' })).toBeTruthy()
 
     await runtime.sessions.updateSummary(SID, { displayTitle: '修订标题', title: '修订标题' })
     await waitFor(() => {
-      expect(within(hierarchy).getByRole('button', { name: '修订标题' }).hasAttribute('disabled')).toBe(true)
+      expect(within(title).getByRole('button', { name: '修订标题' })).toBeTruthy()
     })
-    expect(within(hierarchy).queryByRole('button', { name: 'S' })).toBeNull()
+    expect(within(title).queryByRole('button', { name: 'S' })).toBeNull()
     await runtime.dispose()
   })
 })

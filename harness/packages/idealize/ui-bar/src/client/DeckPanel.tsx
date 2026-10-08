@@ -19,6 +19,8 @@ export interface DeckPanelInjected {
   closeFile: () => void
   /** Hand a file's path to the active chat's composer; false = no active chat. */
   addToChat: (path: string) => boolean
+  /** Start a fresh Notes scratchpad and show it in place of the current one. */
+  newNote: () => void
 }
 
 export type DeckPanelProps = PropsRuntime<'shell.deck'>
@@ -29,8 +31,9 @@ interface Capabilities {
   reveal: boolean
 }
 
-export function DeckPanel({ useBarView, closeFile, addToChat, t }: DeckPanelProps) {
+export function DeckPanel({ useBarView, closeFile, addToChat, newNote, t }: DeckPanelProps) {
   const file = useBarView(state => state.file)
+  const notesFile = useBarView(state => state.notesFile)
   const [canReveal, setCanReveal] = useState(false)
 
   useEffect(() => {
@@ -49,6 +52,7 @@ export function DeckPanel({ useBarView, closeFile, addToChat, t }: DeckPanelProp
       canReveal={canReveal}
       onAddToChat={addToChat}
       onClose={closeFile}
+      {...file === notesFile ? { onNewNote: newNote } : {}}
       t={t}
     />
   )

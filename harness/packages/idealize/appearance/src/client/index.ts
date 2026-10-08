@@ -26,9 +26,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import {
-  actionCustomised, APPEARANCE_DEFAULTS, APPEARANCE_SETTINGS_NAMESPACE, clearSurfaceColours, EMPTY_ACTION, EMPTY_SURFACE,
+  actionCustomised, APPEARANCE_DEFAULTS, APPEARANCE_SETTINGS_NAMESPACE, CHAT_TITLE_DEFAULTS, clearSurfaceColours, EMPTY_ACTION,
+  EMPTY_SURFACE,
   fontStack, SURFACE_COLOUR_FIELDS, surfaceColoured, SURFACES, TERMINAL_DEFAULTS, uiScale,
-  type ActionAppearance, type AppearanceSettings, type PresetId, type SurfaceAppearance, type SurfaceId,
+  type ActionAppearance, type AppearanceSettings, type ChatTitleAppearance, type PresetId, type SurfaceAppearance, type SurfaceId,
   type TerminalAppearanceSettings,
 } from '../appearance-settings.ts'
 import { resolveTerminalPaint, type TerminalPaint } from '../terminal-themes.ts'
@@ -168,7 +169,7 @@ export function apply(ctx: ClientContext): void {
       surface: surfaceHex(side),
       tokens: side.tokens,
       scheme,
-    })
+    }, settings.chatTitle)
     if (text === '') {
       sheet?.remove()
       sheet = undefined
@@ -341,6 +342,9 @@ export function apply(ctx: ClientContext): void {
     setTerminal: (patch: Partial<TerminalAppearanceSettings>) => {
       write('terminal', { ...current().terminal, ...patch })
     },
+    setChatTitle: (patch: Partial<ChatTitleAppearance>) => {
+      write('chatTitle', { ...current().chatTitle, ...patch })
+    },
     resetSection: (section: SectionId) => {
       if (section === 'theme') {
         resetTheme()
@@ -357,6 +361,7 @@ export function apply(ctx: ClientContext): void {
         write('chatShadowOpacity', APPEARANCE_DEFAULTS.chatShadowOpacity)
         write('chatMargin', APPEARANCE_DEFAULTS.chatMargin)
         write('docMargin', APPEARANCE_DEFAULTS.docMargin)
+        write('chatTitle', { ...CHAT_TITLE_DEFAULTS })
       }
     },
   })

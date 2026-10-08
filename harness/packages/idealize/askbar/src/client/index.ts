@@ -21,7 +21,6 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the `sidebar.rail` SlotMap merge.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { startAskbarStore, type AskbarStore, type AskbarStoreOptions, type AskbarView } from './askbar-store.ts'
-import { AskbarRoot, type AskbarRootInjected } from './AskbarRoot.tsx'
 import { en, NS, zh } from './locales.ts'
 import { selectEverything } from './selection.ts'
 import { readCurrentSession, readSidebarOrder } from './sidebar-order.ts'
@@ -103,34 +102,11 @@ export function apply(ctx: ClientContext): void {
     }
   }
 
+  // The floating window is Powell's since 2.0.0 (JJ, 2 Oct 2026: "Powell is
+  // the interface"): `@idealize/powell` seats the owl there, so the column
+  // neither renders nor polls the roster in that window.
   const mode = new URLSearchParams(window.location.search).get('dsh-desktop-mode')
-  if (mode === 'askbar') {
-    // The bar owns the whole window: no app scrollbars, no default margin.
-    ctx.effect(() => {
-      document.body.dataset.dshDesktopMode = 'askbar'
-      const priorOverflow = document.body.style.overflow
-      document.body.style.overflow = 'hidden'
-      return () => {
-        delete document.body.dataset.dshDesktopMode
-        document.body.style.overflow = priorOverflow
-      }
-    }, 'idealize-askbar: window markers')
-
-    ctx.effect(() => {
-      const followed = follow()
-      const dispose = ctx.slots.register({
-        name: 'root',
-        priority: -1,
-        locale: NS,
-        inject: (): AskbarRootInjected => ({ store: followed.store }),
-      }, AskbarRoot)
-      return () => {
-        dispose()
-        followed.stop()
-      }
-    }, 'idealize-askbar: root surface')
-    return
-  }
+  if (mode === 'askbar') return
 
   // The store runs only while the sidebar declares the seat, so a composition
   // without a sidebar never polls the roster.

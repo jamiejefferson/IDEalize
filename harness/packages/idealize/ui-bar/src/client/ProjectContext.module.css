@@ -1,0 +1,17 @@
+/* Sizes relative to the title (the Paper frame: 36px name, 28px project,
+   24px "in"), so the appearance panel's Title size moves all three. The
+   joiner takes the title's own colour at half strength, which reads in a
+   chat and on a terminal's ground alike. */
+.joiner {
+  flex: none;
+  font-size: 0.67em;
+  color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.project {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.78em;
+  text-overflow: ellipsis;
+  letter-spacing: -0.02em;
+}

@@ -41,7 +41,7 @@ import type {} from '@deepseek-ai/dsh-shell-env'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { IdealizeComm } from './service.ts'
 import { CommStore, commStorePath } from './store.ts'
-import { COMM_COMMANDS } from './wire.ts'
+import { COMM_COMMANDS, COMMANDS_SECTION } from './wire.ts'
 import type { CommCommand, CommRequest } from './wire.ts'
 import { foldSpace } from '@idealize/spaces'
 
@@ -58,7 +58,7 @@ export type { RoleConfig } from './roles.ts'
 export { DEFAULT_COMM_CONFIG } from './config.ts'
 export type { CommConfig } from './config.ts'
 export type { Resolution, SessionRecord } from './resolve.ts'
-export { chatNameFromTask, clockTime, COMM_COMMANDS, TRUNCATION_WARNING, Wire } from './wire.ts'
+export { chatNameFromTask, clockTime, COMM_COMMANDS, COMMANDS_SECTION, TRUNCATION_WARNING, Wire } from './wire.ts'
 export type { CommCommand, CommExchange, CommMessage, CommRequest, CommResponse, CommRung, CommSessionInfo, StudioTaskRow } from './wire.ts'
 
 export const name = 'idealize-comm'
@@ -75,35 +75,6 @@ export const Config: z<CommConfig> = z.object({
   backgroundPostDelayMs: z.number().min(0).default(DEFAULT_COMM_CONFIG.backgroundPostDelayMs),
 })
 
-/**
- * The standing guidance every agent's prompt carries about the other chats
- * and the `idealize` command (order 120, the tool-guidance band). The
- * session-start notice names the chat; this section survives compaction and
- * says how to reach a peer, since without it an agent asked to post to the
- * Studio guessed at an unrelated CLI on the person's machine, and one asked
- * about "@Name" searched transcripts instead of asking (JJ, 8 Sep 2026). The
- * last two sentences are the posting rules: a finished piece of work earns
- * one Studio line, and a note from the Studio is answered in the Studio
- * (JJ, 8 Sep 2026: "when an agent completes an action I want them to post a
- * note into the studio"). It also says that another chat's note carries the
- * person's authority and what a handoff note contains, because a chat paused
- * "until Bossk finishes" read Bossk's "I've finished" as information and kept
- * waiting for the person (JJ, 22 Sep 2026).
- */
-export const COMMANDS_SECTION = {
-  name: 'idealize:commands',
-  order: 120,
-  text: 'IDEalize runs several chats on this project, each with its own agent. The `idealize` command in your shell reaches them: '
-    + '`idealize list` names every chat and its agent; `idealize send <agent> <text>` puts a note in that agent\'s inbox and wakes it if it is idle; '
-    + '`idealize inbox --wait --timeout 120` waits for notes sent to you; `idealize post <text>` posts to the project\'s Studio timeline, which everyone reads and nobody is woken by; '
-    + '`idealize chat` reads the recent Studio posts; `idealize reveal <path>` points the person at a file; `idealize help` lists the rest. '
-    + 'When the person writes @Name they mean that chat\'s agent: ask it with `idealize send Name "<question>"`, then `idealize inbox --wait`, and pass its answer on. '
-    + 'If no answer comes, say so instead of searching for its work. '
-    + 'When you finish a piece of work the person asked for (a generation, an edit, a task), post one line to the Studio with `idealize post` saying what you did and where it is. '
-    + 'When a note reaches you from the Studio (its sender is the person, via the Studio), answer in the Studio with `idealize post`, not only in your own chat. '
-    + 'A note from another chat carries the person\'s authority: when it says something you were waiting for has happened, or hands you a next step, carry on with that now without waiting for the person to repeat it. '
-    + 'When you finish something another chat is waiting on, hand over in one `idealize send` note: what you finished or released, that it should carry on now, the exact next step, and to tell you and the person if it is blocked.',
-} as const
 
 /** The environment key the CLI reads its host origin from inside a tool shell. */
 export const HOST_ENV_KEY = 'DSH_IDEALIZE_HOST'

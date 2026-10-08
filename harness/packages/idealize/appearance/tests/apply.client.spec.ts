@@ -12,7 +12,8 @@ import type { ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from '@deepseek-ai/dsh-client-ui-theme/src/theme-settings.ts'
 import { apply, applyAppearanceDom, inject, openAppearancePanel, SHEET_ID } from '../src/client/index.ts'
 import type { AppearanceService } from '../src/client/index.ts'
-import { APPEARANCE_DEFAULTS, APPEARANCE_SETTINGS_NAMESPACE, AppearanceSettingsSchema, EMPTY_SURFACE } from '../src/appearance-settings.ts'
+import { APPEARANCE_DEFAULTS, APPEARANCE_SETTINGS_NAMESPACE, AppearanceSettingsSchema, CHAT_TITLE_DEFAULTS, EMPTY_SURFACE } from '../src/appearance-settings.ts'
+import { chatTitleCss } from '../src/surface-css.ts'
 import { deriveTokens, preset } from '../src/presets.ts'
 
 usePinnedBrowserLanguages('en-US')
@@ -136,14 +137,15 @@ describe('idealize-appearance apply', () => {
     expect(bare.appearance.store.getSnapshot().fonts).toEqual([])
   })
 
-  it('lays the IDEalize layer, no stylesheet and no zoom at the defaults', async () => {
+  it('lays the IDEalize layer, only the title rules and no zoom at the defaults', async () => {
     const b = await bench()
     // The layer equals the skin sheet's own values, so the first paint and the panel agree.
     expect(b.theme.getTheme().active.tokens).toEqual(deriveTokens(preset('idealize').light))
     b.theme.setTheme('dark')
     expect(b.theme.getTheme().active.tokens).toEqual(deriveTokens(preset('idealize').dark))
     expect(rootZoom()).toBe('')
-    expect(document.getElementById(SHEET_ID)).toBeNull()
+    // The chat title's rules are always written; nothing else is.
+    expect(document.getElementById(SHEET_ID)?.textContent).toBe(chatTitleCss(CHAT_TITLE_DEFAULTS, EMPTY_SURFACE))
   })
 
   it('choosing Ink lays the layer on both schemes and forces dark', async () => {
@@ -211,12 +213,17 @@ describe('idealize-appearance apply', () => {
     expect(b.appearance.store.getSnapshot().section).toBe('doc')
     face.resetSection('doc')
     face.resetSection('files')
+    face.setChatTitle({ fontSize: 44, colorHex: '#C2562B' })
+    expect(sheet()).toContain('--dsh-session-title-size: 44px; --dsh-session-title-color: #C2562B')
     face.resetSection('chat')
-    expect(document.getElementById(SHEET_ID)).toBeNull()
+    expect(sheet()).toBe(chatTitleCss(CHAT_TITLE_DEFAULTS, EMPTY_SURFACE))
     await vi.waitFor(() => {
       const stored = b.values[APPEARANCE_SETTINGS_NAMESPACE] as { surfaces: Record<string, unknown>; chatMargin: number }
       expect(stored.surfaces.files).toEqual(EMPTY_SURFACE)
       expect(stored.chatMargin).toBe(18)
+    })
+    await vi.waitFor(() => {
+      expect((b.values[APPEARANCE_SETTINGS_NAMESPACE] as { chatTitle: unknown }).chatTitle).toEqual(CHAT_TITLE_DEFAULTS)
     })
   })
 

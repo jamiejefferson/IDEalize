@@ -26,6 +26,25 @@ export const UNGROUPED_KEY = ''
 export const UNGROUPED_LABEL = 'Ungrouped'
 
 /**
+ * Group key for Powell's own chat. Powell works across every project, so its
+ * chat runs from the home folder and no project owns it; it gets a group of
+ * its own at the top of the list (JJ, 5 Oct 2026) instead of reading as a
+ * chat that fell out of its project.
+ */
+export const POWELL_KEY = 'powell'
+
+/** Powell's name, which is also its group's label. */
+export const POWELL_LABEL = 'Powell'
+
+/** The agent preset Powell's session is composed from (`@idealize/powell`). */
+const POWELL_PRESET = 'powell'
+
+/** Whether a chat is Powell's own. */
+function isPowell(session: SessionSummary): boolean {
+  return session.agentPreset === POWELL_PRESET
+}
+
+/**
  * The space a row falls back to before its projection arrives, matching
  * `@idealize/spaces`' `DEFAULT_SPACE`. Restated as a literal because that
  * constant is a value: importing it here would inline a duplicate of the space
@@ -54,6 +73,8 @@ export interface SessionNode {
   contextPercent?: number
   /** The chat's agent name from the host's agentName projection, once assigned. */
   agentName?: string
+  /** Powell's own chat, which Powell finds by id: it never moves to a project. */
+  powell?: true
   /**
    * The space this chat is in, from the host's space projection. Required, not
    * optional: the sidebar's icon lane is fixed-width and always carries a
@@ -69,7 +90,7 @@ export type SessionOrderBy = 'manual' | 'updated'
 
 /** One workspace group section: header row facts + visible top-level session rows. */
 export interface GroupNode {
-  /** Group key: the workspace id or {@link UNGROUPED_KEY}. */
+  /** Group key: the workspace id, {@link POWELL_KEY} or {@link UNGROUPED_KEY}. */
   key: string
   /** Backing Workspace id; absent only for the ungrouped bucket. */
   workspaceId: WorkspaceId | undefined
@@ -174,7 +195,8 @@ function sessionVisible(session: SessionSummary, current: SessionId | undefined,
  * and the renderer localizes its display label.
  */
 function sessionTitle(session: SessionSummary): string {
-  return session.blank ? 'New Session' : session.displayTitle
+  // A blank chat with a title of its own (a named Terminal chat) keeps it.
+  return session.blank && session.title === undefined ? 'New Session' : session.displayTitle
 }
 
 /** Build one group without projecting session lineage into presentation. */
@@ -240,10 +262,15 @@ function groupByWorkspace(
       Date.parse(workspace.createdAt), workspace.title, members, 'account',
     ))
   }
-  const stray = list.ids
+  const loose = list.ids
     .map(id => list.byId[id])
     .filter((s): s is SessionSummary =>
       s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
+  const powell = loose.filter(isPowell)
+  if (powell.length > 0) {
+    groups.unshift(buildGroup(POWELL_KEY, undefined, undefined, undefined, POWELL_LABEL, powell, 'recency'))
+  }
+  const stray = loose.filter(s => !isPowell(s))
   if (stray.length > 0) {
     groups.push(buildGroup(
       UNGROUPED_KEY,
@@ -278,7 +305,8 @@ function sessionNode(
     id: s.id,
     title: sessionTitle(s),
     blank: provisional(s),
-    shellOnly: s.blank && !provisional(s),
+    // A terminal chat named from what was typed into it shows that name.
+    shellOnly: s.blank && !provisional(s) && s.title === undefined,
     running: s.running,
     runningSubagentCount: descendants.get(s.id)?.runningCount ?? 0,
     completed: s.completed === true,
@@ -286,6 +314,7 @@ function sessionNode(
     ...(s.pendingInteraction === undefined ? {} : { pendingInteraction: s.pendingInteraction }),
     ...(percent === undefined ? {} : { contextPercent: percent }),
     ...(agentName === undefined ? {} : { agentName }),
+    ...(isPowell(s) ? { powell: true as const } : {}),
   }
 }
 
@@ -312,10 +341,11 @@ export function deriveGroups(
   const archived = new Set(archivedSessionIds)
   const collapsedGroups = new Set(view.collapsedGroups)
   const descendants = indexSubagentDescendants(list.byId)
+  const currentSummary = list.current === undefined ? undefined : list.byId[list.current]
   const currentGroup = list.current === undefined
     ? undefined
     : (workspaces.find(w => w.sessionIds.includes(list.current as SessionId))?.workspaceId as string | undefined)
-        ?? UNGROUPED_KEY
+        ?? (currentSummary !== undefined && isPowell(currentSummary) ? POWELL_KEY : UNGROUPED_KEY)
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces, archived, view.ungroupedOrder)) {
     const expanded = !collapsedGroups.has(g.key)
@@ -400,7 +430,7 @@ export function deriveSearchResults(
     }
   }
   const labelOf = (summary: SessionSummary): string =>
-    workspaceBySession.get(summary.id) ?? workspaceLabel(summary.cwd)
+    workspaceBySession.get(summary.id) ?? (isPowell(summary) ? POWELL_LABEL : workspaceLabel(summary.cwd))
   const contentBySession = new Map<SessionId, SessionSearchResultItem>()
   for (const item of content.items) {
     if (!contentBySession.has(item.sessionId)) contentBySession.set(item.sessionId, item)

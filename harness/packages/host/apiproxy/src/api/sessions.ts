@@ -332,9 +332,12 @@ export interface SessionsApi {
    * title. Reading the source uses attached state or persistence inspection
    * without acquiring an Agent. Workspace attachment follows the source
    * directly, or the nearest workspace-owning ancestor when the source is a
-   * subagent.
+   * subagent. A `workspaceId` moves the child instead: it runs in that
+   * project's folder and joins that project (a chat moved between projects
+   * carries its history into the new folder; `workspace-not-found` when the
+   * project is gone).
    */
-  fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
+  fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number; workspaceId?: WorkspaceId }>):
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**

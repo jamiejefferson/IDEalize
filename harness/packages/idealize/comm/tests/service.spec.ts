@@ -69,6 +69,29 @@ describe('IdealizeComm.ensureName', () => {
   })
 })
 
+describe('IdealizeComm Studio manager', () => {
+  it('names the Studio manager Powell, renaming a chat drawn a pool name before', async () => {
+    const { comm } = await bareComm()
+    const header = { version: SESSION_FORMAT_VERSION, id: SessionId('session-p'), createdAt: 1, cwd: '/Users/jj', agentPreset: 'powell' }
+    const session = Session.create(SessionId('session-p'), undefined, header)
+    session.append('idealize/agent-name', { name: 'Wuher', pool: 7 }, { ignorable: true })
+    expect(await comm.ensureName(session)).toBe('Powell')
+    expect(foldAgentName(session.events)).toBe('Powell')
+  })
+
+  it('keeps one Studio manager: adopting the role takes it from an earlier coordinator', async () => {
+    const { comm, home } = await bareComm()
+    const make = (id: string, preset: string) => Session.create(SessionId(id), undefined, {
+      version: SESSION_FORMAT_VERSION, id: SessionId(id), createdAt: 1, cwd: '/h', agentPreset: preset,
+    })
+    expect(await comm.adoptRole(make('session-old', 'powell'), 'powell')).toBe('studio-agent')
+    expect(await comm.adoptRole(make('session-new', 'powell'), 'powell')).toBe('studio-agent')
+    const store = new CommStore(commStorePath(home))
+    await store.load()
+    expect(store.roles()).toEqual({ 'session-new': 'studio-agent' })
+  })
+})
+
 describe('IdealizeComm.handle', () => {
   it('answers ping and an empty list without any session services', async () => {
     const { comm } = await bareComm()
@@ -434,5 +457,35 @@ describe('IdealizeComm.send', () => {
     const notice = JSON.stringify(lead.followups[0])
     expect(notice).toContain(STUDIO_MAIL_NOTICE)
     expect(notice).not.toContain(MAIL_NOTICE)
+  })
+
+  it('types the notice into a Terminal chat\'s terminal once, and drops a held one after the inbox is read', async () => {
+    const { ctx, comm, lead } = await studioComm()
+    const nudged: { session: string; text: string; wanted: (() => boolean) | undefined }[] = []
+    ;(ctx as unknown as { provide(name: string, value: unknown): void }).provide('idealizeTerminals', {
+      working: () => [],
+      nudge: (session: string, text: string, wanted?: () => boolean) => { nudged.push({ session, text, wanted }); return session === 'sess-lead' },
+    })
+    await comm.handle({ command: 'send', from: 'sess-worker', target: 'sess-lead', body: 'chapter 12 is in Projects/Proposition/ch12.md' })
+    await comm.handle({ command: 'send', from: 'sess-worker', target: 'sess-lead', body: 'and 13' })
+    expect(nudged.map(row => [row.session, row.text])).toEqual([['sess-lead', MAIL_NOTICE]])
+    expect(lead.followups).toHaveLength(0)
+    expect(nudged[0]?.wanted?.()).toBe(true)
+    await comm.state.drain('sess-lead')
+    expect(nudged[0]?.wanted?.()).toBe(false)
+  })
+
+  it('leaves the note in a Terminal chat\'s inbox without starting a turn on the agent behind the terminal', async () => {
+    const { comm, lead } = await studioComm()
+    ;(lead.session.events as unknown[]).push({ type: 'idealize/space', data: { space: 'terminal' } })
+    const sent = await comm.handle({ command: 'send', from: 'sess-worker', target: 'sess-lead', body: 'chapter 12 is done' })
+    expect(sent.ok).toBe(true)
+    expect(comm.state.unread('sess-lead')).toBe(1)
+    expect(lead.followups).toHaveLength(0)
+    await comm.state.setRole('sess-lead', 'project-agent')
+    await comm.state.drain('sess-lead')
+    await comm.wakeCoordinator(studioEvent({ kind: 'decision', author: 'sess-worker', body: 'ship Fridays' }))
+    expect(comm.state.unread('sess-lead')).toBe(1)
+    expect(lead.followups).toHaveLength(0)
   })
 })

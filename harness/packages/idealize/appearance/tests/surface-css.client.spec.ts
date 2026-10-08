@@ -1,9 +1,10 @@
 /** The per-surface stylesheet, the action tokens and the chat panel rules as pure functions. */
 import { describe, expect, it } from 'vitest'
-import { clearSurfaceColours, EMPTY_ACTION, EMPTY_SURFACE, surfaceScheme } from '../src/appearance-settings.ts'
+import { CHAT_TITLE_DEFAULTS, clearSurfaceColours, EMPTY_ACTION, EMPTY_SURFACE, fontStack, surfaceScheme } from '../src/appearance-settings.ts'
 import { blend, contrast, parseHex, requireHex, TEXT_CONTRAST, toHsl, UI_CONTRAST, type Rgb } from '../src/colour.ts'
 import { deriveTokens, presetPalette } from '../src/presets.ts'
 import {
+  chatTitleCss,
   actionAccent, actionTokens, appearanceStylesheet, panelScalarsCss, COMPOSER_ATTRIBUTE, gradientCss, seedStops,
   INK_FLOORS, SURFACE_EXEMPT_ATTRIBUTE, surfaceCss, surfaceGrounds, surfaceInk,
 } from '../src/surface-css.ts'
@@ -390,13 +391,14 @@ describe('actionTokens', () => {
 })
 
 describe('panelScalarsCss + appearanceStylesheet', () => {
-  it('is empty at the defaults', () => {
+  it('holds only the chat title at the defaults', () => {
     expect(panelScalarsCss({ chatInputOpacity: 1, chatShadowOpacity: 0.4, chatMargin: 18, docMargin: 14 })).toBe('')
+    // The title's rules are always written: they restate its typography over the Chat tab's.
     expect(appearanceStylesheet(
       { sessions: EMPTY_SURFACE, files: EMPTY_SURFACE, chat: EMPTY_SURFACE, doc: EMPTY_SURFACE },
       { chatInputOpacity: 1, chatShadowOpacity: 0.4, chatMargin: 18, docMargin: 14 },
       defaults,
-    )).toBe('')
+    )).toBe(chatTitleCss(CHAT_TITLE_DEFAULTS, EMPTY_SURFACE))
   })
 
   it('feeds each margin to its own column and opacity/shadow to the composer card', () => {
@@ -410,7 +412,29 @@ describe('panelScalarsCss + appearanceStylesheet', () => {
       { chatInputOpacity: 1, chatShadowOpacity: 0.4, chatMargin: 8, docMargin: 14 },
       defaults,
     )
-    // The chat root rule, its exempt rule, and the chat panel rule.
-    expect(sheet.split('\n').filter(line => line !== '')).toHaveLength(3)
+    // The chat root rule, its exempt rule, the chat panel rule, and the title's four.
+    expect(sheet.split('\n').filter(line => line !== '')).toHaveLength(7)
+  })
+})
+
+describe('chatTitleCss', () => {
+  const title = '[data-idealize-surface="chat"][data-idealize-surface] [data-session-title]'
+
+  it('writes the designed title: 36px, extra-bold, the chat ink, the interface font', () => {
+    const css = chatTitleCss(CHAT_TITLE_DEFAULTS, EMPTY_SURFACE)
+    expect(css).toContain(`${title} { --dsh-session-title-size: 36px; --dsh-session-title-color: var(--dsw-alias-label-primary); }`)
+    expect(css).toContain(`${title} [data-session-title-part] { font-family: var(--dsw-font-family); letter-spacing: -0.02em; }`)
+    expect(css).toContain(`${title} [data-session-title-part='name'] { font-weight: 800; }`)
+    expect(css).toContain(`${title} [data-session-title-part='joiner'] { font-weight: 400; letter-spacing: 0; }`)
+  })
+
+  it('takes the Title card, follows the Chat tab font when its own is empty, and undoes the Chat tab zoom', () => {
+    const own = chatTitleCss({ fontName: 'Inter', fontSize: 44, fontWeight: 6, colorHex: '#c2562b' }, { ...EMPTY_SURFACE, fontName: 'Georgia', fontSize: 20 })
+    expect(own).toContain('--dsh-session-title-size: 44px; --dsh-session-title-color: #C2562B; zoom: 0.8')
+    expect(own).toContain(`font-family: ${fontStack('Inter')}`)
+    expect(own).toContain("[data-session-title-part='name'] { font-weight: 600; }")
+    const following = chatTitleCss(CHAT_TITLE_DEFAULTS, { ...EMPTY_SURFACE, fontName: 'Georgia' })
+    expect(following).toContain(`font-family: ${fontStack('Georgia')}`)
+    expect(following).not.toContain('zoom')
   })
 })

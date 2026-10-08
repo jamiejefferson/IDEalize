@@ -73,6 +73,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     searchResultLimit: 20,
     renameSession: vi.fn(async () => {}),
     forkSession: vi.fn(async () => {}),
+    moveSession: vi.fn(async () => {}),
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
@@ -366,6 +367,48 @@ describe('WorkspaceBrowser', () => {
       expect(screen.getByRole('alert').textContent).toBe('This chat has nothing to fork yet.')
     })
     expect(b.props.open).not.toHaveBeenCalled()
+  })
+
+  it('moves a chat to another project from its row menu, and offers every project but its own', async () => {
+    const moveSession = vi.fn(async () => {})
+    mount({
+      useSessions: hook(sessionState([summary('s1', 1, { title: 'One', displayTitle: 'One' })])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['s1'], 'Alpha'), workspace('beta', [], 'Beta')])),
+      moveSession,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
+    const parent = screen.getByRole('menuitem', { name: '移到项目' })
+    fireEvent.focus(parent)
+    fireEvent.mouseEnter(parent.parentElement as HTMLElement)
+    expect(screen.queryByRole('menuitem', { name: 'Alpha' })).toBeNull()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Beta' }))
+    expect(moveSession).toHaveBeenCalledWith(sid('s1'), wid('beta'))
+  })
+
+  it('offers no move for a Terminal chat, whose history cannot follow it', () => {
+    mount({
+      useSessions: hook(sessionState([summary('s1', 1, {
+        title: 'One', displayTitle: 'One', projectionValues: { space: { space: 'terminal' } },
+      })])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['s1'], 'Alpha'), workspace('beta', [], 'Beta')])),
+    })
+    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
+    expect(screen.queryByRole('menuitem', { name: '移到项目' })).toBeNull()
+  })
+
+  it('lists Powell\'s chat in a Powell group above the projects, with no move and no Ungrouped bucket', () => {
+    mount({
+      useSessions: hook(sessionState([
+        summary('powell-s', 3, { title: 'Powell', displayTitle: 'Powell', agentPreset: 'powell', cwd: '/home' }),
+        summary('alpha-s', 1),
+      ])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'], 'Alpha'), workspace('beta', [], 'Beta')])),
+    })
+    const headers = screen.getAllByRole('treeitem').filter(row => row.getAttribute('aria-expanded') !== null)
+    expect(headers.map(row => row.textContent)).toEqual(['Powell', 'Alpha', 'Beta'])
+    expect(screen.queryByText('未分组')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '会话“Powell”的操作' }))
+    expect(screen.queryByRole('menuitem', { name: '移到项目' })).toBeNull()
   })
 
   it('renders a fork child as a top-level row without a session twist', () => {

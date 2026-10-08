@@ -25,14 +25,16 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function rail(panel: BarPanel | null = null, openSettings?: () => void, terminalAvailable = false) {
+function rail(panel: BarPanel | null = null, openSettings?: () => void, terminalAvailable = false, noteShowing = false) {
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({ shellMode: null, reveal: false, terminal: true })))))
   const barView = createBarViewStore()
   barView.update((draft) => {
     draft.panel = panel
     draft.terminalAvailable = terminalAvailable
+    if (noteShowing) draft.file = draft.notesFile = '/vault/Notes/Notes 2026-10-06 0905.md'
   })
   const togglePanel = vi.fn()
+  const toggleNotes = vi.fn()
   const view = render(
     <IdealizeBar
       t={t}
@@ -40,10 +42,11 @@ function rail(panel: BarPanel | null = null, openSettings?: () => void, terminal
       useWorkspaces={unused}
       useBarView={bindSnapshotSelector(barView)}
       togglePanel={togglePanel}
+      toggleNotes={toggleNotes}
       openSettings={openSettings}
     />,
   )
-  return { view, togglePanel }
+  return { view, togglePanel, toggleNotes }
 }
 
 describe('IdealizeBar', () => {
@@ -61,19 +64,20 @@ describe('IdealizeBar', () => {
       ['Service hatch', 'hatch'],
     ]
     const buttons = view.getAllByRole('button').map(button => button.getAttribute('aria-label'))
-    expect(buttons).toEqual(expected.map(([label]) => label))
+    // Notes (6 Oct 2026) sits under Files and opens in the deck, not the drawer.
+    expect(buttons).toEqual(expected.map(([label]) => label).toSpliced(1, 0, 'Notes'))
     for (const [label, panel] of expected) {
       fireEvent.click(view.getByRole('button', { name: label }))
       expect(togglePanel).toHaveBeenLastCalledWith(panel)
     }
     expect(togglePanel).toHaveBeenCalledTimes(expected.length)
-    expect(view.queryByRole('button', { name: 'Collapse to the Askbar' })).toBeNull()
+    expect(view.queryByRole('button', { name: 'Collapse to Powell' })).toBeNull()
   })
 
   it('carries the Terminal entry under Files once the host reports an embedded terminal', () => {
     const { view, togglePanel } = rail(null, undefined, true)
     const buttons = view.getAllByRole('button').map(button => button.getAttribute('aria-label'))
-    expect(buttons.slice(0, 3)).toEqual(['Files', 'Terminal', 'Schedule'])
+    expect(buttons.slice(0, 4)).toEqual(['Files', 'Notes', 'Terminal', 'Schedule'])
     fireEvent.click(view.getByRole('button', { name: 'Terminal' }))
     expect(togglePanel).toHaveBeenLastCalledWith('terminal')
   })
@@ -83,7 +87,7 @@ describe('IdealizeBar', () => {
     const { view } = rail(null, openSettings)
     const buttons = view.getAllByRole('button').map(button => button.getAttribute('aria-label'))
     expect(buttons).toEqual([
-      'Files', 'Schedule', 'Trajectory', 'Brains', 'Time & cost', 'Appearance', 'Feedback',
+      'Files', 'Notes', 'Schedule', 'Trajectory', 'Brains', 'Time & cost', 'Appearance', 'Feedback',
       'Settings', 'Service hatch',
     ])
     fireEvent.click(view.getByRole('button', { name: 'Settings' }))
@@ -251,5 +255,17 @@ describe('DrawerPanel', () => {
     expect(view.queryByTitle('Feedback')).toBeNull()
     expect(view.getByPlaceholderText('What’s on your mind?')).toBeTruthy()
     expect(view.getByRole('button', { name: 'Send' })).toBeTruthy()
+  })
+})
+
+describe('IdealizeBar Notes entry', () => {
+  it('toggles the scratchpad and reads as pressed while the deck shows the current note', () => {
+    const { view, toggleNotes } = rail()
+    const notes = view.getByRole('button', { name: 'Notes' })
+    expect(notes.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(notes)
+    expect(toggleNotes).toHaveBeenCalledTimes(1)
+    cleanup()
+    expect(rail(null, undefined, false, true).view.getByRole('button', { name: 'Notes' }).getAttribute('aria-pressed')).toBe('true')
   })
 })

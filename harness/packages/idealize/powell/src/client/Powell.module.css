@@ -1,0 +1,388 @@
+/* Powell's window. The window is transparent: only the owl, the pill, the
+   bubble and the tag paint. Colours come from the Paper sketches (2 Oct
+   2026): ink #24292F, muted #66696D, app blue #0A84FF for listening, grey
+   #EEF0F2 for the secondary button, red #D1453B for a problem only. */
+
+:global(html:has(body[data-dsh-desktop-mode='powell'])),
+:global(body[data-dsh-desktop-mode='powell']) {
+  background: transparent !important;
+  overflow: hidden;
+  margin: 0;
+}
+
+.stage {
+  --powell-ink: #24292f;
+  --powell-muted: #66696d;
+  --powell-blue: #0a84ff;
+  --powell-grey: #eef0f2;
+  --powell-red: #d1453b;
+  --powell-card: #ffffff;
+  --powell-tag: rgba(36, 41, 47, 0.78);
+  position: fixed;
+  inset: 0;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--powell-ink);
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
+
+.stage > * { pointer-events: auto; }
+
+/* The owl and its tag. The desktop shell places the owl anywhere in the
+   window (owlX); near the top of the screen it sits at the window's top
+   with the bubble below (data-flip). 134 px is the owl, tag and padding. */
+.perch {
+  position: absolute;
+  bottom: 6px;
+  width: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.perch > * { pointer-events: auto; }
+.stage[data-flip] .perch { top: 0; bottom: auto; }
+
+/* Bubble, pill or menu: centred over the owl by the page, kept off the window's sides. */
+.above {
+  position: absolute;
+  bottom: 134px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 364px;
+  pointer-events: none;
+  --into: 70px;
+}
+
+.stage[data-flip] .above { top: 134px; bottom: auto; --into: -70px; }
+
+.above > * { pointer-events: auto; }
+
+/* ── owl ─────────────────────────────────────────────────────────────── */
+
+.owl {
+  position: relative;
+  width: 92px;
+  height: 102px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: grab;
+  outline: none;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  touch-action: none;
+}
+
+.owl:focus-visible { filter: drop-shadow(0 0 0 2px var(--powell-blue)); }
+.owl[data-pose='flap'] { cursor: grabbing; transform: translateY(-6px) scale(1.04); }
+/* Paying attention: leans in and lifts (JJ: "a cartoon owl paying attention"). */
+.owl[data-pose='listening'] { transform: translateY(-4px) rotate(-4deg) scale(1.06); }
+.owl[data-pose='idle'] .owlImage { animation: breathe 3.6s ease-in-out infinite; }
+.owl[data-pose='done'] { animation: hop 520ms cubic-bezier(0.3, 1.4, 0.5, 1) 1; }
+.owl[data-speaking] .owlImage { animation: talk 260ms ease-in-out infinite alternate; }
+
+.owlImage {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 92px;
+  height: 102px;
+  object-fit: contain;
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 6px 10px rgba(36, 41, 47, 0.22));
+  transform-origin: 50% 100%;
+}
+
+/* Every frame is in the page; only the current one shows. */
+.owlImage[data-on] { opacity: 1; }
+
+/* Three ink marks over the head while listening; they grow with the voice. */
+.marks {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  width: 54px;
+  height: 18px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.marks i {
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  height: calc(8px + var(--level, 0) * 10px);
+  border-radius: 2px;
+  background: var(--powell-ink);
+  transition: height 80ms linear;
+}
+
+.marks i:nth-child(1) { left: 6px; transform: rotate(-28deg); transform-origin: bottom; }
+.marks i:nth-child(2) { left: 25px; height: calc(11px + var(--level, 0) * 12px); }
+.marks i:nth-child(3) { right: 6px; transform: rotate(28deg); transform-origin: bottom; }
+
+@keyframes breathe {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(1.018); }
+}
+
+@keyframes hop {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(-14px); }
+  70% { transform: translateY(0) scaleY(0.94); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes talk {
+  from { transform: scale(1); }
+  to { transform: scale(1.025) translateY(-1px); }
+}
+
+/* ── status tag ──────────────────────────────────────────────────────── */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 260px;
+  height: 22px;
+  margin-top: 4px;
+  padding: 0 9px;
+  border-radius: 11px;
+  background: var(--powell-tag);
+  color: #fff;
+  font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: -0.01em;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.tagText {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.tag[data-tone='busy'] .dot { background: #fff; animation: pulse 1s ease-in-out infinite; }
+.tag[data-tone='opening'] .dot { background: rgba(255, 255, 255, 0.55); }
+/* Speak now: the tag itself turns app blue so the moment reads at a glance. */
+.tag[data-tone='listening'] { background: var(--powell-blue); }
+.tag[data-tone='listening'] .dot { background: #fff; animation: pulse 0.8s ease-in-out infinite; }
+.tag[data-tone='problem'] .dot { background: var(--powell-red); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.stop {
+  flex: none;
+  margin: 0 -4px 0 2px;
+  padding: 0 3px;
+  border: 0;
+  background: none;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stop:hover { color: #fff; }
+
+/* ── speech bubble ───────────────────────────────────────────────────── */
+
+.bubble {
+  position: relative;
+  max-width: 320px;
+  margin-bottom: 14px;
+  padding: 12px 30px 12px 14px;
+  border-radius: 16px;
+  background: var(--powell-card);
+  box-shadow: 0 8px 28px rgba(36, 41, 47, 0.18), 0 1px 3px rgba(36, 41, 47, 0.12);
+  animation: rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -7px;
+  left: var(--tail-x, 50%);
+  width: 14px;
+  height: 14px;
+  background: var(--powell-card);
+  transform: translateX(-50%) rotate(45deg);
+  border-radius: 0 0 3px 0;
+  box-shadow: 3px 3px 6px rgba(36, 41, 47, 0.06);
+}
+
+.stage[data-flip] .bubble { margin: 14px 0 0; }
+.stage[data-flip] .bubble::after { top: -7px; bottom: auto; transform: translateX(-50%) rotate(225deg); }
+
+.bubble[data-kind='consent'],
+.bubble[data-kind='approval'] { padding-right: 14px; }
+
+.bubbleText {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--powell-ink);
+}
+
+.choices {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.primary,
+.secondary {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 15px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.primary { background: var(--powell-ink); color: #fff; }
+.secondary { background: var(--powell-grey); color: var(--powell-ink); }
+.primary:hover { background: #000; }
+.secondary:hover { background: #e2e5e8; }
+
+.close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--powell-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── thought pill ────────────────────────────────────────────────────── */
+
+.pill {
+  position: relative;
+  width: 300px;
+  margin-bottom: 26px;
+  animation: rise 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-origin: 50% 160%;
+}
+
+/* On send the thought shrinks down into the owl's head. */
+.pill[data-sending] {
+  animation: intoHead 400ms cubic-bezier(0.5, 0, 0.75, 0) forwards;
+}
+
+@keyframes intoHead {
+  0% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(var(--into)) scale(0.12); }
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--powell-card);
+  box-shadow: 0 8px 28px rgba(36, 41, 47, 0.18), 0 1px 3px rgba(36, 41, 47, 0.12);
+  color: var(--powell-ink);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.input::placeholder { color: var(--powell-muted); }
+
+.thoughtDot {
+  position: absolute;
+  left: 50%;
+  border-radius: 50%;
+  background: var(--powell-card);
+  box-shadow: 0 2px 6px rgba(36, 41, 47, 0.16);
+}
+
+.thoughtDot[data-size='big'] { bottom: -12px; width: 9px; height: 9px; margin-left: -2px; }
+.thoughtDot[data-size='small'] { bottom: -21px; width: 5px; height: 5px; margin-left: 2px; }
+.thoughtDot { left: var(--tail-x, 50%); }
+.stage[data-flip] .pill { margin: 26px 0 0; transform-origin: 50% -60%; }
+.stage[data-flip] .thoughtDot[data-size='big'] { top: -12px; bottom: auto; }
+.stage[data-flip] .thoughtDot[data-size='small'] { top: -21px; bottom: auto; }
+.stage[data-flip] .menu { margin: 10px 0 0; }
+
+/* ── menu ────────────────────────────────────────────────────────────── */
+
+.menu {
+  width: 220px;
+  margin-bottom: 10px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--powell-card);
+  box-shadow: 0 8px 28px rgba(36, 41, 47, 0.2), 0 1px 3px rgba(36, 41, 47, 0.12);
+  font-size: 13px;
+  animation: rise 140ms ease-out;
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--powell-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover { background: var(--powell-grey); }
+.menuItem[data-current] { font-weight: 600; }
+.menuItem[data-current]::after { content: ' ✓'; color: var(--powell-muted); }
+
+.menuLabel {
+  padding: 8px 10px 2px;
+  color: var(--powell-muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.menuProjects { max-height: 140px; overflow-y: auto; }
+.menuNote { display: block; padding: 6px 10px; color: var(--powell-muted); }
+.menuRule { height: 1px; margin: 6px 4px; background: var(--powell-grey); }
+
+@media (prefers-reduced-motion: reduce) {
+  .owl, .owlImage, .bubble, .pill, .menu { animation: none !important; transition: none !important; }
+}

@@ -21,7 +21,8 @@ import { injectBootAppearance } from './boot-appearance.ts'
 import { listFontFamilies, type FontInventory } from './fonts.ts'
 
 export {
-  actionCustomised, APPEARANCE_DEFAULTS, APPEARANCE_SETTINGS_NAMESPACE, AppearanceSettingsSchema, EMPTY_ACTION,
+  actionCustomised, APPEARANCE_DEFAULTS, CHAT_TITLE_DEFAULTS, CHAT_TITLE_SIZE_MAX, CHAT_TITLE_SIZE_MIN, parseTitleWeight,
+  type ChatTitleAppearance, APPEARANCE_SETTINGS_NAMESPACE, AppearanceSettingsSchema, EMPTY_ACTION,
   EMPTY_SURFACE, FILL_MODES, FONT_WEIGHTS, fontStack, GRADIENT_TYPES, PRESETS, SURFACES, surfaceCustomised,
   TERMINAL_DEFAULTS, TERMINAL_THEME_IDS, terminalCustomised, uiScale,
   type ActionAppearance, type AppearanceSettings, type FillMode, type GradientStop, type GradientType, type PresetId,
@@ -32,7 +33,8 @@ export {
   type TerminalPaint, type TerminalTheme,
 } from './terminal-themes.ts'
 export {
-  actionAccent, actionTokens, appearanceStylesheet, panelScalarsCss, COMPOSER_ATTRIBUTE, gradientCss, seedStops,
+  actionAccent, actionTokens, appearanceStylesheet, chatTitleCss, panelScalarsCss, TITLE_ATTRIBUTE, TITLE_PART_ATTRIBUTE,
+  COMPOSER_ATTRIBUTE, gradientCss, seedStops,
   SURFACE_ATTRIBUTE, SURFACE_BASE_SIZE, SURFACE_EXEMPT_ATTRIBUTE, surfaceCss, type ActionAccent, type SurfaceDefaults,
 } from './surface-css.ts'
 export { familiesInFile, familyOfFace, fontDirectories, isFixedPitchFace, listFontFamilies, type FontInventory } from './fonts.ts'

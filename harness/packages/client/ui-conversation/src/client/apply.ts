@@ -287,11 +287,17 @@ export function apply(ctx: Context): void {
     children: {
       'conversation.session.header.actions': { kind: 'list', scope: 'session' },
       'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
+      'conversation.session.header.context': { kind: 'list', scope: 'session' },
     },
     store: chatStore,
     inject: (): ConversationSessionHeaderInjected => ({
       views,
       open: (id) => { sessions.open(id) },
+      rename: async (id, title) => {
+        const session = sessions.binding(id)?.session
+        if (session === undefined) return false
+        return (await session.rename(title)).ok
+      },
     }),
   }, ConversationSessionHeader)
 

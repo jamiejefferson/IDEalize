@@ -68,6 +68,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation.session.header.utilities': { kind: 'list'; scope: 'session'; owner: ConversationHeaderActionOwnerProps }
     /**
+     * Context that reads as part of the title, after the chat's name: a
+     * deployment says where the chat lives here ("in Casa Madrigal"). Its
+     * runs carry `data-session-title-part` (`name` or `joiner`) so the
+     * title's typography reaches them.
+     */
+    'conversation.session.header.context': { kind: 'list'; scope: 'session'; owner: ConversationHeaderActionOwnerProps }
+    /**
      * The conversation view ring: one list entry per view tab (chat here;
      * trajectory/waterfall from ui-trajectory), rendered one-at-a-time by
      * the session body via `only: <active id>`. Declared by this package's
@@ -509,6 +516,12 @@ export interface ConversationSessionHeaderInjected {
   }
   /** Select a real Session through the runtime navigation owner. */
   open: (sessionId: SessionId) => void
+  /**
+   * Rename a Session from its title (the same per-session verb as the
+   * sidebar's rename dialog).
+   * @returns whether the host accepted the title.
+   */
+  rename: (sessionId: SessionId, title: string) => Promise<boolean>
 }
 
 /**
@@ -667,7 +680,7 @@ export type ConversationSessionSlotProps =
 /** Full strict-session header props: shared store, tabs/actions render shares, navigation, and locale. */
 export type ConversationSessionHeaderSlotProps =
   PropsRuntime<'conversation.session.header'>
-  & PropsRenderSlots<'conversation.session.header.actions' | 'conversation.session.header.utilities'>
+  & PropsRenderSlots<'conversation.session.header.actions' | 'conversation.session.header.utilities' | 'conversation.session.header.context'>
   & PropsStore<ChatStore>
   & ConversationSessionHeaderInjected
   & PropsLocale<'conversation'>

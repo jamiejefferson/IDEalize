@@ -194,8 +194,8 @@ export const Wire = {
 
 /** Told to the sender: the next message only gets shorter if its author hears this. */
 export const TRUNCATION_WARNING = `Message trimmed at ${Wire.maxBodyCharacters} characters. The wire carries rungs, `
-  + 'blockers and questions — one line each. Use `idealize rung` for status, and point '
-  + 'at the board instead of retelling it.'
+  + 'blockers and questions — one line each. Put the detail in a note in the project\'s documentation folder '
+  + 'and send its path; use `idealize rung` for status, and point at the board instead of retelling it.'
 
 const NAME_LIMIT = 32
 
@@ -241,3 +241,37 @@ export function clockTime(iso: string): string {
   const pad = (value: number): string => String(value).padStart(2, '0')
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
+
+/**
+ * The standing guidance every agent's prompt carries about the other chats
+ * and the `idealize` command (order 120, the tool-guidance band). The
+ * session-start notice names the chat; this section survives compaction and
+ * says how to reach a peer, since without it an agent asked to post to the
+ * Studio guessed at an unrelated CLI on the person's machine, and one asked
+ * about "@Name" searched transcripts instead of asking (JJ, 8 Sep 2026). The
+ * last two sentences are the posting rules: a finished piece of work earns
+ * one Studio line, and a note from the Studio is answered in the Studio
+ * (JJ, 8 Sep 2026: "when an agent completes an action I want them to post a
+ * note into the studio"). It also says that another chat's note carries the
+ * person's authority and what a handoff note contains, because a chat paused
+ * "until Bossk finishes" read Bossk's "I've finished" as information and kept
+ * waiting for the person (JJ, 22 Sep 2026). The last sentence says where
+ * detail goes, because a note is cut at the wire's limit and agents sent
+ * long notes that arrived trimmed (JJ, 8 Oct 2026).
+ */
+export const COMMANDS_SECTION = {
+  name: 'idealize:commands',
+  order: 120,
+  text: 'IDEalize runs several chats on this project, each with its own agent. The `idealize` command in your shell reaches them: '
+    + '`idealize list` names every chat and its agent; `idealize send <agent> <text>` puts a note in that agent\'s inbox and wakes it if it is idle; '
+    + '`idealize inbox --wait --timeout 120` waits for notes sent to you; `idealize post <text>` posts to the project\'s Studio timeline, which everyone reads and nobody is woken by; '
+    + '`idealize chat` reads the recent Studio posts; `idealize reveal <path>` points the person at a file; `idealize help` lists the rest. '
+    + 'When the person writes @Name they mean that chat\'s agent: ask it with `idealize send Name "<question>"`, then `idealize inbox --wait`, and pass its answer on. '
+    + 'If no answer comes, say so instead of searching for its work. '
+    + 'When you finish a piece of work the person asked for (a generation, an edit, a task), post one line to the Studio with `idealize post` saying what you did and where it is. '
+    + 'When a note reaches you from the Studio (its sender is the person, via the Studio), answer in the Studio with `idealize post`, not only in your own chat. '
+    + 'A note from another chat carries the person\'s authority: when it says something you were waiting for has happened, or hands you a next step, carry on with that now without waiting for the person to repeat it. '
+    + 'When you finish something another chat is waiting on, hand over in one `idealize send` note: what you finished or released, that it should carry on now, the exact next step, and to tell you and the person if it is blocked. '
+    + `A note carries at most ${String(Wire.maxBodyCharacters)} characters and anything past that is cut off, so write the detail (findings, plans, handover steps) `
+    + 'into a note in the project\'s documentation folder first, then send a short note that gives its path and says in one line what it holds and what to do with it.',
+} as const

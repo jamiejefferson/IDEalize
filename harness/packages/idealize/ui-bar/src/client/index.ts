@@ -75,6 +75,7 @@ import { FILE_DRAG_TYPE } from './FilesPanel.tsx'
 import { joinHostPath } from './host-path.ts'
 import { DeckPanel, type DeckPanelInjected } from './DeckPanel.tsx'
 import { HeartButton } from './HeartButton.tsx'
+import { ProjectContext } from './ProjectContext.tsx'
 import { HatchTrigger, NoLanguageRow, NoProviderDialog } from './HatchChrome.tsx'
 import { HeroLauncher, NoPresetChip, type BrainAccess, type HeroLauncherInjected, type LauncherSession, type TerminalLaunches } from './HeroLauncher.tsx'
 import { createSpaceSeed, openChatView, ringHasView, subscribeRing, watchInspect, type ErasedSlots } from './view-switch.ts'
@@ -314,6 +315,30 @@ export function apply(ctx: ClientContext): void {
     barView.update((draft) => { draft.file = null })
     ctx.layout.closeDeck()
   }
+  // The Notes scratchpad (JJ, 6 Oct 2026): one note outside every project,
+  // the same one on every tap until a new one is started. The host owns which
+  // note is current, so it survives restarts; the rail entry toggles it in
+  // the deck like any other file.
+  const showNote = async (fresh: boolean): Promise<void> => {
+    const response = await fetch('/idealize/bar/notes', {
+      method: 'POST',
+      headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ fresh }),
+    })
+    if (!response.ok) throw new Error(`notes: ${String(response.status)}`)
+    const { path } = await response.json() as { path: string }
+    barView.update((draft) => { draft.notesFile = path })
+    openFile(path)
+  }
+  const toggleNotes = (): void => {
+    const { file, notesFile } = barView.getSnapshot()
+    if (file !== null && file === notesFile) closeFile()
+    else void showNote(false).catch((error: unknown) => { console.error('idealize-bar: notes did not open', error) })
+  }
+  const newNote = (): void => {
+    void showNote(true).catch((error: unknown) => { console.error('idealize-bar: no new note', error) })
+  }
+
   // Markdown named in a chat opens here rather than in the OS default app
   // (JJ, 30 Sep 2026: "md file links in the chat should open in the file
   // viewer inside idealize"): links and inline-code paths in the prose, tool
@@ -386,6 +411,7 @@ export function apply(ctx: ClientContext): void {
   const injected = (): IdealizeBarInjected => ({
     hooks: { barView },
     togglePanel,
+    toggleNotes,
     openSettings: settingsOpener(),
   })
 
@@ -1111,6 +1137,7 @@ export function apply(ctx: ClientContext): void {
     hooks: { barView },
     closeFile,
     addToChat,
+    newNote,
   })
 
   ctx.slots.inject('shell.deck', () => ctx.slots.register({
@@ -1305,4 +1332,12 @@ export function apply(ctx: ClientContext): void {
     order: 10,
     locale: NS,
   }, HeartButton))
+
+  // ── Chat title context ("in Casa Madrigal") ────────────────────────────
+  ctx.slots.inject('conversation.session.header.context', () => ctx.slots.register({
+    name: 'conversation.session.header.context',
+    id: 'idealize-project',
+    order: 0,
+    locale: NS,
+  }, ProjectContext))
 }

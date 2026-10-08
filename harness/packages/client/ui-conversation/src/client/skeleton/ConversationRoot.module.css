@@ -5,6 +5,7 @@
    chat's view is fixed by its space. */
 
 .root {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -26,23 +27,115 @@
   --dsh-composer-dock-inset: 8px;
 }
 
+/* The title strip floats over the scrollport (JJ, 7 Oct 2026: "a simple
+   title, with the content blurring behind"): no rule under it, the
+   transcript blurs and fades as it scrolls up beneath. Its height becomes the
+   scrollport's top padding (--dsh-session-header-height, written by the
+   header), so nothing starts hidden. The fade band at its foot lets clicks
+   through to the transcript; only the title row takes the pointer.
+   --dsh-session-header-top sets the title's top inset, so a deployment can
+   line it up with its own sidebar header. Above the composer seat (7) and
+   CodeBlock banners (6). */
 .header {
-  position: relative;
-  flex: none;
-  padding: 12px 28px 0 20px;
-  border-bottom: 1px solid transparent;
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 8;
+  padding: var(--dsh-session-header-top, 18px) 28px 30px 40px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 94%, transparent);
+  backdrop-filter: blur(28px);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent);
+  pointer-events: none;
 }
 
-.header::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  bottom: 1px;
-  left: 0;
-  z-index: 0;
-  height: 1px;
-  background: var(--dsw-alias-border-l2);
-  pointer-events: none;
+.header .titleRow {
+  pointer-events: auto;
+}
+
+/* A terminal's grid never scrolls under the strip (it fits below the
+   padding), so the strip is solid and wears the terminal's own colours. */
+.header[data-view='terminal'] {
+  padding-bottom: 14px;
+  background: var(--dsh-terminal-bg, var(--dsw-alias-bg-layer-1));
+  backdrop-filter: none;
+  mask-image: none;
+}
+
+/* A transcript starts a gap below the strip, clear of its fade band (JJ,
+   8 Oct 2026: "extend the space below the header"). The terminal's grid fits
+   flush under its opaque strip and the hero has no strip, so both keep the
+   plain height. */
+.root[data-phase='active']:not(:has(.header[data-view='terminal'])) .scrollBody {
+  padding-top: calc(var(--dsh-session-header-height, 0px) + var(--dsh-session-header-gap, 24px));
+}
+
+.header[data-view='terminal'] .title {
+  color: var(--dsh-terminal-fg, var(--dsw-alias-label-primary));
+}
+
+/* "Kitchen quotes in Casa Madrigal": the name leads at title size. When the
+   row runs out of room the context ("in Casa Madrigal") wraps onto its own
+   line whole, because the project is what stops a prompt landing in the
+   wrong place; a name too long for a line of its own ends in "…".
+   Typography arrives as variables and, in IDEalize, as the appearance
+   panel's Title card (rules keyed on data-session-title). */
+.title {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 0.3em;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--dsh-session-title-size, 36px);
+  font-weight: 800;
+  line-height: 1.17;
+  color: var(--dsh-session-title-color, var(--dsw-alias-label-primary));
+}
+
+.titleName,
+.titleInput {
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  letter-spacing: -0.03em;
+  color: inherit;
+}
+
+.titleName {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.titleName:hover {
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.18em;
+}
+
+.titleInput {
+  flex: 1 1 auto;
+  min-width: 8ch;
+  border-bottom: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  outline: none;
+}
+
+.titleContext {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: baseline;
+  gap: 0.3em;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 /* Blank hero/settling: keep the strict Session header mounted without taking
@@ -192,6 +285,8 @@
      than the glow. Clipping is unchanged — `overflow-y: auto` already made this
      a scroll container that clips both axes, so this only takes away the bar. */
   overflow-x: hidden;
+  /* The floating title strip's height: content starts below it and scrolls under it. */
+  padding-top: var(--dsh-session-header-height, 0px);
   /* Reserved unconditionally: the composer seat rides this box's content box in
      Chat and its padding box under a view's composer overlay, so an `auto`
      gutter moves the input card sideways by the bar's width whenever the two

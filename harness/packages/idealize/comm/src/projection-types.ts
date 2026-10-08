@@ -7,7 +7,7 @@
 export interface AgentNameEventData {
   /** The chat's name, unique within its project. */
   name: string
-  /** Which of the twelve pools it came from. */
+  /** Which of the twelve pools it came from; -1 for the Studio manager's fixed name (Powell). */
   pool: number
 }
 

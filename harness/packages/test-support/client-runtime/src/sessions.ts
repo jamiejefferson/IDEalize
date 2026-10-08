@@ -6,7 +6,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   AgentContext, ConversationSnapshot, ISessions, ObservableSnapshot, ProjectionsFace, SessionFace, SessionId,
   SessionListState, SessionProvideDescriptor, SessionSearchResultItem, SessionSummary, SnapshotStore,
-  SubagentAddress,
+  SubagentAddress, WorkspaceId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 // The double reports the wire schema's own search bound, like the production
 // service — a transport-varying limit would be a fiction no client can see.
@@ -484,7 +484,7 @@ export class TestSessions implements ISessions {
    * @param opts - source session id, optional cut anchor, and client title policy.
    * @returns the source id (no child record is created).
    */
-  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId> {
+  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean; workspaceId?: WorkspaceId }): Promise<SessionId> {
     this.calls.push({ method: 'fork', args: [opts] })
     return Promise.resolve(opts.sessionId)
   }

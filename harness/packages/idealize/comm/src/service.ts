@@ -19,7 +19,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-workspace'
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@idealize/host-bridge'
 // Type-only: the `artefact/created` session event (SessionEventMap merge).
@@ -33,10 +33,10 @@ import type { SessionRecord } from './resolve.ts'
 import type { CommStore } from './store.ts'
 import { pickName, poolFor } from './names.ts'
 import { foldAgentName } from './projection.ts'
-import { presetOfRole, ROLE_OPENING, ROLE_TITLES, roleOfPreset } from './roles.ts'
+import { presetOfRole, ROLE_OPENING, ROLE_TITLES, roleOfPreset, STUDIO_AGENT_NAME } from './roles.ts'
 import type { CommConfig } from './config.ts'
 import type { CommRole } from './store.ts'
-import { chatNameFromTask, TRUNCATION_WARNING, Wire } from './wire.ts'
+import { chatNameFromTask, COMMANDS_SECTION, TRUNCATION_WARNING, Wire } from './wire.ts'
 import type { CommExchange, CommMessage, CommRequest, CommResponse, CommRung, CommSessionInfo, StudioTaskRow } from './wire.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -188,6 +188,24 @@ interface RosterEntry extends SessionRecord {
   live: Agent | undefined
 }
 
+/**
+ * Whether a wake notice may start a turn on this agent. A Terminal chat's
+ * agent is the program in its terminal (Claude Code, Codex), and the chat's
+ * own agent sits unused behind it: a turn there runs a second model the
+ * person never chose, and the chat's first turn brings the composer back
+ * under the terminal (8 Oct 2026). Its mail waits in the inbox instead.
+ * @param agent - the live recipient.
+ * @returns true when the agent is idle and its chat is not a Terminal chat.
+ */
+function wakeable(agent: Agent): boolean {
+  return agent.status === 'idle' && foldSpace(agent.session.events) !== 'terminal'
+}
+
+/** The terminal plugin's nudge, probed structurally so comm takes no dependency on it. */
+interface TerminalsLike {
+  nudge?(sessionId: string, text: string, wanted?: () => boolean): boolean
+}
+
 function failure(error: string): CommResponse {
   return { ok: false, error }
 }
@@ -241,6 +259,29 @@ export class IdealizeComm extends Service {
   /** Background generations awaiting their one Studio line, keyed by session id. */
   private readonly pendingBackground = new Map<string, PendingBackground>()
 
+  /**
+   * The messaging rules for a command-line agent in a Terminal chat. Claude
+   * Code and Codex read no system prompt of IDEalize's, so until 8 Oct 2026
+   * they were never told how notes work or that a note is cut at the wire's
+   * limit. `@idealize/ui-terminal` passes this on the CLI's launch line.
+   * @returns the same text every harness agent carries in its prompt.
+   */
+  terminalKnowledge(): string {
+    return COMMANDS_SECTION.text
+  }
+
+  /**
+   * Type a wake line into a chat's terminal, when the chat has one open.
+   * Held lines are dropped once the agent has read its inbox.
+   * @param sessionId - the recipient chat.
+   * @param text - the notice.
+   * @returns true when the chat has a terminal, so its own agent is not woken.
+   */
+  private nudgeTerminal(sessionId: string, text: string): boolean {
+    const terminals = this.ctx.get('idealizeTerminals' as never) as TerminalsLike | undefined
+    return terminals?.nudge?.(sessionId, text, () => this.store.unread(sessionId) > 0) === true
+  }
+
   constructor(ctx: Context, options: { store: CommStore; config: () => CommConfig }) {
     super(ctx, 'idealizeComm')
     this.store = options.store
@@ -277,15 +318,25 @@ export class IdealizeComm extends Service {
 
   private async drawName(session: Session, id: string): Promise<string> {
     await this.store.load()
+    // The Studio manager is Powell by name (2.0.0): a chat drawn a pool name
+    // before the role moved to Powell's preset is renamed on its next start.
+    const manager = this.store.role(id) === 'studio-agent' || roleOfPreset(resolveSessionPreset(session), this.config()) === 'studio-agent'
     const existing = this.store.name(id) ?? foldAgentName(session.events)
-    if (existing !== undefined) {
+    if (existing !== undefined && (!manager || existing === STUDIO_AGENT_NAME)) {
       if (this.store.name(id) === undefined) await this.store.setName(id, existing)
       return existing
     }
-    const project = session.header.cwd ?? ''
-    const pool = poolFor(project, this.store.pools())
-    if (this.store.pools()[project] === undefined) await this.store.setPool(project, pool)
-    const name = pickName(pool, this.store.takenNames())
+    let name: string
+    let pool: number
+    if (manager) {
+      name = STUDIO_AGENT_NAME
+      pool = -1
+    } else {
+      const project = session.header.cwd ?? ''
+      pool = poolFor(project, this.store.pools())
+      if (this.store.pools()[project] === undefined) await this.store.setPool(project, pool)
+      name = pickName(pool, this.store.takenNames())
+    }
     await this.store.setName(id, name)
     try {
       // Ignorable: the comm store is the name's source of truth, so a build
@@ -311,6 +362,13 @@ export class IdealizeComm extends Service {
     await this.store.load()
     const id = String(session.header.id)
     if (this.store.role(id) !== role) await this.store.setRole(id, role)
+    // One Studio manager: an earlier coordinator chat gives the role up, so
+    // Studio posts and the `studio-agent` alias reach Powell alone.
+    if (role === 'studio-agent') {
+      for (const [other, held] of Object.entries(this.store.roles())) {
+        if (other !== id && held === 'studio-agent') await this.store.setRole(other, undefined)
+      }
+    }
     const titles = this.ctx.get('sessionTitle')
     if (titles !== undefined && titles.get(session)?.title !== ROLE_TITLES[role]) {
       try {
@@ -474,9 +532,13 @@ export class IdealizeComm extends Service {
         // an agent another agent asks a question of answers instead of the
         // note sitting until the person next talks to it.
         const recipient = found.session.live
-        if (recipient !== undefined && found.session.id !== request.from && recipient.status === 'idle' && this.store.unread(found.session.id) === 1) {
+        const notice = fromStudio ? STUDIO_MAIL_NOTICE : MAIL_NOTICE
+        const first = found.session.id !== request.from && this.store.unread(found.session.id) === 1
+        // A Terminal chat's agent is the program in its shell: the notice is
+        // typed there, and its own agent behind the terminal stays asleep.
+        if (first && !this.nudgeTerminal(found.session.id, notice) && recipient !== undefined && wakeable(recipient)) {
           recipient.followup(createUserMessage({
-            content: [{ type: 'text', text: fromStudio ? STUDIO_MAIL_NOTICE : MAIL_NOTICE }],
+            content: [{ type: 'text', text: notice }],
             source: { kind: 'plugin', plugin: 'idealize-comm', form: 'notice', summary: fromStudio ? 'Studio mail' : 'Mail' },
           }))
         }
@@ -895,7 +957,8 @@ export class IdealizeComm extends Service {
       body: `[studio] ${line}`,
       timestamp: new Date().toISOString(),
     })
-    if (coordinator.live !== undefined && coordinator.live.status === 'idle' && this.store.unread(coordinator.id) === 1) {
+    if (this.store.unread(coordinator.id) !== 1 || this.nudgeTerminal(coordinator.id, WAKE_NOTICE)) return
+    if (coordinator.live !== undefined && wakeable(coordinator.live)) {
       coordinator.live.followup(createUserMessage({
         content: [{ type: 'text', text: WAKE_NOTICE }],
         source: { kind: 'plugin', plugin: 'idealize-comm', form: 'notice', summary: 'Studio wake' },
@@ -1088,7 +1151,7 @@ export class IdealizeComm extends Service {
     } catch (error) {
       return failure(error instanceof Error ? error.message : String(error))
     }
-    if (this.store.unread(existing.id) > 0 && agent.status === 'idle') {
+    if (this.store.unread(existing.id) > 0 && wakeable(agent)) {
       const fromStudio = this.store.peek(existing.id).some(message => message.from === STUDIO_SENDER)
       agent.followup(createUserMessage({
         content: [{ type: 'text', text: fromStudio ? STUDIO_MAIL_NOTICE : MAIL_NOTICE }],
@@ -1103,6 +1166,23 @@ export class IdealizeComm extends Service {
     // alone, there is one, and it runs in the harness home because the Studio's
     // own records live there and it owns no project's files.
     const studio = request.studio === true
+    // Powell owns the Studio manager's chat (2.0.0): it starts or resumes it
+    // with its own brain, guide and tools, which a plain spawn would lack.
+    // Read structurally, so comm needs no dependency on Powell's package.
+    const services = this.ctx as unknown as { get(name: string): unknown }
+    const powell = studio ? services.get('idealizePowell') as { ensureAgent?: () => Promise<Agent> } | undefined : undefined
+    if (powell?.ensureAgent !== undefined) {
+      try {
+        const agent = await powell.ensureAgent()
+        const brief = (request.body ?? '').trim()
+        if (brief !== '') {
+          agent.followup(createUserMessage({ content: [{ type: 'text', text: brief }], source: { kind: 'user' } }))
+        }
+        return { ok: true, info: String(agent.session.header.id) }
+      } catch (error) {
+        return failure(`couldn't start Powell: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
     const project = studio
       ? resolveDshHome()
       : request.path !== undefined && request.path !== '' ? resolve(request.path) : me?.cwd

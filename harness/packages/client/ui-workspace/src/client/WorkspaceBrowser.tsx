@@ -192,6 +192,21 @@ function ViewOptionsMenu({ groupBy, orderBy, onGroupPick, onOrderPick, t }: {
   )
 }
 
+/**
+ * The projects a chat can move to: every project but the one listing it.
+ * @param workspaces - projects in display order.
+ * @param sessionId - the chat.
+ * @returns id and title of each destination.
+ */
+function moveTargetsFor(
+  workspaces: readonly WorkspaceView[],
+  sessionId: SessionNode['id'],
+): { workspaceId: WorkspaceId; label: string }[] {
+  return workspaces
+    .filter(workspace => !workspace.sessionIds.includes(sessionId))
+    .map(workspace => ({ workspaceId: workspace.workspaceId, label: workspace.title }))
+}
+
 /** In-flight root-row drag: source identity plus the current insert marker. */
 interface DragState {
   /** Workspace id, or {@link UNGROUPED_KEY} for the browser-local loose-session account. */
@@ -241,6 +256,8 @@ type SessionTreeProps = Pick<
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
   onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Continue a chat in another project (row menu action). */
+  onSessionMove: (sessionId: SessionNode['id'], workspaceId: WorkspaceId) => void
   /** Session order behavior: fixed after edits, or additionally promoted by user activity. */
   orderBy: SessionOrderBy
 }
@@ -248,7 +265,7 @@ type SessionTreeProps = Pick<
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
   useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
+  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, onSessionMove,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
   sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
@@ -458,7 +475,7 @@ function SessionTree({
                   }
                 }}
                 drag={workspaceDragProps}
-                archiveAll={group.workspaceId === undefined
+                archiveAll={group.key === UNGROUPED_KEY
                   ? {
                     count: group.sessions.filter(s => !s.blank).length,
                     run: () => { for (const s of group.sessions) if (!s.blank) onSessionArchive(s.id) },
@@ -516,6 +533,8 @@ function SessionTree({
                     onRename={onSessionRename}
                     onFork={(id) => { void forkSession(id) }}
                     onArchive={onSessionArchive}
+                    moveTargets={node.powell ? undefined : moveTargetsFor(workspaces, node.id)}
+                    onMove={onSessionMove}
                     drag={dragProps}
                     t={t}
                   />
@@ -544,7 +563,7 @@ function SessionTree({
 
 /** The flat "In one list" body: every session is one draggable top-level row. */
 function FlatList({
-  useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds,
+  useSessions, open, forkSession, onSessionRename, onSessionArchive, onSessionMove, workspaces, archivedSessionIds,
   orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
 }: Pick<
   SessionTreeProps,
@@ -553,6 +572,8 @@ function FlatList({
   | 'forkSession'
   | 'onSessionRename'
   | 'onSessionArchive'
+  | 'onSessionMove'
+  | 'workspaces'
   | 'archivedSessionIds'
   | 'orderBy'
   | 'sessionOrderByAccount'
@@ -632,6 +653,8 @@ function FlatList({
               onRename={onSessionRename}
               onFork={(id) => { void forkSession(id) }}
               onArchive={onSessionArchive}
+              moveTargets={node.powell ? undefined : moveTargetsFor(workspaces, node.id)}
+              onMove={onSessionMove}
               flat
               drag={{
                 start: () => {
@@ -749,6 +772,7 @@ export function WorkspaceBrowser({
   open,
   renameSession,
   forkSession,
+  moveSession,
   renameWorkspace,
   deleteWorkspace,
   insertWorkspaceBefore,
@@ -936,6 +960,15 @@ export function WorkspaceBrowser({
     forkNoticeSeq.current += 1
     setForkNotice({ seq: forkNoticeSeq.current, text: reason instanceof Error ? reason.message : String(reason) })
   })
+
+  // Move continues the chat in the chosen project: the copy carries the
+  // history and opens, the original is archived. Failures use the fork notice.
+  const onSessionMove = (sessionId: SessionNode['id'], workspaceId: WorkspaceId) => {
+    moveSession(sessionId, workspaceId).catch((reason: unknown) => {
+      forkNoticeSeq.current += 1
+      setForkNotice({ seq: forkNoticeSeq.current, text: reason instanceof Error ? reason.message : String(reason) })
+    })
+  }
 
   // Archive is dialog-free: not destructive (the log and the accounting slot
   // remain), so the menu action commits directly; the row disappears when the
@@ -1141,6 +1174,7 @@ export function WorkspaceBrowser({
               <FlatList
                 useSessions={useSessions} open={open} forkSession={onSessionFork}
                 onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                onSessionMove={onSessionMove} workspaces={workspaces}
                 archivedSessionIds={archivedSessionIds}
                 orderBy={orderBy}
                 sessionOrderByAccount={sessionOrderByAccount}
@@ -1155,6 +1189,7 @@ export function WorkspaceBrowser({
                 useSessions={useSessions}
                 onSessionRename={onSessionRename}
                 onSessionArchive={onSessionArchive}
+                onSessionMove={onSessionMove}
                 forkSession={onSessionFork}
                 workspaces={workspaces}
                 groupExpansion={groupExpansion}

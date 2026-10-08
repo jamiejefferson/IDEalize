@@ -17,6 +17,7 @@
  * column alone (`contain: size` in the stylesheet), so the rows xterm has
  * already drawn never hold the box open against a shrinking window.
  */
+import { PromptLines } from './prompt-line.ts'
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import type { ITheme } from '@xterm/xterm'
@@ -480,6 +481,26 @@ function styleTerminal(terminal: Terminal): void {
 }
 
 /**
+ * Publish the terminal's ground and ink as `--dsh-terminal-bg` /
+ * `--dsh-terminal-fg` on the document, so the chat title strip above a
+ * terminal chat wears the terminal's colours (JJ, 7 Oct 2026). Cleared with
+ * the paint, when the strip falls back to the page's own tokens.
+ * @param next - the resolved paint, or undefined to clear.
+ */
+function publishTerminalColours(next: TerminalPaint | undefined): void {
+  // The host-side apply test runs without a DOM.
+  if (typeof document === 'undefined') return
+  const style = document.documentElement.style
+  if (next === undefined) {
+    style.removeProperty('--dsh-terminal-bg')
+    style.removeProperty('--dsh-terminal-fg')
+    return
+  }
+  style.setProperty('--dsh-terminal-bg', next.background)
+  style.setProperty('--dsh-terminal-fg', next.foreground)
+}
+
+/**
  * Apply the appearance panel's terminal paint to every cached grid and every
  * grid created after. A mounted grid is refitted on the next frame, after the
  * view has rendered the paint's margin, and the PTY hears the new cols/rows
@@ -488,6 +509,7 @@ function styleTerminal(terminal: Terminal): void {
  */
 export function applyTerminalPaint(next: TerminalPaint | undefined): void {
   paint = next
+  publishTerminalColours(next)
   for (const attachment of attachments.values()) {
     styleTerminal(attachment.terminal)
     if (attachment.terminal.element !== undefined) scheduleRefit(attachment)
@@ -533,7 +555,13 @@ function themeFromPage(): { background: string; foreground: string; cursor: stri
 async function connect(
   attachment: Attachment,
   transport: TerminalTransport,
-  input: { key: string; cwd: string | undefined; activity: string | undefined; plain: boolean },
+  input: {
+    key: string
+    cwd: string | undefined
+    activity: string | undefined
+    plain: boolean
+    onPrompt?: ((line: string) => void) | undefined
+  },
   onError: (message: string) => void,
 ): Promise<void> {
   const { terminal } = attachment
@@ -552,7 +580,11 @@ async function connect(
   attachment.id = id
   attachment.exited = undefined
   transport.resize(id, terminal.cols, terminal.rows)
-  const keys = terminal.onData((data) => { transport.input(id, data) })
+  const lines = new PromptLines()
+  const keys = terminal.onData((data) => {
+    transport.input(id, data)
+    if (input.onPrompt !== undefined) for (const line of lines.push(data)) input.onPrompt(line)
+  })
   // The one route a grid size takes to the shell: whatever refitted the grid,
   // the PTY is told, and an agent's full-screen UI redraws for the new size.
   const sizes = terminal.onResize(({ cols, rows }) => {
@@ -599,6 +631,8 @@ export interface TerminalViewProps {
    */
   plain?: boolean
   transport?: TerminalTransport
+  /** Each line typed into the chat's shell, after Enter: the chat's name is read from the first real prompt. */
+  onPrompt?: (line: string) => void
   t: (key: 'terminal.connecting' | 'terminal.exited' | 'terminal.restart' | 'terminal.error') => string
 }
 
@@ -607,7 +641,7 @@ export interface TerminalViewProps {
  * @param props - session identity, directory, and copy.
  * @returns the grid.
  */
-export function TerminalView({ sessionId, cwd, activity, plain = false, transport = httpTransport, t }: TerminalViewProps) {
+export function TerminalView({ sessionId, cwd, activity, plain = false, transport = httpTransport, onPrompt, t }: TerminalViewProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -638,10 +672,15 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
     const root = rootRef.current
     if (root === null) return
     const measure = (): void => {
-      root.style.setProperty('--idealize-terminal-bleed', `${String(reservedGutter(root))}px`)
       // A surface resize is also how a changed appearance zoom reaches us.
       const zoom = counterZoom(root.parentElement)
       if (root.style.zoom !== zoom) root.style.zoom = zoom
+      // The gutter is measured outside the root and drawn inside it, so the
+      // root's counter-zoom would shrink it: at 0.8 the ground stopped a few
+      // pixels short of the title strip, which spans the whole column (JJ,
+      // 8 Oct 2026: "slight misalignment of the header").
+      const bleed = reservedGutter(root) / (zoom === '' ? 1 : Number(zoom))
+      root.style.setProperty('--idealize-terminal-bleed', `${String(bleed)}px`)
     }
     measure()
     const observer = new ResizeObserver(measure)
@@ -680,7 +719,7 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
       // The switched-to brain wins over the chat's preset: a started chat keeps
       // the preset it began under, so the summary cannot report the new brain.
       const launchAs = restartBrains.get(sessionId) ?? activity
-      void connect(current, transport, { key: sessionId, cwd, activity: launchAs, plain }, setError)
+      void connect(current, transport, { key: sessionId, cwd, activity: launchAs, plain, onPrompt }, setError)
     }
     // The host's content box moves with the window, a column drag, the paint's
     // margin, a surface zoom, and the view coming back from `display: none`.

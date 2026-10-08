@@ -53,6 +53,11 @@ export interface SessionTitleLlmConfig {
   readonly targetWords: number
   /** Target character count for Chinese, Japanese, or Korean titles. */
   readonly targetCjkCharacters: number
+  /**
+   * Optional hard ceiling on the title's length in characters: the prompt
+   * asks for it, and a longer reply is cut back to whole words within it.
+   */
+  readonly maxCharacters?: number
   /** Maximum UTF-8 bytes in the final JSON-framed user prompt. */
   readonly maxInputBytes: number
   /** Auxiliary generation output-token cap. */
@@ -72,6 +77,7 @@ export interface ResolvedSessionTitleLlmConfig extends SessionTitleLlmConfig {}
 export const SessionTitleLlmConfigFields = {
   targetWords: z.number().step(1).min(1).required(),
   targetCjkCharacters: z.number().step(1).min(1).required(),
+  maxCharacters: z.number().step(1).min(1),
   maxInputBytes: z.number().step(1).min(1).required(),
   maxOutputTokens: z.number().step(1).min(1).required(),
   timeoutMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).required(),
@@ -86,6 +92,7 @@ export const SessionTitleLlmConfigSchema: z<SessionTitleLlmConfig> = z.object(Se
 const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'targetWords',
   'targetCjkCharacters',
+  'maxCharacters',
   'maxInputBytes',
   'maxOutputTokens',
   'timeoutMs',
@@ -118,6 +125,7 @@ export function resolveSessionTitleLlmConfig(
   }
   assertPositiveInteger('targetWords', value.targetWords)
   assertPositiveInteger('targetCjkCharacters', value.targetCjkCharacters)
+  if (value.maxCharacters !== undefined) assertPositiveInteger('maxCharacters', value.maxCharacters)
   assertPositiveInteger('maxInputBytes', value.maxInputBytes)
   assertPositiveInteger('maxOutputTokens', value.maxOutputTokens)
   assertPositiveInteger('timeoutMs', value.timeoutMs)
@@ -189,7 +197,30 @@ function systemPrompt(config: ResolvedSessionTitleLlmConfig): string {
     'Return only the title on one line, **in plain text of natural language**, with no quotes, prefix, explanation, Markdown, XML, or terminal control codes. No code is allowed.',
     'Use the language of the messages.',
     `Aim for about ${config.targetWords} words in non-CJK languages or ${config.targetCjkCharacters} CJK characters.`,
+    ...config.maxCharacters === undefined ? [] : [
+      `Never exceed ${config.maxCharacters} characters. Name the subject as a short noun phrase (for example "Kitchen quotes"), not a request or a sentence.`,
+    ],
   ].join('\n')
+}
+
+/**
+ * Hold a title to a character ceiling, cutting back to whole words; a single
+ * word longer than the ceiling is cut at the ceiling.
+ * @param title - the normalized title.
+ * @param maxCharacters - the ceiling, or undefined for none.
+ * @returns the title within the ceiling.
+ */
+export function clampTitleCharacters(title: string, maxCharacters: number | undefined): string {
+  const characters = Array.from(title)
+  if (maxCharacters === undefined || characters.length <= maxCharacters) return title
+  const words = title.split(' ')
+  let kept = ''
+  for (const word of words) {
+    const next = kept === '' ? word : `${kept} ${word}`
+    if (Array.from(next).length > maxCharacters) break
+    kept = next
+  }
+  return (kept === '' ? characters.slice(0, maxCharacters).join('') : kept).replace(/[\s,;:.\-–—]+$/u, '')
 }
 
 /** Frame exact messages as JSON so user text cannot break structural delimiters. */
@@ -284,11 +315,63 @@ export async function generateSessionTitleWithLlm(
     .filter((block): block is Extract<(typeof blocks)[number], { type: 'text' }> => block.type === 'text')
     .map(block => block.text)
     .join(' ')
-  const title = normalizeSessionTitle(text, Number.MAX_SAFE_INTEGER)
+  const title = clampTitleCharacters(normalizeSessionTitle(text, Number.MAX_SAFE_INTEGER), config.maxCharacters)
   if (title.length === 0) throw new Error('session-title-llm: title model produced no text')
   return {
     title,
     messageSeqs: selectedMessages.map(message => message.seq),
     model: route,
   }
+}
+
+/**
+ * Suggest a title for text that never reached a session as a `user/message`
+ * (a prompt typed into a terminal chat): the same instruction, framing and
+ * ceiling as an automatic title, through one auxiliary call on `route`.
+ * Nothing is appended to any session; the caller decides where the title goes.
+ * Takes only the LLM service, so a plugin that probes for it (rather than
+ * injecting it) can pass `{ llm }`: property access on a context that never
+ * injected `llm` throws.
+ * @param ctx - the registered LLM service, or a context exposing it.
+ * @param config - validated model-provider policy.
+ * @param text - the human text to title.
+ * @param route - the provider and model to ask.
+ * @param signal - caller cancellation; the config's timeout also applies.
+ * @returns the normalized title, empty when the model produced none.
+ */
+export async function suggestSessionTitle(
+  ctx: Pick<Context, 'llm'>,
+  config: ResolvedSessionTitleLlmConfig,
+  text: string,
+  route: SessionTitleModelProvenance,
+  signal: AbortSignal,
+): Promise<string> {
+  const framedInput = frameMessages([{ seq: 0, text }])
+  if (Buffer.byteLength(framedInput, 'utf8') > config.maxInputBytes) {
+    throw new Error(`session-title-llm: input exceeds maxInputBytes ${config.maxInputBytes}`)
+  }
+  using callDeadline = deadline(signal, config.timeoutMs, SESSION_TITLE_TIMEOUT_CODE)
+  const assembler = new BlockAssembler()
+  for await (const chunk of ctx.llm.stream(deepFreeze({
+    provider: route.provider,
+    model: route.model,
+    messages: [createUserMessage({
+      content: [{ type: 'text', text: framedInput }],
+      source: { kind: 'plugin', plugin: 'dsh-session-title-llm' },
+    })],
+    system: systemPrompt(config),
+    maxTokens: config.maxOutputTokens,
+    purpose: 'session-title',
+    signal: callDeadline.signal,
+  }))) {
+    callDeadline.signal.throwIfAborted()
+    assembler.push(chunk)
+  }
+  const terminalError = finishError(assembler.finish)
+  if (terminalError !== undefined) throw terminalError
+  const reply = assembler.blocks()
+    .filter((block): block is Extract<ReturnType<BlockAssembler['blocks']>[number], { type: 'text' }> => block.type === 'text')
+    .map(block => block.text)
+    .join(' ')
+  return clampTitleCharacters(normalizeSessionTitle(reply, Number.MAX_SAFE_INTEGER), config.maxCharacters)
 }

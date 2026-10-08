@@ -166,6 +166,31 @@ describe('helpers', () => {
 })
 
 describe('terminal routes', () => {
+  it('names a terminal chat through the probed LLM service, which the plugin never injects', async () => {
+    const { call, ctx } = await mount({ desktop: true })
+    const asked: unknown[] = []
+    // Provided from a plugin's own scope, as the shipped LLM service is: that
+    // is what makes an uninjected `ctx.llm` read throw.
+    await ctx.plugin({
+      name: 'fake-llm',
+      apply(llmCtx: Context) {
+        llmCtx.provide('llm', {
+          async* stream(options: unknown) {
+            asked.push(options)
+            yield { type: 'block-start', index: 0, blockType: 'text' }
+            yield { type: 'text-delta', index: 0, text: 'Header alignment fix' }
+            yield { type: 'finish', reason: { kind: 'stop' } }
+          },
+        })
+      },
+    })
+    ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'p', model: 'm' }) })
+    const named = await call('/idealize/terminal/title', { method: 'POST', body: { text: 'fix the header alignment please' } })
+    expect(named.res.status).toBe(200)
+    expect(named.res.json()).toEqual({ title: 'Header alignment fix' })
+    expect(asked).toHaveLength(1)
+  })
+
   it('reports no embedded terminal without the desktop service, and refuses to open', async () => {
     const { call } = await mount({ desktop: false })
     const probe = await call('/idealize/terminal/capabilities', { method: 'GET' })
