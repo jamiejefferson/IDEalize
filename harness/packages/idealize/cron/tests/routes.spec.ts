@@ -108,6 +108,7 @@ async function mount(options: {
   if (options.projects !== undefined) {
     const projects = options.projects
     ctx.provide('workspaceRegistry', {
+      list: () => Object.keys(projects).map(path => ({ path })),
       resolveByPath: async (path: string) => projects[path] === undefined
         ? undefined
         : { attachSession: async (id: string) => { projects[path]!.push(id) } },
@@ -227,6 +228,24 @@ describe('what a fire runs', () => {
     const run = (await call('/idealize/cron/run-now', { query: `?id=${id}` })).json()
     expect(run.status).toBe('ok')
     expect(projects['/work/demo']).toEqual([run.sessionId])
+  })
+
+  it('refuses a task that would run a chat outside every opened project', async () => {
+    // An unattended chat rooted in the home folder could rewrite shell
+    // profiles (security audit, 9 Oct 2026).
+    const { call } = await mount({ projects: { '/work/demo': [] } })
+    const refused = await call('/idealize/cron/tasks', {
+      method: 'POST',
+      body: reminder({ remind: false, prompt: 'Tidy up.', cwd: '/Users/someone' }),
+    })
+    expect(refused.status).toBeGreaterThanOrEqual(400)
+    expect(JSON.stringify(refused.json())).toMatch(/not a project the person has opened/)
+    // A reminder runs nothing, so any folder will do.
+    const reminderOnly = await call('/idealize/cron/tasks', {
+      method: 'POST',
+      body: reminder({ remind: true, prompt: '', cwd: '/Users/someone' }),
+    })
+    expect(reminderOnly.status).toBe(200)
   })
 
   it('records the turn’s own error as the run’s detail', async () => {

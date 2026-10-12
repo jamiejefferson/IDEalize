@@ -87,15 +87,43 @@ export function startupIdentHtml(version: string, owl: string): string {
     NAME_Y = RULE_Y + 40; VERSION_Y = RULE_Y + 64;
   }
 
-  // Build timing, ms: the owl draws like a raster, one row after another
-  // from the top of its head, each row filling left to right in runs (as
-  // the tree does in the ident); then the ground line draws out from the
-  // centre, then the name fades in.
-  const ROW_STAGGER = 28, ROW_WIPE = 70, RULE_GROW = 450, NAME_AT_EXTRA = 200, NAME_FADE = 700;
+  // Build timing, ms. The picture is computed like a raster on an old
+  // machine: it only changes on a fixed beat, each beat lands the next chunk
+  // of the current row, and now and then the machine stalls for a few beats
+  // as if working out the next part. The ground line is the raster's last
+  // row, drawn the same way in the same green; then the name fades in.
+  // JJ asked for slower, staccato drawing with the line as part of the
+  // picture on 12 Oct 2026.
+  const BEAT = 40, CHUNK_CELLS = 30, RULE_CHUNKS = 6, NAME_AT_EXTRA = 350, NAME_FADE = 700;
 
   let rows = [];
-  let owlEnd = 0;
+  let rule = [];
   let buildEnd = 0;
+
+  // Give every run of every row, then every piece of the ground line, the
+  // beat it lands on. A fixed seed keeps the rhythm the same on every launch.
+  function schedule() {
+    let seed = 11;
+    const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    let clock = 0;
+    const beat = () => {
+      const r = rand();
+      clock += BEAT * (r < 0.05 ? 5 : r < 0.2 ? 2 : 1);
+      return clock;
+    };
+    for (const row of rows) {
+      let at = beat(), cells = 0;
+      for (const run of row.runs) {
+        if (cells >= CHUNK_CELLS) { at = beat(); cells = 0; }
+        run.at = at;
+        cells += (run.end - run.start) / CELL;
+      }
+    }
+    clock += BEAT * 4;
+    rule = [];
+    for (let k = 0; k < RULE_CHUNKS; k++) rule.push({ from: RULE_W * k / RULE_CHUNKS, to: RULE_W * (k + 1) / RULE_CHUNKS, at: beat() });
+    buildEnd = clock;
+  }
 
   function traceOwl(img) {
     const c = document.createElement('canvas');
@@ -145,39 +173,33 @@ export function startupIdentHtml(version: string, owl: string): string {
       rows.push({ y, runs, min: cells[0], max: cells[cells.length - 1] + CELL });
     }
     place();
-    owlEnd = (rows.length - 1) * ROW_STAGGER + ROW_WIPE;
-    buildEnd = owlEnd + RULE_GROW;
+    schedule();
   }
 
-  function drawScene(t) {
+  function drawScene(time) {
     sx.setTransform(dpr, 0, 0, dpr, 0, 0);
     sx.clearRect(0, 0, W, H);
+    // The build only moves on the beat; the chunk landed on this beat flares.
+    const t = time === Infinity ? time : Math.floor(time / BEAT) * BEAT;
+    const ink = (at) => (t - at < BEAT ? C.flare : C.green);
 
-    // Ground line, once the owl is up.
-    const ruleP = Math.min(1, Math.max(0, (t - owlEnd) / RULE_GROW));
-    if (ruleP > 0) {
-      const half = RULE_W / 2 * (1 - Math.pow(1 - ruleP, 3));
-      sx.fillStyle = C.green;
-      sx.fillRect(W / 2 - half, RULE_Y, half * 2, 2);
-    }
-
-    // The owl, row by row from the top of the head down. Each row fills
-    // left to right a whole run at a time; the run just landed flares.
-    for (let r = 0; r < rows.length; r++) {
-      const row = rows[r];
-      const p = Math.min(1, Math.max(0, (t - r * ROW_STAGGER) / ROW_WIPE));
-      if (p <= 0) break;
-      const front = row.min + (row.max - row.min) * p;
-      for (let k = 0; k < row.runs.length; k++) {
-        const run = row.runs[k];
-        if (run.start > front) break;
-        const leading = p < 1 && (k === row.runs.length - 1 || row.runs[k + 1].start > front);
-        sx.globalAlpha = p < 1 ? 1 : 0.92;
-        sx.fillStyle = leading ? C.flare : C.green;
+    // The owl, row by row from the top of the head down, each row landing
+    // left to right a chunk at a time.
+    outer: for (const row of rows) {
+      for (const run of row.runs) {
+        if (run.at > t) break outer;
+        sx.fillStyle = ink(run.at);
         sx.fillRect(OWL_X + run.start, OWL_Y + row.y, run.end - run.start, ROW_INK);
       }
     }
-    sx.globalAlpha = 1;
+
+    // The ground line: the raster's last row, left to right.
+    const ruleX = Math.round((W - RULE_W) / 2);
+    for (const piece of rule) {
+      if (piece.at > t) break;
+      sx.fillStyle = ink(piece.at);
+      sx.fillRect(ruleX + piece.from, RULE_Y, piece.to - piece.from, ROW_INK);
+    }
 
     const nameP = Math.min(1, Math.max(0, (t - buildEnd - NAME_AT_EXTRA) / NAME_FADE));
     if (nameP > 0) {

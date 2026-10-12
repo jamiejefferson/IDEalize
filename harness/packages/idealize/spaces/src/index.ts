@@ -32,6 +32,8 @@
  *   ({@link spaceIconSrc} names the URL). Loopback-only; any other path under
  *   the prefix answers 404 by table lookup, so no request text reaches the
  *   filesystem.
+ * - `/idealize/project-look` keeps each project's logo and accent colour for
+ *   its sidebar row (see `project-look.ts`).
  *
  * Chats made before spaces existed are DERIVED, never backfilled: nothing is
  * written into an existing log ({@link deriveSpace}).
@@ -39,9 +41,11 @@
  */
 
 import { createHash } from 'node:crypto'
+import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -53,6 +57,7 @@ import { installBrainPrompt } from './brain-prompt.ts'
 import { brainProjectionDefinition, foldBrain, foldSpace, spaceProjectionDefinition } from './projection.ts'
 import { RETIRED_ROLE_PRESETS, isSpaceId, SPACE_IDS, type SpaceId } from './space-table.ts'
 import { SPACE_ICON_PATH } from './space-icons.ts'
+import { handleProjectLook, PROJECT_LOOK_PATH, ProjectLooks } from './project-look.ts'
 import {
   chatModelResolves, ROSTER_PATH, spaceCapabilityRequirements, spaceRoster,
   type ActivitySpacesSection, type ChatModelSections,
@@ -72,6 +77,8 @@ export type { BrainPersona } from './brain-prompt.ts'
 export type { BrainEventData, BrainProjection, SpaceEventData, SpaceProjection } from './projection-types.ts'
 export { brainPresets, chatModelResolves, ROSTER_PATH, spaceCapabilityRequirements, spaceRoster } from './roster.ts'
 export { SPACE_ICON_PATH, spaceIconSrc } from './space-icons.ts'
+export { AUTO_LOGO_CANDIDATES, PROJECT_LOOK_PATH, ProjectLooks, sniffImage } from './project-look.ts'
+export type { ProjectLookView } from './project-look.ts'
 export type {
   ActivitySpacesSection, CapabilityPreset, ChatModelSections, RosterPreset, SpaceBrain, SpaceReason,
   SpaceRosterEntry, SpaceRosterFacts,
@@ -333,6 +340,27 @@ export function apply(ctx: Context): void {
         },
       }),
       `idealize-spaces: GET ${SPACE_ICON_PATH}/<space>.svg`,
+    )
+  })
+
+  ctx.inject(['webServer'], (lookCtx) => {
+    // The workspace registry is not a declared dependency; narrow the probe,
+    // and read it per request so projects opened later count.
+    const looks = new ProjectLooks(join(resolveDshHome(), 'idealize'), {
+      list: () => {
+        const registry = (lookCtx as unknown as { get(name: string): unknown }).get('workspaceRegistry') as {
+          list(): readonly { id: string; path: string }[]
+        } | undefined
+        return registry?.list().map(w => ({ id: w.id, path: w.path })) ?? []
+      },
+    })
+    lookCtx.effect(
+      () => lookCtx.webServer.register({
+        kind: 'prefix',
+        path: PROJECT_LOOK_PATH,
+        handler: (req, res) => handleProjectLook(looks, req, res, refuse),
+      }),
+      `idealize-spaces: ${PROJECT_LOOK_PATH}`,
     )
   })
 

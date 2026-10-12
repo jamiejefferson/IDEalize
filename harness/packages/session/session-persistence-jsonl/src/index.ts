@@ -9,8 +9,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { readdirSync } from 'node:fs'
-import { open, mkdir, readFile, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { open, mkdir, readFile, readdir, realpath, link, rename, rm, stat, truncate } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
 import { randomBytes } from 'node:crypto'
@@ -479,29 +479,38 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
       signal?.throwIfAborted()
       for (const dir of await this.listSessionDirs(project, signal)) {
         signal?.throwIfAborted()
-        const opposite = join(dir, `session${logSuffix(this.oppositeCompression())}`)
-        const oppositeExists = await this.exists(opposite)
-        signal?.throwIfAborted()
-        if (oppositeExists) throw this.encodingMismatch(opposite)
-        const path = join(dir, `session${logSuffix(this.compression)}`)
-        const pathExists = await this.exists(path)
-        signal?.throwIfAborted()
-        if (!pathExists) continue
-        // Read only headers so listing scales with session count, not log size.
-        const first = this.compression === 'zstd'
-          ? await this.readFirstZstdLine(path, signal)
-          : await this.readFirstLine(path, signal)
-        signal?.throwIfAborted()
-        if (first === undefined) continue // empty/half-written file
-        const meta = parseHeaderMeta(first)
-        if (meta === undefined) continue // not a session header
-        await this.assertStoredIdentity(path, meta, undefined, signal)
-        signal?.throwIfAborted()
-        if (ids.has(meta.id)) {
-          throw new Error(`duplicate JSONL session id "${meta.id}" appears in multiple project directories`)
+        try {
+          const opposite = join(dir, `session${logSuffix(this.oppositeCompression())}`)
+          const oppositeExists = await this.exists(opposite)
+          signal?.throwIfAborted()
+          if (oppositeExists) throw this.encodingMismatch(opposite)
+          const path = join(dir, `session${logSuffix(this.compression)}`)
+          const pathExists = await this.exists(path)
+          signal?.throwIfAborted()
+          if (!pathExists) continue
+          // Read only headers so listing scales with session count, not log size.
+          const first = this.compression === 'zstd'
+            ? await this.readFirstZstdLine(path, signal)
+            : await this.readFirstLine(path, signal)
+          signal?.throwIfAborted()
+          if (first === undefined) continue // empty/half-written file
+          const meta = parseHeaderMeta(first)
+          if (meta === undefined) continue // not a session header
+          await this.assertStoredIdentity(path, meta, undefined, signal)
+          signal?.throwIfAborted()
+          if (ids.has(meta.id)) {
+            throw new Error(`duplicate JSONL session id "${meta.id}" appears in multiple project directories`)
+          }
+          ids.add(meta.id)
+          artifacts.push({ header: meta, path })
+        } catch (error) {
+          if (signal?.aborted === true) throw error
+          // One unreadable session must not take every other one with it:
+          // a bad header used to fail this listing, the workspace plugin with
+          // it, and the app's start-up (IDEalize, 9 Oct 2026). It is moved
+          // aside, whole, where the person can still find it.
+          await this.quarantine(dir, error)
         }
-        ids.add(meta.id)
-        artifacts.push({ header: meta, path })
       }
     }
     signal?.throwIfAborted()
@@ -847,13 +856,37 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     }
   }
 
+  /** Session folders set aside this run because they could not be read. */
+  readonly quarantined: Array<{ from: string; to: string; reason: string }> = []
+
+  /**
+   * Move one unreadable session folder to `<root>/.quarantine/<project>/<id>-<time>/`.
+   * A move that fails leaves the folder where it is; the listing skips it
+   * either way.
+   * @param dir - the session folder.
+   * @param error - why it could not be read.
+   */
+  private async quarantine(dir: string, error: unknown): Promise<void> {
+    const reason = error instanceof Error ? error.message : String(error)
+    const to = join(this.root, '.quarantine', basename(dirname(dir)), `${basename(dir)}-${String(Date.now())}`)
+    try {
+      await mkdir(dirname(to), { recursive: true })
+      await rename(dir, to)
+      this.quarantined.push({ from: dir, to, reason })
+      this.ctx.logger.warn(`session-persistence-jsonl: set aside unreadable session ${dir} as ${to}: ${reason}`)
+    } catch (moveError) {
+      this.ctx.logger.warn(`session-persistence-jsonl: skipped unreadable session ${dir} (${reason}); it could not be moved aside: ${String(moveError)}`)
+    }
+  }
+
   /** The human-readable project directories under the configured root. */
   private async listProjectDirs(signal?: AbortSignal): Promise<string[]> {
     try {
       signal?.throwIfAborted()
       const entries = await readdir(this.root, { withFileTypes: true })
       signal?.throwIfAborted()
-      return entries.filter(e => e.isDirectory()).map(e => join(this.root, e.name))
+      // Dot-folders are the backend's own (the quarantine), never a project.
+      return entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => join(this.root, e.name))
     } catch (error) {
       // Only an absent root means no sessions; rethrow every other I/O failure.
       if (isENOENT(error)) return []

@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { runsWhenOpened } from './runnable-path.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
@@ -1878,12 +1879,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   /** Open one Host-resolved path with its default application. */
-  function openPath(
+  async function openPath(
     request: RpcRequest<unknown>, path: string, signal: AbortSignal,
   ): Promise<RpcResponse<{ opened: true }>> {
+    if (await runsWhenOpened(path)) {
+      return err(request, {
+        code: 'bad-request',
+        message: 'not a file the default application can safely open',
+        details: { issues: [] },
+      })
+    }
+    if (signal.aborted) return err(request, { code: 'cancelled', message: 'open was cancelled', details: {} })
     const open = defaults.openPath
       ?? ((target: string, openSignal: AbortSignal) => openNativePath(target, openSignal))
-    return openTarget(request, path, signal, open)
+    return await openTarget(request, path, signal, open)
   }
 
   /** Open one Host-resolved text document in a native editor. */

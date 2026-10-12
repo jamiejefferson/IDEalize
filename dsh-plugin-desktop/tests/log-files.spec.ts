@@ -1,4 +1,5 @@
 import {
+  rmSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -249,5 +250,21 @@ describe('LogFileSink', () => {
     const text = readFileSync(join(dir, `dsh-${day}.log`), 'utf8')
     expect(text).toContain('Bearer ****')
     expect(text).not.toContain('abc.def.secret')
+  })
+})
+
+describe('LogFileSink when the disk refuses a write', () => {
+  it('stops logging instead of throwing into the app', () => {
+    // A full disk used to throw out of a timer and quit the app (9 Oct 2026).
+    const { s, dir } = sink()
+    rmSync(dir, { recursive: true, force: true })
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      expect(() => { s.write('error', 'first line after the disk went away') }).not.toThrow()
+      expect(() => { s.write('error', 'and the next') }).not.toThrow()
+      expect(stderr).toHaveBeenCalledTimes(1)
+    } finally {
+      stderr.mockRestore()
+    }
   })
 })

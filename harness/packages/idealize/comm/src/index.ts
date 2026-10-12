@@ -35,7 +35,7 @@ import { DEFAULT_COMM_CONFIG } from './config.ts'
 import type { CommConfig } from './config.ts'
 import { DEFAULT_ROLE_CONFIG, roleGuide, roleOfPreset, seedRolePreset } from './roles.ts'
 import type { RoleConfig } from './roles.ts'
-import type {} from '@deepseek-ai/dsh-host-webserver'
+import { currentSessionKey, requestCaller } from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-shell-env'
 // Type-only: the prompt registry's Context merge (ctx.systemPrompt).
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -78,6 +78,9 @@ export const Config: z<CommConfig> = z.object({
 
 /** The environment key the CLI reads its host origin from inside a tool shell. */
 export const HOST_ENV_KEY = 'DSH_IDEALIZE_HOST'
+
+/** The shell variable carrying a chat's key for the `idealize` command. */
+export const KEY_ENV_KEY = 'DSH_IDEALIZE_KEY'
 
 /**
  * Where the host origin is written for shells started outside a session.
@@ -299,8 +302,13 @@ export function apply(ctx: Context, config: CommConfig = DEFAULT_COMM_CONFIG): v
             return
           }
           if (refuse(req, res, parsed.command)) return
+          // A chat's shell proves its session with its key, so the sender is
+          // the session the key names, whatever the body claims: no chat can
+          // post as another chat or as the person.
+          const caller = requestCaller(req)
+          const request = caller.kind === 'session' ? { ...parsed, from: caller.sessionId } : parsed
           try {
-            sendJson(res, 200, await comm.handle(parsed))
+            sendJson(res, 200, await comm.handle(request, { shell: caller.kind === 'session' }))
           } catch (error) {
             sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
           }
@@ -364,8 +372,13 @@ export function apply(ctx: Context, config: CommConfig = DEFAULT_COMM_CONFIG): v
           name: 'idealize-comm',
           variables: {
             [HOST_ENV_KEY]: { description: 'Origin of the IDEalize host the `idealize` command talks to.' },
+            [KEY_ENV_KEY]: { description: 'This chat\'s key for the `idealize` command; it opens the messaging route only.' },
           },
-          resolve: () => ({ [HOST_ENV_KEY]: origin }),
+          resolve: (execution) => {
+            const sessionId = execution.agent?.session.header.id
+            const key = sessionId === undefined ? undefined : currentSessionKey(sessionId)
+            return { [HOST_ENV_KEY]: origin, ...key === undefined ? {} : { [KEY_ENV_KEY]: key } }
+          },
         }),
         'idealize-comm: DSH_IDEALIZE_HOST',
       )

@@ -22,6 +22,7 @@ const env = process.env
 // `t-…` id, and every `idealize` call from a chat answered "unknown sender
 // session", 14 Sep 2026). It counts only where the harness stamped nothing.
 const mySession = env.DSH_SESSION_ID ?? env.IDEALIZE_SESSION_ID
+const myKey = env.DSH_IDEALIZE_KEY ?? env.IDEALIZE_KEY
 
 function fail(message: string, code = 1): never {
   process.stderr.write(`idealize: ${message}\n`)
@@ -82,7 +83,12 @@ async function send(request: CommRequest): Promise<CommResponse> {
   try {
     response = await fetch(`${origin}/idealize/comm`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-idealize-auth': '1' },
+      headers: {
+        'content-type': 'application/json',
+        'x-idealize-auth': '1',
+        // The chat's key proves which chat is asking (the host's launch gate).
+        ...myKey === undefined || mySession === undefined ? {} : { 'x-idealize-session': mySession, 'x-idealize-key': myKey },
+      },
       body: JSON.stringify({ ...request, ...mySession === undefined ? {} : { from: mySession } }),
     })
   } catch (error) {

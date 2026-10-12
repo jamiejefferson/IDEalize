@@ -88,7 +88,11 @@ export function ConversationSessionHeader({
   // message (or the terminal's first row) starts below the title.
   useLayoutEffect(() => {
     const header = headerRef.current
-    const root = header?.parentElement
+    // The column root, not the header's parent: a deployment that renders the
+    // strip through a slot wraps it in a box beside the scrollport, and a
+    // property set there never reaches the scrollport (the Images, Video and
+    // Sounds grids started under the title, 9 Oct 2026).
+    const root = header?.closest<HTMLElement>(`.${css.root}`) ?? header?.parentElement
     if (header === null || root === null || root === undefined) return
     const write = (): void => {
       root.style.setProperty('--dsh-session-header-height', `${String(Math.round(header.getBoundingClientRect().height))}px`)

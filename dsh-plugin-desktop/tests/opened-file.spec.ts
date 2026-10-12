@@ -1,3 +1,4 @@
+import { posix } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   fileFromArgv,
@@ -27,7 +28,7 @@ describe('recognising a Markdown file', () => {
 })
 
 describe('the project folder a file needs', () => {
-  const lookup = (gitDirs: string[]) => ({ home: '/Users/jj', exists: (path: string) => gitDirs.includes(path) })
+  const lookup = (gitDirs: string[]) => ({ home: '/Users/jj', exists: (path: string) => gitDirs.includes(path), paths: posix })
 
   it('is none for a file under home, which the viewer serves as it is', () => {
     expect(projectFolderFor('/Users/jj/Documents/plan.md', lookup([]))).toBeUndefined()

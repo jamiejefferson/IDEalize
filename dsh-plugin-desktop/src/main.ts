@@ -49,6 +49,7 @@ import { exportDesktopDiagnostics } from './diagnostic-export.ts'
 import { FileExporter } from './file-exporter.ts'
 import { DESKTOP_SETTINGS_NAMESPACE, type DesktopSettings } from './index.ts'
 import { clearPreviousLaunchHttpCache } from './http-cache.ts'
+import { installLaunchGate } from './launch-gate.ts'
 import { LogFileSink } from './log-files.ts'
 import { maskSecrets } from './mask-secrets.ts'
 import { resolveDesktopShellEnvironment } from './shell-environment.ts'
@@ -232,6 +233,8 @@ async function start(): Promise<void> {
   const keysFileFromArguments = (argv: readonly string[]): string | undefined =>
     process.platform === 'darwin' ? undefined : keysFileFromArgv(argv)
   let pendingKeysFile: string | undefined = keysFileFromArguments(process.argv)
+  /** This launch's token for the Host's launch gate; set once the app is ready. */
+  let launchKey: string | undefined
   let deliverKeysFile: (path: string) => void = (path) => { pendingKeysFile = path }
   // A Markdown file chosen under "Open with" arrives the same two ways and is
   // held the same way, until there is a bridge feed to put it on.
@@ -455,6 +458,9 @@ async function start(): Promise<void> {
   let startupIdent: StartupIdent | undefined
   try {
     await app.whenReady()
+    // Before the Host boots or any window loads: the token the Host's launch
+    // gate demands, held only by this process and its windows.
+    launchKey = await installLaunchGate(session.defaultSession)
     // The ident plays until the first real window shows, which it notices
     // itself; a failure below closes it explicitly.
     startupIdent = openStartupIdent(desktopProductVersion())
@@ -509,7 +515,7 @@ async function start(): Promise<void> {
       stderr: electronLogger,
       exit: finalExit,
     }
-    installFailLoud(BIN_NAME, failLoudProcess, async () => {
+    const uninstallFailLoud = installFailLoud(BIN_NAME, failLoudProcess, async () => {
       try {
         await current?.fiber.dispose()
       } finally {
@@ -824,6 +830,7 @@ async function start(): Promise<void> {
         path,
         port: webServer.port,
         readFile: target => readFile(target, 'utf8'),
+        ...launchKey === undefined ? {} : { launchKey },
         request: (url, init) => net.fetch(url, init),
       }).then((outcome) => {
         if (!outcome.ok) electronLogger.error(`${BIN_NAME}: keys file ${path} not applied: ${outcome.reason}`)
@@ -846,6 +853,13 @@ async function start(): Promise<void> {
         verifyingInstall = undefined
       }
       markDesktopProfileHealthy(selectionStatePath, activeProfileName)
+      // Exit-on-rejection guards start-up only: once the app is up, one
+      // plugin's missed rejection, hours in, must not close every chat and
+      // terminal mid-reply (robustness audit, 9 Oct 2026). Logged instead.
+      uninstallFailLoud()
+      process.on('unhandledRejection', (reason: unknown) => {
+        electronLogger.error(`${BIN_NAME}: unhandled rejection after start-up, kept running: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`)
+      })
       if (verifiedInstallToClear !== undefined && installRecovery !== undefined) {
         try {
           await installRecovery.clear(verifiedInstallToClear.transactionId)

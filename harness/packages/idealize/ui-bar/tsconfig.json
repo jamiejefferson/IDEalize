@@ -57,6 +57,9 @@
       "path": "../../host/webserver"
     },
     {
+      "path": "../../util/home-paths"
+    },
+    {
       "path": "../../settings/settings"
     },
     {

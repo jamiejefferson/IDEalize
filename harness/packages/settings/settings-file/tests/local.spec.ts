@@ -356,7 +356,8 @@ describe('persist', () => {
     await expect(scope.update({ theme: 'dark' })).rejects.toThrow()
     await rm(path, { recursive: true })
     await rename(backup, path)
-    expect((await readdir(dir)).sort()).toEqual(['settings.yaml'])
+    // settings.yaml.bak is the last good copy start-up keeps.
+    expect((await readdir(dir)).sort()).toEqual(['settings.yaml', 'settings.yaml.bak'])
     expect(scope.get().theme).toBe('light')
     // The failed persist must not poison the document write chain.
     await scope.update({ theme: 'dark' })

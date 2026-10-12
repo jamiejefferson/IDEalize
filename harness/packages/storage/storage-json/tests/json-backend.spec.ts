@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -54,24 +54,33 @@ describe('json backend specifics', () => {
     await backend.close()
   })
 
-  it('rejects a malformed medium', async () => {
+  it('keeps a damaged medium aside and opens empty without a last good copy', async () => {
+    // A damaged store used to stop the app starting (IDEalize, 9 Oct 2026).
     const root = await freshRoot()
     await writeFile(join(root, 'shape.json'), 'not json at all', 'utf8')
     const backend = new JsonStorageBackend(root)
-    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'malformed-medium' })
+    const unit = await backend.kv.open(descriptor)
+    expect((await unit.loadAll()).tables['t']).toEqual({})
+    const names = await readdir(root)
+    expect(names.some(name => name.startsWith('shape.json.damaged-'))).toBe(true)
     await backend.close()
   })
 
-  it('rejects a foreign unit header', async () => {
+  it('opens a damaged medium from its last good copy', async () => {
     const root = await freshRoot()
-    await writeFile(
-      join(root, 'shape.json'),
-      JSON.stringify({ unit: { name: 'other', version: 1 }, global: null, tables: {} }),
-      'utf8',
-    )
-    const backend = new JsonStorageBackend(root)
-    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'malformed-medium' })
-    await backend.close()
+    const first = new JsonStorageBackend(root)
+    const unit = await first.kv.open(descriptor)
+    await unit.putRecord('t', 'k', { v: 'kept' })
+    await first.close()
+    // The next open records the parsed file as the last good copy.
+    const second = new JsonStorageBackend(root)
+    await second.kv.open(descriptor)
+    await second.close()
+    await writeFile(join(root, 'shape.json'), JSON.stringify({ unit: { name: 'other', version: 1 }, global: null, tables: {} }), 'utf8')
+    const third = new JsonStorageBackend(root)
+    const restored = await third.kv.open(descriptor)
+    expect((await restored.loadAll()).tables['t']).toEqual({ k: { v: 'kept' } })
+    await third.close()
   })
 
   it('rejects double-open of one unit as a plain caller error', async () => {
@@ -158,28 +167,22 @@ describe('json backend specifics', () => {
     await backend.close()
   })
 
-  it('rejects malformed table shapes and foreign versions distinctly', async () => {
+  it('recovers malformed table shapes but rejects a foreign version', async () => {
     const root = await freshRoot()
-    await writeFile(
-      join(root, 'shape.json'),
-      JSON.stringify({ unit: { name: 'shape', version: 1 }, global: null, tables: { t: ['not', 'an', 'object'] } }),
-      'utf8',
-    )
     const backend = new JsonStorageBackend(root)
-    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'malformed-medium' })
-
-    await writeFile(
-      join(root, 'shape.json'),
-      JSON.stringify({ unit: { name: 'shape', version: 9 }, global: null, tables: {} }),
-      'utf8',
-    )
+    for (const damaged of [
+      JSON.stringify({ unit: { name: 'shape', version: 1 }, global: null, tables: { t: ['not', 'an', 'object'] } }),
+      JSON.stringify({ unit: { name: 'shape', version: 1 }, global: null }),
+      JSON.stringify('just a string'),
+    ]) {
+      await writeFile(join(root, 'shape.json'), damaged, 'utf8')
+      const unit = await backend.kv.open(descriptor)
+      expect((await unit.loadAll()).tables['t']).toEqual({})
+      await unit.close()
+    }
+    // A newer version's file is never touched.
+    await writeFile(join(root, 'shape.json'), JSON.stringify({ unit: { name: 'shape', version: 9 }, global: null, tables: {} }), 'utf8')
     await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'version-mismatch' })
-
-    await writeFile(join(root, 'shape.json'), JSON.stringify({ unit: { name: 'shape', version: 1 }, global: null }), 'utf8')
-    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'malformed-medium' })
-
-    await writeFile(join(root, 'shape.json'), JSON.stringify('just a string'), 'utf8')
-    await expect(backend.kv.open(descriptor)).rejects.toMatchObject({ code: 'malformed-medium' })
     await backend.close()
   })
 

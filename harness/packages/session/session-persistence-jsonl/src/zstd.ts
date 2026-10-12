@@ -53,6 +53,10 @@ export function scanZstdFrames(buffer: Buffer, maxFrames = Number.POSITIVE_INFIN
     const start = offset
     if (buffer.length - offset < 4) return { frames, tornStart: start }
     if (buffer.readUInt32LE(offset) !== ZSTD_MAGIC) {
+      // After a power loss APFS can leave a file's unwritten tail as zeros.
+      // Behind at least one good frame, an all-zero remainder is a torn
+      // append, repaired like any other; anything else is still corruption.
+      if (frames.length > 0 && buffer.subarray(offset).every(byte => byte === 0)) return { frames, tornStart: start }
       throw new Error(`corrupt Zstandard session log: invalid frame magic at byte ${offset}`)
     }
     offset += 4

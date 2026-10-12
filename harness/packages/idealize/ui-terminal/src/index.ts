@@ -36,7 +36,7 @@ import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type {} from '@deepseek-ai/dsh-host-webserver'
+import { currentSessionKey } from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { cliInstalled } from '@idealize/activity-pills'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -127,6 +127,16 @@ export const Config: z<Config> = z.object({
 /** This plugin's settings section: the Brains pane's launch choices persist here over the composition value. */
 const NS = settingsNamespace('idealize-ui-terminal')
 
+/**
+ * Whether a launch command turns its agent's permission prompts off, so the
+ * agent edits files and runs commands without asking.
+ * @param command - the launch command.
+ * @returns true for the known no-prompt switches.
+ */
+export function skipsPrompts(command: string): boolean {
+  return /(^|\s)(--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--yolo)(\s|$)/.test(command)
+}
+
 /** A launch command the write route accepts: one line, bounded, no control characters. */
 const acceptableCommand = (command: unknown): command is string =>
   typeof command === 'string' && command.length <= 200 && !/[\x00-\x1f\x7f]/.test(command)
@@ -206,7 +216,7 @@ export function describeRun(ms: number): string {
 
 /** The service the routes probe for. */
 export interface DesktopTerminalsLike {
-  open(options: { key?: string; cwd: string; cols?: number; rows?: number }): DesktopTerminalLike
+  open(options: { key?: string; cwd: string; cols?: number; rows?: number; env?: Record<string, string> }): DesktopTerminalLike
   get(id: string): DesktopTerminalLike | undefined
 }
 
@@ -594,8 +604,16 @@ export function apply(ctx: Context, config?: Config): void {
       }
       const cols = gridDimension(body.cols, MAX_COLS)
       const rows = gridDimension(body.rows, MAX_ROWS)
+      // A chat's shell knows which chat it is and carries that chat's key, so
+      // the `idealize` command run by its agent speaks as this chat and
+      // nothing else (the host's launch gate). A plain shell names no chat.
+      const chatKey = !plain && typeof body.key === 'string' && body.key !== '' ? currentSessionKey(body.key) : undefined
+      const env = chatKey === undefined || typeof body.key !== 'string'
+        ? undefined
+        : { DSH_SESSION_ID: body.key, DSH_IDEALIZE_HOST: `http://127.0.0.1:${webCtx.webServer.port}`, DSH_IDEALIZE_KEY: chatKey }
       const terminal = service.open({
         ...(typeof body.key === 'string' && body.key !== '' ? { key: body.key } : {}),
+        ...(env === undefined ? {} : { env }),
         cwd,
         ...(cols === undefined ? {} : { cols }),
         ...(rows === undefined ? {} : { rows }),
@@ -623,6 +641,8 @@ export function apply(ctx: Context, config?: Config): void {
       sendJson(res, 200, {
         id: terminal.id, cols: terminal.cols, rows: terminal.rows, cwd,
         ...(fresh && command !== '' ? { launch: command } : {}),
+        // The chat's own card says when its agent acts without asking (JJ, 9 Oct 2026).
+        ...(skipsPrompts(command) ? { noPrompts: true } : {}),
       })
     })
 

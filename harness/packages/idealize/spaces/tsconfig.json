@@ -16,6 +16,7 @@
     { "path": "../../session/session-projection" },
     { "path": "../../settings/settings" },
     { "path": "../generate" },
+    { "path": "../../util/home-paths" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

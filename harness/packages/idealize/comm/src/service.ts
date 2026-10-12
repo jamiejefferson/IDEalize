@@ -7,6 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { basename, resolve, sep } from 'node:path'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -250,6 +251,12 @@ export function foldExchanges(events: readonly SessionEvent[]): CommExchange[] {
 }
 
 /** The `idealize` command service: agent naming, roles, the roster, and mailbox delivery behind `POST /idealize/comm`. */
+/** Who sent a wire request, as the host's launch gate proved it. */
+export interface CommCaller {
+  /** True when a chat's shell sent it (the `idealize` command), false for the app itself. */
+  shell: boolean
+}
+
 export class IdealizeComm extends Service {
   /** The current settings section (preset→role mapping, background post window); the plugin swaps this for the settings source. */
   config: () => CommConfig
@@ -477,7 +484,7 @@ export class IdealizeComm extends Service {
    * @param request - the command envelope from the wire.
    * @returns the command's response payload.
    */
-  async handle(request: CommRequest): Promise<CommResponse> {
+  async handle(request: CommRequest, caller: CommCaller = { shell: false }): Promise<CommResponse> {
     // Two commands read no roster, and building one walks every stored chat:
     // a ping, and a board nobody sent (its scope is the path alone). The bars
     // poll the second every couple of seconds.
@@ -645,7 +652,7 @@ export class IdealizeComm extends Service {
       }
 
       case 'spawn':
-        return this.spawn(request, me, roster)
+        return this.spawn(request, me, roster, caller)
 
       case 'task':
       case 'progress':
@@ -1161,7 +1168,12 @@ export class IdealizeComm extends Service {
     return { ok: true, info: existing.id }
   }
 
-  private async spawn(request: CommRequest, me: RosterEntry | undefined, roster: readonly RosterEntry[]): Promise<CommResponse> {
+  private async spawn(
+    request: CommRequest,
+    me: RosterEntry | undefined,
+    roster: readonly RosterEntry[],
+    caller: CommCaller,
+  ): Promise<CommResponse> {
     // The Studio coordinator belongs to no project: it is found by its role
     // alone, there is one, and it runs in the harness home because the Studio's
     // own records live there and it owns no project's files.
@@ -1193,6 +1205,24 @@ export class IdealizeComm extends Service {
       if (!(await stat(canonical)).isDirectory()) throw new Error('not a directory')
     } catch {
       return failure(`'${project}' isn't a real project folder to spawn a chat in`)
+    }
+    // A chat's sandbox root is its folder, so a chat started in the home
+    // folder or above it may write anywhere the person can, and one started
+    // by another chat could go wherever that chat pointed it (security
+    // audit, 9 Oct 2026). Chats asking start chats only inside projects the
+    // person has opened; the app itself may still open a new folder.
+    if (!studio) {
+      const home = homedir()
+      const holder = canonical.endsWith(sep) ? canonical : canonical + sep
+      if (canonical === home || home.startsWith(holder)) {
+        return failure(`a chat can't start in '${canonical}': it is the home folder or holds it`)
+      }
+      if (caller.shell) {
+        const roots = this.ctx.get('workspaceRegistry')?.list().map(workspace => workspace.path) ?? []
+        if (!roots.some(root => canonical === root || canonical.startsWith(root + sep))) {
+          return failure(`a chat can only start chats inside a project the person has opened; '${canonical}' isn't one`)
+        }
+      }
     }
     const role: CommRole | undefined = studio
       ? 'studio-agent'

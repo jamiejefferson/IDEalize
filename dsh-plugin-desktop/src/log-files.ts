@@ -105,8 +105,33 @@ export class LogFileSink {
     this.directoryBytes = this.measureDirectoryBytes()
   }
 
+  /** Set once a write fails (a full disk, a deleted folder); the log then drops lines. */
+  private degraded = false
+
+  /**
+   * Run one disk operation; a failure stops logging instead of throwing.
+   * appendFileSync throws ENOSPC on a full disk, often inside the coalescing
+   * timer, which used to become an uncaught exception and quit the app
+   * (robustness audit, 9 Oct 2026).
+   * @param operation - the write, flush or header.
+   */
+  private guarded(operation: () => void): void {
+    if (this.degraded) return
+    try {
+      operation()
+    } catch (error) {
+      this.degraded = true
+      this.pending = []
+      process.stderr.write(`desktop log: writing stopped (${error instanceof Error ? error.message : String(error)})\n`)
+    }
+  }
+
   /** Append one rendered line, routing by level and rotating on size/date. */
   write(type: LogType, line: string): void {
+    this.guarded(() => { this.writeNow(type, line) })
+  }
+
+  private writeNow(type: LogType, line: string): void {
     const suffix = localDateSuffix(new Date())
     if (suffix !== this.currentDate) this.rollDate(suffix)
     const masked = maskSecrets(line)
@@ -132,6 +157,10 @@ export class LogFileSink {
 
   /** Append every waiting line now, in arrival order per file. */
   flush(): void {
+    this.guarded(() => { this.flushNow() })
+  }
+
+  private flushNow(): void {
     if (this.flushTimer !== undefined) {
       clearTimeout(this.flushTimer)
       this.flushTimer = undefined
@@ -167,10 +196,12 @@ export class LogFileSink {
   /** Write a startup header line to the current full-log file (before ordinary lines). */
   writeHeader(line: string): void {
     this.flush()
-    const suffix = localDateSuffix(new Date())
-    if (suffix !== this.currentDate) this.rollDate(suffix)
-    this.append('all', line)
-    if (this.directoryBytes > this.maxDirectoryBytes) this.enforceDirectoryCap()
+    this.guarded(() => {
+      const suffix = localDateSuffix(new Date())
+      if (suffix !== this.currentDate) this.rollDate(suffix)
+      this.append('all', line)
+      if (this.directoryBytes > this.maxDirectoryBytes) this.enforceDirectoryCap()
+    })
   }
 
   /** Delete log files modified more than `days` days ago. */

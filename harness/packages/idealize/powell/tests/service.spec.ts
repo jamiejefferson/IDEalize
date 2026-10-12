@@ -13,7 +13,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { apply, Config, type PowellService, type PowellStreamEvent } from '../src/index.ts'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { apply, Config, POWELL_MAX_TOKENS, type PowellService, type PowellStreamEvent } from '../src/index.ts'
 
 type Handler = (req: FakeRequest, res: FakeResponse) => Promise<void> | void
 
@@ -235,6 +237,43 @@ describe('Powell', () => {
     await powell.say('Do the thing', 'text')
     feed(powell, 'turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'x', code: 'UNKNOWN' } } })
     expect(powell.snapshot()).toMatchObject({ mood: 'problem', bubble: { kind: 'problem', choices: [{ action: 'retry' }] } })
+  })
+
+  it('says when the provider is out of credit, with Add credit and Try again', async () => {
+    const { powell, events } = await mount()
+    await powell.say('Do the thing', 'text')
+    const message = '402 {"type":"error","error":{"type":"billing_error","message":"You requested up to 64000 tokens, but can only afford 53909. To increase, visit https://openrouter.ai/settings/credits"}}'
+    feed(powell, 'turn/end', { turn: 1, reason: { kind: 'error', error: { message, code: 'PI_AI_ERROR' } } })
+    expect(powell.snapshot()).toMatchObject({
+      mood: 'problem',
+      bubble: {
+        kind: 'problem',
+        text: 'Powell is out of OpenRouter credit. Add credit, then try again.',
+        choices: [
+          { label: 'Add credit', action: 'open', target: 'https://openrouter.ai/settings/credits', primary: true },
+          { label: 'Try again', action: 'retry' },
+        ],
+      },
+    })
+    expect(said(events).at(-1)?.text).toBe('Powell is out of OpenRouter credit.')
+  })
+
+  it('caps every request at POWELL_MAX_TOKENS', async () => {
+    const { ctx, powell } = await mount()
+    await powell.say('hi', 'text')
+    type Setup = (agentCtx: Context) => Promise<void>
+    const agents = (ctx as unknown as { get(name: 'agents'): { create: { mock: { calls: [{ setup: Setup }][] } } } }).get('agents')
+    const setup = agents.create.mock.calls[0]?.[0].setup
+    const agentCtx = new Context()
+    await agentCtx.plugin(SystemPrompt)
+    await setup?.(agentCtx)
+    const signal = new AbortController().signal
+    const run = (maxTokens?: number) => agentEvents(agentCtx, {} as Agent).waterfall(
+      'agent/request', { turn: 1, step: 0, signal }, () => Promise.resolve({ provider: 'test', model: 'fast', ...maxTokens === undefined ? {} : { maxTokens } }),
+    )
+    await expect(run(64000)).resolves.toMatchObject({ maxTokens: POWELL_MAX_TOKENS })
+    await expect(run()).resolves.toMatchObject({ maxTokens: POWELL_MAX_TOKENS })
+    await expect(run(1000)).resolves.toMatchObject({ maxTokens: 1000 })
   })
 
   it('fences its routes', async () => {

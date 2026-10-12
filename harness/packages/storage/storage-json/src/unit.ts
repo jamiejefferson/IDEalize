@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-storage-json/src/unit
  */
 
-import { readFile } from 'node:fs/promises'
+import { readFile, rename } from 'node:fs/promises'
 import { StorageError } from '@deepseek-ai/dsh-storage'
 import type { KvUnit, KvUnitDescriptor } from '@deepseek-ai/dsh-storage'
 import { writeAtomic } from './atomic.ts'
@@ -33,15 +33,63 @@ export async function openJsonUnit(
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     // Missing file = empty unit; materialization defers to the first write.
   }
-  const state: UnitState =
-    text === undefined
-      ? {
-        version: descriptor.version,
-        global: null,
-        tables: new Map(descriptor.tables.map(table => [table, new Map<string, unknown>()])),
-      }
-      : parse(text, descriptor)
+  const empty = (): UnitState => ({
+    version: descriptor.version,
+    global: null,
+    tables: new Map(descriptor.tables.map(table => [table, new Map<string, unknown>()])),
+  })
+  if (text === undefined) return new JsonKvUnit(descriptor, path, empty(), onClose)
+  let state: UnitState
+  try {
+    state = parse(text, descriptor)
+  } catch (error) {
+    // A file damaged outside the app (a hand edit, another tool) used to stop
+    // every plugin that opens it, and so the app's start-up (IDEalize, 9 Oct
+    // 2026). The damaged copy is kept beside it, and the unit opens from the
+    // last good copy, else empty. A newer version's file is never touched.
+    if (!(error instanceof StorageError) || error.code !== 'malformed-medium') throw error
+    state = await recover(descriptor, path, error, empty)
+    return new JsonKvUnit(descriptor, path, state, onClose)
+  }
+  // The last copy that parsed, for the recovery above; a failed copy costs nothing.
+  await writeAtomic(backupPath(path), text).catch(() => {})
   return new JsonKvUnit(descriptor, path, state, onClose)
+}
+
+/** Where a unit's last good copy lives. */
+function backupPath(path: string): string {
+  return `${path}.bak`
+}
+
+/**
+ * Open a unit whose file did not parse: keep the damaged file, then use the
+ * last good copy when it parses, else an empty unit.
+ * @param descriptor - the unit's identity.
+ * @param path - the unit file.
+ * @param error - why it did not parse.
+ * @param empty - an empty unit state.
+ * @returns the state to open with.
+ */
+async function recover(
+  descriptor: KvUnitDescriptor,
+  path: string,
+  error: StorageError,
+  empty: () => UnitState,
+): Promise<UnitState> {
+  const kept = `${path}.damaged-${String(Date.now())}`
+  await rename(path, kept)
+  let state = empty()
+  let from = 'empty'
+  try {
+    const backup = await readFile(backupPath(path), 'utf8')
+    state = parse(backup, descriptor)
+    await writeAtomic(path, backup)
+    from = 'its last good copy'
+  } catch {
+    // No usable copy: the unit starts empty and its first write recreates the file.
+  }
+  process.emitWarning(`storage-json: unit '${descriptor.name}' at ${path} was damaged (${error.message}); kept as ${kept}, opened from ${from}`)
+  return state
 }
 
 class JsonKvUnit implements KvUnit {

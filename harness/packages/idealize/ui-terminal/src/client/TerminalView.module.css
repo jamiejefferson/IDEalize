@@ -96,3 +96,17 @@
   font: inherit;
   cursor: pointer;
 }
+
+/* Says when the chat's agent acts without asking. It sits in the column's
+   flow under the grid, so the fit addon measures around it and it never
+   covers the agent's input row. */
+.mode {
+  flex: none;
+  align-self: flex-start;
+  margin: 0 16px 10px;
+  padding: 3px 10px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  border-radius: 999px;
+  color: var(--dsw-alias-label-secondary, #777);
+  font-size: 12px;
+}

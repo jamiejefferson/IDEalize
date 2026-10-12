@@ -519,6 +519,10 @@ export class ArtefactStore extends Service {
       'content-length': info.size,
       etag,
       'cache-control': 'no-cache',
+      // A model-made SVG or HTML opened as a page would run its scripts on
+      // the app's own address; embedded as media, these headers change nothing.
+      'content-security-policy': "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
+      'x-content-type-options': 'nosniff',
     })
     await pipeline(createReadStream(resolved), res)
   }

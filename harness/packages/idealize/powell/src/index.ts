@@ -51,11 +51,13 @@ import { SPLASH_FRAMES } from '@idealize/skin'
 import { POWELL_PERSONA, powellContext, powellGuide } from './guide.ts'
 import { mergeProjects, readProjectSwitch, resolveProject, subfolders, type ProjectEntry } from './projects.ts'
 import { FalElevenTts, FalScribe, SpeechError, VoiceCache, type SpeechToTextProvider, type TextToSpeechProvider } from './speech.ts'
+import { explainFailure, type FailureLike } from './failure.ts'
 import { clipFor, EXPLAIN_BUDGET, parseReply, SentenceStream, SPOKEN_BUDGET, wantsDetail } from './speech-text.ts'
 import { appOfTool, statusOfTool } from './status.ts'
 import type { PowellBubble, PowellChoice, PowellProject, PowellStreamEvent, PowellView } from './types.ts'
 
 export * from './types.ts'
+export { explainFailure } from './failure.ts'
 export { ACK_LIBRARY, clipFor, isActionable, parseReply, pickAck, SentenceStream, tidy, wantsDetail } from './speech-text.ts'
 export { appOfTool, statusOfTool } from './status.ts'
 export { mergeProjects, projectKey, readProjectSwitch, resolveProject } from './projects.ts'
@@ -98,6 +100,9 @@ export const Config: z<Config> = z.object({
 
 /** The preset id Powell's chat runs on. */
 export const POWELL_PRESET = 'powell'
+
+/** Powell's output-token ceiling per request: room for a long explanation, far under a model's maximum. */
+export const POWELL_MAX_TOKENS = 4000
 
 /** What survives a restart. */
 interface PowellState {
@@ -193,6 +198,8 @@ export class PowellService extends Service {
   private stepSpoken = 0
   private lastStepText = ''
   private lastUserText = ''
+  /** The provider Powell's chat runs on, named in a failure's bubble. */
+  private provider: string | undefined
   /**
    * The running turn answers something said to the owl. A turn woken by
    * Studio mail (Powell is the Studio manager) answers in the Studio, so the
@@ -409,6 +416,13 @@ export class PowellService extends Service {
   private scope(agentCtx: Context): void {
     const prompt = agentCtx.get('systemPrompt')
     prompt?.section({ name: 'idealize:powell', order: 130, text: powellGuide() })
+    // Spoken answers run to a few hundred tokens. Without a cap the request
+    // reserves the model's whole output length (64,000 on Haiku 4.5), so a
+    // credit balance that would cover many replies refuses every one.
+    agentCtx.on('agent/request', async (_payload, next) => {
+      const config = await next()
+      return { ...config, maxTokens: Math.min(config.maxTokens ?? POWELL_MAX_TOKENS, POWELL_MAX_TOKENS) }
+    })
     prompt?.context({
       name: 'idealize:powell-context',
       order: 130,
@@ -493,6 +507,7 @@ export class PowellService extends Service {
     const fast = slash > 0 ? { provider: this.config.model.slice(0, slash), model: this.config.model.slice(slash + 1) } : undefined
     const selection = [picked, fast].find(candidate => candidate !== undefined && routes.has(candidate.provider))
       ?? { provider: fallback.provider, model: fallback.model }
+    this.provider = selection.provider
     const presets = this.ctx.get('agentPresets')
     let presetId: string | undefined
     if (presets !== undefined) {
@@ -678,8 +693,10 @@ export class PowellService extends Service {
     }
   }
 
-  private problem(text: string, retry = true): void {
-    const choices: PowellChoice[] = retry ? [{ label: 'Try again', action: 'retry', primary: true }] : []
+  private problem(text: string, retry = true, link?: { label: string; url: string }): void {
+    const choices: PowellChoice[] = []
+    if (link !== undefined) choices.push({ label: link.label, action: 'open', target: link.url, primary: true })
+    if (retry) choices.push({ label: 'Try again', action: 'retry', ...choices.length === 0 ? { primary: true } : {} })
     this.setView({ mood: 'problem', status: 'Problem', busy: false, bubble: { text, choices, kind: 'problem' } })
     this.speak(text.split(/(?<=[.!?])\s/)[0] ?? text)
   }
@@ -735,13 +752,13 @@ export class PowellService extends Service {
         return
       }
       case 'turn/end':
-        this.finish(event.data.reason.kind)
+        this.finish(event.data.reason.kind, 'error' in event.data.reason ? event.data.reason.error : undefined)
         return
       default:
     }
   }
 
-  private finish(reason: string): void {
+  private finish(reason: string, failure?: FailureLike): void {
     this.stream = undefined
     const fromOwl = this.fromOwl
     this.fromOwl = false
@@ -751,7 +768,8 @@ export class PowellService extends Service {
       return
     }
     if (reason === 'error') {
-      this.problem('Something went wrong. Try again?')
+      const explained = explainFailure(failure, this.provider)
+      this.problem(explained.text, true, explained.link)
       return
     }
     if (reason === 'aborted' || reason === 'interrupted') {

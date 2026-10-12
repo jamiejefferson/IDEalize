@@ -22,6 +22,7 @@ import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode, SessionOrderBy } from './tree.ts'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
+import { ProjectLookDialog, refreshProjectLooks } from './rows/ProjectLook.tsx'
 import { FLAT_SESSION_ORDER_KEY } from './stores.ts'
 import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
@@ -252,6 +253,8 @@ type SessionTreeProps = Pick<
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+  /** Open the browser-owned Icon and colour dialog for a real Workspace group. */
+  onLookRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned session rename dialog. */
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
@@ -265,7 +268,7 @@ type SessionTreeProps = Pick<
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
   useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, onSessionMove,
+  onRenameRequest, onDeleteRequest, onLookRequest, onSessionRename, onSessionArchive, onSessionMove,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
   sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
@@ -487,6 +490,10 @@ function SessionTree({
                     rename: () => {
                     /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
                       if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
+                    },
+                    look: () => {
+                    /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                      if (group.workspaceId !== undefined) onLookRequest(group.workspaceId, group.label)
                     },
                     delete: () => {
                     /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
@@ -890,6 +897,12 @@ export function WorkspaceBrowser({
     }
   }, [normalizedQuery, searchSessions])
 
+  // Icon and colour dialog, and the looks every project row reads, fetched
+  // again whenever the set of projects changes.
+  const [lookTarget, setLookTarget] = useState<{ workspaceId: string; title: string } | null>(null)
+  const workspaceIdsKey = workspaces.map(w => w.workspaceId).join('\n')
+  useEffect(() => { void refreshProjectLooks() }, [workspaceIdsKey])
+
   // Rename dialog (browser-owned so it outlives row unmounts during collapse).
   const [renameTarget, setRenameTarget] = useState<{ workspaceId: WorkspaceId; currentTitle: string } | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -1214,9 +1227,12 @@ export function WorkspaceBrowser({
                   setDeleteTarget({ workspaceId, title })
                   setDeleteError(null)
                 }}
+                onLookRequest={(workspaceId, title) => { setLookTarget({ workspaceId, title }) }}
               />
             ))}
       </div>
+
+      <ProjectLookDialog target={lookTarget} onClose={() => { setLookTarget(null) }} t={t} />
 
       <Modal
         open={renameTarget !== null}

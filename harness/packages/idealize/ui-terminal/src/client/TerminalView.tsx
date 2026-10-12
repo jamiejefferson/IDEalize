@@ -50,7 +50,7 @@ export interface TerminalTransport {
     activity: string | undefined
     /** A bare shell (the tool rail's Terminal pane): no launch command, and no chat recorded for the key. */
     plain?: boolean
-  }): Promise<{ id: string }>
+  }): Promise<{ id: string; noPrompts?: boolean }>
   stream(id: string, onEvent: (event: StreamEvent) => void, onError: () => void): () => void
   input(id: string, data: string): void
   resize(id: string, cols: number, rows: number): void
@@ -81,7 +81,7 @@ export const httpTransport: TerminalTransport = {
       body: JSON.stringify(input),
     })
     if (!response.ok) throw new Error(`open failed (${response.status})`)
-    return await response.json() as { id: string }
+    return await response.json() as { id: string; noPrompts?: boolean }
   },
   stream(id, onEvent, onError) {
     const source = new EventSource(`/idealize/terminal/stream?id=${encodeURIComponent(id)}`)
@@ -158,6 +158,8 @@ interface Attachment {
   listeners: Set<() => void>
   /** The transport that opened the PTY (a restart or an archive closes through it). */
   transport: TerminalTransport | undefined
+  /** True when the chat's agent runs without permission prompts. */
+  noPrompts?: boolean
   /** The pending refit's animation frame; undefined when none is queued. */
   frame: number | undefined
   /** The folder the shell opened in; relative Markdown paths in its output resolve here. */
@@ -595,6 +597,7 @@ async function connect(
       ...(input.plain ? { plain: true } : {}),
     })
     id = opened.id
+    attachment.noPrompts = opened.noPrompts === true
   } catch (error) {
     onError(error instanceof Error ? error.message : String(error))
     return
@@ -655,7 +658,7 @@ export interface TerminalViewProps {
   transport?: TerminalTransport
   /** Each line typed into the chat's shell, after Enter: the chat's name is read from the first real prompt. */
   onPrompt?: (line: string) => void
-  t: (key: 'terminal.connecting' | 'terminal.exited' | 'terminal.restart' | 'terminal.error') => string
+  t: (key: 'terminal.connecting' | 'terminal.exited' | 'terminal.restart' | 'terminal.error' | 'terminal.noPrompts' | 'terminal.noPrompts.detail') => string
 }
 
 /**
@@ -812,6 +815,9 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
           <span>{t('terminal.error')}: {error}</span>
           <button type="button" className={css.button} onClick={restart}>{t('terminal.restart')}</button>
         </div>
+      )}
+      {attachment?.noPrompts === true && (
+        <div className={css.mode} title={t('terminal.noPrompts.detail')}>{t('terminal.noPrompts')}</div>
       )}
       {error === undefined && attachment?.id === undefined && (
         <div className={css.notice}>{t('terminal.connecting')}</div>

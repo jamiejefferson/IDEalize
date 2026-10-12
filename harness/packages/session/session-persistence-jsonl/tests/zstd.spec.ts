@@ -274,6 +274,14 @@ describe('Zstandard frame structure', () => {
     }
   })
 
+  it('reads an all-zero tail behind a good frame as a torn append (power loss)', async () => {
+    const frame = Buffer.from(await compressZstdFrame('{"type":"x"}\n'))
+    const scan = scanZstdFrames(Buffer.concat([frame, Buffer.alloc(64)]))
+    expect(scan).toEqual({ frames: [{ start: 0, end: frame.length }], tornStart: frame.length })
+    // Garbage that is not zeros is still corruption.
+    expect(() => scanZstdFrames(Buffer.concat([frame, Buffer.from([1, 2, 3, 4])]))).toThrow(/invalid frame magic/)
+  })
+
   it('distinguishes incomplete frame regions from invalid complete structure', () => {
     expect(scanZstdFrames(MAGIC.subarray(0, 2))).toEqual({ frames: [], tornStart: 0 })
     expect(scanZstdFrames(MAGIC)).toEqual({ frames: [], tornStart: 0 })
@@ -670,9 +678,37 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
       JSON.stringify({ type: 'turn/start' }),
       '',
     ].join('\n')))
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/first frame is not exactly one header line/)
     await expect(ctx.sessionPersistence.load(SessionId('two-lines')))
       .rejects.toThrow(/first frame is not exactly one header line/)
+    // Listing sets the unreadable session aside instead of failing every session.
+    expect(await ctx.sessionPersistence.list()).toEqual([])
+    expect((ctx.sessionPersistence as JsonlSessionPersistence).quarantined.map(entry => entry.reason).join('\n'))
+      .toMatch(/first frame is not exactly one header line/)
+  })
+
+  it('moves an unreadable session aside and keeps listing the healthy ones', async () => {
+    // One bad chat log used to fail the listing, the workspace plugin and the
+    // whole app's start-up (IDEalize, 9 Oct 2026).
+    const root = await freshRoot()
+    const writer = await mount(root)
+    const healthy = meta('healthy')
+    await writer.sessionPersistence.create(healthy)
+    await writer.sessionPersistence.append(healthy.id, oneTurnLog())
+    const badId = SessionId('two-lines-bad')
+    await mkdir(sessionDir(root, undefined, badId), { recursive: true })
+    await writeFile(logPath(root, undefined, badId, 'zstd'), await compressZstdFrame([
+      JSON.stringify(toHeaderLine(meta('two-lines-bad'))),
+      JSON.stringify({ type: 'turn/start' }),
+      '',
+    ].join('\n')))
+
+    const ctx = await mount(root)
+    expect((await ctx.sessionPersistence.list()).map(header => header.id)).toEqual(['healthy'])
+    const [aside] = (ctx.sessionPersistence as JsonlSessionPersistence).quarantined
+    expect(aside?.to).toContain(join(root, '.quarantine'))
+    expect((await readdir(aside!.to)).length).toBeGreaterThan(0)
+    // A second listing reads no quarantine folder as a project.
+    expect((await ctx.sessionPersistence.list()).map(header => header.id)).toEqual(['healthy'])
   })
 
   it('rejects missing, empty, and checksum-corrupt header frames on targeted reads', async () => {
@@ -691,7 +727,8 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
       .rejects.toThrow(/empty or header-less Zstandard session log/)
     await expect(ctx.sessionPersistence.load(SessionId('empty-header')))
       .rejects.toThrow(/first frame is not exactly one header line/)
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/header frame failed validation/)
+    expect((await ctx.sessionPersistence.list()).map(header => header.id)).toEqual([])
+    expect((ctx.sessionPersistence as JsonlSessionPersistence).quarantined.map(entry => entry.reason).join('\n')).toMatch(/header frame failed validation/)
   })
 })
 
@@ -729,7 +766,8 @@ describe('JsonlSessionPersistence: encoding selection', () => {
     await expect(ctx.sessionPersistence.load(loadHeader.id)).rejects.toThrow(/uses \.jsonl/)
     await expect((ctx.sessionPersistence as JsonlSessionPersistence).loadStored(loadHeader.id))
       .rejects.toThrow(/uses \.jsonl/)
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/uses \.jsonl/)
+    expect((await ctx.sessionPersistence.list()).map(header => header.id)).toEqual([])
+    expect((ctx.sessionPersistence as JsonlSessionPersistence).quarantined.map(entry => entry.reason).join('\n')).toMatch(/uses \.jsonl/)
   })
 
   it('refuses materialization when an opposite artifact appears after create', async () => {

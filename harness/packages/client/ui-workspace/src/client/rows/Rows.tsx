@@ -9,7 +9,7 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import {
   HoverCard, IconArchiveOutline20, IconBranchOutline16, IconEditOutline16,
-  IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
+  IconEllipsisOutline16, IconFolderClose16, IconPlusOutline16,
   IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -18,6 +18,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import { POWELL_KEY, relativeTime } from '../tree.ts'
 import { SpaceGlyph } from './SpaceGlyph.tsx'
+import { ProjectSlot } from './ProjectLook.tsx'
 import css from './Rows.module.css'
 
 /** The standard locale seat, prop-passed from the browser root. */
@@ -115,7 +116,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, archiveAll,
   onToggle: () => void
   onCreate: () => void
   /** Real-Workspace actions; absent for the ungrouped bucket. */
-  actions?: { rename: () => void; delete: () => void } | undefined
+  actions?: { rename: () => void; look?: (() => void) | undefined; delete: () => void } | undefined
   /** Ungrouped-bucket action; absent for real Workspaces. The menu is absent when both are. */
   archiveAll?: { count: number; run: () => void } | undefined
   /** Present only for real Workspace rows in the grouped view. */
@@ -133,6 +134,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, archiveAll,
   const workspaceMenuItems = archiveAll === undefined
     ? [
       { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
+      ...actions?.look === undefined ? [] : [{ id: 'look', label: t('look.menu'), icon: <IconFolderClose16 /> }],
       { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutline16 /> },
     ]
     : [{
@@ -141,7 +143,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, archiveAll,
       icon: <IconArchiveOutline20 size={16} />,
     }]
   const workspaceMenuActions: Record<string, (() => void) | undefined> = {
-    rename: actions?.rename, delete: actions?.delete, archiveAll: archiveAll?.run,
+    rename: actions?.rename, look: actions?.look, delete: actions?.delete, archiveAll: archiveAll?.run,
   }
   const ownRow = (
     <div
@@ -159,9 +161,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, archiveAll,
         }}
       onDragEnd={drag?.end}
     >
-      <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
-        {row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
-      </span>
+      <ProjectSlot workspaceId={row.workspaceId} expanded={row.expanded} active={active} />
       <span className={clsx(css.slot, css.chevron)}>
         <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
       </span>

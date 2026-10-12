@@ -1302,13 +1302,14 @@ describe('JsonlSessionPersistence: edge cases', () => {
       .toThrow(/retired policy baseline fields/)
   })
 
-  it('list rejects a header whose cwd does not identify its physical log', async () => {
+  it('list sets aside a header whose cwd does not identify its physical log', async () => {
     const m = meta('misplaced', '/stored')
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     await rewriteHeader(rawLogPath(root, m.cwd, m.id), (header) => { header.cwd = '/elsewhere' })
 
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/and cwd identify/)
+    await ctx.sessionPersistence.list()
+    expect((ctx.sessionPersistence as JsonlSessionPersistence).quarantined.map(entry => entry.reason).join('\n')).toMatch(/and cwd identify/)
   })
 
   it('accepts an alternate project path only when it identifies the same physical log', async () => {
@@ -1328,17 +1329,18 @@ describe('JsonlSessionPersistence: edge cases', () => {
     expect((await ctx.sessionPersistence.list()).map(header => header.id)).toContain(m.id)
   })
 
-  it('list rejects a session header whose id cannot name a storage path', async () => {
+  it('list sets aside a session header whose id cannot name a storage path', async () => {
     const dir = join(projectDir(root, undefined), 'invalid-id')
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'session.jsonl'), JSON.stringify({
       type: 'session', version: 0, id: '', createdAt: 1, delegationDepth: 0,
     }) + '\n')
 
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/header id cannot name a storage path/)
+    await ctx.sessionPersistence.list()
+    expect((ctx.sessionPersistence as JsonlSessionPersistence).quarantined.map(entry => entry.reason).join('\n')).toMatch(/header id cannot name a storage path/)
   })
 
-  it('load and list reject one id materialized in multiple project directories', async () => {
+  it('load rejects, and list sets aside, one id materialized in multiple project directories', async () => {
     const id = SessionId('duplicate')
     for (const cwd of ['/a', '/b']) {
       const m = meta(id, cwd)
@@ -1348,7 +1350,8 @@ describe('JsonlSessionPersistence: edge cases', () => {
     }
 
     await expect(ctx.sessionPersistence.load(id)).rejects.toThrow(/appears in multiple project directories/)
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/appears in multiple project directories/)
+    await ctx.sessionPersistence.list()
+    expect((ctx.sessionPersistence as JsonlSessionPersistence).quarantined.map(entry => entry.reason).join('\n')).toMatch(/appears in multiple project directories/)
   })
 
   it('a DIFFERENT live session object reusing a disposed id gets its own init (no stale cache)', async () => {

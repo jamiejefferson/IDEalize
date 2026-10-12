@@ -108,6 +108,18 @@ describe('IdealizeComm.handle', () => {
     expect(await comm.handle({ command: 'reveal', from: 'ghost', target: '/definitely/not/here' })).toEqual({ ok: false, error: 'no such file: /definitely/not/here' })
   })
 
+  it('never starts a chat in the home folder, and a chat shell only inside opened projects', async () => {
+    // A chat's folder is its write sandbox (security audit, 9 Oct 2026).
+    const { comm } = await bareComm()
+    const { homedir, tmpdir } = await import('node:os')
+    const home = await comm.handle({ command: 'spawn', path: homedir(), body: 'task' })
+    expect(home).toMatchObject({ ok: false })
+    expect(JSON.stringify(home)).toMatch(/home folder/)
+    expect(JSON.stringify(await comm.handle({ command: 'spawn', path: '/', body: 'task' }))).toMatch(/home folder or holds it/)
+    const elsewhere = await comm.handle({ command: 'spawn', path: tmpdir(), body: 'task' }, { shell: true })
+    expect(JSON.stringify(elsewhere)).toMatch(/inside a project the person has opened/)
+  })
+
   it('raises notify as a typed event carrying the title and sound flag', async () => {
     const { ctx, comm } = await bareComm()
     const seen: unknown[] = []

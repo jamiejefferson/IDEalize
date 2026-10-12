@@ -82,6 +82,8 @@ export interface OpenEmbeddedTerminalOptions {
   cwd: string
   cols?: number
   rows?: number
+  /** Variables laid over the shell's environment (a chat's id and key for the `idealize` command). */
+  env?: Readonly<Record<string, string>>
 }
 
 /** The Host-facing service. */
@@ -307,7 +309,7 @@ export class DesktopTerminalsService extends Service implements DesktopTerminals
       options.rows ?? DEFAULT_ROWS,
       this.bootstrap.spawn,
       defaultShell(platform, environment),
-      shellEnvironment(environment),
+      { ...shellEnvironment(environment), ...options.env },
       (closed) => { this.terminals.delete(closed.id) },
     )
     this.terminals.set(terminal.id, terminal)

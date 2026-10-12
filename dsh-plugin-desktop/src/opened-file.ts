@@ -10,7 +10,8 @@
  * shown; the argument scan here serves both.
  */
 
-import { dirname, join, sep } from 'node:path'
+import path from 'node:path'
+import type { PlatformPath } from 'node:path'
 
 /** The extensions Launch Services and the argument scan recognise as Markdown. */
 export const MARKDOWN_FILE_EXTENSIONS = ['.md', '.markdown'] as const
@@ -63,6 +64,11 @@ export interface ProjectFolderLookup {
   home: string
   /** Whether a path exists, in any form. */
   exists: (path: string) => boolean
+  /**
+   * The path rules to apply; the running platform's by default. Tests pass
+   * `path.posix` so Mac-style fixtures hold on the Windows CI runner.
+   */
+  paths?: PlatformPath
 }
 
 /**
@@ -72,11 +78,11 @@ export interface ProjectFolderLookup {
  * @param folder - the absolute folder.
  * @returns true when the path is the folder or sits under it.
  */
-function inside(path: string, folder: string): boolean {
-  const fold = (value: string): string => process.platform === 'win32' ? value.toLowerCase() : value
+function inside(file: string, folder: string, paths: PlatformPath): boolean {
+  const fold = (value: string): string => paths === path.win32 ? value.toLowerCase() : value
   const root = fold(folder).replace(/[\\/]+$/, '')
-  const candidate = fold(path)
-  return candidate === root || candidate.startsWith(`${root}${sep}`)
+  const candidate = fold(file)
+  return candidate === root || candidate.startsWith(`${root}${paths.sep}`)
 }
 
 /**
@@ -90,14 +96,15 @@ function inside(path: string, folder: string): boolean {
  * @returns the git top level holding the file, else the file's folder, else undefined for a file under home.
  */
 export function projectFolderFor(file: string, lookup: ProjectFolderLookup): string | undefined {
-  if (inside(file, lookup.home)) return undefined
-  const own = dirname(file)
+  const paths = lookup.paths ?? path
+  if (inside(file, lookup.home, paths)) return undefined
+  const own = paths.dirname(file)
   let folder = own
   for (;;) {
     // A worktree keeps `.git` as a file that points at the main repository,
     // so presence is what counts, not the entry's kind.
-    if (lookup.exists(join(folder, '.git'))) return folder
-    const parent = dirname(folder)
+    if (lookup.exists(paths.join(folder, '.git'))) return folder
+    const parent = paths.dirname(folder)
     if (parent === folder) return own
     folder = parent
   }

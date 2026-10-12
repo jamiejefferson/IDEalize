@@ -14,6 +14,9 @@ import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { admit } from './launch-gate.ts'
+
+export * from './launch-gate.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -150,6 +153,14 @@ export class WebServer extends Service {
       /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server
       requests; the field is only optional on the client-side IncomingMessage type */
       const rawPath = new URL(req.url ?? '/', 'http://x').pathname
+      // The launch gate: a request that proves no right to the app's routes
+      // stops here, before any route sees it (see launch-gate.ts).
+      const refused = admit(req, rawPath)
+      if (refused !== undefined) {
+        res.writeHead(refused)
+        res.end()
+        return
+      }
       const route = this.match(rawPath)
       if (route !== undefined) {
         await route.handler(req, res)
@@ -191,7 +202,12 @@ export class WebServer extends Service {
       let route: WebUpgradeRoute | undefined
       try {
         /* v8 ignore next -- node:http always sets url on server requests. */
-        route = this.upgrades.get(new URL(req.url ?? '/', 'http://x').pathname)
+        const upgradePath = new URL(req.url ?? '/', 'http://x').pathname
+        if (admit(req, upgradePath) !== undefined) {
+          socket.destroy()
+          return
+        }
+        route = this.upgrades.get(upgradePath)
       } catch (error) {
         this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
         socket.destroy()

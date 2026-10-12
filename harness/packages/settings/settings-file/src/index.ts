@@ -10,7 +10,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { watch as chokidarWatch } from 'chokidar'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import { Document, parseDocument } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
@@ -176,9 +176,44 @@ export class FileSettingsProvider extends SettingsProvider {
       this.text = undefined
       return {}
     }
-    const doc = this.parse(text)
+    let doc: Record<string, unknown>
+    try {
+      doc = this.parse(text)
+    } catch (error) {
+      // Start-up only (hot reloads parse elsewhere and still fail loud): a
+      // document damaged outside the app used to stop the app starting
+      // (IDEalize, 9 Oct 2026). With a last good copy, the damaged one is kept
+      // beside it and the copy is restored; without one, it still fails loud.
+      const restored = await this.restoreLastGood(error)
+      if (restored === undefined) throw error
+      text = restored.text
+      doc = restored.doc
+    }
     this.text = text
+    // The copy a later damaged start-up restores; a failed copy costs nothing.
+    await writeFileAtomic(`${this.spec.filename}.bak`, text, { mode: 0o600, dirMode: 0o700 }).catch(() => {})
     return doc
+  }
+
+  /**
+   * Swap a damaged document for its last good copy, keeping the damaged one.
+   * @param error - why the document did not parse.
+   * @returns the restored text and document, or undefined with no usable copy.
+   */
+  private async restoreLastGood(error: unknown): Promise<{ text: string; doc: Record<string, unknown> } | undefined> {
+    let text: string
+    let doc: Record<string, unknown>
+    try {
+      text = await readFile(`${this.spec.filename}.bak`, 'utf8')
+      doc = this.parse(text)
+    } catch {
+      return undefined
+    }
+    const kept = `${this.spec.filename}.damaged-${String(Date.now())}`
+    await rename(this.spec.filename, kept)
+    await writeFileAtomic(this.spec.filename, text, { mode: 0o600, dirMode: 0o700 })
+    this.ctx.logger.error('settings-file: %s did not parse (%s); kept it as %s and restored the last good copy', this.spec.filename, error instanceof Error ? error.message : String(error), kept)
+    return { text, doc }
   }
 
   protected persist(ns: SettingsNamespace, section: Record<string, unknown>): Promise<void> {

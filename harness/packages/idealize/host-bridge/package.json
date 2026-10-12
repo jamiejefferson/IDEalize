@@ -34,6 +34,7 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
+    "@deepseek-ai/dsh-workspace": "workspace:^",
     "@idealize/cron": "workspace:^"
   },
   "peerDependencies": {

@@ -25,6 +25,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@idealize/cron'
+import type {} from '@deepseek-ai/dsh-workspace'
 
 import { BridgeBuffer } from './buffer.ts'
 
@@ -72,6 +73,22 @@ export class IdealizeBridge extends Service {
         title: `${task.name} — ${run.status}${took}`,
         body: run.detail ?? '',
         ...run.sessionId === undefined ? {} : { sessionId: run.sessionId },
+      })
+    })
+
+    // Chats the store set aside at start-up because their logs could not be
+    // read; before 1.0.15 one such log stopped the app starting. Said once,
+    // once the projects (which listed them) are up.
+    ctx.inject(['workspaceRegistry'], (readyCtx) => {
+      const store = readyCtx.get('sessionPersistence') as { quarantined?: readonly { to: string }[] } | undefined
+      const aside = store?.quarantined ?? []
+      const first = aside[0]
+      if (first === undefined) return
+      const folder = first.to.slice(0, first.to.indexOf('.quarantine') + '.quarantine'.length)
+      this.buffer.push({
+        kind: 'notify',
+        title: aside.length === 1 ? '1 chat couldn\'t be opened and was set aside' : `${String(aside.length)} chats couldn't be opened and were set aside`,
+        body: `Its files are kept in ${folder}. Everything else opened as normal.`,
       })
     })
 

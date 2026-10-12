@@ -53,6 +53,8 @@ export interface KeysFileImport {
   port: number
   /** Read the file as text. */
   readFile: (path: string) => Promise<string>
+  /** This launch's token, which the Host's launch gate requires of the main process. */
+  launchKey?: string
   /** Perform the request; Electron's `net.fetch` in the app, a stub in tests. */
   request: (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<{
     ok: boolean
@@ -80,7 +82,11 @@ export async function importKeysFile(options: KeysFileImport): Promise<KeysFileO
   try {
     response = await options.request(`http://127.0.0.1:${String(options.port)}${KEYS_FILE_ROUTE}`, {
       method: 'POST',
-      headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' },
+      headers: {
+        'x-idealize-auth': '1',
+        'content-type': 'application/json',
+        ...options.launchKey === undefined ? {} : { 'x-idealize-key': options.launchKey },
+      },
       body: text,
     })
   } catch (cause) {

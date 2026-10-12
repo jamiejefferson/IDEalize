@@ -35,6 +35,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { realpath } from 'node:fs/promises'
+import { resolve, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
@@ -210,6 +212,7 @@ export class IdealizeCron extends Service {
     const remind = input.remind === true || prompt === ''
     if (prompt === '' && input.remind !== true) throw new Error('task needs a prompt, or remind set for a reminder that runs nothing')
     if (typeof input.cwd !== 'string' || !input.cwd.startsWith('/')) throw new Error('task needs an absolute cwd')
+    if (!remind) await this.assertTaskFolder(input.cwd)
     if (schedule.kind === 'at' && input.done === undefined && Date.parse(schedule.at) <= Date.now()) {
       throw new Error(`one-off time ${schedule.at} is in the past`)
     }
@@ -322,6 +325,29 @@ export class IdealizeCron extends Service {
   }
 
   /** The dsh-headless recipe, in-process, in the task's workspace. */
+  /**
+   * A scheduled run is an unattended chat rooted in the task's folder, and a
+   * chat may write anywhere under its root; a task in the home folder or above
+   * it could rewrite shell profiles while nobody watches (security audit,
+   * 9 Oct 2026). A task that runs a chat runs in a project the person has
+   * opened or in the app's own folder (Studio and Powell tasks); a reminder
+   * runs nothing and may name any folder.
+   * @param cwd - the task's absolute folder.
+   */
+  private async assertTaskFolder(cwd: string): Promise<void> {
+    const registry = (this.ctx as unknown as { get(name: string): unknown }).get('workspaceRegistry') as {
+      list(): readonly { path: string }[]
+    } | undefined
+    // A composition without projects (a bare test host) has nothing to fence against.
+    if (registry === undefined) return
+    // A folder that is not there yet is judged by its spelling; the run itself
+    // fails on it later.
+    const canonical = await realpath(cwd).catch(() => resolve(cwd))
+    const inside = (root: string): boolean => canonical === root || canonical.startsWith(root + sep)
+    const roots = [...registry.list().map(workspace => workspace.path), resolveDshHome()]
+    if (!roots.some(inside)) throw new Error(`task folder '${cwd}' is not a project the person has opened`)
+  }
+
   /**
    * List a run's chat under the project that owns its folder, as a chat the
    * person starts would be. A run outside every project, or a registry that

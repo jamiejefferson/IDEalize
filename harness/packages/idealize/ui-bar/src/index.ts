@@ -53,6 +53,8 @@ import type { ProjectDocumentation, WorkspaceAlias, WorkspaceAliasName } from '@
 import { SKILLS_PROVIDER_NAME, type IdealizeSkillsService } from '@idealize/skills'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { currentNote, FALLBACK_NOTES_FOLDER, NOTES_FOLDER } from './notes.ts'
+import { isSecretPath } from './secret-paths.ts'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 
 /** The desktop shell's settings section (restated; dsh-plugin-desktop owns the schema). */
 const DESKTOP_NS = settingsNamespace('dsh-desktop')
@@ -123,6 +125,16 @@ interface FileEntry {
 
 /** Viewer text cap: past this the envelope truncates rather than balloons. */
 const TEXT_CAP_BYTES = 256 * 1024
+
+/**
+ * Headers on every user file the app serves: as an image in the viewer they
+ * change nothing, and a file opened as a page runs no script and reaches
+ * nothing (security audit, 9 Oct 2026: a planted SVG could drive the app).
+ */
+const USER_FILE_HEADERS = {
+  'content-security-policy': "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+  'x-content-type-options': 'nosniff',
+} as const
 
 /** Raw image cap: refuse anything larger outright. */
 const RAW_CAP_BYTES = 20 * 1024 * 1024
@@ -228,6 +240,7 @@ export const defaultApplication = {
 export function apply(ctx: Context): void {
   ctx.inject(['webServer', 'workspaceRegistry', 'settings'], (webCtx) => {
     /** Whether a realpath-resolved target sits at or under one of `roots`. */
+    const dshHome = resolveDshHome()
     const insideRoots = (resolved: string, roots: readonly string[]): boolean =>
       roots.some(root => resolved === root || resolved.startsWith(root + sep))
 
@@ -270,6 +283,7 @@ export function apply(ctx: Context): void {
       } catch {
         return undefined
       }
+      if (isSecretPath(resolved, homedir(), dshHome)) return undefined
       const roots = [...webCtx.workspaceRegistry.list().map(workspace => workspace.path), ...await aliasRoots()]
       return insideRoots(resolved, roots) ? resolved : undefined
     }
@@ -287,6 +301,7 @@ export function apply(ctx: Context): void {
       } catch {
         return undefined
       }
+      if (isSecretPath(resolved, homedir(), dshHome)) return undefined
       const roots = [
         homedir(),
         ...webCtx.workspaceRegistry.list().map(workspace => workspace.path),
@@ -823,6 +838,9 @@ export function apply(ctx: Context): void {
         // The viewer is the only consumer; keep the response uncacheable so a
         // rewritten file shows fresh on reopen.
         'cache-control': 'no-store',
+        // An SVG opened as a page would run its scripts on the app's own
+        // address; as an image in the viewer these headers change nothing.
+        ...USER_FILE_HEADERS,
       }).end(body)
     })
   })

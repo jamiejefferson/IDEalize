@@ -97,6 +97,8 @@ function mount(
     omitSummaryRow?: boolean
     /** Classify the selected child as a subagent instead of an ordinary fork. */
     summaryOrigin?: 'subagent'
+    /** Wrap the header slot in a box of its own, as a deployment's slot outlet does. */
+    wrapHeader?: boolean
     /** A composer block another plugin raised for this session. */
     composerBlock?: { reason: string }
     /** Mutable view ledger used by registration-order regressions. */
@@ -158,7 +160,7 @@ function mount(
       return <>{share.projectRow}{share.recentProjects}</>
     }
     if (key === 'conversation.session.header') {
-      return (
+      const header = (
         <ConversationSessionHeader
           sessionId={SID}
           SessionProvider={({ children }) => children(SID)}
@@ -177,6 +179,7 @@ function mount(
           t={t}
         />
       )
+      return options.wrapHeader === true ? <div data-header-outlet="">{header}</div> : header
     }
     if (key === 'conversation.session') {
       return (
@@ -369,6 +372,17 @@ describe('ConversationRoot resident composer', () => {
     expect(seat?.contains(textarea)).toBe(true)
     expect(b.slotCalls).toContain('conversation.session.header.actions')
     expect(b.slotCalls).toContain('conversation.session.header.utilities')
+  })
+
+  it('writes the title strip height on the column root even when a slot box wraps the strip', () => {
+    // Images, Video and Sounds grids started under the title (9 Oct 2026):
+    // the height sat on the wrapper beside the scrollport and never reached it.
+    const b = mount(conversationSnapshot(), undefined, undefined, { wrapHeader: true })
+    const root = b.view.container.querySelector<HTMLElement>('[data-phase]')
+    const outlet = b.view.container.querySelector<HTMLElement>('[data-header-outlet]')
+    expect(outlet?.querySelector('header')).not.toBeNull()
+    expect(root?.style.getPropertyValue('--dsh-session-header-height')).toMatch(/^\d+px$/)
+    expect(outlet?.style.getPropertyValue('--dsh-session-header-height')).toBe('')
   })
 
   it('sticky composer seat wraps the whole overlay chain, not only the fallback stack', () => {
