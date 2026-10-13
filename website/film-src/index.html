@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8" />
+<title>IDEalize hero film — source</title>
+<!--
+  The hero film, drawn by code. Every frame is a pure function of its frame
+  number (25 fps, 600 frames, 24 s), so record.mjs can step through it and
+  capture each one. Timings follow Paper board 05 (hero film storyboard v2), offset by the
+  green-owl ident that opens it. Motion uses damped springs (Motion One's
+  spring model: stiffness, damping, mass 1) so every settle is physical.
+  Open it in a browser to scrub: ?f=135 jumps to a frame, ?play plays it live.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Instrument+Sans:wght@400..700&family=Instrument+Serif&family=Roboto+Flex:opsz,wght@8..144,100..1000&family=VT323&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #000; overflow: hidden; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #000; -webkit-font-smoothing: antialiased; }
+  #stage * { position: absolute; }
+  #stage .flow, #stage .flow * { position: static; }
+  pre { white-space: pre; }
+  #warm { position: absolute; left: -9999px; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<canvas id="tv" style="position:absolute;left:0;top:0;width:1920px;height:1080px;display:none"></canvas>
+<script src="ident.js"></script>
+<div id="warm"><span style="font-family:'DM Mono'">a</span><span style="font-family:'DM Mono';font-weight:500">a</span><span style="font-family:Fraunces">a</span><span style="font-family:Fraunces;font-weight:600">a</span><span style="font-family:'Instrument Sans'">a</span><span style="font-family:'Instrument Sans';font-weight:500">a</span><span style="font-family:'Instrument Sans';font-weight:600">a</span><span style="font-family:'Instrument Serif'">a</span><span style="font-family:'Roboto Flex';font-weight:230">A</span><span style="font-family:'Roboto Flex';font-weight:300">A</span><span style="font-family:VT323">a</span></div>
+<script>
+const FPS = 25;
+let INTRO = 0;         // the green-owl ident (ident.js) plays first; its length is known once the owl is traced
+const STORY = 690;     // the story timeline; the end card holds for its last 3.6 s
+let TOTAL = STORY;
+const A = '../assets/v2/';
+const OWL = n => A + 'owl/' + String(n).padStart(2, '0') + '.webp';
+
+/* ---------- maths ---------- */
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const prog = (f, start, dur) => clamp((f - start) / dur);
+const inOut = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const out = t => 1 - Math.pow(1 - t, 3);
+const inn = t => t * t * t;
+const back = (t, s = 1.7) => 1 + (s + 1) * Math.pow(t - 1, 3) + s * Math.pow(t - 1, 2);   // overshoots then settles
+const px = v => v.toFixed(1) + 'px';
+// Damped spring from 0 to 1, started at frame `start`. stiffness/damping as in Motion One's spring().
+function spr(f, start, k = 300, c = 20) {
+  const t = (f - start) / FPS;
+  if (t <= 0) return 0;
+  const w0 = Math.sqrt(k), z = c / (2 * w0);
+  if (z >= 1) return 1 - Math.exp(-w0 * t) * (1 + w0 * t);
+  const wd = w0 * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w0 * t) * (Math.cos(wd * t) + (z * w0 / wd) * Math.sin(wd * t));
+}
+
+/* ---------- skins: every value is a real preset, terminal theme or panel setting ---------- */
+const SKINS = {
+  light: { bg: '#FFFFFF', side: '#F6F8FA', sideInk: '#1B1F24', sideSub: '#57606A', line: '#D0D7DE', ink: '#1B1F24', sub: '#57606A', accent: '#0969DA', onAccent: '#FFFFFF', soft: 'rgba(9,105,218,.08)', card: '#FFFFFF', cardLine: '#D0D7DE', font: "'Instrument Sans'", fs: 1, head: "'Instrument Sans'", hw: 500, ui: "'Instrument Sans'", term: ['#FFFFFF', '#24292F', '#0969DA'], active: 'rgba(9,105,218,.12)' },
+  ink:   { bg: '#17181A', side: '#1D1E21', sideInk: '#E6E7E9', sideSub: '#9A9CA0', line: '#2C2D30', ink: '#E6E7E9', sub: '#9A9CA0', accent: '#E8B84B', onAccent: '#17181A', soft: 'rgba(232,184,75,.10)', card: '#1F2023', cardLine: '#34353A', font: "'Instrument Serif'", fs: 1.18, head: "'Instrument Serif'", hw: 400, ui: "'Instrument Serif'", term: ['#17181A', '#E6E7E9', '#E8B84B'], active: 'rgba(232,184,75,.16)' },
+  linen: { bg: '#F7F5F0', side: '#EFECE4', sideInk: '#2A2A27', sideSub: '#8A867C', line: '#DDD8CC', ink: '#2A2A27', sub: '#8A867C', accent: '#B67A12', onAccent: '#FFFFFF', soft: 'rgba(182,122,18,.10)', card: '#FFFDF8', cardLine: '#DDD8CC', font: 'Fraunces', fs: 1, head: 'Fraunces', hw: 600, ui: 'Fraunces', term: ['#F7F5F0', '#2A2A27', '#B67A12'], active: 'rgba(182,122,18,.14)' },
+  grad:  { bg: '#120E1C', side: 'GRADIENT', sideInk: '#FFFFFF', sideSub: 'rgba(255,255,255,.78)', line: '#2A2340', ink: '#F3D6F7', sub: '#B993C2', accent: '#FF74E7', onAccent: '#120E1C', soft: 'rgba(255,116,231,.12)', card: '#1C1529', cardLine: '#3A2D52', font: 'VT323', fs: 1.45, head: 'VT323', hw: 400, ui: "'Instrument Sans'", uiw: 600, term: ['#DBACE3', '#AB008E', '#FF74E7'], active: 'rgba(255,255,255,.28)' },
+  yours: { bg: '#000000', side: '#0C0C0D', sideInk: '#F5F5F7', sideSub: '#A1A1A6', line: '#2A2A2D', ink: '#F5F5F7', sub: '#A1A1A6', accent: '#FF5436', onAccent: '#FFFFFF', soft: 'rgba(255,84,54,.12)', card: '#141416', cardLine: '#2A2A2D', font: "'Instrument Sans'", fs: 1, head: "'Roboto Flex'", hw: 300, upper: true, ui: "'Roboto Flex'", term: ['#1B1D21', '#E8E9EB', '#FF5436'], active: 'rgba(255,84,54,.16)' },
+  dark:  { bg: '#2A2F35', side: '#23272C', sideInk: '#D5DDE3', sideSub: '#8D99A3', line: '#3A4148', ink: '#D5DDE3', sub: '#8D99A3', accent: '#85C1B4', onAccent: '#1B2024', soft: 'rgba(133,193,180,.12)', card: '#31373E', cardLine: '#434B53', font: "'Instrument Sans'", fs: 1, head: "'Instrument Sans'", hw: 500, ui: "'Instrument Sans'", term: ['#2F353C', '#D5DDE3', '#85C1B4'], active: 'rgba(133,193,180,.16)' },
+  solar: { bg: '#002B36', side: '#073642', sideInk: '#93A1A1', sideSub: '#657B83', line: '#0E4452', ink: '#93A1A1', sub: '#657B83', accent: '#B58900', onAccent: '#002B36', soft: 'rgba(181,137,0,.12)', card: '#073642', cardLine: '#0E4452', font: "'DM Mono'", fs: .92, head: "'DM Mono'", hw: 500, ui: "'DM Mono'", term: ['#002B36', '#839496', '#B58900'], active: 'rgba(181,137,0,.18)' },
+  y2k:   { bg: '#DBACE3', side: '#CF98D9', sideInk: '#AB008E', sideSub: '#8E3C88', line: '#C189CB', ink: '#AB008E', sub: '#8E3C88', accent: '#FF74E7', onAccent: '#FFFFFF', soft: 'rgba(255,116,231,.18)', card: '#E7C3EC', cardLine: '#C189CB', font: 'VT323', fs: 1.45, head: 'VT323', hw: 400, ui: 'VT323', term: ['#DBACE3', '#AB008E', '#FF74E7'], active: 'rgba(255,116,231,.3)' },
+};
+const sideBg = (s, f) => s.side === 'GRADIENT' ? `conic-gradient(from ${(210 + f * 0.45).toFixed(1)}deg at 40% 75%, #FF5436, #FF74E7, #6D5BFF, #00C2FF, #FF5436)` : s.side;
+
+/* ---------- timeline (frames) ---------- */
+const REPAINTS = [
+  { at: 135, to: 'ink', dir: 'lr' },
+  { at: 235, to: 'linen', dir: 'tb' },
+  { at: 350, to: 'grad', dir: 'radial' },
+  { at: 450, to: 'yours', dir: 'rl' },
+];
+const MONTAGE = { at: 525, slots: [[5, 'light'], [5, 'linen'], [4, 'y2k'], [4, 'grad'], [4, 'dark'], [3, 'solar'], [3, 'ink'], [2, 'yours']] };
+const CAPTIONS = [[80, 'A design-led IDE for the AI bits.'], [178, 'You control what you spend.'], [278, 'Your files stay on your drive.'], [403, 'Start here to create anything.'], [488, 'Focus on outputs, not chats.']];
+
+function skinState(f) {
+  if (f >= MONTAGE.at) {
+    let t = MONTAGE.at;
+    for (const [d, k] of MONTAGE.slots) { if (f < t + d) return { skin: SKINS[k] }; t += d; }
+    return { skin: SKINS.yours };
+  }
+  let cur = 'light';
+  for (const r of REPAINTS) {
+    if (f < r.at) break;
+    if (f < r.at + 20) return { skin: SKINS[cur], next: SKINS[r.to], dir: r.dir, p: [0, 1, 2].map(i => inOut(prog(f, r.at + 3 * i, 14))) };
+    cur = r.to;
+  }
+  return { skin: SKINS[cur] };
+}
+
+/* ---------- the window ---------- */
+const WX = 96, WY = 60, W = 1728, H = 900, SIDE = 300, RAIL = 56, WORK = W - SIDE - RAIL;
+const PROJECTS = [['Studio', null], ['IDEalize', 'A'], ['Hatch', '#4E6894'], ['DocLeaf', '#7EB59A'], ['the audit', '#C9A0DC']];
+
+function sidebar(s, f, o) {
+  const ui = `font-family:${s.ui};font-weight:${s.uiw || 400};`;
+  let h = `<div style="left:0;top:0;width:${SIDE}px;height:${H}px;background:${sideBg(s, f)};border-right:1px solid ${s.line};transform:translateX(${px(o.sideX || 0)})">`;
+  h += `<div style="left:24px;top:30px;${ui}font-size:${s.ui === 'VT323' ? 24 : 16}px;color:${s.sideSub};${s.upper ? 'letter-spacing:.12em;text-transform:uppercase;' : ''}">Projects</div>`;
+  PROJECTS.forEach(([name, col], i) => {
+    const y = 76 + i * 58, active = i === 1;
+    const pulse = active ? (o.pulse || 0) : 0;
+    const bg = active ? (pulse > 0 ? `color-mix(in srgb, ${s.accent} ${Math.round(pulse * 70)}%, ${s.active})` : s.active) : 'transparent';
+    const sq = col === 'A' ? s.accent : col;
+    h += `<div style="left:14px;top:${y}px;width:${SIDE - 28}px;height:46px;border-radius:10px;background:${bg};"></div>`;
+    if (sq) h += `<div style="left:28px;top:${y + 14}px;width:18px;height:18px;border-radius:5px;background:${sq};"></div>`;
+    else h += `<div style="left:28px;top:${y + 14}px;width:18px;height:18px;border-radius:50%;border:2px solid ${s.sideSub};"></div>`;
+    h += `<div style="left:58px;top:${y + 11}px;${ui}font-size:${s.ui === 'VT323' ? 26 : 18}px;line-height:24px;color:${s.sideInk};${s.upper ? 'letter-spacing:.06em;text-transform:uppercase;font-size:16px;' : ''}">${name}</div>`;
+  });
+  return h + '</div>';
+}
+function rail(s, o) {
+  let h = `<div style="left:${W - RAIL}px;top:0;width:${RAIL}px;height:${H}px;background:${s.side === 'GRADIENT' ? s.card : s.side};border-left:1px solid ${s.line};opacity:${o.railO ?? 1}">`;
+  for (let i = 0; i < 8; i++) h += `<div style="left:18px;top:${30 + i * 46}px;width:20px;height:20px;border-radius:6px;border:2px solid ${s.sub};opacity:.65"></div>`;
+  return h + '</div>';
+}
+function windowHTML(s, f, content, o) {
+  return `<div style="left:0;top:0;width:${W}px;height:${H}px;background:${s.bg};">`
+    + `<div style="left:${SIDE}px;top:0;width:${WORK}px;height:${H}px;opacity:${o.workO ?? 1}">${content(s)}</div>`
+    + sidebar(s, f, o) + rail(s, o) + '</div>';
+}
+
+/* the repaint: the new skin is revealed panel by panel behind an orange line */
+function repaintLayers(st, f, content, o) {
+  const panels = [[0, SIDE], [SIDE, W - RAIL], [W - RAIL, W]];
+  let h = windowHTML(st.skin, f, content, o);
+  panels.forEach(([x0, x1], i) => {
+    const p = st.p[i];
+    if (p <= 0) return;
+    let clip;
+    if (st.dir === 'lr') clip = `inset(0 ${px(W - p * W)} 0 0)`;
+    if (st.dir === 'rl') clip = `inset(0 0 0 ${px(W - p * W)})`;
+    if (st.dir === 'tb') clip = `inset(0 0 ${px(H - p * H)} 0)`;
+    if (st.dir === 'radial') clip = `circle(${px(p * 1000)} at ${W / 2}px ${H / 2}px)`;
+    h += `<div style="left:${x0}px;top:0;width:${x1 - x0}px;height:${H}px;overflow:hidden;"><div style="left:${-x0}px;top:0;width:${W}px;height:${H}px;clip-path:${clip};">${windowHTML(st.next, f, content, o)}</div></div>`;
+  });
+  const p = st.p[1], vis = Math.sin(Math.PI * clamp(p)) * (p > 0 && p < 1 ? 1 : 0);
+  if (vis > 0.01) {
+    const glow = 'background:#FF5436;box-shadow:0 0 36px 8px rgba(255,84,54,.7);';
+    if (st.dir === 'lr' || st.dir === 'rl') { const x = st.dir === 'lr' ? p * W : W - p * W; h += `<div style="left:${px(x - 4)};top:0;width:8px;height:${H}px;${glow}opacity:${vis.toFixed(3)}"></div>`; }
+    if (st.dir === 'tb') h += `<div style="left:0;top:${px(p * H - 4)};width:${W}px;height:8px;${glow}opacity:${vis.toFixed(3)}"></div>`;
+    if (st.dir === 'radial') { const r = p * 1000; h += `<div style="left:${px(W / 2 - r)};top:${px(H / 2 - r)};width:${px(2 * r)};height:${px(2 * r)};border-radius:50%;border:8px solid #FF5436;box-shadow:0 0 36px 8px rgba(255,84,54,.7);opacity:${vis.toFixed(3)}"></div>`; }
+  }
+  return h;
+}
+
+/* ---------- chapter contents (same state in every skin, so a repaint only restyles) ---------- */
+const T = (s, size) => (size * s.fs).toFixed(1) + 'px';
+const headStyle = (s, size) => `font-family:${s.head};font-weight:${s.hw};font-size:${T(s, size)};color:${s.ink};${s.upper ? 'text-transform:uppercase;letter-spacing:.02em;' : ''}`;
+
+function homeState(f) {
+  const drop = prog(f, 91, 5), land = prog(f, 96, 5);
+  const blink = f >= 112 && f < 117 ? [23, 24, 24, 23, 16][f - 112] : 16;
+  return {
+    owlO: prog(f, 88, 3), owlY: lerp(-60, 0, inn(drop)),
+    owlSX: f < 96 ? 1 : lerp(1.14, 1, spr(f, 96, 520, 16)), owlSY: f < 96 ? 1 : lerp(.84, 1, spr(f, 96, 520, 16)), owlFrame: blink,
+    titleE: prog(f, 96, 6), titleY: 24 * (1 - spr(f, 96, 260, 20)),
+    tiles: [0, 1, 2, 3, 4].map(i => prog(f, 104 + 2 * i, 5)), tileY: [0, 1, 2, 3, 4].map(i => 40 * (1 - spr(f, 104 + 2 * i, 320, 19))),
+  };
+}
+const TILES = [['Chat', 'Talk, plan and edit files.'], ['Terminal', 'A real shell with an agent in it.'], ['Images', 'Generate and collect images.'], ['Sounds', 'Generate and play back audio.'], ['Video', 'Generate and edit video.']];
+function home(st) {
+  return s => {
+    let h = `<img src="${OWL(st.owlFrame)}" style="left:${686 - 62}px;top:${180 + st.owlY}px;width:124px;height:137px;opacity:${st.owlO};transform-origin:50% 100%;transform:scale(${st.owlSX.toFixed(3)},${st.owlSY.toFixed(3)})">`;
+    h += `<div style="left:0;top:${px(352 + st.titleY)};width:${WORK}px;text-align:center;${headStyle(s, 46)}opacity:${st.titleE}">What shall we Idealize?</div>`;
+    TILES.forEach(([name, desc], i) => {
+      const e = st.tiles[i], x = 150 + i * 218, on = i === 0;
+      h += `<div style="left:${x}px;top:${px(470 + st.tileY[i])};width:200px;height:186px;border-radius:16px;border:1.5px solid ${on ? s.accent : s.cardLine};background:${on ? s.soft : s.card};opacity:${e}">`
+        + `<div style="left:20px;top:22px;width:30px;height:30px;border-radius:${i === 0 ? '50%' : '7px'};border:2.5px solid ${on ? s.accent : s.sub};"></div>`
+        + `<div style="left:20px;top:76px;font-family:${s.font};font-size:${T(s, 22)};color:${s.ink};">${name}</div>`
+        + `<div style="left:20px;top:112px;width:164px;font-family:${s.font};font-size:${T(s, 15)};line-height:1.3;color:${s.sub};">${desc}</div></div>`;
+    });
+    return h;
+  };
+}
+
+function chatState(f) {
+  const dip = prog(f, 175, 2), rise = prog(f, 177, 7);
+  const slide = prog(f, 205, 10), bar1 = prog(f, 215, 10), bar2 = prog(f, 225, 6);
+  return {
+    msgY: f < 177 ? 16 + 4 * dip : lerp(20, 0, out(rise)), msgO: prog(f, 175, 4),
+    flip: 90 * (1 - spr(f, 195, 240, 17)), cardO: prog(f, 195, 2),
+    chip: spr(f, 205, 280, 15), chipsO: prog(f, 200, 5),
+    spend: lerp(80, 22, spr(f, 215, 200, 13)), spendO: prog(f, 210, 5),
+  };
+}
+function chat(st) {
+  return s => {
+    let h = `<div style="right:80px;top:${px(90 + st.msgY)};padding:18px 24px;border-radius:20px 20px 6px 20px;background:${s.card};border:1.5px solid ${s.cardLine};font-family:${s.font};font-size:${T(s, 26)};color:${s.ink};white-space:nowrap;opacity:${st.msgO}" class="flow-pos">Tidy the hero copy, keep it short.</div>`;
+    h += `<div style="left:80px;top:220px;width:860px;padding:28px 30px;border-radius:16px;border:2px solid ${s.accent};background:${s.soft};transform-origin:50% 0;transform:perspective(1200px) rotateX(${st.flip.toFixed(1)}deg);opacity:${st.cardO}">`
+      + `<div class="flow" style="font-family:'DM Mono';font-size:14px;letter-spacing:.14em;color:${s.accent};">ROUTER</div>`
+      + `<div class="flow" style="padding-top:12px;font-family:${s.font};font-size:${T(s, 32)};line-height:1.25;color:${s.ink};">Moved to your Simple brain. It writes as well for this, and costs less.</div></div>`;
+    const cx = [80, 270, 460];
+    h += `<div style="left:${px(lerp(cx[0], cx[1], st.chip))};top:470px;width:170px;height:50px;border-radius:99px;background:${s.accent};opacity:${st.chipsO}"></div>`;
+    ['CODING', 'SIMPLE', 'FREE'].forEach((c, i) => {
+      const on = Math.abs(lerp(0, 1, st.chip) - i) < .5;
+      h += `<div style="left:${cx[i]}px;top:470px;width:170px;height:50px;border-radius:99px;border:1.5px solid ${on ? 'transparent' : s.cardLine};font-family:'DM Mono';font-size:16px;letter-spacing:.1em;line-height:47px;text-align:center;color:${on ? s.onAccent : s.sub};opacity:${st.chipsO}">${c}</div>`;
+    });
+    h += `<div style="left:80px;top:576px;font-family:'DM Mono';font-size:15px;letter-spacing:.12em;color:${s.sub};opacity:${st.spendO}">SPEND</div>`;
+    h += `<div style="left:180px;top:580px;width:760px;height:14px;border-radius:7px;background:${s.line};opacity:${st.spendO}"><div style="left:0;top:0;height:14px;border-radius:7px;width:${st.spend.toFixed(1)}%;background:${s.accent};"></div></div>`;
+    return h;
+  };
+}
+
+function filesState(f) {
+  const brain = f < 290 ? -1 : f < 305 ? 0 : f < 320 ? 1 : 2;
+  const from = f < 305 ? 0 : f < 320 ? 0 : 1, sw = f < 305 ? 1 : f < 320 ? prog(f, 305, 6) : prog(f, 320, 6);
+  return {
+    lines: [0, 1, 2, 3, 4].map(i => prog(f, 278 + 3 * i, 4)), lineY: [0, 1, 2, 3, 4].map(i => -22 * (1 - spr(f, 278 + 3 * i, 380, 18))), kickO: prog(f, 276, 5),
+    brainsO: prog(f, 284, 6), brainPos: brain < 0 ? -1 : f < 305 ? 0 : lerp(from, brain, spr(f, f < 320 ? 305 : 320, 420, 22)), brain,
+    flash: [305, 320].includes(f) || f === 290,
+  };
+}
+const TREE = [['Hatch/', ''], ['  docs/', 'decisions, specs'], ['  notes/', 'what future-you wants'], ['  assets/', 'images, sound, video'], ['  src/', 'the build']];
+function files(st) {
+  return s => {
+    let h = `<div style="left:80px;top:96px;font-family:'DM Mono';font-size:15px;letter-spacing:.12em;color:${s.accent};opacity:${st.kickO}">~/PROJECTS/HATCH · ON DISK</div>`;
+    h += `<div style="left:56px;top:136px;width:720px;height:${5 * 64 + 32}px;border-radius:16px;border:2px solid ${st.flash ? s.accent : 'transparent'};"></div>`;
+    TREE.forEach(([name, note], i) => {
+      const e = st.lines[i], y = 150 + i * 64 + st.lineY[i];
+      h += `<pre style="left:80px;top:${px(y)};font-family:${s.font};font-size:${T(s, 34)};color:${s.ink};opacity:${e}">${name}</pre>`;
+      if (note) h += `<div style="left:360px;top:${px(y + 8 * s.fs)};font-family:${s.font};font-size:${T(s, 22)};color:${s.sub};opacity:${e}">${note}</div>`;
+    });
+    h += `<div style="left:880px;top:96px;font-family:'DM Mono';font-size:15px;letter-spacing:.12em;color:${s.sub};opacity:${st.brainsO}">BRAIN</div>`;
+    if (st.brainPos >= 0) h += `<div style="left:880px;top:${px(140 + st.brainPos * 84)};width:400px;height:68px;border-radius:14px;background:${s.accent};"></div>`;
+    ['Coding brain', 'Fast brain', 'Free brain'].forEach((b, i) => {
+      const on = Math.round(st.brainPos) === i && st.brainPos >= 0;
+      h += `<div style="left:880px;top:${140 + i * 84}px;width:400px;height:68px;border-radius:14px;border:1.5px solid ${on ? 'transparent' : s.cardLine};opacity:${st.brainsO}"></div>`;
+      h += `<div style="left:906px;top:${140 + i * 84 + 18}px;font-family:${s.font};font-size:${T(s, 24)};line-height:32px;color:${on ? s.onAccent : s.ink};opacity:${st.brainsO}">${b}</div>`;
+    });
+    return h;
+  };
+}
+
+const OUT = [
+  { x: 80, y: 80, w: 440, h: 230, r: -3 }, { x: 560, y: 60, w: 400, h: 230, r: 2 }, { x: 1000, y: 90, w: 300, h: 270, r: -2 },
+  { x: 120, y: 380, w: 460, h: 200, r: 3 }, { x: 640, y: 400, w: 440, h: 240, r: -1 },
+];
+function outputsState(f) {
+  return OUT.map((o, i) => {
+    const p = prog(f, 403 + 8 * i, 10), pull = inn(prog(f, 470 + 2 * i, 12));
+    const land = prog(f, 413 + 8 * i, 5);
+    return { p, e: spr(f, 403 + 8 * i, 420, 26), rot: o.r + (p >= 1 ? 4 * (1 - out(land)) : 0), sq: p >= 1 && land < 1 ? lerp(1.06, 1, out(land)) : 1, pull };
+  });
+}
+function outputs(sts, f) {
+  return s => {
+    let h = '';
+    const ox = WORK / 2, oy = 450;
+    OUT.forEach((o, i) => {
+      const st = sts[i]; if (st.p <= 0) return;
+      const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
+      let x = lerp(ox, cx, st.e), y = lerp(oy, cy, st.e) - 140 * Math.sin(Math.PI * clamp(st.p));
+      let sc = lerp(.2, 1, clamp(st.e, 0, 1.2));
+      if (st.pull > 0) { x = lerp(x, -150, st.pull); y = lerp(y, 76 + 58 + 23, st.pull); sc = lerp(sc, .06, st.pull); }
+      const tf = `transform:translate(${px(x - o.w / 2)},${px(y - o.h / 2)}) rotate(${st.rot.toFixed(2)}deg) scale(${(sc * st.sq).toFixed(3)},${(sc / st.sq).toFixed(3)});`;
+      const base = `left:0;top:0;width:${o.w}px;height:${o.h}px;border-radius:16px;overflow:hidden;${tf}opacity:${clamp(st.p * 4) * (1 - clamp((st.pull - .85) * 7))};box-shadow:0 30px 60px rgba(0,0,0,.35);`;
+      if (i === 0) h += `<div style="${base}background:${s.card};border:1.5px solid ${s.cardLine};"><div style="left:26px;top:24px;width:${o.w - 52}px;font-family:${s.font};font-size:${T(s, 28)};line-height:1.2;color:${s.ink};">“Write the hero line like a person said it.”</div><div style="left:26px;bottom:20px;font-family:${s.ui};font-size:17px;color:${s.sub};">Chat</div></div>`;
+      if (i === 1) { const [bg, fg, pr] = s.term, ff = s.font === 'VT323' ? 'VT323' : "'DM Mono'", fz = s.font === 'VT323' ? 30 : 20;
+        h += `<div style="${base}background:${bg};border:1.5px solid ${s.cardLine};"><pre style="left:24px;top:24px;font-family:${ff};font-size:${fz}px;line-height:1.5;color:${fg};"><span style="position:static;color:${pr}">$</span> pnpm build\n<span style="position:static;color:${pr}">✓</span> built in 4.1s\n<span style="position:static;color:${pr}">$</span> git push</pre><div style="left:24px;bottom:20px;font-family:${s.ui};font-size:17px;color:${fg};opacity:.7">Terminal</div></div>`; }
+      if (i === 2) h += `<div style="${base}background:linear-gradient(160deg, ${s.accent}, #4E6894);"><div style="left:24px;top:24px;width:70px;height:70px;border-radius:10px;background:rgba(255,255,255,.85)"></div><div style="left:104px;top:24px;width:70px;height:70px;border-radius:10px;background:rgba(255,255,255,.45)"></div><div style="left:24px;bottom:20px;font-family:${s.ui};font-size:17px;color:#fff;">Images</div></div>`;
+      if (i === 3) { let bars = ''; for (let b = 0; b < 22; b++) { const bh = 18 + 70 * Math.abs(Math.sin(b * 1.7 + f * .25)); bars += `<div style="left:${30 + b * 18}px;top:${px(80 - bh / 2)};width:9px;height:${px(bh)};border-radius:5px;background:${s.onAccent};"></div>`; }
+        h += `<div style="${base}background:${s.accent};">${bars}<div style="left:24px;bottom:18px;font-family:${s.ui};font-size:17px;color:${s.onAccent};">Sounds</div></div>`; }
+      if (i === 4) h += `<div style="${base}background:${s.card};border:1.5px solid ${s.cardLine};"><div style="left:24px;top:26px;width:120px;height:120px;border-radius:8px;background:${s.line}"></div><div style="left:152px;top:26px;width:120px;height:120px;border-radius:8px;background:${s.accent}"></div><div style="left:280px;top:26px;width:120px;height:120px;border-radius:8px;background:${s.line}"></div><div style="left:${24 + ((f * 6) % 376)}px;top:20px;width:3px;height:132px;background:${s.accent}"></div><div style="left:24px;bottom:20px;font-family:${s.ui};font-size:17px;color:${s.sub};">Video</div></div>`;
+    });
+    return h;
+  };
+}
+
+function studioState(f) {
+  f = Math.min(f, 524);   // the montage runs over a frozen frame
+  const crouch = prog(f, 500, 3), rise = prog(f, 503, 6), land = prog(f, 509, 5);
+  let y = 260, sx = 1, sy = 1;
+  if (f >= 500) { y = 260; sy = lerp(1, .88, crouch); sx = lerp(1, 1.08, crouch); }
+  if (f >= 503) { y = lerp(260, -40, out(rise)) + (rise > .6 ? lerp(0, 40, (rise - .6) / .4) : 0); sy = lerp(1.1, 1, rise); sx = lerp(.94, 1, rise); }
+  if (f >= 509) { y = 0; sy = lerp(.84, 1, spr(f, 509, 520, 16)); sx = lerp(1.14, 1, spr(f, 509, 520, 16)); }
+  return {
+    headO: prog(f, 485, 5), rows: [0, 1, 2, 3].map(i => prog(f, 488 + 5 * i, 4)), rowX: [0, 1, 2, 3].map(i => -80 * (1 - spr(f, 488 + 5 * i, 300, 19))),
+    owlY: y, owlSX: sx, owlSY: sy, bubS: spr(f, 510, 360, 14), bubO: prog(f, 510, 2),
+  };
+}
+const ROWS = [['10:41', '@Kit', 'handed the loading panel to @Taun'], ['10:43', '@Taun', 'reviewed it and merged'], ['10:44', '@Saelt', 'finished the docs pass'], ['10:46', '@Kit', 'started on the website']];
+function studio(st) {
+  return s => {
+    let h = `<div style="left:80px;top:72px;${headStyle(s, 44)}opacity:${st.headO}">Studio</div>`;
+    ROWS.forEach(([t, who, what], i) => {
+      const e = st.rows[i], y = 160 + i * 66;
+      h += `<div style="left:${px(80 + st.rowX[i])};top:${y}px;width:1200px;height:56px;opacity:${e};border-bottom:1px solid ${s.line};">`
+        + `<div style="left:0;top:14px;font-family:'DM Mono';font-size:16px;color:${s.sub};">${t}</div>`
+        + `<div style="left:90px;top:10px;font-family:${s.font};font-size:${T(s, 24)};color:${s.accent};">${who}</div>`
+        + `<div style="left:${90 + 110 * Math.max(1, s.fs * .9)}px;top:10px;font-family:${s.font};font-size:${T(s, 24)};color:${s.ink};white-space:nowrap;">${what}</div></div>`;
+    });
+    h += `<img src="${OWL(16)}" style="left:80px;top:${px(520 + st.owlY)};width:160px;height:177px;transform-origin:50% 100%;transform:scale(${st.owlSX.toFixed(3)},${st.owlSY.toFixed(3)})">`;
+    const b = lerp(.4, 1, st.bubS);
+    h += `<div style="left:260px;top:560px;width:560px;padding:22px 26px;border-radius:24px 24px 24px 6px;background:${s.accent};font-family:${s.font};font-size:${T(s, 26)};line-height:1.3;color:${s.onAccent};transform-origin:0 100%;transform:scale(${b.toFixed(3)});opacity:${st.bubO}">The loading panel is done. Nothing needs you yet.</div>`;
+    return h;
+  };
+}
+
+/* ---------- 00:00–03:00 cold open and collapse ---------- */
+const PILE = [
+  { a: 0, x: 90, y: 100, w: 840, h: 500, r: -4, from: [-1200, 0], kind: 'term' },
+  { a: 12, x: 640, y: 230, w: 760, h: 480, r: 3, from: [0, 1200], kind: 'dash' },
+  { a: 22, x: 1300, y: 80, w: 560, h: 400, r: 6, from: [1200, 0], kind: 'bill' },
+  { a: 30, x: 1060, y: 540, w: 700, h: 440, r: -7, from: [800, 800], kind: 'files' },
+  { a: 36, x: 220, y: 640, w: 680, h: 320, r: 5, from: [-800, 800], kind: 'img' },
+  { a: 41, x: 380, y: 30, w: 900, h: 170, r: -2, from: [0, -900], kind: 'tabs' },
+  { a: 45, x: 30, y: 500, w: 420, h: 420, r: 8, from: [-900, -300], kind: 'note' },
+];
+function pileWindow(p) {
+  const card = (bg, border) => `width:${p.w}px;height:${p.h}px;border-radius:14px;background:${bg};${border ? 'border:2px solid ' + border + ';' : ''}overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6);`;
+  const mono = "font-family:'DM Mono';", sans = "font-family:'Instrument Sans';";
+  if (p.kind === 'term') return `<div style="${card('#1C1C1E', '#48484A')}"><pre style="left:34px;top:30px;${mono}font-size:28px;line-height:52px;color:#C7C7CC;"><span style="position:static;color:#30D158">$</span> claude --model ???\n&gt; where is the hero copy\n<span style="position:static;color:#FF453A">  error: context window full</span>\n<span style="position:static;color:#30D158">$</span> codex\n<span style="position:static;color:#30D158">$</span> gemini</pre></div>`;
+  if (p.kind === 'dash') { let bars = ''; for (let i = 0; i < 9; i++) bars += `<div style="left:${50 + i * 74}px;top:${px(420 - (60 + (i * 53) % 190))};width:46px;height:${60 + (i * 53) % 190}px;border-radius:6px;background:#0A84FF"></div>`; return `<div style="${card('#2C2C2E')}"><div style="left:34px;top:28px;${sans}font-size:30px;color:#F2F2F7">Usage dashboard</div><div style="left:34px;top:80px;${sans}font-size:20px;color:#8E8E93">Tokens this week · 3 providers</div>${bars}</div>`; }
+  if (p.kind === 'bill') return `<div style="${card('#3A3A3C')}"><div style="left:34px;top:30px;${sans}font-size:30px;color:#F2F2F7">Billing / API keys</div><div style="left:34px;top:96px;padding:8px 16px;border-radius:99px;background:#FF453A;${sans}font-size:20px;color:#fff;">Limit reached</div><div style="left:34px;top:170px;width:380px;height:18px;border-radius:9px;background:#636366"></div><div style="left:34px;top:206px;width:300px;height:18px;border-radius:9px;background:#636366"></div><div style="left:34px;top:242px;width:340px;height:18px;border-radius:9px;background:#636366"></div></div>`;
+  if (p.kind === 'files') return `<div style="${card('#1C1C1E', '#48484A')}"><div style="left:34px;top:28px;${sans}font-size:28px;color:#F2F2F7">Downloads</div><pre style="left:34px;top:90px;${sans}font-size:26px;line-height:52px;color:#AEAEB2;">final_v3.png\nfinal_v3 (1).png\nhero-copy-FINAL.docx\nhero-copy-FINAL-2.docx\nexport (7).mp4</pre></div>`;
+  if (p.kind === 'img') return `<div style="${card('#48484A')}"><div style="left:34px;top:26px;${sans}font-size:28px;color:#F2F2F7">Image tool · 14 tabs</div><div style="left:34px;top:90px;width:180px;height:180px;border-radius:10px;background:linear-gradient(135deg,#FF9F0A,#FF375F)"></div><div style="left:232px;top:90px;width:180px;height:180px;border-radius:10px;background:linear-gradient(135deg,#64D2FF,#5E5CE6)"></div><div style="left:430px;top:90px;width:180px;height:180px;border-radius:10px;background:linear-gradient(135deg,#30D158,#0A84FF)"></div></div>`;
+  if (p.kind === 'tabs') { let t = ''; for (let i = 0; i < 9; i++) t += `<div style="left:${24 + i * 96}px;top:40px;width:88px;height:44px;border-radius:10px;background:${i === 3 ? '#636366' : '#3A3A3C'}"></div>`; return `<div style="${card('#2C2C2E')}">${t}<div style="left:24px;top:108px;width:840px;height:36px;border-radius:18px;background:#1C1C1E"></div></div>`; }
+  if (p.kind === 'note') return `<div style="${card('#FFD60A')}"><pre style="left:30px;top:30px;${sans}font-size:28px;line-height:46px;color:#3A3000;">TODO\n- which model for this?\n- move keys out of .env\n- where did the\n  hero copy go??</pre></div>`;
+}
+function coldOpen(f) {
+  let h = '';
+  const sat = prog(f, 45, 16);
+  let sx = 0, sy = 0;
+  if (f < 50 && PILE.some(p => f - p.a >= 0 && f - p.a < 3)) { sx = ((f * 37) % 5 - 2) * 3; sy = ((f * 53) % 5 - 2) * 3; }
+  h += `<div style="left:${sx}px;top:${sy}px;width:1920px;height:1080px;filter:grayscale(${sat.toFixed(3)});">`;
+  PILE.forEach((p, i) => {
+    if (f < p.a) return;
+    const e = spr(f, p.a, 300, 19);
+    let x = p.x + p.from[0] * (1 - e), y = p.y + p.from[1] * (1 - e), r = p.r, sc = 1, o = 1;
+    if (f >= 53) sc = lerp(1, 1.04, prog(f, 53, 3));
+    const fall = inn(prog(f, 56 + i, 12));
+    if (fall > 0) {
+      const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+      const bow = 160 * Math.sin(Math.PI * fall) * (i % 2 ? 1 : -1);   // curved path, alternating sides
+      x = lerp(p.x, 960 - p.w / 2, fall) - (cy - 540) / 540 * bow; y = lerp(p.y, 540 - p.h / 2, fall) + (cx - 960) / 960 * bow;
+      r = p.r + (15 + i * 4) * fall; sc = lerp(1.04, .02, fall); o = fall > .9 ? (1 - fall) * 10 : 1;
+    }
+    h += `<div style="left:0;top:0;transform:translate(${px(x)},${px(y)}) rotate(${r.toFixed(2)}deg) scale(${sc.toFixed(3)});transform-origin:50% 50%;opacity:${o.toFixed(3)};width:${p.w}px;height:${p.h}px;">${pileWindow(p)}</div>`;
+  });
+  h += '</div>';
+  return h;
+}
+function mark(f) {
+  if (f < 72 || f > 84) return '';
+  const s = lerp(.5, 1, spr(f, 72, 520, 14));
+  const o = f < 77 ? 1 : 1 - prog(f, 77, 7);
+  const pr = prog(f, 72, 8), ring = `<div style="left:${px(960 - 320 * pr)};top:${px(540 - 320 * pr)};width:${px(640 * pr)};height:${px(640 * pr)};border-radius:50%;background:radial-gradient(closest-side, rgba(255,84,54,.55), rgba(255,84,54,0));opacity:${(1 - pr).toFixed(3)}"></div>`;
+  return ring + `<img src="${A}idealize-mark-white.svg" style="left:908px;top:480px;width:104px;height:121px;transform:scale(${s.toFixed(3)});opacity:${o.toFixed(3)}">`;
+}
+
+/* ---------- end card ---------- */
+function endCard(f) {
+  const markO = prog(f, 555, 4), tag = inOut(prog(f, 578, 12));
+  const bl = [592, 640].find(b => f >= b && f < b + 5);
+  const blink = bl ? [23, 24, 24, 23, 16][f - bl] : 16;
+  const letters = [...'IDEALIZE ANYTHING.'].map((ch, i) => {
+    const y = 90 * (1 - spr(f, 558 + i, 300, 18)), o = prog(f, 558 + i, 4);
+    return `<span style="position:relative;display:inline-block;top:${px(y)};opacity:${o.toFixed(3)}">${ch === ' ' ? '&nbsp;' : ch}</span>`;
+  }).join('');
+  const markS = lerp(.6, 1, spr(f, 555, 420, 16));
+  return `<img src="${A}idealize-mark-white.svg" style="left:928px;top:300px;width:64px;height:75px;opacity:${markO};transform:scale(${markS.toFixed(3)})">`
+    + `<div style="left:0;top:420px;width:1920px;text-align:center;font-family:'Roboto Flex';font-weight:230;font-variation-settings:'wght' 230;font-size:150px;line-height:150px;letter-spacing:.01em;color:#F5F5F7;clip-path:inset(-40px 0 -40px 0)">${letters}</div>`
+    + `<div style="left:0;top:610px;width:1920px;text-align:center;font-family:'Instrument Serif';font-size:64px;color:#FF5436;clip-path:inset(0 ${(100 - tag * 100).toFixed(1)}% 0 0);">...for everything AI</div>`
+    + `<img src="${OWL(blink)}" style="left:1640px;top:${px(820 + 140 * (1 - spr(f, 586, 340, 15)))};width:180px;height:199px;transform-origin:50% 100%;transform:scale(${lerp(1.12, 1, spr(f, 592, 520, 16)).toFixed(3)},${lerp(.86, 1, spr(f, 592, 520, 16)).toFixed(3)});opacity:${prog(f, 586, 3)}">`;
+}
+
+/* ---------- caption: one style for the whole film ---------- */
+function caption(f) {
+  const chip = (text, o) => `<div style="left:${WX}px;top:982px;padding:12px 22px;background:#000;font-family:'Roboto Flex';font-weight:300;font-variation-settings:'wght' 300;font-size:42px;line-height:48px;letter-spacing:.01em;color:#FFF;text-transform:uppercase;white-space:nowrap;opacity:${o.toFixed(3)}">${text}</div>`;
+  if (f < 75) {
+    if (f < 45) return '';
+    const text = 'Brilliant tools. Less than ideal setup.';
+    return chip(text.slice(0, Math.min(text.length, (f - 45) * 2)), f < 53 ? 1 : 1 - prog(f, 53, 6));
+  }
+  if (f >= 555) return '';
+  let cur = null;
+  for (const c of CAPTIONS) if (f >= c[0]) cur = c;
+  if (!cur) return '';
+  return chip(cur[1], prog(f, cur[0], 4));
+}
+
+/* ---------- one frame ---------- */
+function story(f) {
+  if (f < 75) return coldOpen(f) + mark(f) + caption(f);
+  if (f >= 555) return endCard(f);
+  let content, o = {}, cam = '';
+  if (f < 175) {
+    content = home(homeState(f));
+    if (f < 90) { const u = out(prog(f, 75, 12)); o = { sideX: -60 * (1 - out(prog(f, 75, 10))), workO: prog(f, 76, 10), railO: prog(f, 79, 8), unfold: u }; }
+  } else if (f < 275) {
+    content = chat(chatState(f));
+    const push = inOut(prog(f, 255, 20));
+    if (push > 0) cam = `transform-origin:${886 - WX}px ${330 - WY}px;transform:scale(${lerp(1, 1.2, push).toFixed(4)});`;
+  } else if (f < 400) content = files(filesState(f));
+  else if (f < 485) { content = outputs(outputsState(f), f); o.pulse = Math.sin(Math.PI * prog(f, 482, 8)); }
+  else content = studio(studioState(f));
+  let pulse = 1;
+  for (const r of REPAINTS) {
+    const d = f - r.at;
+    if (d >= -3 && d < 0) pulse = 1 - .012 * inOut(prog(f, r.at - 3, 3));
+    if (d >= 0 && d < 30) pulse = .988 + .012 * spr(f, r.at, 260, 9);
+  }
+  if (pulse !== 1) cam = cam ? cam.replace(/scale\(([\d.]+)\)/, (m, v) => `scale(${(v * pulse).toFixed(4)})`) : `transform:scale(${pulse.toFixed(4)});`;
+  const st = skinState(f);
+  const inner = st.next ? repaintLayers(st, f, content, o) : windowHTML(st.skin, f, content, o);
+  const clip = o.unfold !== undefined && o.unfold < 1 ? `clip-path:circle(${px(o.unfold * 1100)} at ${W / 2}px ${H / 2}px);` : '';
+  return `<div style="left:${WX}px;top:${WY}px;width:${W}px;height:${H}px;border-radius:18px;overflow:hidden;box-shadow:0 40px 120px rgba(0,0,0,.6);${clip}${cam}">${inner}</div>` + mark(f) + caption(f);
+}
+
+const stage = document.getElementById('stage');
+const tv = document.getElementById('tv');
+window.seek = g => {
+  g = Math.max(0, Math.min(TOTAL - 1, g | 0));
+  if (g < INTRO) { tv.style.display = 'block'; stage.innerHTML = ''; Ident.draw(g); }
+  else { tv.style.display = 'none'; stage.innerHTML = story(g - INTRO); }
+};
+window.ready = (async () => {
+  await document.fonts.ready;
+  await Ident.init(tv, 'ident-owl.webp');
+  INTRO = Ident.INTRO; TOTAL = INTRO + STORY; window.TOTAL = TOTAL; window.INTRO = INTRO;
+  const srcs = new Set([A + 'idealize-mark-white.svg']);
+  for (let n = 0; n < 42; n++) srcs.add(OWL(n));
+  // one at a time, with retries, so a busy local server cannot drop a frame of Powell
+  const load = src => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src + (src.includes('?') ? '' : ''); });
+  for (const src of srcs) for (let n = 0; n < 5; n++) { try { await load(src); break; } catch { await new Promise(r => setTimeout(r, 200)); } }
+})();
+window.imagesSettled = () => Promise.all([...stage.querySelectorAll('img')].map(i => i.decode().catch(() => {})));
+
+const q = new URLSearchParams(location.search);
+window.ready.then(() => {
+  if (q.has('play')) { const t0 = performance.now(); (function tick(now) { seek(Math.floor((now - t0) / 1000 * FPS) % TOTAL); requestAnimationFrame(tick); })(t0); }
+  else seek(+(q.get('f') || 0));
+});
+</script>
+</body>
+</html>
