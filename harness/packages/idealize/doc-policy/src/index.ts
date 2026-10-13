@@ -46,7 +46,7 @@ import { conventionsText, scaffoldVault } from './scaffold.ts'
 import { fingerprintFolder, scanFolder } from './scan.ts'
 import { DocsIndex } from './search.ts'
 import type { DocsSearchHit } from './search.ts'
-import { gitToplevel, noteForRepo, projectDocsFolder } from './notes-lookup.ts'
+import { noteForCwd, projectDocsFolder } from './notes-lookup.ts'
 import type { ProjectDocsFolder } from './notes-lookup.ts'
 import { DOCUMENTATION_SECTION_NAME, DOCUMENTATION_SECTION_ORDER, documentationGuidance, missingNoteNotice, terminalDocumentationGuidance } from './guidance.ts'
 import { SCAN_HISTORY_CAP, docPolicyDomainSpec } from './spec.ts'
@@ -76,7 +76,8 @@ export type { IndexedDoc, ScanResult } from './scan.ts'
 export { DocsIndex } from './search.ts'
 export type { DocsSearchHit } from './search.ts'
 export { agentsText, conventionsText, projectNoteFor, scaffoldVault } from './scaffold.ts'
-export { gitToplevel, noteForRepo, parseNotePointers, projectDocsFolder, projectNotes, repoPaths } from './notes-lookup.ts'
+export { gitToplevel, noteForCwd, noteForRepo, parseNotePointers, projectDocsFolder, projectNotes, repoPaths } from './notes-lookup.ts'
+export type { CwdNote } from './notes-lookup.ts'
 export { DOCUMENTATION_SECTION_NAME, DOCUMENTATION_SECTION_ORDER, documentationGuidance, missingNoteNotice, terminalDocumentationGuidance } from './guidance.ts'
 export type { ProjectNote } from './notes-lookup.ts'
 export { SCAN_HISTORY_CAP, docPolicyDomainSpec, docScanRecordSchema } from './spec.ts'
@@ -188,10 +189,9 @@ export class DocPolicy extends Service {
   async terminalKnowledge(cwd: string): Promise<string> {
     const folder = this.folder()
     if (folder === undefined) return terminalDocumentationGuidance(undefined)
-    const repoToplevel = await gitToplevel(cwd)
-    if (repoToplevel === undefined) return terminalDocumentationGuidance(folder)
-    const note = await noteForRepo(folder, repoToplevel)
-    return terminalDocumentationGuidance(folder, { repoToplevel, notePath: note?.path })
+    const found = await noteForCwd(folder, cwd)
+    if (found.notePath === undefined && found.repoToplevel === undefined) return terminalDocumentationGuidance(folder)
+    return terminalDocumentationGuidance(folder, { repoToplevel: found.repoToplevel ?? cwd, notePath: found.notePath })
   }
 
   /**
@@ -453,13 +453,15 @@ export function apply(ctx: Context, config: DocPolicyConfig): void {
         const folder = service.folder()
         const cwd = agent.session.header.cwd
         if (folder === undefined || cwd === undefined) return
-        const toplevel = await gitToplevel(cwd)
-        if (toplevel === undefined) return
-        const note = await noteForRepo(folder, toplevel)
+        const found = await noteForCwd(folder, cwd)
+        const note = found.notePath === undefined ? undefined : { path: found.notePath }
         // A repository with no note yet: say how to create one, or no chat
-        // ever does and the project stays outside the folder for good.
+        // ever does and the project stays outside the folder for good. A chat
+        // inside the documentation folder, or outside any repository, with no
+        // note gets nothing: there is no repository to name.
+        if (note === undefined && (found.inFolder || found.repoToplevel === undefined)) return
         const text = note === undefined
-          ? `${missingNoteNotice(folder, toplevel)}\n\n---\n\n${clip(service.conventions(), 2_000)}`
+          ? `${missingNoteNotice(folder, found.repoToplevel ?? cwd)}\n\n---\n\n${clip(service.conventions(), 2_000)}`
           : 'Documentation context for this project (the canonical conventions, then '
             + `the project's _index note at ${note.path} — update it as work lands):\n\n`
             + [clip(service.conventions(), 2_000), clip(await readFile(note.path, 'utf8'), 6_000)].join('\n\n---\n\n')

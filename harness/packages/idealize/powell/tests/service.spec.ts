@@ -248,14 +248,14 @@ describe('Powell', () => {
       mood: 'problem',
       bubble: {
         kind: 'problem',
-        text: 'Powell is out of OpenRouter credit. Add credit, then try again.',
+        text: 'OpenRouter is out of credit. Add credit, then try again.',
         choices: [
           { label: 'Add credit', action: 'open', target: 'https://openrouter.ai/settings/credits', primary: true },
           { label: 'Try again', action: 'retry' },
         ],
       },
     })
-    expect(said(events).at(-1)?.text).toBe('Powell is out of OpenRouter credit.')
+    expect(said(events).at(-1)?.text).toBe('OpenRouter is out of credit.')
   })
 
   it('caps every request at POWELL_MAX_TOKENS', async () => {

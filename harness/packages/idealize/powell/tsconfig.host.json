@@ -10,6 +10,7 @@
     "src/guide.ts",
     "src/index.ts",
     "src/invariant.ts",
+    "src/chats.ts",
     "src/projects.ts",
     "src/speech.ts",
     "src/speech-text.ts",

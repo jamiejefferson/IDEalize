@@ -10,7 +10,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, sep } from 'node:path'
 import { parseFrontmatter } from './frontmatter.ts'
 
 const run = promisify(execFile)
@@ -119,6 +119,48 @@ export async function noteForRepo(folder: string, repoToplevel: string): Promise
     }
   }
   return undefined
+}
+
+/** The project note a chat's working folder belongs to, and how it was found. */
+export interface CwdNote {
+  /** The project's `_index.md`, when one was found. */
+  notePath?: string
+  /** The repository toplevel, when the folder is in a repository outside the documentation folder. */
+  repoToplevel?: string
+  /** Whether the folder sits inside the documentation folder itself. */
+  inFolder: boolean
+}
+
+/**
+ * The project note for a chat's working folder. A chat that works in a
+ * project's own notes folder (`Projects/<name>/…`) gets that project's
+ * `_index.md`; the documentation folder is usually a repository itself, so
+ * matching its toplevel against `repo:` pointers found nothing and the chat
+ * was told to create a note that already existed (DocLeaf, 13 Oct 2026).
+ * Elsewhere the repository toplevel decides, and a folder outside any
+ * repository is matched against `repo:` pointers directly.
+ * @param folder - absolute path of the documentation folder.
+ * @param cwd - the chat's working folder.
+ * @returns the note, when one applies, and where the folder sits.
+ */
+export async function noteForCwd(folder: string, cwd: string): Promise<CwdNote> {
+  const here = await realpath(cwd).catch(() => cwd)
+  const docs = await realpath(folder).catch(() => folder)
+  if (here === docs || here.startsWith(`${docs}${sep}`)) {
+    const projects = join(docs, 'Projects')
+    if (!here.startsWith(`${projects}${sep}`)) return { inFolder: true }
+    const name = here.slice(projects.length + 1).split(sep)[0] ?? ''
+    const notePath = join(projects, name, '_index.md')
+    const exists = await stat(notePath).then(info => info.isFile(), () => false)
+    return exists ? { notePath, inFolder: true } : { inFolder: true }
+  }
+  const repoToplevel = await gitToplevel(here)
+  const note = await noteForRepo(folder, repoToplevel ?? here)
+  return {
+    ...note === undefined ? {} : { notePath: note.path },
+    ...repoToplevel === undefined ? {} : { repoToplevel },
+    inFolder: false,
+  }
 }
 
 /** Where a project's documentation folder was found. */

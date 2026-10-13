@@ -49,6 +49,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SPLASH_FRAMES } from '@idealize/skin'
 import { POWELL_PERSONA, powellContext, powellGuide } from './guide.ts'
+import { chatLines, openProjects, projectChat, type ChatRow, type ProjectChat } from './chats.ts'
 import { mergeProjects, readProjectSwitch, resolveProject, subfolders, type ProjectEntry } from './projects.ts'
 import { FalElevenTts, FalScribe, SpeechError, VoiceCache, type SpeechToTextProvider, type TextToSpeechProvider } from './speech.ts'
 import { explainFailure, type FailureLike } from './failure.ts'
@@ -61,6 +62,7 @@ export { explainFailure } from './failure.ts'
 export { ACK_LIBRARY, clipFor, isActionable, parseReply, pickAck, SentenceStream, tidy, wantsDetail } from './speech-text.ts'
 export { appOfTool, statusOfTool } from './status.ts'
 export { mergeProjects, projectKey, readProjectSwitch, resolveProject } from './projects.ts'
+export { chatLines, inProject, openProjects, projectChat } from './chats.ts'
 export { powellContext, powellGuide } from './guide.ts'
 export { wavOf } from './speech.ts'
 
@@ -124,6 +126,19 @@ interface FolderSettings {
   documentationFolder?: string
 }
 
+/** The `idealize` roster Powell reads, structurally (`@idealize/comm`). */
+interface CommLike {
+  roster(): Promise<{
+    id: string
+    name?: string
+    label: string
+    cwd?: string
+    role: string
+    running: boolean
+    live?: { session: { events: readonly { time?: number }[] } }
+  }[]>
+}
+
 /** The desktop shell's actions Powell uses, structurally. */
 interface DesktopLike {
   expandFromBar?(): Promise<void> | void
@@ -182,6 +197,8 @@ export class PowellService extends Service {
   private readonly listeners = new Set<(event: PowellStreamEvent) => void>()
   private state: PowellState = {}
   private agent: Agent | undefined
+  /** The active project's chat, refreshed before each model request. */
+  private target: ProjectChat | undefined
   private starting: Promise<Agent> | undefined
   private stream: SentenceStream | undefined
   private budget = SPOKEN_BUDGET
@@ -358,6 +375,39 @@ export class PowellService extends Service {
     return [...names].sort()
   }
 
+  /** Every chat in IDEalize, open ones marked, from the \`idealize\` roster. */
+  async chats(): Promise<ChatRow[]> {
+    const comm = this.ctx.get('idealizeComm') as CommLike | undefined
+    if (comm === undefined) return []
+    try {
+      return (await comm.roster()).map(entry => ({
+        id: entry.id,
+        ...entry.name === undefined ? {} : { name: entry.name },
+        label: entry.label,
+        ...entry.cwd === undefined ? {} : { cwd: entry.cwd },
+        role: entry.role,
+        running: entry.running,
+        open: entry.live !== undefined,
+        lastActive: entry.live?.session.events.at(-1)?.time ?? 0,
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  /** Look up the active project's chat again (it opens, closes and changes). */
+  async refreshTarget(): Promise<ProjectChat | undefined> {
+    const project = this.project()
+    this.target = project === undefined ? undefined : projectChat(await this.chats(), [project.path, project.notes], this.state.sessionId)
+    return this.target
+  }
+
+  /** The projects open in IDEalize (each has an open chat), the most recently active first. */
+  async openProjects(): Promise<{ name: string; path: string }[]> {
+    const registered = (this.ctx.get('workspaceRegistry')?.list() ?? []).map(workspace => ({ name: workspace.title, path: workspace.path }))
+    return openProjects(await this.chats(), registered, this.state.sessionId)
+  }
+
   /** Every project Powell can switch to. */
   async projects(): Promise<ProjectEntry[]> {
     const folders = this.folders()
@@ -376,7 +426,12 @@ export class PowellService extends Service {
     let project: PowellProject | undefined
     let candidates: string[] = []
     if (isAbsolute(said)) {
-      project = { name: said.split(/[\\/]/).filter(part => part !== '').pop() ?? said, path: resolve(said) }
+      // A folder from the switcher keeps the project's own name and notes when the index knows it.
+      const path = resolve(said)
+      const known = (await this.projects()).find(entry => entry.path === path)
+      project = known === undefined
+        ? { name: said.split(/[\\/]/).filter(part => part !== '').pop() ?? said, path }
+        : { name: known.name, path, ...known.notes === undefined ? {} : { notes: known.notes } }
     } else {
       const found = resolveProject(await this.projects(), said)
       candidates = found.candidates.map(candidate => candidate.name)
@@ -392,6 +447,7 @@ export class PowellService extends Service {
     this.state.project = project
     await this.save()
     this.setView({ project })
+    await this.refreshTarget()
     return { project, candidates }
   }
 
@@ -420,13 +476,19 @@ export class PowellService extends Service {
     // reserves the model's whole output length (64,000 on Haiku 4.5), so a
     // credit balance that would cover many replies refuses every one.
     agentCtx.on('agent/request', async (_payload, next) => {
+      await this.refreshTarget()
       const config = await next()
       return { ...config, maxTokens: Math.min(config.maxTokens ?? POWELL_MAX_TOKENS, POWELL_MAX_TOKENS) }
     })
     prompt?.context({
       name: 'idealize:powell-context',
       order: 130,
-      text: () => powellContext(this.project(), this.folders(), this.apps()),
+      text: () => {
+        const project = this.project()
+        if (project === undefined) return powellContext(undefined, this.folders(), this.apps())
+        const chat = chatLines(this.target, project.path === '' ? project.notes : project.path)
+        return powellContext({ ...project, chat }, this.folders(), this.apps())
+      },
     })
     agentCtx.get('tools')?.register(defineTool({
       name: 'powell_project',
@@ -451,13 +513,15 @@ export class PowellService extends Service {
         }
         if (args.action === 'set') {
           const outcome = await this.setProject((args.name ?? ''))
-          if (outcome.project !== undefined) return { text: describeProject(outcome.project) }
+          if (outcome.project !== undefined) return { text: [describeProject(outcome.project), ...chatLines(this.target, outcome.project.path)].join('\n') }
           return { text: outcome.candidates.length === 0
             ? `No project matches "${(args.name ?? '')}". Ask the user which one, or list them.`
             : `"${(args.name ?? '')}" could be: ${outcome.candidates.join(', ')}. Ask the user which.` }
         }
         const project = this.project()
-        return { text: project === undefined ? 'No active project yet.' : describeProject(project) }
+        if (project === undefined) return { text: 'No active project yet.' }
+        await this.refreshTarget()
+        return { text: [describeProject(project), ...chatLines(this.target, project.path)].join('\n') }
       },
       presentCall: args => ({ card: 'generic', title: 'Project', kind: 'other', rawInput: args }),
     }))
@@ -568,6 +632,16 @@ export class PowellService extends Service {
    * @param modality - how they arrived.
    */
   async say(said: string, modality: 'text' | 'voice'): Promise<void> {
+    // Anything that throws on the way to the model used to leave the owl
+    // silent; it now answers with what went wrong.
+    try {
+      await this.hand(said, modality)
+    } catch (error) {
+      this.problem(`I couldn't take that in: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  private async hand(said: string, modality: 'text' | 'voice'): Promise<void> {
     let text = said
     const words = text.trim()
     if (words === '') return
@@ -610,6 +684,7 @@ export class PowellService extends Service {
     // A correction while Powell is working reaches its very next step (spec
     // journey F); otherwise the message opens a turn.
     this.fromOwl = true
+    await this.refreshTarget()
     if (agent.status === 'running') agent.steer(message)
     else agent.followup(message)
   }
@@ -1053,7 +1128,7 @@ export function apply(ctx: Context, config: Config): void {
         return
       }
       if (refuse(req, res)) return
-      sendJson(res, 200, { project: powell.project() ?? null, projects: await powell.projects() })
+      sendJson(res, 200, { project: powell.project() ?? null, open: await powell.openProjects(), projects: await powell.projects() })
     })
   })
 }

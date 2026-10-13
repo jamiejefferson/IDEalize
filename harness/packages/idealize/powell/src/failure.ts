@@ -1,5 +1,7 @@
 /**
  * Turn a failed turn's provider error into one plain line for the bubble,
+ * spoken by Powell in the first person, with the provider as the subject when
+ * the fault is the provider's ("OpenRouter is out of credit"),
  * plus a link when there is somewhere to go and fix it. Powell used to say
  * "Something went wrong" for every failure, so running out of OpenRouter
  * credit looked like a broken app.
@@ -81,21 +83,21 @@ export function explainFailure(failure: FailureLike | undefined, provider?: stri
     const url = name === undefined ? undefined : CREDIT_PAGES[name] ?? /https:\/\/[^\s"'\\]+credits?[^\s"'\\]*/i.exec(message)?.[0]
     const link = url === undefined ? undefined : { label: 'Add credit', url }
     if (/in_flight_budget/i.test(message)) {
-      return { text: `Powell is nearly out of ${name ?? 'model'} credit, and other chats are using what's left. Add credit, or wait two minutes and try again.`, ...link === undefined ? {} : { link } }
+      return { text: `${name === undefined ? 'My model credit' : `${name} credit`} is nearly used up, and other chats are using the rest. Add credit, or try again in two minutes.`, ...link === undefined ? {} : { link } }
     }
-    return { text: `Powell is out of ${name ?? 'model'} credit. Add credit, then try again.`, ...link === undefined ? {} : { link } }
+    return { text: `${name === undefined ? "I'm out of model credit" : `${name} is out of credit`}. Add credit, then try again.`, ...link === undefined ? {} : { link } }
   }
   if (status === 401 || status === 403 || /invalid[_ ]api[_ ]key|unauthori[sz]ed|authentication/i.test(message)) {
-    return { text: `${capital(who)} refused Powell's key. Check the key in Settings, then try again.` }
+    return { text: `${capital(who)} refused my key. Check the key in Settings, then try again.` }
   }
   if (status === 429 || /rate[_ ]limit|too many requests/i.test(message)) {
-    return { text: `${capital(who)} is limiting how often Powell can ask. Wait a minute, then try again.` }
+    return { text: `${capital(who)} is limiting how often I can ask. Wait a minute, then try again.` }
   }
   if ((status !== undefined && status >= 500) || /overloaded|service unavailable|bad gateway/i.test(message)) {
     return { text: `${capital(who)} is having trouble right now. Try again in a moment.` }
   }
   if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|fetch failed|network|timed out/i.test(message)) {
-    return { text: `Powell couldn't reach ${who}. Check your connection, then try again.` }
+    return { text: `I couldn't reach ${who}. Check your connection, then try again.` }
   }
   const detail = innerMessage(message).replace(/\s+/g, ' ')
   if (detail === '') return { text: 'Something went wrong. Try again?' }

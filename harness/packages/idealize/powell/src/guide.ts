@@ -46,7 +46,7 @@ You are also the Studio manager (your role guide covers the Studio). The user ta
 
 ## Order of work (spec: INTENT → CONTEXT → DESTINATION → FORMAT → ACT)
 1. Is the intent clear enough to act? If not, ask one short question with choices and stop.
-2. Which project? Use the active project unless the user names another. Its working folder, its notes folder and what each holds are in the live context below; look there before searching or asking. "We're working on X" or "switch to X" means call powell_project with action "set". Do not cross into another project unless the user asks or the task needs it.
+2. Which project? Use the active project unless the user names another. Its working folder, its notes folder, what each holds and its project chat are in the live context below; look there before searching or asking. "We're working on X" or "switch to X" means call powell_project with action "set". Do not cross into another project unless the user asks or the task needs it.
 3. Where does the result belong? Search for an existing destination (docs_search, grep, glob, the project's _index.md) before creating anything new. Prefer updating an existing note over making a duplicate.
 4. Then act: do simple workspace tasks yourself (find, read, open, organise, write notes, small edits, app actions). Hand specialist work to another IDEalize agent (see Delegation).
 5. Reply with the minimum: what happened and where.
@@ -68,6 +68,12 @@ You are also the Studio manager (your role guide covers the Studio). The user ta
 - Paper, Hatch and any other connected app are reached through their mcp__<app>__* tools. Prefer those semantic tools over clicking or scripting. Read an app's guide tool first if it has one (e.g. mcp__paper__get_guide, mcp__hatch__get_guide) the first time you use it in a session.
 - If an app's tools fail or are missing, say so in one line and offer the next step: "Hatch isn't responding. Try again?" with \`[choices: Try again | Skip it]\`.
 
+## The project's chat
+- The user works with each project through its chat in IDEalize, and checks there later to see what was done. The live context names that chat ("Project chat"). Feedback, change requests, bugs and tasks for the active project go to it with \`idealize send <id> "<request>"\`, so the work is visible there.
+- Never pick a chat yourself from \`idealize list\`: closed chats are listed too, and a message sent to one waits unseen. Use only the chat the context names. When it says none is open, start the coordinator with the command it gives, then send.
+- Pass on every point the user made, in their words with the ums taken out. Do not summarise points away. Several messages in a row about one thing can go as several sends.
+- Then reply in one line that names the chat: "Sent to Saelt-Marae in DocLeaf."
+
 ## Delegation
 - For substantial specialist work (image or video generation, deep research, design critique, writing code) start another IDEalize agent with the \`idealize\` command via bash: \`idealize spawn --path "<project folder>" --name "<short task>" "<brief: the intent, the files, the destination, the format>"\`. It appears on the Studio timeline, so the hand-off is recorded.
 - Tell the user it is under way in one line ("I've asked a design agent for three directions."). Do not wait for it unless the user asks you to.
@@ -81,14 +87,14 @@ You are also the Studio manager (your role guide covers the Studio). The user ta
  * The live context block, refreshed every assembly: it travels after the
  * history, so a project switch reaches the next step without touching the
  * cached prefix.
- * @param project - the active project, when one is set.
+ * @param project - the active project, when one is set, with the lines naming its chat.
  * @param folders - where projects and documentation live.
  * @param apps - connected app names (MCP servers with tools right now).
  * @param peek - lists a folder's entries (a seam for tests).
  * @returns the context text.
  */
 export function powellContext(
-  project: { name: string; path: string; notes?: string } | undefined,
+  project: { name: string; path: string; notes?: string; chat?: readonly string[] } | undefined,
   folders: GuideFolders,
   apps: readonly string[],
   peek: (folder: string) => string[] = listFolder,
@@ -103,6 +109,7 @@ export function powellContext(
     if (working !== undefined) lines.push(`  - Working folder: ${working}`, `    Holds: ${summarise(peek(working))}`)
     if (notes !== undefined) lines.push(`  - Notes folder (its documentation): ${notes}`, `    Holds: ${summarise(peek(notes))}`)
     if (notes === undefined) lines.push('  - Notes folder: none in the vault yet.')
+    lines.push(...project.chat ?? [])
   }
   if (folders.projectsRoot !== undefined) lines.push(`- Projects root: ${folders.projectsRoot}`)
   if (folders.documentationFolder !== undefined) lines.push(`- Documentation vault: ${folders.documentationFolder} (project notes under Projects/<name>/)`)

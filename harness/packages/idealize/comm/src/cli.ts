@@ -117,6 +117,7 @@ COMMANDS:
   peek [--json]                         read my messages without clearing
   list [--json]                         list chats
   spawn <task> [--name LABEL] [--path DIR] [--model M]  start a new chat (in DIR, else my project) with an opening task; prints its id. --name labels it (else one is read off the task)
+  spawn <task> --space images|sounds|video  start an image, sound or video chat on that task (it generates; it has no shell)
   spawn --coordinator [--path DIR]      start (or surface) DIR's Project Coordinator; prints its id
   spawn --studio                        start (or surface) the one Studio Coordinator; prints its id
   transcript <session> [--last N] [--json]  read a chat's recent Q&A
@@ -342,12 +343,14 @@ async function main(): Promise<void> {
       const coordinator = flags.bools.has('coordinator')
       const studio = flags.bools.has('studio')
       if (task === '' && path === undefined && !coordinator && !studio) {
-        fail('usage: idealize spawn <task> [--name LABEL] [--path DIR] [--model M] | idealize spawn --coordinator [--path DIR] | idealize spawn --studio')
+        fail('usage: idealize spawn <task> [--name LABEL] [--path DIR] [--model M] [--space images|sounds|video] | idealize spawn --coordinator [--path DIR] | idealize spawn --studio')
       }
       const name = flags.values.get('name')
       const model = flags.values.get('model')
+      const space = flags.values.get('space')
       const resp = await send({
         command: 'spawn',
+        ...space === undefined ? {} : { space },
         ...path === undefined ? {} : { path: resolve(path) },
         ...task === '' ? {} : { body: task },
         ...name === undefined ? {} : { name },

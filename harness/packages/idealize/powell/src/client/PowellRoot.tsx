@@ -131,11 +131,13 @@ function useOwlFrame(pose: PoseName): { frame: number; perk: () => void } {
  */
 export function PowellRoot({ store, mouth }: PowellRootInjected): React.JSX.Element {
   const view = useSyncExternalStore(listener => store.subscribe(listener), () => store.getSnapshot())
+  const online = useSyncExternalStore(listener => store.subscribe(listener), () => store.connected())
   const bridge = useMemo(() => desktop(), [])
   const [local, setLocal] = useState<LocalMood>(null)
   const [localBubble, setLocalBubble] = useState<LocalBubble>(null)
   const [pill, setPill] = useState<{ open: boolean; text: string; sending: boolean }>({ open: false, text: '', sending: false })
-  const [menu, setMenu] = useState<null | { projects: string[] | null }>(null)
+  // `switch` is the project switcher opened from the tag; `full` is the right-click menu.
+  const [menu, setMenu] = useState<null | { mode: 'switch' | 'full'; projects: { name: string; target: string }[] | null }>(null)
   const [level, setLevel] = useState(0)
   const [speaking, setSpeaking] = useState(false)
   const [hiddenBubble, setHiddenBubble] = useState<string | null>(null)
@@ -206,7 +208,12 @@ export function PowellRoot({ store, mouth }: PowellRootInjected): React.JSX.Elem
       turn.current += 1
       if (mouth.has(ack)) mouth.say(`ack-${String(turn.current)}`, '', ack)
     }
-    void post('/idealize/powell/say', { text: words, modality })
+    // A message that never reaches the host used to vanish with no answer.
+    void post('/idealize/powell/say', { text: words, modality }).then((ok) => {
+      if (ok) return
+      mouth.hush()
+      setLocalBubble({ local: 'unsent', kind: 'problem', text: 'That didn\'t reach me. Try again?', choices: [{ label: 'Try again', action: 'retry', target: words, primary: true }] })
+    })
   }, [mouth])
 
   // ── voice ──────────────────────────────────────────────────────────────────
@@ -396,6 +403,10 @@ export function PowellRoot({ store, mouth }: PowellRootInjected): React.JSX.Elem
   const choose = (choice: PowellChoice): void => {
     if (localBubble !== null) {
       setLocalBubble(null)
+      if (localBubble.local === 'unsent' && choice.target !== undefined) {
+        send(choice.target, 'text')
+        return
+      }
       if (choice.target === 'consent-yes') {
         void post('/idealize/powell/prefs', { voiceConsent: true })
         if (mouth.has('listening')) mouth.say('consent', '', 'listening')
@@ -409,14 +420,22 @@ export function PowellRoot({ store, mouth }: PowellRootInjected): React.JSX.Elem
   }
 
   // ── menu ───────────────────────────────────────────────────────────────────
+  // Both list the projects open in IDEalize (each has an open chat), the most
+  // recently used first; every known project only when none is open.
+  const showMenu = (mode: 'switch' | 'full'): void => {
+    setPill({ open: false, text: '', sending: false })
+    setMenu({ mode, projects: null })
+    void fetch('/idealize/powell/project').then(async (response) => {
+      const body = await response.json() as { open?: { name: string; path: string }[]; projects: { name: string }[] }
+      const projects = body.open !== undefined && body.open.length > 0
+        ? body.open.map(project => ({ name: project.name, target: project.path }))
+        : body.projects.map(project => ({ name: project.name, target: project.name }))
+      setMenu(prior => prior === null ? prior : { mode: prior.mode, projects })
+    }).catch(() => undefined)
+  }
   const openMenu = (event: React.MouseEvent): void => {
     event.preventDefault()
-    setPill({ open: false, text: '', sending: false })
-    setMenu({ projects: null })
-    void fetch('/idealize/powell/project').then(async (response) => {
-      const body = await response.json() as { projects: { name: string }[] }
-      setMenu(prior => prior === null ? prior : { projects: body.projects.map(project => project.name) })
-    }).catch(() => undefined)
+    showMenu('full')
   }
 
   const pose = poseOf(view.mood, local)
@@ -427,10 +446,12 @@ export function PowellRoot({ store, mouth }: PowellRootInjected): React.JSX.Elem
       ? 'Speak now'
       : local === 'hearing'
         ? 'Got it'
-        : view.status !== ''
-          ? view.status
-          : view.project?.name ?? 'No project'
-  const tone = local === 'listening' ? 'listening' : local === 'opening' ? 'opening' : view.mood === 'problem' ? 'problem' : view.busy || local === 'hearing' ? 'busy' : 'rest'
+        : !online
+          ? 'Reconnecting…'
+          : view.status !== ''
+            ? view.status
+            : view.project?.name ?? 'Pick a project'
+  const tone = local === 'listening' ? 'listening' : local === 'opening' ? 'opening' : view.mood === 'problem' || !online ? 'problem' : view.busy || local === 'hearing' ? 'busy' : 'rest'
 
   return (
     <div className={styles.stage} data-flip={layout.flip ? '' : undefined}>
@@ -441,38 +462,41 @@ export function PowellRoot({ store, mouth }: PowellRootInjected): React.JSX.Elem
       >
         {menu !== null && (
           <div className={styles.menu} data-powell-hit="" role="menu">
-            <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); bridge.openMain() }}>Open IDEalize</button>
-            <div className={styles.menuLabel}>Project</div>
+            {menu.mode === 'full' && <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); bridge.openMain() }}>Open IDEalize</button>}
+            <div className={styles.menuLabel}>{menu.mode === 'switch' ? 'Switch project' : 'Project'}</div>
             <div className={styles.menuProjects}>
               {menu.projects === null && <span className={styles.menuNote}>Loading…</span>}
-              {menu.projects?.slice(0, 30).map(name => (
+              {menu.projects?.length === 0 && <span className={styles.menuNote}>No projects yet</span>}
+              {menu.projects?.slice(0, 30).map(project => (
                 <button
-                  key={name}
+                  key={project.target}
                   type="button"
                   role="menuitemradio"
-                  aria-checked={view.project?.name === name}
+                  aria-checked={view.project?.name === project.name}
                   className={styles.menuItem}
-                  data-current={view.project?.name === name ? '' : undefined}
+                  data-current={view.project?.name === project.name ? '' : undefined}
                   onClick={() => {
                     setMenu(null)
-                    void post('/idealize/powell/project', { name })
+                    void post('/idealize/powell/project', { name: project.target })
                   }}
                 >
-                  {name}
+                  {project.name}
                 </button>
               ))}
             </div>
-            <div className={styles.menuRule} />
-            {view.busy && <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); void post('/idealize/powell/stop') }}>Stop</button>}
-            <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); void post('/idealize/powell/prefs', { muted: !view.muted }) }}>
-              {view.muted ? 'Read replies aloud' : 'Mute voice replies'}
-            </button>
-            {view.voiceConsent && (
-              <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); void post('/idealize/powell/prefs', { voiceConsent: false }) }}>
-                Turn off voice input
+            {menu.mode === 'full' && <>
+              <div className={styles.menuRule} />
+              {view.busy && <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); void post('/idealize/powell/stop') }}>Stop</button>}
+              <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); void post('/idealize/powell/prefs', { muted: !view.muted }) }}>
+                {view.muted ? 'Read replies aloud' : 'Mute voice replies'}
               </button>
-            )}
-            <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); bridge.hide() }}>Hide Powell</button>
+              {view.voiceConsent && (
+                <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); void post('/idealize/powell/prefs', { voiceConsent: false }) }}>
+                  Turn off voice input
+                </button>
+              )}
+              <button type="button" role="menuitem" className={styles.menuItem} onClick={() => { setMenu(null); bridge.hide() }}>Hide Powell</button>
+            </>}
           </div>
         )}
 
@@ -573,7 +597,16 @@ export function PowellRoot({ store, mouth }: PowellRootInjected): React.JSX.Elem
 
         <div className={styles.tag} data-tone={tone} data-powell-hit="">
           <span className={styles.dot} />
-          <span className={styles.tagText}>{status}</span>
+          {/* At rest the tag names the project; one tap opens the switcher. */}
+          {local === null && !view.busy && online && view.status === ''
+            ? (
+              <button type="button" className={styles.tagSwitch} aria-haspopup="menu" aria-expanded={menu?.mode === 'switch'} aria-label={`Project: ${status}. Switch project`}
+                onClick={() => { if (menu?.mode === 'switch') setMenu(null); else showMenu('switch') }}>
+                <span className={styles.tagText}>{status}</span>
+                <svg className={styles.chevron} viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </button>
+            )
+            : <span className={styles.tagText}>{status}</span>}
           {view.busy && local === null && (
             <button type="button" className={styles.stop} aria-label="Stop" onClick={() => { void post('/idealize/powell/stop') }}>■</button>
           )}

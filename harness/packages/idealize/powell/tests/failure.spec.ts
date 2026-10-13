@@ -14,26 +14,26 @@ const inFlight = '402 {"type":"error","error":{"type":"billing_error","message":
 describe('explainFailure()', () => {
   it('names OpenRouter credit and links its credit page', () => {
     expect(explainFailure({ message: credits, code: 'PI_AI_ERROR' }, 'openrouter')).toEqual({
-      text: 'Powell is out of OpenRouter credit. Add credit, then try again.',
+      text: 'OpenRouter is out of credit. Add credit, then try again.',
       link: { label: 'Add credit', url: 'https://openrouter.ai/settings/credits' },
     })
   })
 
   it('says other chats are using the last of the credit', () => {
     const explained = explainFailure({ message: inFlight, code: 'PI_AI_ERROR' }, 'openrouter')
-    expect(explained.text).toMatch(/nearly out of OpenRouter credit/)
+    expect(explained.text).toBe('OpenRouter credit is nearly used up, and other chats are using the rest. Add credit, or try again in two minutes.')
     expect(explained.link?.url).toBe('https://openrouter.ai/settings/credits')
   })
 
   it('reads the status field as well as the message', () => {
-    expect(explainFailure({ message: 'payment needed', code: 'X', status: 402 }, 'anthropic').text).toBe('Powell is out of Anthropic credit. Add credit, then try again.')
+    expect(explainFailure({ message: 'payment needed', code: 'X', status: 402 }, 'anthropic').text).toBe('Anthropic is out of credit. Add credit, then try again.')
   })
 
   it('explains keys, rate limits, outages and the network', () => {
-    expect(explainFailure({ message: '401 invalid api key', code: 'X' }, 'openrouter').text).toBe("OpenRouter refused Powell's key. Check the key in Settings, then try again.")
+    expect(explainFailure({ message: '401 invalid api key', code: 'X' }, 'openrouter').text).toBe('OpenRouter refused my key. Check the key in Settings, then try again.')
     expect(explainFailure({ message: '429 Too Many Requests', code: 'X' }, 'deepseek').text).toMatch(/^DeepSeek is limiting/)
     expect(explainFailure({ message: '503 overloaded', code: 'X' }, 'anthropic').text).toBe('Anthropic is having trouble right now. Try again in a moment.')
-    expect(explainFailure({ message: 'fetch failed', code: 'X' }, undefined).text).toBe("Powell couldn't reach the model provider. Check your connection, then try again.")
+    expect(explainFailure({ message: 'fetch failed', code: 'X' }, undefined).text).toBe("I couldn't reach the model provider. Check your connection, then try again.")
   })
 
   it('falls back to the provider\'s own sentence', () => {

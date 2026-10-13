@@ -26,12 +26,14 @@ import type {} from '@idealize/host-bridge'
 // Type-only: the `artefact/created` session event (SessionEventMap merge).
 import type {} from '@idealize/artefacts'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
-import { foldSpace } from '@idealize/spaces'
+import { foldSpace, recordSelection, spaceById } from '@idealize/spaces'
+import type { SpaceId } from '@idealize/spaces'
 import { STUDIO_PROJECT } from '@idealize/studio'
 import type { StudioEvent } from '@idealize/studio'
 import { resolveTarget } from './resolve.ts'
 import type { SessionRecord } from './resolve.ts'
 import type { CommStore } from './store.ts'
+import { peersNotice } from './peers.ts'
 import { pickName, poolFor } from './names.ts'
 import { foldAgentName } from './projection.ts'
 import { presetOfRole, ROLE_OPENING, ROLE_TITLES, roleOfPreset, STUDIO_AGENT_NAME } from './roles.ts'
@@ -92,16 +94,16 @@ export const WAKE_NOTICE = 'Studio changed while you were idle. Run `idealize in
  * told to pause until another had finished read that chat's "I've finished"
  * as information and kept waiting for the person to say so (JJ, 22 Sep 2026).
  */
-export const MAIL_NOTICE = 'A note from another agent arrived while you were idle. Run `idealize inbox` to read it, then act on it as you would on the person\'s own words: '
+export const MAIL_NOTICE = 'A note from another agent arrived while you were idle. Run `idealize inbox` (or call the `idealize_inbox` tool, if you have no shell) to read it, then act on it as you would on the person\'s own words: '
   + 'when it says something you were waiting for has happened, or hands you a next step, carry on with that now without waiting for the person to repeat it. '
-  + 'Answer with `idealize send <agent> <text>` when it asks you something or you are blocked.'
+  + 'Answer with `idealize send <agent> <text>` (or `idealize_send`) when it asks you something or you are blocked.'
 
 /**
  * What an idle agent is told when the person's note, typed in the Studio,
  * reaches its empty mailbox: the answer belongs in the Studio, where the
  * person is reading, so the notice names `idealize post` as the reply.
  */
-export const STUDIO_MAIL_NOTICE = 'A note from the person, sent from the Studio, arrived while you were idle. Run `idealize inbox` to read it, then answer in the Studio with `idealize post <text>`, not only here.'
+export const STUDIO_MAIL_NOTICE = 'A note from the person, sent from the Studio, arrived while you were idle. Run `idealize inbox` (or call `idealize_inbox`) to read it, then answer in the Studio with `idealize post <text>` (or `idealize_post`), not only here.'
 
 /** The label a Studio-origin note carries in the inbox and on the bridge feed. */
 export const STUDIO_SENDER_LABEL = 'Studio'
@@ -205,6 +207,20 @@ function wakeable(agent: Agent): boolean {
 /** The terminal plugin's nudge, probed structurally so comm takes no dependency on it. */
 interface TerminalsLike {
   nudge?(sessionId: string, text: string, wanted?: () => boolean): boolean
+}
+
+/**
+ * The space a spawn asks for, by its id or the word a person uses for it.
+ * @param said - `images`, `sounds`, `video`, `chat`, or a space id.
+ * @returns the launchable space, or undefined when the word names none.
+ */
+export function spaceOfRequest(said: string): SpaceId | undefined {
+  const word = said.trim().toLowerCase()
+  if (['image', 'images', 'gallery', 'picture', 'pictures'].includes(word)) return 'gallery'
+  if (['sound', 'sounds', 'soundstage', 'audio', 'music'].includes(word)) return 'soundstage'
+  if (['video', 'videos', 'motion', 'film'].includes(word)) return 'motion'
+  if (word === 'chat') return 'chat'
+  return undefined
 }
 
 function failure(error: string): CommResponse {
@@ -439,6 +455,25 @@ export class IdealizeComm extends Service {
       }
     }
     return [...entries.values()]
+  }
+
+  /**
+   * The notice naming the other chats open in a new chat's project.
+   * @param session - the new chat.
+   * @returns the notice, or undefined when it is alone there.
+   */
+  async peers(session: Session): Promise<string | undefined> {
+    const roster = await this.roster()
+    const roots = this.ctx.get('workspaceRegistry')?.list().map(workspace => workspace.path) ?? []
+    return peersNotice(String(session.header.id), session.header.cwd, roster.map(entry => this.info(entry)).map(info => ({
+      id: info.id,
+      ...info.name === undefined ? {} : { name: info.name },
+      title: info.title,
+      ...info.projectPath === undefined ? {} : { projectPath: info.projectPath },
+      role: info.role,
+      status: info.status ?? (info.running ? 'working' : 'idle'),
+      live: info.live,
+    })), roots)
   }
 
   private info(entry: RosterEntry): CommSessionInfo {
@@ -1102,7 +1137,7 @@ export class IdealizeComm extends Service {
    * default selection unless the request names one. Shared by a fresh spawn
    * and a resume so the two never drift.
    */
-  private async composition(role: CommRole | undefined, model: string | undefined): Promise<
+  private async composition(role: CommRole | undefined, model: string | undefined, spacePreset?: string): Promise<
     | { ok: true; agents: Context['agents']; presets: Context['agentPresets'] | undefined; presetId: string | undefined; selection: { provider: string; model: string } }
     | { ok: false; failure: CommResponse }
   > {
@@ -1119,11 +1154,12 @@ export class IdealizeComm extends Service {
     const presets = this.ctx.get('agentPresets')
     let presetId: string | undefined
     if (presets !== undefined) {
-      const wanted = role === undefined ? undefined : presetOfRole(role, this.config())
+      const wanted = role === undefined ? spacePreset : presetOfRole(role, this.config())
       try {
         presetId = (await presets.resolve(wanted)).id
       } catch (error) {
-        return { ok: false, failure: failure(`the ${role === undefined ? 'default' : ROLE_TITLES[role]} Activity Agent is unavailable: ${error instanceof Error ? error.message : String(error)}`) }
+        const which = role === undefined ? spacePreset ?? 'default' : ROLE_TITLES[role]
+        return { ok: false, failure: failure(`the ${which} Activity Agent is unavailable: ${error instanceof Error ? error.message : String(error)}`) }
       }
     }
     return { ok: true, agents, presets, presetId, selection }
@@ -1243,8 +1279,15 @@ export class IdealizeComm extends Service {
         this.ctx.logger.warn(`idealize-comm: ${existing.id} could not be resumed (${revived.error ?? 'unknown'}); starting a fresh ${ROLE_TITLES[role]}`)
       }
     }
+    // A chat can start an image, sound or video chat for work it cannot do
+    // itself (feedback 553ae5fb, 13 Oct 2026): it runs that space's agent.
+    let space: SpaceId | undefined
+    if (role === undefined && request.space !== undefined) {
+      space = spaceOfRequest(request.space)
+      if (space === undefined) return failure(`unknown space '${request.space}' — one of: images, sounds, video, chat`)
+    }
     const brief = (request.body ?? '').trim() || (role === undefined ? '' : ROLE_OPENING[role])
-    const composed = await this.composition(role, request.model)
+    const composed = await this.composition(role, request.model, space === undefined ? undefined : spaceById(space).agentPreset)
     if (!composed.ok) return composed.failure
     const { agents, presets, presetId, selection } = composed
     const sessionId = SessionId(`session-${randomUUID()}`)
@@ -1285,6 +1328,10 @@ export class IdealizeComm extends Service {
       }
     }
     if (role !== undefined) await this.store.setRole(String(sessionId), role)
+    if (space !== undefined) {
+      const brain = presetId === undefined ? {} : { brain: presetId }
+      recordSelection(agent.session, { ok: true, sessionId: String(sessionId), space, ...brain })
+    }
     if (brief !== '') {
       agent.followup(createUserMessage({
         content: [{ type: 'text', text: brief }],

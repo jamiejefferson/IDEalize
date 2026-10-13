@@ -169,6 +169,25 @@
   text-overflow: ellipsis;
 }
 
+/* At rest the tag is the project switcher. */
+.tagSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 0 -9px 0 0;
+  padding: 0 9px 0 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.tagSwitch:focus-visible { outline: 1px solid #fff; outline-offset: 2px; border-radius: 4px; }
+.chevron { flex: none; width: 10px; height: 10px; opacity: 0.7; }
+.tagSwitch:hover .chevron { opacity: 1; }
+
 .dot {
   flex: none;
   width: 6px;

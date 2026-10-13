@@ -25,7 +25,8 @@ export interface PowellStore {
  */
 export function startStore(mouth: Mouth): PowellStore {
   let view = EMPTY
-  let live = false
+  // Assumed up until the stream says otherwise, so the tag does not flash "Reconnecting" at start.
+  let live = true
   const listeners = new Set<() => void>()
   const notify = (): void => { for (const listener of listeners) listener() }
   const source = new EventSource('/idealize/powell/events')

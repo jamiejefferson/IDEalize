@@ -124,7 +124,7 @@ export function parseRequest(text: string): CommRequest | { error: string } {
   const record = raw as Record<string, unknown>
   if (!isCommand(record.command)) return { error: `unknown command '${String(record.command)}'` }
   const request: CommRequest = { command: record.command }
-  for (const key of ['from', 'target', 'body', 'title', 'name', 'path', 'model', 'piece', 'rung', 'blocker', 'task', 'owner'] as const) {
+  for (const key of ['from', 'target', 'body', 'title', 'name', 'path', 'model', 'piece', 'rung', 'blocker', 'task', 'owner', 'space'] as const) {
     const value = record[key]
     if (value === undefined) continue
     if (typeof value !== 'string') return { error: `${key} must be a string` }
@@ -231,6 +231,8 @@ export function apply(ctx: Context, config: CommConfig = DEFAULT_COMM_CONFIG): v
           const guide = await roleGuide(role)
           if (guide !== undefined) parts.push(clip(guide, 24_000))
         }
+        const peers = await comm.peers(agent.session)
+        if (peers !== undefined) parts.push(peers)
         agent.inject(createUserMessage({
           content: [{ type: 'text', text: parts.join('\n\n---\n\n') }],
           source: { kind: 'plugin', plugin: 'idealize-comm', form: 'notice', summary: role === undefined ? 'Agent name' : 'Agent name and role guide' },

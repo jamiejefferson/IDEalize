@@ -10,7 +10,7 @@ import type { StudioEvent } from '@idealize/studio'
 import { parseRequest, refuse, WAKE_NOTICE } from '../src/index.ts'
 import { DEFAULT_COMM_CONFIG } from '../src/config.ts'
 import { foldAgentName } from '../src/projection.ts'
-import { foldExchanges, IdealizeComm, MAIL_NOTICE, STUDIO_MAIL_NOTICE } from '../src/service.ts'
+import { foldExchanges, IdealizeComm, MAIL_NOTICE, spaceOfRequest, STUDIO_MAIL_NOTICE } from '../src/service.ts'
 import { CommStore, commStorePath } from '../src/store.ts'
 
 function event(seq: number, type: string, data: unknown): SessionEvent {
@@ -224,6 +224,62 @@ describe('IdealizeComm.spawn', () => {
     expect(resumed).toEqual(['sess-studio'])
     expect(revived.followups).toHaveLength(1)
     expect(JSON.stringify(revived.followups[0])).toContain('sent from the Studio')
+  })
+})
+
+describe('IdealizeComm.spawn into a space', () => {
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  async function bench() {
+    const home = await mkdtemp(join(tmpdir(), 'idealize-comm-spawn-space-'))
+    vi.stubEnv('DSH_HOME', home)
+    const ctx = new Context()
+    const comm = new IdealizeComm(ctx, { store: new CommStore(commStorePath(home)), config: () => DEFAULT_COMM_CONFIG })
+    const appended: { type: string; data: unknown }[] = []
+    const wanted: unknown[] = []
+    const followups: unknown[] = []
+    const provide = (ctx as unknown as { provide(name: string, value: unknown): void }).provide.bind(ctx)
+    provide('agents', {
+      roots: () => [],
+      create: async (options: { sessionId: string }) => ({
+        agent: {
+          status: 'idle',
+          session: {
+            events: [],
+            header: { id: options.sessionId, cwd: home },
+            append: (type: string, data: unknown) => { appended.push({ type, data }) },
+          },
+          followup: (message: unknown) => { followups.push(message) },
+        },
+      }),
+    })
+    provide('agentDefaultModel', { currentSelection: () => ({ provider: 'p', model: 'm' }) })
+    provide('agentPresets', { resolve: async (id: string | undefined) => { wanted.push(id); return { id: id ?? 'standard' } } })
+    return { comm, home, appended, wanted, followups }
+  }
+
+  it('starts an image chat on the Gallery agent, recorded in the Images space, with the brief as its first message', async () => {
+    const { comm, home, appended, wanted, followups } = await bench()
+    const started = await comm.handle({ command: 'spawn', path: home, body: 'Three hero images for the DocLeaf homepage', space: 'images' })
+    expect(started.ok).toBe(true)
+    expect(wanted).toEqual(['gallery'])
+    expect(appended).toContainEqual({ type: 'idealize/space', data: { space: 'gallery' } })
+    expect(appended).toContainEqual({ type: 'idealize/brain', data: { brain: 'gallery' } })
+    expect(JSON.stringify(followups[0])).toContain('Three hero images')
+  })
+
+  it('refuses a space it does not know, before starting anything', async () => {
+    const { comm, home, wanted } = await bench()
+    expect(await comm.handle({ command: 'spawn', path: home, body: 'x', space: 'holograms' })).toEqual({ ok: false, error: 'unknown space \'holograms\' — one of: images, sounds, video, chat' })
+    expect(wanted).toEqual([])
+  })
+
+  it('reads the words people use for each space', () => {
+    expect(['images', 'sounds', 'video', 'motion', 'Gallery'].map(word => spaceOfRequest(word))).toEqual(['gallery', 'soundstage', 'motion', 'motion', 'gallery'])
+  })
+
+  it('carries the space across the wire', () => {
+    expect(parseRequest('{"command":"spawn","body":"t","space":"video"}')).toEqual({ command: 'spawn', body: 't', space: 'video' })
   })
 })
 

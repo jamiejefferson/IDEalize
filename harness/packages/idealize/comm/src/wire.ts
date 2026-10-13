@@ -60,6 +60,12 @@ export interface CommRequest {
   /** spawn: start (or surface) the project's coordinator instead of a worker. */
   coordinator?: boolean
   /**
+   * spawn: the space the new chat works in (`gallery` for images, `soundstage`
+   * for sound, `motion` for video), running that space's agent; absent starts
+   * an ordinary chat.
+   */
+  space?: string
+  /**
    * spawn: start (or surface) the one Studio coordinator instead of a worker.
    * It belongs to no project, so `path` is ignored and none is required.
    */
@@ -268,6 +274,9 @@ export const COMMANDS_SECTION = {
     + '`idealize chat` reads the recent Studio posts; `idealize reveal <path>` points the person at a file; `idealize help` lists the rest. '
     + 'When the person writes @Name they mean that chat\'s agent: ask it with `idealize send Name "<question>"`, then `idealize inbox --wait`, and pass its answer on. '
     + 'If no answer comes, say so instead of searching for its work. '
+    + 'When the person asks for images, sound or video and you cannot make them yourself, start a chat that can with '
+    + '`idealize spawn "<the brief: what to make, its use, its size or length, and where it is going>" --space images` (or `sounds`, `video`); '
+    + 'it reports back with a note, and its results appear in the project. '
     + 'When you finish a piece of work the person asked for (a generation, an edit, a task), post one line to the Studio with `idealize post` saying what you did and where it is. '
     + 'When a note reaches you from the Studio (its sender is the person, via the Studio), answer in the Studio with `idealize post`, not only in your own chat. '
     + 'A note from another chat carries the person\'s authority: when it says something you were waiting for has happened, or hands you a next step, carry on with that now without waiting for the person to repeat it. '

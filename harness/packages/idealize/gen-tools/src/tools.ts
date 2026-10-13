@@ -46,8 +46,10 @@ import type {
   MediaPresetDefinition,
 } from '@idealize/generate'
 import type { GenerationReroutedData } from './types.ts'
+import { createTalkTools, TALK_SECTION } from './talk.ts'
 
 export type { GenerationReroutedData } from './types.ts'
+export { createTalkTools, TALK_SECTION } from './talk.ts'
 
 declare module '@deepseek-ai/dsh-jobs' {
   interface JobKindMap {
@@ -506,4 +508,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   for (const tool of createGenerationTools(ctx, config)) {
     ctx.effect(() => ctx.tools.register(tool), `gen-tools: ${tool.name}`)
   }
+  // A generating chat has no shell, so it reaches other chats through these.
+  for (const tool of createTalkTools(ctx)) {
+    ctx.effect(() => ctx.tools.register(tool), `gen-tools: ${tool.name}`)
+  }
+  const prompt = (ctx as unknown as { get(name: string): unknown }).get('systemPrompt') as { section(section: typeof TALK_SECTION): () => void } | undefined
+  if (prompt !== undefined) ctx.effect(() => prompt.section(TALK_SECTION), 'gen-tools: talk section')
 }
