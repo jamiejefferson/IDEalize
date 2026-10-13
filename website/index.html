@@ -120,6 +120,18 @@
   .film-bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: rgba(255,255,255,.08); opacity: 0; transition: opacity .5s; }
   .film-frame.playing .film-bar { opacity: 1; }
   .film-bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+  /* sound: browsers only allow it after a click or a key, so the film starts muted and this turns it on */
+  .film-sound { position: absolute; right: 20px; bottom: 20px; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; background: rgba(12,12,13,.72); color: var(--ink); font: 400 12px/16px var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transition: border-color .3s, background .3s; }
+  .film-sound:hover { border-color: rgba(255,255,255,.4); }
+  .film-sound:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .film-sound svg { width: 16px; height: 16px; flex: none; }
+  .film-sound .w { opacity: 0; transition: opacity .3s; }
+  .film-sound .x { transition: opacity .3s; }
+  .film-sound[aria-pressed="true"] { border-color: var(--accent); }
+  .film-sound[aria-pressed="true"] .w { opacity: 1; }
+  .film-sound[aria-pressed="true"] .x { opacity: 0; }
+  @media (max-width: 959px) { .film-sound { right: 12px; bottom: 12px; padding: 8px 12px; } }
+  @media (prefers-reduced-motion: reduce) { .film-sound { display: none; } }
   .beats { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); display: grid; grid-template-columns: repeat(6, 1fr); list-style: none; border-top: 1px solid var(--line); will-change: opacity, transform; }
   .beats li { padding: 18px 16px 0 0; display: flex; border-top: 2px solid transparent; margin-top: -1px; transition: border-color .4s; }
   .beats li.on { border-color: var(--accent); }
@@ -538,12 +550,13 @@
     <div class="film-stage">
       <div class="film-glow" id="film-glow"></div>
       <div class="film-frame tv" id="film-frame">
-        <video id="film-video" muted playsinline loop preload="metadata" poster="assets/v2/film-poster.webp" aria-label="IDEalize in 30 seconds: the same window restyled through five looks">
+        <video id="film-video" muted playsinline loop preload="metadata" poster="assets/v2/film-poster.webp" aria-label="IDEalize in 35 seconds: the same window restyled through five looks">
           <source src="assets/v2/film.webm" type="video/webm" />
           <source src="assets/v2/film.mp4" type="video/mp4" />
         </video>
         <div class="crt" aria-hidden="true"><canvas id="crt-grain" width="480" height="270"></canvas><i></i></div>
         <div class="film-bar"><i id="film-bar"></i></div>
+        <button type="button" class="film-sound" id="film-sound" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6h2.5l3.5-3v10l-3.5-3h-2.5z" fill="currentColor"/><path class="w" d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.5a6.3 6.3 0 0 1 0 9"/><path class="x" d="M11 6l3.5 4M14.5 6l-3.5 4"/></svg><span id="film-sound-label">Sound off</span></button>
       </div>
       <ol class="beats" id="beats">
         <li class="on"><button type="button"><span class="t">00:00</span><span class="b">Brilliant tools. Less than ideal setup.</span></button></li>
@@ -936,7 +949,8 @@ $ git push</pre><div class="foot"><b>Terminal</b><span>CODE</span></div></div>
     // every time the film comes into focus it starts again from the blank set and the ident
     // unless a beat was clicked, which starts it from that beat
     video.currentTime = startAt; startAt = 0;
-    video.play().catch(function () {}); setTv();
+    // if the browser refuses sound here, carry on muted
+    video.play().catch(function () { if (!video.muted) { setSound(false); video.play().catch(function () {}); } }); setTv();
   }
   function pause() {
     if (!playing) return; playing = false; frame.classList.remove("playing");
@@ -974,10 +988,22 @@ $ git push</pre><div class="foot"><b>Terminal</b><span>CODE</span></div></div>
     if (r.top < vh * 0.2 && r.bottom > vh * 0.5) play(); else pause();
     setTv();
   }
-  // clicking a beat jumps the film to it and scrolls on until the film is full screen
+  // sound needs a click: the button toggles it, and clicking a beat turns it on
+  var soundBtn = $("#film-sound"), soundLabel = $("#film-sound-label");
+  function setSound(on) {
+    video.muted = !on;
+    soundBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    soundLabel.textContent = on ? "Sound on" : "Sound off";
+  }
+  soundBtn.addEventListener("click", function () {
+    setSound(video.muted);
+    if (!video.muted && playing && video.paused) video.play().catch(function () {});
+  });
+
+  // clicking a beat jumps the film to it, turns the sound on and scrolls on until the film is full screen
   beatEls.forEach(function (li, i) {
     li.querySelector("button").addEventListener("click", function () {
-      showBeat(i);
+      showBeat(i); setSound(true);
       if (playing) video.currentTime = BEATS[i]; else startAt = BEATS[i];
       setTv();
       var top = film.getBoundingClientRect().top + window.scrollY;
