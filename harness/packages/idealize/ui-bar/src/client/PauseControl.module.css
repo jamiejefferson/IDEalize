@@ -1,0 +1,110 @@
+/* The Pause control at the sidebar foot: the 42px foot-row box the Settings
+   trigger and the Cordis footer action share (ui-settings-general
+   SettingsRoot.module.css .trigger), so it reads as one more foot row. */
+
+.row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% + 4px);
+  min-width: 0;
+  height: 42px;
+  margin: 4px -2px;
+  padding: 0 6px 0 8px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* Running: the whole row is the Pause button. */
+.press {
+  composes: row;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.press:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.press:focus-visible,
+.rail:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+.press:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.icon {
+  flex: none;
+  display: inline-flex;
+}
+
+/* Saving and paused: the state in words, its button at the end. */
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saving .label {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.action {
+  composes: button sm outline from './controls.module.css';
+  flex: none;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.resume {
+  composes: button sm primary from './controls.module.css';
+  flex: none;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.error {
+  margin: 0 0 4px;
+  padding: 0 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* Collapsed sidebar: the same 36x36 circle as the other rail controls. */
+.rail {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: 8px 0 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.rail:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.rail[data-pause-phase='paused'] {
+  color: var(--dsw-alias-brand-primary, #5b8def);
+}

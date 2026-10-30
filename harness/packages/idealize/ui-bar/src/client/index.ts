@@ -69,11 +69,16 @@ import { BarIconModels, BarIconPlugins } from './BarIcons.tsx'
 import { IconSkillOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { viewsInBar } from './chat-viewer.ts'
 import { MinimodeButton } from './MinimodeButton.tsx'
+import { PauseControl, type PauseControlInjected } from './PauseControl.tsx'
+import { PauseStore, type PauseAction } from './pause-store.ts'
 import { DrawerPanel, type AppearanceHost, type DrawerPanelInjected, type TerminalHost } from './DrawerPanel.tsx'
 import { FILE_DRAG_TYPE } from './FilesPanel.tsx'
 import { joinHostPath } from './host-path.ts'
 import { DeckPanel, type DeckPanelInjected } from './DeckPanel.tsx'
-import { HeartButton } from './HeartButton.tsx'
+import { compareNodeView } from './CompareCard.tsx'
+import { compareDefinition } from './compare-node.ts'
+import { DislikeButton, HeartButton } from './HeartButton.tsx'
+import { RatingLine } from './RatingLine.tsx'
 import { ProjectContext } from './ProjectContext.tsx'
 import { HatchTrigger, NoLanguageRow, NoProviderDialog } from './HatchChrome.tsx'
 import { HeroLauncher, NoPresetChip, type BrainAccess, type HeroLauncherInjected, type LauncherSession, type TerminalLaunches } from './HeroLauncher.tsx'
@@ -125,7 +130,11 @@ const COMMAND_ROW = 'command:'
 export { IdealizeBar } from './IdealizeBar.tsx'
 export { DrawerPanel } from './DrawerPanel.tsx'
 export { DeckPanel } from './DeckPanel.tsx'
-export { HeartButton } from './HeartButton.tsx'
+export { DislikeButton, HeartButton } from './HeartButton.tsx'
+export { RatingLine } from './RatingLine.tsx'
+export { CompareCard, compareNodeView } from './CompareCard.tsx'
+export { compareDefinition, foldStep } from './compare-node.ts'
+export type { CompareNodeData } from './compare-node.ts'
 export { BrainsPanel } from './BrainsPanel.tsx'
 export { FeedbackPanel } from './FeedbackPanel.tsx'
 export { ServiceSection } from './ServiceSection.tsx'
@@ -133,6 +142,10 @@ export { CompositionSection } from './CompositionSection.tsx'
 export { SchedulePane } from './SchedulePane.tsx'
 export type { ScheduleHost, SchedulePaneProps } from './SchedulePane.tsx'
 export { StudioCard } from './StudioCard.tsx'
+export { PauseControl } from './PauseControl.tsx'
+export type { PauseControlInjected, PauseControlProps } from './PauseControl.tsx'
+export { httpPauseTransport, PAUSE_PATH, PauseStore } from './pause-store.ts'
+export type { PauseAction, PausePhase, PauseState, PauseTransport, PauseView, ShellToOpen } from './pause-store.ts'
 export type { StudioCardInjected, StudioCardProps } from './StudioCard.tsx'
 export { HeroLauncher, NoPresetChip, SPACE_LABELS } from './HeroLauncher.tsx'
 export type { BrainAccess, HeroLauncherInjected, HeroLauncherProps, LauncherSession, LauncherSpaces } from './HeroLauncher.tsx'
@@ -533,6 +546,22 @@ export function apply(ctx: ClientContext): void {
     label: 'Mini mode',
     locale: NS,
   }, MinimodeButton))
+
+  // Pause all agents sits at the sidebar foot (feedback 495cec0a; JJ,
+  // 30 Oct 2026: "sidebar, at the bottom"). One store per window, following
+  // the host's pause while the control is mounted.
+  const pauseStore = new PauseStore()
+  const usePause = bindSnapshotSelector(pauseStore.store)
+  const followPause = (): (() => void) => pauseStore.start()
+  const pressPause = (action: PauseAction): Promise<void> => pauseStore.press(action)
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: 'idealize-pause',
+    order: 10,
+    label: 'Pause all agents',
+    locale: NS,
+    inject: (): PauseControlInjected => ({ usePause, press: pressPause, follow: followPause }),
+  }, PauseControl))
 
   // The sidebar foot's Settings trigger: shadowed by an empty occupant (lowest
   // priority renders) so the shell hides the button — the Service hatch is a
@@ -1331,6 +1360,30 @@ export function apply(ctx: ClientContext): void {
     order: 10,
     locale: NS,
   }, HeartButton))
+
+  // ── Ratings and dislike (JJ, 28 Oct 2026) ──────────────────────────────
+  // The dislike sits beside the heart; the line both bring up sits above the
+  // composer card; a comparison folds into one card in the transcript.
+  ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
+    name: 'conversation.input.right',
+    id: 'idealize-dislike',
+    order: 11,
+    locale: NS,
+  }, DislikeButton))
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock',
+    id: 'idealize-rating-line',
+    order: 10,
+    locale: NS,
+  }, RatingLine))
+  ctx.inject(['conversationEvents'], (conversationCtx) => {
+    conversationCtx.conversationEvents.register(compareDefinition)
+  })
+  ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
+    name: 'conversation.chat.node',
+    key: 'router-compare',
+    locale: 'conversation',
+  }, compareNodeView(ctx.locale.bind(NS) as Parameters<typeof compareNodeView>[0])))
 
   // ── Chat title context ("in Casa Madrigal") ────────────────────────────
   ctx.slots.inject('conversation.session.header.context', () => ctx.slots.register({

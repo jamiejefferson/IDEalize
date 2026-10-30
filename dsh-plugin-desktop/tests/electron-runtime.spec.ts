@@ -212,6 +212,7 @@ const electron = vi.hoisted(() => {
       dock: { setIcon: vi.fn() },
       focus: vi.fn(),
       hide: vi.fn(),
+      quit: vi.fn(),
       show: vi.fn(),
       getLocale: vi.fn(() => 'en-US'),
       getPath: vi.fn((name: string): string => {
@@ -996,6 +997,23 @@ describe('Electron compatibility runtime', () => {
     expect(item).toBeDefined()
     item?.click?.()
     await vi.waitFor(() => { expect(requestModeChange).toHaveBeenCalledWith('advanced') })
+
+    await release()
+  })
+
+  it('quits from the tray through Electron\'s quit, so working agents are asked about first', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const requestQuit = vi.fn()
+    const runtime = new ElectronDesktopRuntime(async () => {})
+    const release = runtime.schedule({ ...spec, requestQuit })
+
+    await runtime.mountScheduled()
+    const quit = (electron.menuTemplates[0] as Array<{ label?: string, click?: () => void }>)
+      .find(candidate => candidate.label === 'Quit')
+    quit?.click?.()
+    expect(electron.app.quit).toHaveBeenCalledOnce()
+    expect(requestQuit).not.toHaveBeenCalled()
 
     await release()
   })

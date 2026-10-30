@@ -1,0 +1,184 @@
+/* The comparison after a dislike: two columns of about 380px under the disliked reply. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 8px 0 16px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 8%));
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  color: var(--dsw-alias-label-primary, #151a24);
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.head,
+.decided {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mark {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--dsw-alias-label-primary, #151a24);
+}
+
+.title {
+  font-weight: 600;
+}
+
+.said {
+  min-width: 0;
+}
+
+.head .link,
+.decided .link {
+  margin-left: auto;
+}
+
+/* Two across down to 280px each, so the 1280px window's transcript (about 715px inside the card) still fits both. */
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 12px;
+  max-width: calc(380px * 2 + 12px);
+}
+
+.column,
+.kept {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 8%));
+  border-radius: 12px;
+}
+
+.kept {
+  border-color: var(--dsw-alias-label-primary, #151a24);
+}
+
+.model {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.body {
+  min-width: 0;
+}
+
+/* Eight lines, then Show all. */
+.cut {
+  min-width: 0;
+  max-height: calc(21px * 8);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.working {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.failed {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.tile {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover, rgb(38 49 72 / 6%));
+}
+
+.audio {
+  width: 100%;
+}
+
+.use {
+  align-self: flex-start;
+  margin-top: auto;
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--dsw-alias-button-primary-fill, #151a24);
+  color: var(--dsw-alias-label-primary-foreground, #fff);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.use:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.link {
+  flex-shrink: 0;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #151a24);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.use:focus-visible,
+.link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3, rgb(0 0 0 / 20%));
+}
+
+@keyframes pulse {
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working { animation: none; }
+}
+
+.close {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgb(38 49 72 / 6%));
+}

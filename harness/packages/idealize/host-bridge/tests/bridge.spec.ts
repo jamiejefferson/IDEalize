@@ -137,6 +137,21 @@ describe('the bridge’s sources', () => {
     ])
   })
 
+  it('keeps a subagent\'s finish quiet, since its parent\'s turn is still running', async () => {
+    const { ctx } = await mount()
+    const parent = agentWith('session-3')
+    const child = { session: { header: { id: 'session-4', origin: 'subagent', delegationDepth: 1 }, events: [] } }
+    ctx.emit('agent/status', { agent: parent, status: 'running' } as never)
+    ctx.emit('agent/status', { agent: child, status: 'running' } as never)
+    ctx.emit('agent/status', { agent: child, status: 'idle' } as never)
+    ctx.emit('agent/status', { agent: parent, status: 'idle' } as never)
+    // Both still land, so every surface refreshes; only the parent's chimes.
+    expect(ctx.idealizeBridge.buffer.recent(0).map(event => [event.kind, event.sessionId, event.quiet])).toEqual([
+      ['agent-finished', 'session-4', true],
+      ['agent-finished', 'session-3', undefined],
+    ])
+  })
+
   it('records an approval ask and what the answerers decided, deciding nothing itself', async () => {
     const { ctx } = await mount()
     const outcome = await ctx.waterfall(

@@ -6,10 +6,11 @@ The notification feed behind `ctx.idealizeBridge`: one place where the host turn
 
 - `idealize/cron-run` from `@idealize/cron` → `cron-run`, titled `<task name> — <status> in <seconds>s` with the run's `detail` as body. The invariant companion fails the run if a finished schedule is not in the buffer by the time the emit's listeners have run.
 - `idealize/cron-changed` from `@idealize/cron` → `cron-changed`, titled `Calendar changed` with an empty body: the task list was written (added, edited, toggled, deleted, or a one-off recorded done), so the Schedule pane refetches it. No shell toasts it.
-- `agent/status` → `agent-finished` when an agent that was running goes idle.
+- `agent/status` → `agent-finished` when an agent that was running goes idle. It carries `quiet` when Powell finished (it answers aloud) or when the agent is a subagent (its finish is a step in its parent's turn), and surfaces then skip the chime and the notification.
 - `agent/error` → `agent-error` with the error message.
 - The approval waterfall → `approval-pending` on `approval/request`, then `approval-decided` after `next()` returns; the bridge observes and never decides.
 - `@idealize/notify` pushes `attention` when a recorded Studio event alerts the person under the MVP policy table, carrying the alert's words, its `project` and the `studioEvent` it names; the window raises one notification and opening it opens that event.
+- `@idealize/comm`'s pause pushes `pause-changed` on every change of the pause on every agent, so each window's Pause control re-reads it; no shell toasts it.
 - `@idealize/comm` pushes `mail`, `notify`, `focus` and `reveal` events into the same buffer; `@idealize/askbar` pushes `open-studio` (with the bar's `project` as context when it has one; the main window opens the one Studio chat, which spans every project) when the Askbar's Group chat button is pressed.
 
 ## Buffer

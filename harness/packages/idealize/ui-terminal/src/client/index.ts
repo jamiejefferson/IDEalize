@@ -34,6 +34,7 @@ import { CHAT_VIEW, ModeShortcut, TERMINAL_VIEW } from './ModeShortcut.tsx'
 import { applyTerminalPaint, closeTerminal, disposeTerminals, restartTerminal, setTerminalFileViewer, TerminalView, typePaths } from './TerminalView.tsx'
 import { en, NS, type TerminalKey, zh } from './locales.ts'
 import { createTerminalPane, type TerminalPaneProps } from './TerminalPane.tsx'
+import { launchBrainOf } from '../launches.ts'
 
 export { ModeShortcut, isToggleShortcut, toggledView } from './ModeShortcut.tsx'
 export {
@@ -298,9 +299,9 @@ export function apply(ctx: ClientContext): void {
       inject: (sessionId: SessionId) => ({
         onPrompt: (line: string) => { nameFromPrompt(sessionId, line) },
         cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
-        // The chat's activity preset (the pill it launched on) selects the
-        // fresh shell's launch command on the host.
-        activity: sessions.list.getSnapshot().byId[sessionId]?.agentPreset,
+        // The chat's brain selects the fresh shell's launch command on the
+        // host: the latest one its log records, else the preset it launched on.
+        activity: launchBrainOf(sessions.list.getSnapshot().byId[sessionId]),
       }),
     }, TerminalView))
 

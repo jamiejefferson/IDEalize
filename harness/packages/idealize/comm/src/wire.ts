@@ -32,12 +32,22 @@ export type CommCommand =
   | 'reject'
   | 'decide'
   | 'synthesis'
+  | 'turn'
+
+/**
+ * What a terminal agent's own hooks report about its turns: its session
+ * opening, a prompt starting a turn, the turn ending, the session closing.
+ */
+export type CommTurn = 'open' | 'start' | 'stop' | 'close'
+
+/** Every turn report the wire accepts. */
+export const COMM_TURNS: readonly CommTurn[] = ['open', 'start', 'stop', 'close']
 
 /** Every command the wire accepts; `parseRequest` refuses anything else. */
 export const COMM_COMMANDS: readonly CommCommand[] = [
   'ping', 'list', 'notify', 'send', 'inbox', 'peek', 'rung', 'board',
   'spawn', 'post', 'chat', 'transcript', 'setStatus', 'focus', 'reveal',
-  'task', 'progress', 'blocked', 'need', 'done', 'studio', 'handoff', 'accept', 'reject', 'decide', 'synthesis',
+  'task', 'progress', 'blocked', 'need', 'done', 'studio', 'handoff', 'accept', 'reject', 'decide', 'synthesis', 'turn',
 ]
 
 /** One request, JSON over `POST /idealize/comm`. Field names match V0's IPCRequest. */
@@ -76,6 +86,8 @@ export interface CommRequest {
   owner?: string
   /** need: ask for an approval or external operation rather than information. */
   action?: boolean
+  /** turn: what the chat's terminal agent reported, from its own hooks. */
+  turn?: CommTurn
 }
 
 /** One mailbox message. */

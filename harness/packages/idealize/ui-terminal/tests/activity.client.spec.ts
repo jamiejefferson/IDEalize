@@ -6,7 +6,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { describeRun } from '../src/index.ts'
-import { MIN_RUN_MS, QUIET_MS, TerminalActivity } from '../src/activity.ts'
+import { ECHO_MS, MIN_RUN_MS, QUIET_MS, TerminalActivity } from '../src/activity.ts'
 
 afterEach(() => { vi.useRealTimers() })
 
@@ -31,11 +31,12 @@ function watcher() {
   vi.useFakeTimers()
   const working: string[] = []
   const done: { id: string; ranForMs: number }[] = []
+  const cut: string[] = []
   const activity = new TerminalActivity({
     onWorking: id => working.push(id),
-    onDone: (id, ranForMs) => done.push({ id, ranForMs }),
+    onDone: (id, ranForMs, interrupted) => { if (interrupted) cut.push(id); else done.push({ id, ranForMs }) },
   })
-  return { activity, working, done }
+  return { activity, working, done, cut }
 }
 
 describe('a terminal agent working', () => {
@@ -94,6 +95,68 @@ describe('a terminal agent working', () => {
   })
 })
 
+/**
+ * The person typing: a key every 200 ms, each echoed back 20 ms later.
+ * @param activity - the watcher.
+ * @param id - the terminal.
+ * @param ms - how long they type.
+ */
+function typeFor(activity: TerminalActivity, id: string, ms: number): void {
+  for (let elapsed = 0; elapsed < ms; elapsed += 200) {
+    activity.sawInput(id)
+    vi.advanceTimersByTime(20)
+    activity.sawOutput(id)
+    vi.advanceTimersByTime(180)
+  }
+}
+
+describe('the person typing', () => {
+  // Feedback 1047a635: a long prompt, or a walk through a CLI's menu, raised
+  // the done chime at each pause, because the echo was output.
+  it('raises nothing however long they type, because their keys echo back', () => {
+    const { activity, working, done } = watcher()
+    typeFor(activity, 't1', 10_000)
+    // The echo still keeps the terminal busy, so a nudge waits for the redraw.
+    expect(activity.busy('t1')).toBe(true)
+    vi.advanceTimersByTime(QUIET_MS)
+    expect(working).toEqual([])
+    expect(done).toEqual([])
+  })
+
+  it('counts the CLI\'s own output once the keys stop, and times the run from there', () => {
+    const { activity, working, done } = watcher()
+    typeFor(activity, 't1', 3_000)
+    // Enter, and the redraw straight behind it, is still the person's.
+    activity.sawInput('t1')
+    activity.sawOutput('t1')
+    vi.advanceTimersByTime(ECHO_MS)
+    const workingFrom = Date.now()
+    busyFor(activity, 't1', MIN_RUN_MS)
+    expect(working).toEqual(['t1'])
+    vi.advanceTimersByTime(QUIET_MS)
+    expect(done).toHaveLength(1)
+    expect(done[0]?.ranForMs).toBe(Date.now() - workingFrom)
+  })
+
+  it('keeps counting a working CLI\'s output while the person types their next line', () => {
+    const { activity, working, done } = watcher()
+    busyFor(activity, 't1', MIN_RUN_MS)
+    expect(working).toEqual(['t1'])
+    typeFor(activity, 't1', 5_000)
+    expect(done).toEqual([])
+    vi.advanceTimersByTime(QUIET_MS)
+    expect(done).toHaveLength(1)
+  })
+
+  it('forgets a closed terminal\'s keys, so its next shell starts clean', () => {
+    const { activity, working } = watcher()
+    activity.sawInput('t1')
+    activity.closed('t1')
+    busyFor(activity, 't1', MIN_RUN_MS)
+    expect(working).toEqual(['t1'])
+  })
+})
+
 describe('when a run ends', () => {
   it('ends exactly the quiet after the last chunk of a burst, measured from the first', () => {
     const { activity, working, done } = watcher()
@@ -147,6 +210,34 @@ describe('when a run ends', () => {
     activity.sawOutput('t1')
     expect(working).toEqual([])
     expect(done).toEqual([])
+  })
+})
+
+describe('a run the host interrupts', () => {
+  it('ends as cut, and the next run starts unmarked', () => {
+    const { activity, done, cut } = watcher()
+    busyFor(activity, 't1', MIN_RUN_MS)
+    activity.interrupted('t1')
+    vi.advanceTimersByTime(QUIET_MS)
+    expect(cut).toEqual(['t1'])
+    expect(done).toEqual([])
+    // An interrupt with no run standing marks nothing, so it cannot linger.
+    activity.interrupted('t1')
+    busyFor(activity, 't1', MIN_RUN_MS)
+    vi.advanceTimersByTime(QUIET_MS)
+    expect(cut).toEqual(['t1'])
+    expect(done.map(run => run.id)).toEqual(['t1'])
+  })
+
+  it('belongs to the person again once they type into it', () => {
+    const { activity, done, cut } = watcher()
+    busyFor(activity, 't1', MIN_RUN_MS)
+    activity.interrupted('t1')
+    activity.sawInput('t1')
+    busyFor(activity, 't1', MIN_RUN_MS)
+    vi.advanceTimersByTime(QUIET_MS)
+    expect(cut).toEqual([])
+    expect(done.map(run => run.id)).toEqual(['t1'])
   })
 })
 

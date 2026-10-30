@@ -18,7 +18,9 @@ import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@idealize/generate'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import { installServicesRoute, chatKeyEnv, LLM_NS } from './routes.ts'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { chatProfileOf, recordedKeyEnv, type ChatRoute } from './chat-profile.ts'
+import { installServicesRoute, chatKeyEnv } from './routes.ts'
 import { registerMediaServices } from './registrar.ts'
 import { applyEndpoints, MEDIA_SERVICES } from './media-directory.ts'
 import type { ChatCandidate, MediaCandidate } from './join.ts'
@@ -28,6 +30,7 @@ interface OAuthFace {
   status?: () => Promise<{ id: string; stored: boolean; keyless?: boolean }[]>
 }
 
+export * from './chat-profile.ts'
 export * from './directory.ts'
 export * from './join.ts'
 export * from './media-directory.ts'
@@ -35,6 +38,8 @@ export { chatKeyEnv, installServicesRoute, KEYS_FILE_FORMAT } from './routes.ts'
 export type { ServicesRuntime } from './routes.ts'
 export { registerMediaServices } from './registrar.ts'
 export { SHIPPED_PRICE_CURRENCY, shippedTokenPrices } from './shipped-prices.ts'
+export { chatFactKey, chatFacts, CONTROL_IDS, controlsFromInputs, GOOD_AT_TERMS, mediaFacts, withModelFacts } from './model-facts.ts'
+export type { ControlInput, FactKind, GoodAtTerm, ModelFacts, ShippedFacts } from './model-facts.ts'
 export type { ShippedTokenPrice } from './shipped-prices.ts'
 export type { RegistrarOptions } from './registrar.ts'
 export { createQueueBackend } from './adapters/queue.ts'
@@ -89,10 +94,7 @@ export const name = 'idealize-services'
 /** Required services. */
 export const inject = ['llm', 'generation', 'settings', 'credentials', 'webServer']
 
-/** One chat provider profile as the pi-ai settings section records it. */
-interface ChatProfile {
-  apiKeyEnv?: unknown
-}
+
 
 /**
  * Register every media service's generation backend, serve the services list,
@@ -109,13 +111,18 @@ export function apply(ctx: Context, config: Config): void {
     rows: applyEndpoints(MEDIA_SERVICES, config.mediaEndpoints ?? {}),
   })
 
-  const profiles = (): Record<string, ChatProfile> => {
-    const section = ctx.settings.get(LLM_NS) as { providers?: Record<string, ChatProfile> } | undefined
-    return section?.providers ?? {}
+  // A chat route's profile lives where the adapter that owns the route keeps
+  // it, which the directory entry names (see ./chat-profile.ts).
+  const read = (ns: Parameters<typeof ctx.settings.get>[0]): unknown => ctx.settings.get(ns)
+  const routeOf = (provider: string): ChatRoute | undefined =>
+    ctx.llm.listConfigurableProviders().find(entry => entry.provider === provider)
+  /** The credential name a route reads: the one its profile records (or defaults), else the one this plugin derives. */
+  const chatEnv = (provider: string): string => {
+    const route = routeOf(provider)
+    return (route === undefined ? undefined : recordedKeyEnv(read, route)) ?? chatKeyEnv(provider)
   }
 
   const chat = async (): Promise<ChatCandidate[]> => {
-    const stored = profiles()
     const oauth = ctx.get('idealizeOAuth') as OAuthFace | undefined
     const offers = oauth?.status === undefined ? [] : await oauth.status().catch(() => [])
     const offered = new Set(offers.map(row => row.id))
@@ -128,8 +135,7 @@ export function apply(ctx: Context, config: Config): void {
       // The route may already name a credential; a route yet to be configured
       // resolves the name this plugin would store, so a key pasted through the
       // models page shows as connected here too.
-      const recorded = stored[entry.provider]?.apiKeyEnv
-      const env = typeof recorded === 'string' ? recorded : chatKeyEnv(entry.provider)
+      const env = chatEnv(entry.provider)
       const connected = (await ctx.credentials.resolve(credentialRef(env)).catch(() => undefined)) !== undefined
       return { provider: entry.provider, displayName: entry.displayName, connected, offered: offered.has(entry.provider) }
     }))
@@ -159,24 +165,25 @@ export function apply(ctx: Context, config: Config): void {
   }))
 
   const recordChatKeyEnv = async (provider: string, env: string): Promise<void> => {
-    const stored = profiles()
-    if (typeof stored[provider]?.apiKeyEnv === 'string') return
-    await ctx.settings.update(LLM_NS, {
-      providers: { ...stored, [provider]: { ...stored[provider], apiKeyEnv: env } },
-    })
+    const route = routeOf(provider)
+    if (route === undefined || recordedKeyEnv(read, route) !== undefined) return
+    await ctx.settings.mutate(settingsNamespace(route.settingsNs), [
+      { op: 'set', path: [...route.settingsPath, 'apiKeyEnv'], value: env },
+    ])
   }
 
   const forgetChatKeyEnv = async (provider: string, env: string): Promise<void> => {
-    const stored = profiles()
-    const profile = stored[provider]
-    if (profile?.apiKeyEnv !== env) return
-    const { apiKeyEnv: _forgotten, ...rest } = profile
-    await ctx.settings.update(LLM_NS, { providers: { ...stored, [provider]: rest } })
+    const route = routeOf(provider)
+    if (route === undefined || chatProfileOf(read, route)?.['apiKeyEnv'] !== env) return
+    await ctx.settings.mutate(settingsNamespace(route.settingsNs), [
+      { op: 'unset', path: [...route.settingsPath, 'apiKeyEnv'] },
+    ])
   }
 
   installServicesRoute(ctx, {
     chat,
     media,
+    chatEnv,
     recordChatKeyEnv,
     forgetChatKeyEnv,
     refreshBackend: id => ctx.generation.refreshBackend(id),

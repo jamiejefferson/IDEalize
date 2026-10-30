@@ -178,23 +178,18 @@ function install(): void {
       }))
     }
     if (url === '/idealize/brains/services') {
-      const body = JSON.parse(init?.body as string) as { id: string }
+      const body = JSON.parse(init?.body as string) as { id: string; apiKey?: string }
+      if (body.apiKey === 'refused-key') {
+        return Promise.resolve(new Response(JSON.stringify({ error: 'The key is saved, but Acme Gateway could not be switched on. no models' }), {
+          status: 500, headers: { 'content-type': 'application/json' },
+        }))
+      }
       servicesList = servicesList.map(row => row.id === body.id ? { ...row, connected: true } : row)
       return Promise.resolve(json({ services: servicesList }))
     }
     if (url === '/idealize/spaces') return Promise.resolve(json(SPACE_ROSTER))
     return Promise.resolve(json({ ok: true }))
   }))
-}
-
-/**
- * A provider group's label as the picker renders it: the name between rules,
- * which is how a native select shows a group at all (JJ, 10 Sep 2026).
- * @param name - the provider's display name.
- * @returns the label the optgroup carries.
- */
-function ruled(name: string): string {
-  return `──  ${name}  ──`
 }
 
 /** The brains the open chat was moved onto, in save order. */
@@ -215,6 +210,32 @@ async function mount() {
 }
 
 const posts = (path: string): Call[] => calls.filter(call => call.url === path && call.init?.method === 'POST')
+
+/** The open sheet's model field (`model` or `chatModel`): the row that names the choice and opens the browser. */
+const modelRow = (view: RenderResult, field: 'model' | 'chatModel' = 'model'): HTMLElement =>
+  view.getByRole('form', { name: 'Edit brain' }).querySelector<HTMLElement>(`[data-brains-model-row="${field}"]`)!
+
+/** Open a model field's browser, which renders over the whole window, and wait for its catalogue. */
+async function openBrowser(view: RenderResult, field: 'model' | 'chatModel' = 'model'): Promise<HTMLElement> {
+  fireEvent.click(within(modelRow(view, field)).getByRole('button', { name: 'Change' }))
+  return waitFor(() => {
+    const browser = document.body.querySelector<HTMLElement>('[data-model-browser]')
+    expect(browser?.querySelector('[data-browser-row]')).toBeTruthy()
+    return browser!
+  })
+}
+
+/** The names a browser's list shows, in order. */
+const listed = (browser: HTMLElement): string[] =>
+  [...browser.querySelectorAll('[data-browser-row]')].map(row => row.querySelector('span')?.firstChild?.textContent ?? '')
+
+/** Choose one model in a field's browser and apply it. */
+async function choose(view: RenderResult, value: string, field: 'model' | 'chatModel' = 'model'): Promise<void> {
+  const browser = await openBrowser(view, field)
+  fireEvent.click(browser.querySelector(`[data-browser-row="${value}"]`)!)
+  fireEvent.click(browser.querySelector('[data-browser-apply]')!)
+  await waitFor(() => { expect(document.body.querySelector('[data-model-browser]')).toBeNull() })
+}
 
 beforeEach(install)
 afterEach(() => {
@@ -250,7 +271,7 @@ describe('BrainsPanel', () => {
     expect(calls.some(call => call.url.startsWith('/idealize/comm/roles'))).toBe(false)
   })
 
-  it('lists providers and models alphabetically in every picker, whatever order the routes serve', async () => {
+  it('lists models by name in every browser while no price orders them, whatever order the routes serve', async () => {
     // JJ, 7 Sep 2026: "model sorting in dropdowns, needs to be in alphabetical order".
     statePayload = {
       ...STATE,
@@ -261,23 +282,23 @@ describe('BrainsPanel', () => {
       ],
     }
     const view = await mount()
-    // The sheet's model select: Anthropic's group carries its terminal-CLI
-    // mark, and the order is by the names as shown.
     fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
-    const coding = view.getByRole('form', { name: 'Edit brain' }).querySelector('[data-brains-model]') as HTMLSelectElement
-    expect([...coding.querySelectorAll('optgroup')].map(node => node.label))
-      .toEqual([ruled('Anthropic · claude CLI in the terminal'), ruled('Free tokens'), ruled('OpenAI (ChatGPT)')])
-    expect([...coding.options].map(option => option.textContent))
-      .toEqual(['Default (follows the default model)', 'claude', 'auto', 'k3', 'Gpt-4', 'gpt-5.5', 'gpt-5.10'])
+    // The sheet names the choice (none yet, so the default) and Change opens the browser.
+    expect(within(modelRow(view)).getByText('Default (follows the default model)')).toBeTruthy()
+    const browser = await openBrowser(view)
+    expect(listed(browser)).toEqual(['auto', 'claude', 'Gpt-4', 'gpt-5.5', 'gpt-5.10', 'k3'])
+    // Each row names who serves it; Anthropic's carries its terminal-CLI mark.
+    const claude = browser.querySelector('[data-browser-row="anthropic claude"] [data-browser-byline]')
+    expect(claude?.textContent).toBe('Anthropic · claude CLI in the terminal')
+    fireEvent.click(within(browser).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
-    // A generating brain's sheet sorts the space's candidates the same way,
-    // and its chat-model select follows the chat catalogue's order.
+    // A generating brain's browser orders the space's candidates the same way.
     fireEvent.click(within(group(view, 'gallery')).getByRole('button', { name: 'Edit' }))
-    const sheet = view.getByRole('form', { name: 'Edit brain' })
-    const images = sheet.querySelector('[data-brains-model]') as HTMLSelectElement
-    expect([...images.options].map(option => option.textContent)).toEqual(['Choose a model', 'Still A', 'Still B'])
-    const chatModel = sheet.querySelector('[data-brains-chat-model]') as HTMLSelectElement
-    expect([...chatModel.options].map(option => option.textContent).slice(1)).toEqual(['claude', 'auto', 'k3', 'Gpt-4', 'gpt-5.5', 'gpt-5.10'])
+    const images = await openBrowser(view)
+    expect(images.getAttribute('data-model-browser')).toBe('image')
+    expect(listed(images)).toEqual(['Still A', 'Still B'])
+    fireEvent.click(within(images).getByRole('button', { name: 'Cancel' }))
+    expect(listed(await openBrowser(view, 'chatModel'))).toEqual(['auto', 'claude', 'Gpt-4', 'gpt-5.5', 'gpt-5.10', 'k3'])
   })
 
   it('names a sign-in, not a key, under a brain whose route is a subscription nobody is signed in to', async () => {
@@ -313,11 +334,11 @@ describe('BrainsPanel', () => {
     const sheet = view.getByRole('form', { name: 'Edit brain' })
     expect([...sheet.querySelectorAll('[data-brains-field]')].map(node => node.getAttribute('data-brains-field')))
       .toEqual(['spaces', 'name', 'model', 'chat-model', 'instructions'])
-    expect(within(sheet).getByRole('combobox', { name: 'Generation model' })).toBeTruthy()
-    const chatModel = within(sheet).getByRole('combobox', { name: 'Chat model' }) as HTMLSelectElement
+    expect(within(sheet).getByRole('group', { name: 'Generation model' })).toBeTruthy()
     // No override yet, so the field follows the default.
-    expect(chatModel.value).toBe('')
-    fireEvent.change(chatModel, { target: { value: 'anthropic claude' } })
+    expect(within(sheet).getByRole('group', { name: 'Chat model' }).getAttribute('data-value')).toBe('')
+    await choose(view, 'anthropic claude', 'chatModel')
+    expect(modelRow(view, 'chatModel').getAttribute('data-value')).toBe('anthropic claude')
     fireEvent.click(view.getByRole('button', { name: 'Save brain' }))
     await waitFor(() => { expect(posts('/idealize/activity/agent')).toHaveLength(1) })
     expect(sent(posts('/idealize/activity/agent')[0]!)).toEqual({
@@ -333,7 +354,7 @@ describe('BrainsPanel', () => {
     document.removeEventListener('idealize:brains-changed', changed)
     // A Chat brain's sheet has the one model field, as before.
     fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
-    expect(within(view.getByRole('form', { name: 'Edit brain' })).queryByRole('combobox', { name: 'Chat model' })).toBeNull()
+    expect(within(view.getByRole('form', { name: 'Edit brain' })).queryByRole('group', { name: 'Chat model' })).toBeNull()
   })
 
   it('groups the brains under the five space headings in the roster order', async () => {
@@ -387,11 +408,9 @@ describe('BrainsPanel', () => {
     expect(row.querySelector('[data-brain-model]')?.getAttribute('data-brain-model')).toBe('Default · auto')
     expect(row.querySelector('select')).toBeNull()
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }))
-    const sheet = view.getByRole('form', { name: 'Edit brain' })
-    const model = sheet.querySelector('[data-brains-model]') as HTMLSelectElement
     // The sheet opens on the row's current choice: none, so the default.
-    expect(model.value).toBe('')
-    fireEvent.change(model, { target: { value: 'anthropic claude' } })
+    expect(modelRow(view).getAttribute('data-value')).toBe('')
+    await choose(view, 'anthropic claude')
     fireEvent.click(view.getByRole('button', { name: 'Save brain' }))
     await waitFor(() => { expect(posts('/idealize/activity/agent')).toHaveLength(1) })
     const post = posts('/idealize/activity/agent')[0]!
@@ -411,10 +430,14 @@ describe('BrainsPanel', () => {
     // Its sheet's generation select offers exactly Gallery's compatible
     // candidates, the stored one selected; no chat model is among them.
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }))
-    const images = view.getByRole('form', { name: 'Edit brain' }).querySelector('[data-brains-model]') as HTMLSelectElement
-    expect(images.value).toBe('mediahub still-a')
-    expect(Array.from(images.options).map(option => option.textContent)).toEqual(['Choose a model', 'Still A', 'Still B'])
-    fireEvent.change(images, { target: { value: 'mediahub still-b' } })
+    expect(modelRow(view).getAttribute('data-value')).toBe('mediahub still-a')
+    const images = await openBrowser(view)
+    expect(listed(images)).toEqual(['Still A', 'Still B'])
+    // The browser opens on the model in use, marked as such.
+    expect(images.querySelector('[data-in-use]')?.getAttribute('data-browser-row')).toBe('mediahub still-a')
+    expect(within(images).getByRole('button', { name: 'Keep Still A' })).toBeTruthy()
+    fireEvent.click(images.querySelector('[data-browser-row="mediahub still-b"]')!)
+    fireEvent.click(within(images).getByRole('button', { name: 'Use Still B' }))
     fireEvent.click(view.getByRole('button', { name: 'Save brain' }))
     await waitFor(() => { expect(posts('/idealize/brains/media')).toHaveLength(1) })
     const post = posts('/idealize/brains/media')[0]!
@@ -453,12 +476,13 @@ describe('BrainsPanel', () => {
     expect(note?.textContent).toContain('Runs as the claude CLI in the terminal, on its subscription. Chat needs an API key.')
     // JJ's 31 Aug decision: the terminal keeps the subscription, chat gets the API option — so Add key stays.
     expect(within(note as HTMLElement).getByRole('button', { name: 'Add key' })).toBeTruthy()
-    // The row states the model; the sheet's select carries the mark on the provider's group.
+    // The row states the model; the browser carries the mark on the route's models.
     expect(row.querySelector('[data-brain-model]')?.getAttribute('data-brain-model')).toBe('claude-opus-5')
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }))
-    const sheetModel = view.getByRole('form', { name: 'Edit brain' }).querySelector('[data-brains-model]')!
-    const groups = [...sheetModel.querySelectorAll('optgroup')].map(group => group.getAttribute('label'))
-    expect(groups).toContain(ruled('Anthropic · claude CLI in the terminal'))
+    const browser = await openBrowser(view)
+    expect(browser.querySelector('[data-browser-row="anthropic claude"] [data-browser-byline]')?.textContent)
+      .toBe('Anthropic · claude CLI in the terminal')
+    fireEvent.click(within(browser).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
     fireEvent.click(view.getByRole('tab', { name: 'Models' }))
     const cli = view.container.querySelector('[data-terminal-cli="claude"]') as HTMLElement
@@ -480,10 +504,9 @@ describe('BrainsPanel', () => {
     const view = await mount()
     const row = (await view.findAllByText('Writer'))[0]!.closest('[data-brain]') as HTMLElement
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }))
-    const sheetModel = view.getByRole('form', { name: 'Edit brain' }).querySelector('[data-brains-model]')!
-    const groups = [...sheetModel.querySelectorAll('optgroup')].map(group => group.getAttribute('label'))
-    expect(groups).toContain(ruled('Anthropic'))
-    expect(groups).not.toContain(ruled('Anthropic · claude CLI in the terminal'))
+    const browser = await openBrowser(view)
+    expect(browser.querySelector('[data-browser-row="anthropic claude"] [data-browser-byline]')?.textContent).toBe('Anthropic')
+    fireEvent.click(within(browser).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
     fireEvent.click(view.getByRole('tab', { name: 'Models' }))
     const cli = view.container.querySelector('[data-terminal-cli="claude"]') as HTMLElement
@@ -523,14 +546,12 @@ describe('BrainsPanel', () => {
       .toBe('Sent with every message this brain handles.')
     // The model list is narrowed to Gallery's own candidates, and is shorter
     // than the chat catalogue a Chat brain picks from.
-    const model = sheet.querySelector('[data-brains-model]') as HTMLSelectElement
-    expect(Array.from(model.options).map(option => option.textContent)).toEqual(['Choose a model', 'Still A', 'Still B'])
-    const galleryCount = model.options.length
+    const gallery = await openBrowser(view)
+    expect(listed(gallery)).toEqual(['Still A', 'Still B'])
+    fireEvent.click(within(gallery).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
     fireEvent.click(within(group(view, 'chat')).getByRole('button', { name: 'Add a brain' }))
-    const chatModel = view.getByRole('form', { name: 'Edit brain' })
-      .querySelector('[data-brains-model]') as HTMLSelectElement
-    expect(chatModel.options.length).toBeGreaterThan(galleryCount)
+    expect(listed(await openBrowser(view)).length).toBeGreaterThan(2)
   })
 
   // PC test drive, 18 Sep 2026: on a short window the whole sheet scrolled and
@@ -553,7 +574,7 @@ describe('BrainsPanel', () => {
     fireEvent.click(within(group(view, 'gallery')).getByRole('button', { name: 'Add a brain' }))
     const sheet = view.getByRole('form', { name: 'Edit brain' })
     fireEvent.change(sheet.querySelector('input[type="text"], input:not([type])')!, { target: { value: 'Poster' } })
-    fireEvent.change(sheet.querySelector('[data-brains-model]')!, { target: { value: 'mediahub still-b' } })
+    await choose(view, 'mediahub still-b')
     fireEvent.change(sheet.querySelector('textarea')!, { target: { value: 'Make posters.' } })
     fireEvent.click(view.getByRole('button', { name: 'Save brain' }))
     await waitFor(() => { expect(posts('/idealize/activity/agent')).toHaveLength(1) })
@@ -584,7 +605,7 @@ describe('BrainsPanel', () => {
     expect((sheet.querySelector('[data-brains-field="routed"] input') as HTMLInputElement).checked).toBe(true)
     expect(sheet.querySelector('[data-brains-add-space]')).toBeNull()
     fireEvent.change(name, { target: { value: 'Code' } })
-    fireEvent.change(sheet.querySelector('[data-brains-model]')!, { target: { value: 'openai-codex gpt-5.5' } })
+    await choose(view, 'openai-codex gpt-5.5')
     fireEvent.change(sheet.querySelector('textarea')!, { target: { value: 'Ship small.' } })
     fireEvent.click(view.getByRole('button', { name: 'Save brain' }))
     await waitFor(() => { expect(posts('/idealize/activity/agent')).toHaveLength(1) })
@@ -617,9 +638,8 @@ describe('BrainsPanel', () => {
     const view = await mount()
     fireEvent.click(within(group(view, 'chat')).getByRole('button', { name: 'Add a brain' }))
     const sheet = view.getByRole('form', { name: 'Edit brain' })
-    const model = sheet.querySelector('[data-brains-model]') as HTMLSelectElement
-    fireEvent.change(model, { target: { value: 'anthropic claude' } })
-    expect(model.value).toBe('anthropic claude')
+    await choose(view, 'anthropic claude')
+    expect(modelRow(view).getAttribute('data-value')).toBe('anthropic claude')
     // Moving the brain to Gallery alone changes which catalogue the field is
     // picking from, so a chat model cannot be left standing in it.
     const boxes = [...sheet.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
@@ -630,11 +650,11 @@ describe('BrainsPanel', () => {
     }
     fireEvent.click(box('Images'))
     fireEvent.click(box('Chat'))
-    const after = view.getByRole('form', { name: 'Edit brain' })
-      .querySelector('[data-brains-model]') as HTMLSelectElement
-    expect(after.value).toBe('')
-    expect(Array.from(after.options).map(option => option.textContent))
-      .toEqual(['Choose a model', 'Still A', 'Still B'])
+    expect(modelRow(view).getAttribute('data-value')).toBe('')
+    expect(within(modelRow(view)).getByText('No model chosen')).toBeTruthy()
+    // Nothing chosen, nothing to picture: the row has no image slot.
+    expect(modelRow(view).querySelector('img')).toBeNull()
+    expect(listed(await openBrowser(view))).toEqual(['Still A', 'Still B'])
   })
 
   it("opens the add sheet on the space the welcome card's brain step asked for", async () => {
@@ -663,7 +683,7 @@ describe('BrainsPanel', () => {
     expect([...cli.options].map(option => option.textContent))
       .toEqual(['Default (Claude Code)', 'Claude Code', 'Codex CLI', 'Plain shell'])
     // The sheet asks the model too: a CLI brings its own, which this app cannot enumerate.
-    expect(sheet.querySelector('[data-brains-model]')).not.toBeNull()
+    expect(sheet.querySelector('[data-brains-model-row="model"]')).not.toBeNull()
     fireEvent.change(cli, { target: { value: '' } })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Save brain' }))
     await waitFor(() => { expect(posts('/idealize/terminal/launch')).toHaveLength(1) })
@@ -795,21 +815,20 @@ describe('BrainsPanel', () => {
     }
     const view = await mount()
     fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
-    const select = view.getByRole('form', { name: 'Edit brain' }).querySelector('[data-brains-model]') as HTMLSelectElement
-    expect([...select.querySelectorAll('optgroup')].map(node => node.label))
-      .toEqual([ruled('Free tokens'), ruled('Kimi-coding'), ruled('Mutter'), ruled('OpenAI (ChatGPT)')])
+    const browser = await openBrowser(view)
+    const bylines = [...browser.querySelectorAll('[data-browser-byline]')].map(node => node.textContent)
+    expect(bylines).toEqual(['Free tokens', 'OpenAI (ChatGPT)', 'Kimi-coding', 'Alibaba · Mutter'])
+    fireEvent.click(within(browser).getByRole('button', { name: 'Cancel' }))
     // The catalogue note states what the lists hold and when they were read.
     expect(view.container.querySelector('[data-brains-catalogue]')?.textContent)
       .toBe(`4 models from 4 services, read ${when(STATE.readAt)}. A model a service has not published yet is not listed.`)
-    // No filter field over a short catalogue.
-    expect(view.container.querySelector('[data-brains-model-filter]')).toBeNull()
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
     // The Models tab's Subscriptions rows read the same names.
     fireEvent.click(view.getByRole('tab', { name: 'Models' }))
     expect(view.getByText('Kimi-coding')).toBeTruthy()
   })
 
-  it('offers a filter over a long catalogue, and says so when nothing matches', async () => {
+  it('searches a long catalogue in the browser, and says so when nothing matches', async () => {
     // JJ, 8 Sep 2026: "gpt 6 is not available" — it is in no service's list.
     const many = Array.from({ length: 45 }, (_, index) => `model-${String(index + 1)}`)
     statePayload = {
@@ -821,25 +840,21 @@ describe('BrainsPanel', () => {
     }
     const view = await mount()
     fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
-    const form = view.getByRole('form', { name: 'Edit brain' })
-    const select = form.querySelector('[data-brains-model]') as HTMLSelectElement
-    expect(select.options).toHaveLength(48)
-    const filter = view.getByRole('searchbox', { name: 'Filter models' })
-    fireEvent.change(filter, { target: { value: 'GPT-5' } })
-    expect([...select.querySelectorAll('optgroup')].map(node => node.label)).toEqual([ruled('OpenAI')])
-    expect([...select.options].map(option => option.textContent)).toEqual(['Default (follows the default model)', 'gpt-5.4', 'gpt-5.5'])
-    // A provider's name matches too, keeping its whole group.
-    fireEvent.change(filter, { target: { value: 'free' } })
-    expect([...select.querySelectorAll('optgroup')].map(node => node.label)).toEqual([ruled('Free tokens')])
-    expect(select.options).toHaveLength(46)
-    fireEvent.change(filter, { target: { value: 'gpt-6' } })
-    expect(select.querySelectorAll('optgroup')).toHaveLength(0)
-    expect(form.querySelector('[data-brains-catalogue]')?.textContent)
-      .toBe('No model matches “gpt-6”. A model a service has not published yet is not listed.')
-    // Closing the sheet clears the filter for the next open.
-    fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
-    fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
-    expect((view.getByRole('searchbox', { name: 'Filter models' }) as HTMLInputElement).value).toBe('')
+    const browser = await openBrowser(view)
+    const count = (): string | null | undefined => browser.querySelector('[data-browser-count]')?.textContent
+    expect(count()).toBe('47 of 47 models')
+    const search = browser.querySelector('[data-browser-search]') as HTMLInputElement
+    fireEvent.change(search, { target: { value: 'GPT-5' } })
+    expect(listed(browser)).toEqual(['gpt-5.4', 'gpt-5.5'])
+    // The route's name matches too.
+    fireEvent.change(search, { target: { value: 'free' } })
+    expect(count()).toBe('45 of 47 models')
+    fireEvent.change(search, { target: { value: 'gpt-6' } })
+    expect(listed(browser)).toEqual([])
+    expect(within(browser).getByText('No model matches these filters.')).toBeTruthy()
+    // Closing the browser clears the search for the next open.
+    fireEvent.click(within(browser).getByRole('button', { name: 'Cancel' }))
+    expect(((await openBrowser(view)).querySelector('[data-browser-search]') as HTMLInputElement).value).toBe('')
   })
 
   it('lists every service in one place, saying what each one makes', async () => {
@@ -892,6 +907,33 @@ describe('BrainsPanel', () => {
     expect(sent(post)).toEqual({ id: 'fal', kind: 'media', apiKey: 'fal-secret' })
     expect((post.init?.headers as Record<string, string>)['x-idealize-auth']).toBe('1')
     expect(await view.findByText('Connected. Its models are ready to use.')).toBeTruthy()
+  })
+
+  it('shows why a Connect failed inside the form that was pressed', async () => {
+    const view = await mount()
+    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
+    fireEvent.click(await view.findByRole('button', { name: 'Add a service' }))
+    const row = await waitFor(() => {
+      const found = view.container.querySelector<HTMLElement>('[data-service="acme"]')
+      expect(found).not.toBeNull()
+      return found!
+    })
+    fireEvent.click(within(row).getByRole('button', { name: 'Connect' }))
+    const field = within(row).getByLabelText('Your Acme Gateway key')
+    fireEvent.change(field, { target: { value: 'refused-key' } })
+    fireEvent.click(within(row).getByRole('button', { name: 'Connect' }))
+    // The pane's status line sits below every section; the reason belongs
+    // under the buttons, where the person who pressed Connect is looking.
+    const error = await waitFor(() => {
+      const found = row.querySelector<HTMLElement>('[data-service-error="acme"]')
+      expect(found).not.toBeNull()
+      return found!
+    })
+    expect(error.textContent).toBe('The key is saved, but Acme Gateway could not be switched on. no models')
+    expect(error.getAttribute('role')).toBe('alert')
+    // Cancel closes the form and takes the reason with it.
+    fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }))
+    expect(row.querySelector('[data-service-error]')).toBeNull()
   })
 
   it('offers a key page only for a service whose page is known', async () => {

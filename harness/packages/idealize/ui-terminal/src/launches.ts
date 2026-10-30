@@ -34,6 +34,29 @@ export interface TerminalLaunches {
 /** The route serving {@link TerminalLaunches}. */
 export const LAUNCHES_PATH = '/idealize/terminal/launches'
 
+/** What {@link launchBrainOf} reads of a chat's session-list entry. */
+export interface LaunchBrainSource {
+  /** The activity preset the chat was created on; the session header freezes it. */
+  agentPreset?: string | undefined
+  /** The chat's projection values; `brain.brain` is the latest brain its log records. */
+  projectionValues?: { readonly brain?: { readonly brain?: string | undefined } | undefined } | undefined
+}
+
+/**
+ * The brain whose launch command a chat's fresh shell types: the latest brain
+ * the chat's log records, else the activity preset it was created on. The
+ * header's preset alone is not enough, because it never moves: a chat created
+ * on Design and switched to Coding reopened on Design's command after a
+ * restart, once the in-memory note of the switch was gone (JJ, 30 Oct 2026:
+ * "on restart the cli sometimes accidentally loads the wrong model").
+ * @param source - the chat's session-list entry, or undefined before it loads.
+ * @returns the brain's activity preset id, or undefined for the default command.
+ */
+export function launchBrainOf(source: LaunchBrainSource | undefined): string | undefined {
+  const recorded = source?.projectionValues?.brain?.brain
+  return recorded !== undefined && recorded !== '' ? recorded : source?.agentPreset
+}
+
 /**
  * The command one activity types into a fresh shell.
  * @param activity - the activity preset id the open request names, or undefined for the default.

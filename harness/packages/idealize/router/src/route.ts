@@ -9,6 +9,8 @@ import type { Aggressiveness, Candidate, Decision, Weights } from './decide.ts'
 import type { JevFailure, JevResult } from './jev.ts'
 import { currentModel } from './projection.ts'
 import type { RoutedModel, RouterEventData } from './projection-types.ts'
+import { standing, TASK_TAG } from './ratings.ts'
+import type { RatingsFile } from './ratings.ts'
 import type { ScoreRow } from './score-table.ts'
 import { readLocally } from './tasks.ts'
 import type { TaskReading } from './tasks.ts'
@@ -28,6 +30,8 @@ export interface TurnInput {
   aggressiveness: Aggressiveness
   preferFree: boolean
   table?: readonly ScoreRow[] | undefined
+  /** The person's ratings; a 5-star model for the work read is nudged up, a 1-star one left out. */
+  ratings?: RatingsFile | undefined
   now: Date
 }
 
@@ -79,10 +83,14 @@ export async function routeTurn(input: TurnInput, deps: TurnDeps): Promise<TurnR
 
   const lastSwitch = dropped ? at : input.lastSwitchAt
   const sinceLastSwitch = lastSwitch === undefined ? undefined : Math.max(0, (input.now.getTime() - Date.parse(lastSwitch)) / 1000)
+  const ratings = input.ratings
   const situation = {
     current: from, candidates: input.candidates, reading, weights: input.weights, gates: PRESETS[input.aggressiveness],
     sinceLastSwitch, preferFree: input.preferFree, contextTokens: input.contextTokens, hasImages: input.hasImages,
     ...input.table === undefined ? {} : { table: input.table },
+    ...ratings === undefined
+      ? {}
+      : { standingOf: (candidate: Candidate) => standing(ratings, { kind: 'chat', model: candidate.model }, TASK_TAG[reading.task]) },
   }
   let decision = decide(situation)
   // A turn never waits on the router past Jev's limit, and never moves on a guess: when Jev was asked and gave

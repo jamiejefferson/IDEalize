@@ -16,6 +16,7 @@ import type {
   GenArtefact,
   GenCatalogEntry,
   GenerationAvailability,
+  GenExample,
   GenInputField,
   GenModelRef,
 } from './types.ts'
@@ -93,6 +94,8 @@ export interface GenerationQueries {
 export interface GenerationInputQueries {
   /** The fields a person may choose for one model; empty when its backend publishes none. */
   inputs(model: GenModelRef): Promise<readonly GenInputField[]>
+  /** One example output for a model; undefined when its backend publishes none. */
+  example(model: GenModelRef): Promise<GenExample | undefined>
 }
 
 /**

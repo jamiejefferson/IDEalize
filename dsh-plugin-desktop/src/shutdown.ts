@@ -171,18 +171,21 @@ export interface DesktopQuitSource {
  * @param signals - process signal owner.
  * @param nativeApp - Electron application event owner.
  * @param requestQuit - idempotent launcher shutdown request.
+ * @param requestUserQuit - a quit the person asked for (Cmd-Q, the menus, the
+ * Dock, the tray), which may ask first (`quit-guard.ts`); signals skip it.
  * @returns a disposer removing every listener.
  */
 export function installShutdownRequests(
   signals: DesktopSignalSource,
   nativeApp: DesktopQuitSource,
   requestQuit: (code: number) => void,
+  requestUserQuit: () => void = () => { requestQuit(0) },
 ): () => void {
   const interrupt = (): void => { requestQuit(130) }
   const terminate = (): void => { requestQuit(0) }
   const beforeQuit = (event: DesktopQuitEvent): void => {
     event.preventDefault()
-    requestQuit(0)
+    requestUserQuit()
   }
   signals.on('SIGINT', interrupt)
   signals.on('SIGTERM', terminate)

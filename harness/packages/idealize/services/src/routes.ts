@@ -83,6 +83,8 @@ export interface ServicesRuntime {
   chat(): Promise<ChatCandidate[]>
   /** Every registered generation backend that takes a key, with its artefacts. */
   media(): MediaCandidate[]
+  /** The credential name a chat route reads its key from: the one its profile records, else {@link chatKeyEnv}. */
+  chatEnv(provider: string): string
   /** Store a chat route's `apiKeyEnv` so the route activates; a no-op when already recorded. */
   recordChatKeyEnv(provider: string, env: string): Promise<void>
   /** Drop a chat route's `apiKeyEnv` when it names `env`, so a removed key leaves no record reading the route as keyed. */
@@ -118,7 +120,7 @@ async function storeKey(
   service: ServiceRow,
   apiKey: string,
 ): Promise<Refusal> {
-  const env = service.kind === 'chat' ? chatKeyEnv(service.id) : mediaEnvOf(runtime, service.id)
+  const env = service.kind === 'chat' ? runtime.chatEnv(service.id) : mediaEnvOf(runtime, service.id)
   if (env === undefined || env === '') {
     // credentialRef refuses an empty name, so a backend that declares
     // none is answered here rather than crashing the handler.
@@ -138,8 +140,16 @@ async function storeKey(
   // so the key alone would connect nothing; a removed key takes the record
   // with it, so the models page reads the route by its remaining auth.
   if (service.kind === 'chat') {
-    if (apiKey !== '') await runtime.recordChatKeyEnv(service.id, env)
-    else await runtime.forgetChatKeyEnv(service.id, env)
+    try {
+      if (apiKey !== '') await runtime.recordChatKeyEnv(service.id, env)
+      else await runtime.forgetChatKeyEnv(service.id, env)
+    } catch (error) {
+      // The settings write is validated by the adapter that owns the route. A
+      // refusal escaping here reached the person as nothing at all: the web
+      // server logged it and the form stayed as it was (JJ, 30 Oct 2026).
+      const reason = error instanceof Error ? error.message : String(error)
+      return { status: 500, error: `The key is saved, but ${service.name} could not be switched on. ${reason}` }
+    }
   }
   if (service.kind === 'media') {
     try {
@@ -154,8 +164,9 @@ async function storeKey(
 }
 
 /**
- * The service a credential name fills: the chat route whose derived name it is,
- * else the generation backend declaring it. A name neither owns is unknown.
+ * The service a credential name fills: the chat route that reads it (the name
+ * its profile records) or whose derived name it is, else the generation
+ * backend declaring it. A name neither owns is unknown.
  * @param runtime - the registry queries.
  * @param services - the joined rows.
  * @param env - the credential environment name from the keys file.
@@ -163,7 +174,9 @@ async function storeKey(
  */
 function serviceOwning(runtime: ServicesRuntime, services: readonly ServiceRow[], env: string): ServiceRow | undefined {
   return services.find(row => row.signIn !== true
-    && (row.kind === 'chat' ? chatKeyEnv(row.id) === env : mediaEnvOf(runtime, row.id) === env))
+    && (row.kind === 'chat'
+      ? runtime.chatEnv(row.id) === env || chatKeyEnv(row.id) === env
+      : mediaEnvOf(runtime, row.id) === env))
 }
 
 /** One keys file as its JSON reads once the format is known. */

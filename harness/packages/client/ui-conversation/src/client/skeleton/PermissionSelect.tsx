@@ -65,20 +65,27 @@ export interface PermissionSelectProps {
   value: PermissionSelectValue | undefined
   locked: boolean
   command: (line: string) => Promise<boolean>
+  /**
+   * Keep a preset as the new-chat default; when present, the Full access
+   * confirmation offers it as a second checkbox.
+   */
+  remember: ((preset: string) => Promise<void>) | undefined
   /** The owning bar's locale seat, passed down as a plain prop. */
   t: ComposerBarProps['t']
 }
 
-export function PermissionSelect({ value, locked, command, t }: PermissionSelectProps) {
+export function PermissionSelect({ value, locked, command, remember, t }: PermissionSelectProps) {
   const [pick, setPick] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [confirmation, setConfirmation] = useState<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
+  const [keep, setKeep] = useState(false)
 
   useEffect(() => {
     if (!locked && value !== undefined) return
     setOpen(false)
     setAcknowledged(false)
+    setKeep(false)
     setConfirmation(null)
   }, [locked, value])
 
@@ -107,6 +114,7 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
     if (id === value.currentValue) return
     if (id === FULL_ACCESS) {
       setAcknowledged(false)
+      setKeep(false)
       setConfirmation(id)
       return
     }
@@ -115,12 +123,16 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
 
   const closeConfirmation = (): void => {
     setAcknowledged(false)
+    setKeep(false)
     setConfirmation(null)
   }
 
   const confirmFullAccess = (): void => {
     if (locked || !acknowledged || confirmation === null) return
     const id = confirmation
+    // The default only moves for chats created from now on; this chat
+    // switches through its own command below either way.
+    if (keep) void remember?.(id).catch(() => {})
     closeConfirmation()
     submit(id)
   }
@@ -166,6 +178,9 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
         onAcknowledgedChange={setAcknowledged}
         onCancel={closeConfirmation}
         onConfirm={confirmFullAccess}
+        {...remember === undefined
+          ? {}
+          : { remember: { label: t('access.confirm.remember'), checked: keep, onChange: setKeep } }}
       />
     </>
   )

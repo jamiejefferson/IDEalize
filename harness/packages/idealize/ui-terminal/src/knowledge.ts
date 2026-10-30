@@ -75,13 +75,22 @@ export const PROMPT_CHANNELS: Readonly<Record<string, PromptChannel>> = {
 }
 
 /**
+ * The executable a launch command runs, by name.
+ * @param command - the configured launch command.
+ * @returns the bare name, `''` for an empty command.
+ */
+export function executableOf(command: string): string {
+  // Either separator, and Windows' launcher suffixes: `C:\tools\claude.exe` is claude.
+  return ((command.trim().split(/\s+/)[0] ?? '').split(/[\\/]/).pop() ?? '').replace(/\.(exe|cmd|ps1)$/i, '')
+}
+
+/**
  * The channel a launch command's CLI offers, judged by its executable's name.
  * @param command - the configured launch command.
  * @returns the channel, or `undefined` for another CLI or a command that sets its own instructions.
  */
 export function promptChannel(command: string): PromptChannel | undefined {
-  // Either separator, and Windows' launcher suffixes: `C:\tools\claude.exe` is claude.
-  const executable = ((command.trim().split(/\s+/)[0] ?? '').split(/[\\/]/).pop() ?? '').replace(/\.(exe|cmd|ps1)$/i, '')
+  const executable = executableOf(command)
   const channel = Object.hasOwn(PROMPT_CHANNELS, executable) ? PROMPT_CHANNELS[executable] : undefined
   return channel === undefined || channel.own.test(command) ? undefined : channel
 }

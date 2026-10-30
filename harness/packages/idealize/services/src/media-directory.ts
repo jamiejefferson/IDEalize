@@ -43,6 +43,11 @@ export interface MediaServiceRow {
    * the body is sent as the seam built it.
    */
   inputSchemaUrl?: string
+  /**
+   * Where the service prices its endpoints. `queue` rows only; absent when the
+   * service publishes no prices.
+   */
+  pricingUrl?: string
 }
 
 /**
@@ -62,10 +67,13 @@ export const MEDIA_SERVICES: readonly MediaServiceRow[] = [
     apiKeyEnv: 'FAL_KEY',
     auth: { header: 'authorization', prefix: 'Key ' },
     inputSchemaUrl: 'https://fal.ai/api/openapi/queue/openapi.json?endpoint_id={id}',
+    pricingUrl: 'https://api.fal.ai/v1/models/pricing',
     categories: [
       { category: 'text-to-image', artefact: 'image', inputModalities: ['text'] },
       { category: 'text-to-video', artefact: 'video', inputModalities: ['text'] },
       { category: 'text-to-audio', artefact: 'audio', inputModalities: ['text'] },
+      { category: 'image-to-image', artefact: 'image', inputModalities: ['text', 'image'], requiredInputs: ['image'] },
+      { category: 'image-to-video', artefact: 'video', inputModalities: ['text', 'image'], requiredInputs: ['image'] },
     ],
   },
   {

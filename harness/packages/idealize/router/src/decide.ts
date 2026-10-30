@@ -6,6 +6,7 @@
  * rationale the user can check has to come from figures the app holds.
  */
 
+import type { Standing, Stars } from './ratings.ts'
 import { FREE_TOKENS, NEUTRAL, SHIPPED_SCORES } from './score-table.ts'
 import type { ScoreRow } from './score-table.ts'
 import { TASKS } from './tasks.ts'
@@ -61,8 +62,10 @@ export interface Scored extends Candidate {
   speed: number
   /** 1 for free, falling with price on a log scale. */
   thrift: number
-  /** The weighted total the gates compare. */
+  /** The weighted total the gates compare, with the person's rating for this kind of work added. */
   total: number
+  /** The person's stars for this kind of work. */
+  stars?: Stars | undefined
 }
 
 const same = (a: { provider: string; model: string }, b: { provider: string; model: string }): boolean =>
@@ -124,17 +127,23 @@ function normalised(weights: Weights, difficulty: Difficulty): Weights {
  * @param reading - the task and its difficulty.
  * @param weights - the user's or the brain's priorities, any non-negative scale.
  * @param table - the capability table.
- * @returns the candidate with its scores.
+ * @param rated - the person's standing for this model and this kind of work.
+ * @returns the candidate with its scores. A starred model counts as known: the person's word is something the app holds.
  */
-export function score(candidate: Candidate, reading: Pick<TaskReading, 'task' | 'difficulty'>, weights: Weights, table?: readonly ScoreRow[]): Scored {
+export function score(
+  candidate: Candidate, reading: Pick<TaskReading, 'task' | 'difficulty'>, weights: Weights, table?: readonly ScoreRow[], rated?: Standing,
+): Scored {
   const { row, known } = rowFor(candidate, table)
   const needs = Object.entries(TASKS[reading.task].needs) as Array<[Capability, number]>
   const asked = needs.reduce((sum, [, weight]) => sum + weight, 0)
   const fit = needs.reduce((sum, [capability, weight]) => sum + weight * row.scores[capability], 0) / asked
   const thrift = thriftOf(candidate.price)
   const w = normalised(weights, reading.difficulty)
-  const total = w.intelligence * stretched(fit) + w.speed * row.speed + w.cost * thrift
-  return { ...candidate, family: row.family, known, fit, speed: row.speed, thrift, total }
+  const total = w.intelligence * stretched(fit) + w.speed * row.speed + w.cost * thrift + (rated?.bonus ?? 0)
+  return {
+    ...candidate, family: row.family, known: known || rated?.starred === true, fit, speed: row.speed, thrift, total,
+    ...rated?.stars === undefined ? {} : { stars: rated.stars },
+  }
 }
 
 /** What the chat brings to the decision besides the message. */
@@ -153,6 +162,8 @@ export interface Situation {
   /** The chat holds images, so a candidate must take them. */
   hasImages: boolean
   table?: readonly ScoreRow[]
+  /** The person's standing for a model, for the kind of work read; none when nothing is rated. */
+  standingOf?: ((candidate: Candidate) => Standing) | undefined
 }
 
 export type StayReason =
@@ -200,9 +211,9 @@ function sideBenefit(to: Scored, from: Scored): string {
  */
 export function rationaleFor(to: Scored, from: Scored, reading: TaskReading): string {
   const task = TASKS[reading.task].label
-  const lead = to.fit - from.fit >= 0.03
-    ? `${to.label} is stronger at ${task}`
-    : `${to.label} handles ${task} as well as ${from.label}`
+  let lead = `${to.label} handles ${task} as well as ${from.label}`
+  if (to.fit - from.fit >= 0.03) lead = `${to.label} is stronger at ${task}`
+  if (to.stars !== undefined && to.stars >= 4) lead = `You rated ${to.label} ${String(to.stars)} stars for ${task}`
   return `${lead}${sideBenefit(to, from)}.`
 }
 
@@ -212,12 +223,15 @@ export function rationaleFor(to: Scored, from: Scored, reading: TaskReading): st
  * @returns the model to use and the full account of why.
  */
 export function decide(situation: Situation): Decision {
-  const { current, reading, weights, gates, table } = situation
-  const from = score(current, reading, weights, table)
+  const { current, reading, weights, gates, table, standingOf } = situation
+  const from = score(current, reading, weights, table, standingOf?.(current))
   const eligible = situation.candidates
     .filter(candidate => !same(candidate, current))
     .filter(candidate => !situation.hasImages || candidate.images !== false)
-    .map(candidate => score(candidate, reading, weights, table))
+    .map(candidate => ({ candidate, rated: standingOf?.(candidate) }))
+    // One star bars a model from this kind of work.
+    .filter(({ rated }) => rated?.barred !== true)
+    .map(({ candidate, rated }) => score(candidate, reading, weights, table, rated))
     // An unscored model is never switched to: nothing the app holds says it is better.
     .filter(candidate => candidate.known)
     .sort((a, b) => b.total - a.total)

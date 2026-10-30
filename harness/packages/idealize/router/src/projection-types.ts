@@ -26,6 +26,56 @@ export interface RouterEventData {
   rationale?: string | undefined
   /** Gain in weighted score, 0 to 1. */
   improvement?: number | undefined
+  /** `dislike`: the person kept another model's answer, and the comparison card already says so. */
+  via?: 'dislike' | undefined
+}
+
+/** The kinds of model a comparison can ask (restated from ratings.ts, which reads files). */
+export type CompareKind = 'chat' | 'image' | 'video' | 'audio'
+
+/** One picture, clip or sound an alternative made. */
+export interface CompareArtefact { id: string; mediaType: string }
+
+/**
+ * One step of a comparison after a dislike, all steps sharing an `id`.
+ * `started`: the person accepted the offer, and the two models are at work.
+ * `answer`: one alternative finished, or failed. `picked`: the person kept an
+ * alternative, or their first answer (`picked: -1`).
+ */
+export interface RouterCompareEventData {
+  id: string
+  phase: 'started' | 'answer' | 'picked'
+  at: string
+  kind?: CompareKind | undefined
+  /** The kind of work the answers are rated for. */
+  tag?: string | undefined
+  /** The model that gave the answer the person disliked. */
+  first?: RoutedModel | undefined
+  alternatives?: RoutedModel[] | undefined
+  /** Chat: the log position of the disliked reply. */
+  replySeq?: number | undefined
+  /** Which alternative an `answer` or a `picked` names. */
+  index?: number | undefined
+  text?: string | undefined
+  artefacts?: CompareArtefact[] | undefined
+  /** Why the alternative gave no answer. */
+  failed?: string | undefined
+}
+
+/**
+ * A media model the router moved one generation to (`switched`), or the
+ * alternative the person kept after a dislike (`kept`), which then serves the
+ * rest of the chat's generations of that kind.
+ */
+export interface RouterMediaEventData {
+  outcome: 'switched' | 'kept'
+  at: string
+  /** The media preset: `images`, `motion` or `sound`. */
+  presetId: string
+  from: RoutedModel
+  to: RoutedModel
+  tag?: string | undefined
+  rationale?: string | undefined
 }
 
 /** A chat's lock: a locked chat is never routed. */
@@ -48,6 +98,10 @@ declare module '@deepseek-ai/dsh-session/types' {
     'idealize/router': RouterEventData
     /** The chat's lock against routing. Latest wins. Ignorable for the same reason. */
     'idealize/router-lock': RouterLockEventData
+    /** One step of a comparison after a dislike. Ignorable: the kept answer reaches the model as its own message. */
+    'idealize/router-compare': RouterCompareEventData
+    /** A media model the router chose, or the one the person kept. Ignorable: the artefacts record the model that served. */
+    'idealize/router-media': RouterMediaEventData
   }
 }
 

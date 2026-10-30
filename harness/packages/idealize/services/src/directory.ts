@@ -107,6 +107,19 @@ export const SERVICE_NAMES: Readonly<Record<string, string>> = {
  * Display order for what a service makes, so two services that make the same
  * things describe themselves identically.
  */
+/**
+ * Chat routes another route of the same company stands in for, keyed by the
+ * route that steps aside. DeepSeek is served twice: pi-ai's catalogue route
+ * (`deepseek`) and DeepSeek's own adapter (`deepseek-official`). Both read
+ * DEEPSEEK_API_KEY, so one key connected both and the list showed two
+ * "DeepSeek" rows (JJ, 30 Oct 2026: "i dont want two deep seek rows"). The
+ * list keeps the adapter's row, which the brains already name; the catalogue
+ * route shows in its place only while it alone holds a key.
+ */
+export const SUPERSEDED_ROUTES: Readonly<Record<string, string>> = {
+  'deepseek': 'deepseek-official',
+}
+
 export const MAKES_ORDER: readonly ServiceMakes[] = ['chat', 'image', 'video', 'audio']
 
 /**

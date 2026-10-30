@@ -3,7 +3,7 @@
  * only at its prompt, and held otherwise until the terminal falls quiet.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ENTER_AFTER_MS, isAgentProgram, programOf, showsChoice, TerminalNudges } from '../src/nudge.ts'
+import { CLEAR_INPUT, ENTER_AFTER_MS, isAgentProgram, programOf, showsChoice, TerminalNudges, TYPE_AFTER_CLEAR_MS } from '../src/nudge.ts'
 import type { DesktopTerminalLike } from '../src/index.ts'
 
 function fakeTerminal(front: string | undefined, screen = '❯ \r\n  ⏵⏵ bypass permissions on'): DesktopTerminalLike & { typed: string[]; front: string | undefined; screen: string } {
@@ -31,6 +31,27 @@ describe('TerminalNudges', () => {
     expect(terminal.typed).toEqual(['A note arrived. Run `idealize inbox`.'])
     vi.advanceTimersByTime(ENTER_AFTER_MS)
     expect(terminal.typed).toEqual(['A note arrived. Run `idealize inbox`.', '\r'])
+  })
+
+  it('empties the input box first when asked, then types the line, then Enter', () => {
+    const terminal = fakeTerminal('claude')
+    expect(new TerminalNudges(reads).nudge(terminal, 'wrap up', undefined, {}, { clearFirst: true })).toBe('typed')
+    expect(terminal.typed).toEqual([CLEAR_INPUT])
+    // Ctrl-U only: a single Ctrl-C quits Codex when its box is already empty.
+    expect(CLEAR_INPUT).toMatch(/^\u0015{32}$/u)
+    vi.advanceTimersByTime(TYPE_AFTER_CLEAR_MS)
+    expect(terminal.typed).toEqual([CLEAR_INPUT, 'wrap up'])
+    vi.advanceTimersByTime(ENTER_AFTER_MS)
+    expect(terminal.typed).toEqual([CLEAR_INPUT, 'wrap up', '\r'])
+  })
+
+  it('holds a line for the next quiet spell when asked, even at a prompt', () => {
+    const nudges = new TerminalNudges(reads)
+    const terminal = fakeTerminal('claude')
+    expect(nudges.nudge(terminal, 'wrap up', undefined, {}, { holdUntilQuiet: true })).toBe('held')
+    expect(terminal.typed).toEqual([])
+    nudges.quiet('t-1')
+    expect(terminal.typed).toEqual(['wrap up'])
   })
 
   it('holds the line while the terminal prints or the person has a line half typed, and types it once quiet', () => {
@@ -80,6 +101,30 @@ describe('TerminalNudges', () => {
     busy = false
     nudges.quiet('t-1')
     expect(terminal.typed).toEqual([])
+  })
+
+  it('tells each line whether it was typed or dropped', () => {
+    const nudges = new TerminalNudges(reads)
+    const terminal = fakeTerminal('claude')
+    const heard: string[] = []
+    const outcome = (name: string) => ({ typed: () => heard.push(`${name} typed`), dropped: () => heard.push(`${name} dropped`) })
+    nudges.nudge(terminal, 'now', undefined, outcome('now'))
+    busy = true
+    nudges.nudge(terminal, 'first', undefined, outcome('first'))
+    // One line is held per terminal, so the one it replaces is dropped.
+    nudges.nudge(terminal, 'second', undefined, outcome('second'))
+    busy = false
+    nudges.quiet('t-1')
+    let wanted = true
+    busy = true
+    nudges.nudge(terminal, 'unwanted', () => wanted, outcome('unwanted'))
+    busy = false
+    wanted = false
+    nudges.quiet('t-1')
+    busy = true
+    nudges.nudge(terminal, 'closing', undefined, outcome('closing'))
+    nudges.closed('t-1')
+    expect(heard).toEqual(['now typed', 'first dropped', 'second typed', 'unwanted dropped', 'closing dropped'])
   })
 })
 

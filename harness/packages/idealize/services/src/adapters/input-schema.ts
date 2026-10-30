@@ -6,7 +6,7 @@
  * @module @idealize/services/adapters/input-schema
  */
 
-import type { GenBooleanField, GenEnumField, GenInputField, GenNumberField } from '@idealize/generate'
+import type { GenBooleanField, GenEnumField, GenExample, GenInputField, GenNumberField } from '@idealize/generate'
 
 /** The wire type of one input property, as far as coercion needs it. */
 export type InputPropertyType = 'string' | 'number' | 'integer' | 'boolean' | 'other'
@@ -29,6 +29,12 @@ export interface InputProperty {
 /** One endpoint's input schema: its properties in the order the service lists them. */
 export interface InputSchema {
   properties: readonly InputProperty[]
+  /**
+   * The example output the same document publishes: null when it was looked
+   * for and none matched, absent when it has not been looked for (a schema
+   * cached before examples were read).
+   */
+  example?: GenExample | null
 }
 
 /**
@@ -40,6 +46,7 @@ export interface InputSchema {
 export const EXCLUDED_INPUTS: ReadonlySet<string> = new Set([
   'prompt',
   'image_url',
+  'image_urls',
   'negative_prompt',
   'seed',
   'enable_safety_checker',
@@ -246,11 +253,24 @@ function coerceValue(value: unknown, property: InputProperty): unknown {
 export function coerceBody(body: Readonly<Record<string, unknown>>, schema: InputSchema): Record<string, unknown> {
   const byName = new Map(schema.properties.map(property => [property.name, property]))
   const coerced: Record<string, unknown> = {}
-  for (const [name, value] of Object.entries(body)) {
+  for (const [name, value] of Object.entries(imageFieldFor(body, byName))) {
     const property = byName.get(name)
     coerced[name] = property === undefined ? value : coerceValue(value, property)
   }
   return coerced
+}
+
+/**
+ * The body with its picture under the field the endpoint names. The seam sends
+ * one picture as `image_url`; fal's editing endpoints take a list under
+ * `image_urls` instead, and would refuse the body without it.
+ */
+function imageFieldFor(
+  body: Readonly<Record<string, unknown>>, byName: ReadonlyMap<string, InputProperty>,
+): Readonly<Record<string, unknown>> {
+  if (!('image_url' in body) || byName.has('image_url') || !byName.has('image_urls') || 'image_urls' in body) return body
+  const { image_url: image, ...rest } = body
+  return { ...rest, image_urls: [image] }
 }
 
 /** The `msg` fal's validation layer gives a value outside a literal enum, with the literals quoted. */

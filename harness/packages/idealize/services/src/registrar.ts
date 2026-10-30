@@ -68,6 +68,7 @@ function backendFor(
     auth: row.auth,
     pollIntervalMs: options.pollIntervalMs,
     ...row.inputSchemaUrl === undefined ? {} : { inputSchemaUrl: row.inputSchemaUrl },
+    ...row.pricingUrl === undefined ? {} : { pricingUrl: row.pricingUrl },
     cachedInputs: (endpoint: string) => readInputSchemaCache(options.home, row.id, endpoint),
     onInputSchema: (endpoint: string, schema: InputSchema) => { writeInputSchemaCache(options.home, row.id, endpoint, schema) },
   })

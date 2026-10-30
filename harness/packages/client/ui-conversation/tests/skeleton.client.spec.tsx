@@ -228,6 +228,7 @@ function mount(
           useComposerMenu={bindSnapshotSelector(createSnapshotStore<readonly ComposerMenuEntry[]>([]))}
           stop={stop}
           command={() => Promise.resolve(true)}
+          rememberPermission={undefined}
           t={t}
           renderSlot={((key: string, seatOwner: object) => {
             // The bar's own seats: recorded so a case can assert what share

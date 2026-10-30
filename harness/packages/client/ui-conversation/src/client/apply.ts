@@ -44,6 +44,7 @@ import { registerConversationNodes } from './conversation-nodes/register.ts'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
 import { createComposerMenu } from './composer-menu.ts'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
+import { PERMISSION_SETTINGS_NAMESPACE, type PermissionDefaults } from './permission-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -141,6 +142,11 @@ export function apply(ctx: Context): void {
   const submissionPolicy = new ComposerSubmissionPolicy(
     ctx.settingsScope.bind<ConversationSettings>({ namespace: CONVERSATION_SETTINGS_NAMESPACE }),
   )
+  // The new-chat permission default, which the permission chip's Full access
+  // confirmation can keep (JJ, 26 Oct 2026: "remember the setting for all
+  // conversations as a default"). The host permission plugin owns the
+  // namespace; the Settings Permission row edits the same field.
+  const permissionDefaults = ctx.settingsScope.bind<PermissionDefaults>({ namespace: PERMISSION_SETTINGS_NAMESPACE })
 
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',
@@ -332,6 +338,7 @@ export function apply(ctx: Context): void {
           toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
+          rememberPermission: undefined,
           hooks: {
             notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON, menuLauncher: ABSENT_MENU_LAUNCHER, composerMenu: composerMenu.entries,
           },
@@ -389,6 +396,9 @@ export function apply(ctx: Context): void {
           const result = await session.command(line)
           return result.ok && result.value.matched
         },
+        rememberPermission: permissionDefaults.getSnapshot().mode === 'memory'
+          ? undefined
+          : preset => permissionDefaults.set('defaultPreset', preset),
         hooks: {
           notices: shell.notices,
           lexicon: shell.lexicon,

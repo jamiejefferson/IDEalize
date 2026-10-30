@@ -242,6 +242,46 @@ describe('@idealize/gen-tools composition', () => {
     expect(audioReroutes).toHaveLength(0)
   })
 
+  it('passes over a model that starts from a picture when the call carries none, and refuses one chosen for it', async () => {
+    const { ctx, projectDir } = await loadComposition()
+    const seen: string[] = []
+    const backend = (id: string, model: string, requiredInputs?: readonly ('image')[]): GenerationBackend => ({
+      id,
+      describe: () => [],
+      models: () => [{
+        id: model, name: model === 'animate' ? 'Animate' : model, artefact: 'video', inputModalities: ['text', 'image'], outputMediaTypes: ['video/mp4'],
+        ...requiredInputs === undefined ? {} : { requiredInputs },
+      }],
+      generate: (request) => {
+        seen.push(`${id}/${request.model.model}:${String(request.attachments?.length ?? 0)}`)
+        return Promise.resolve({
+          schemaVersion: GENERATION_SCHEMA_VERSION, backend: id, model, artefact: 'video',
+          outputs: [{ mediaType: 'video/mp4', data: Buffer.from('MP4').toString('base64') }], timestamp: 1,
+        })
+      },
+    })
+    // The picture-only model registers first, so it heads the catalogue.
+    ctx.generation.register(backend('pic', 'animate', ['image']))
+    ctx.generation.register(backend('txt', 'clip'))
+    const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
+    const video = toolNamed(ctx, 'generate_video')
+
+    // No reference: the first model that runs on a prompt alone serves.
+    const plain = await video.execute({ prompt: 'a kite' }, execFor(session, 'call-plain')) as ForegroundValue
+    expect(plain.model).toBe('clip')
+
+    // With a reference, the picture-only model is runnable and heads the list.
+    const still = await toolNamed(ctx, 'generate_image').execute({ prompt: 'a kite' }, execFor(session, 'call-still')) as ForegroundValue
+    const moved = await video.execute({ prompt: 'it flies', reference_image: still.artefacts[0]!.id }, execFor(session, 'call-moved')) as ForegroundValue
+    expect(moved.model).toBe('animate')
+
+    // Chosen under Brains but called without a picture: refused, by name.
+    ctx.settings.register(ACTIVITY_NS, sectionSchema, { base: { models: { motion: { provider: 'pic', model: 'animate' } } } })
+    await expect(video.execute({ prompt: 'a kite' }, execFor(session, 'call-refused')))
+      .rejects.toThrow('Animate starts from a picture')
+    expect(seen).toEqual(['txt/clip:0', 'pic/animate:1'])
+  })
+
   it('generate_audio advertises lyrics and carries them into the generation settings', async () => {
     const { ctx, projectDir } = await loadComposition()
     const tool = toolNamed(ctx, 'generate_audio')

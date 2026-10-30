@@ -182,11 +182,11 @@ export function setTerminalFileViewer(read: () => TerminalFileViewer | undefined
 /**
  * The brain a restarted shell reopens on, keyed by session.
  *
- * A started chat's agent preset is fixed by the host, so the session summary
- * still reports the preset the chat began under after an in-session brain
- * switch. This map carries the chosen brain from {@link restartTerminal} to the
- * reopen that follows it, so the fresh shell types the new brain's launch
- * command rather than the one the chat started on.
+ * The switch is logged before the restart, but the logged brain reaches the
+ * session summary's projection a beat after the reopen asks for a shell. This
+ * map carries the chosen brain from {@link restartTerminal} to the reopen that
+ * follows it, so the fresh shell types the new brain's launch command rather
+ * than the one the summary still names.
  */
 const restartBrains = new Map<string, string>()
 
@@ -647,7 +647,7 @@ export interface TerminalViewProps {
   sessionId: string
   /** The chat's working directory (undefined falls back to home on the host). */
   cwd: string | undefined
-  /** The chat's activity preset id (selects the fresh shell's launch command; undefined = the default). */
+  /** The chat's brain: its logged brain, else its activity preset (selects the fresh shell's launch command; undefined = the default). */
   activity?: string | undefined
   /**
    * A bare shell: the host types no launch command and records no chat for
@@ -757,8 +757,8 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
     refit(current)
     current.terminal.focus()
     if (current.id === undefined) {
-      // The switched-to brain wins over the chat's preset: a started chat keeps
-      // the preset it began under, so the summary cannot report the new brain.
+      // The switched-to brain wins over the summary's: the logged switch may
+      // not have reached the summary's projection yet.
       const launchAs = restartBrains.get(sessionId) ?? activity
       void connect(current, transport, { key: sessionId, cwd, activity: launchAs, plain, onPrompt }, setError)
     }

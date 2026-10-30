@@ -70,6 +70,10 @@ import { providerDisplayName, when } from './format.ts'
 import { SPACE_LABELS } from './HeroLauncher.tsx'
 import type { BarKey } from './locales.ts'
 import { mediaRecoveryText } from './media-recovery.ts'
+import { chatModel, mediaModel, PRICE_UNIT } from './model-browser.ts'
+import type { BrowserKind, BrowserModel, ChatModelDetail, MediaCandidateModel, RatingMap } from './model-browser.ts'
+import { ModelBrowser } from './ModelBrowser.tsx'
+import type { BrowserExample } from './ModelBrowser.tsx'
 import { RouterTab } from './RouterTab.tsx'
 import { SectionHead } from './SectionHead.tsx'
 import css from './BrainsPanel.module.css'
@@ -115,14 +119,6 @@ interface ModelsState {
   /** ISO instant the catalogues were read for this payload. */
   readAt?: string
 }
-
-/**
- * Once the chat catalogue passes this many models, the sheet offers a filter
- * field over the select. Twelve, not forty: a native select scrolls its own
- * popup, so a list a screen deep already costs more to read than to type into
- * (JJ, 10 Sep 2026: the dropdown is "overly long").
- */
-const MODEL_FILTER_FROM = 12
 
 /** One row of /idealize/activity/agents. */
 /** Powell's brain id (the `powell` preset): it lists in its own section. */
@@ -176,10 +172,24 @@ interface TerminalCliRow {
   installed: boolean | null
 }
 
-/** One /idealize/brains/media candidate: a backend and the model it serves. */
+/** One /idealize/brains/media candidate: a backend and the model it serves, with what the browser shows of it. */
 interface MediaCandidate {
   backend: string
-  model: { id: string; name: string }
+  model: MediaCandidateModel
+}
+
+/** One route of GET /idealize/models/details: its chat models with what the browser shows of them. */
+interface ChatDetailsProvider {
+  provider: string
+  displayName: string
+  models: ChatModelDetail[]
+}
+
+/** What each generating preset makes, as the browser names it. */
+const PRESET_KIND: Record<string, Exclude<BrowserKind, 'chat'> | undefined> = {
+  images: 'image',
+  motion: 'video',
+  sound: 'audio',
 }
 
 /** One media preset's availability, as the route reports it. */
@@ -312,11 +322,6 @@ function sortedProviders<T extends { displayName: string; models: string[] }>(pr
     .map(provider => ({ ...provider, models: [...provider.models].sort(byName) }))
 }
 
-/** A generating space's candidates by model name, alphabetical. */
-function sortedCandidates(candidates: readonly MediaCandidate[]): MediaCandidate[] {
-  return [...candidates].sort((left, right) => byName(left.model.name, right.model.name))
-}
-
 async function getJson<T>(url: string): Promise<T | null> {
   try {
     const response = await fetch(url)
@@ -388,13 +393,42 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   const [services, setServices] = useState<ServiceRow[] | null>(null)
   /** The service whose key field is open, and the key typed so far. */
   const [serviceDraft, setServiceDraft] = useState<{ id: string; kind: 'chat' | 'media'; value: string } | null>(null)
+  // Why the open key form's last Connect failed. Shown inside the form: the
+  // pane's status line sits below every section, out of sight of a form open
+  // halfway down the list, so a refused key looked like a dead button (JJ,
+  // 30 Oct 2026: "nothing happens when i click").
+  const [serviceError, setServiceError] = useState<{ id: string; kind: 'chat' | 'media'; message: string } | null>(null)
   /** True while the "Add a service" picker is open over the connected list. */
   const [adding, setAdding] = useState(false)
   const [spaces, setSpaces] = useState<SpaceRosterEntry[] | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [providerEditor, setProviderEditor] = useState(false)
-  /** What the sheet's model filter field holds; cleared when the sheet closes. */
-  const [modelFilter, setModelFilter] = useState('')
+  /** The sheet field whose model browser is open, or null. */
+  const [browsing, setBrowsing] = useState<'model' | 'chatModel' | null>(null)
+  // The person's ratings, read each time the browser opens so a rating given from a chat shows on the card.
+  const [ratings, setRatings] = useState<RatingMap | undefined>(undefined)
+  useEffect(() => {
+    if (browsing === null) return
+    let live = true
+    void getJson<{ models: RatingMap }>('/idealize/router/ratings').then((answer) => {
+      if (live && answer !== null) setRatings(answer.models)
+    })
+    return () => { live = false }
+  }, [browsing])
+  const rate = async (model: BrowserModel, tag: string, stars: number | null): Promise<void> => {
+    try {
+      const response = await fetch('/idealize/router/ratings', {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify({ kind: model.makes, provider: model.provider, model: model.id, tag, stars, label: model.name }),
+      })
+      if (response.ok) setRatings((await response.json() as { models: RatingMap }).models)
+    } catch {
+      // The card keeps what it showed; the next open reads the file again.
+    }
+  }
+  /** Every chat model's description, abilities and price, read the first time a browser needs them. */
+  const [chatDetails, setChatDetails] = useState<ChatDetailsProvider[] | null>(null)
   const [status, setStatus] = useState('')
 
   // The brains the model router leaves alone, for the sheet's routing choice.
@@ -437,7 +471,17 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     void refreshSpaces()
     void refreshRouterOff()
   }, [refreshState, refreshAgents, refreshMedia, refreshSpaces, refreshRouterOff])
-  useEffect(() => { if (draft === null) setModelFilter('') }, [draft])
+  useEffect(() => { if (draft === null) setBrowsing(null) }, [draft])
+  // The chat details are read once per pane, when a sheet first shows a chat
+  // model: the row names its price, and the browser describes every model.
+  const chatDetailsAsked = useRef(false)
+  useEffect(() => {
+    if (draft === null || chatDetailsAsked.current) return
+    chatDetailsAsked.current = true
+    void getJson<{ providers: ChatDetailsProvider[] }>('/idealize/models/details').then((details) => {
+      setChatDetails(details?.providers ?? [])
+    })
+  }, [draft])
 
   // The welcome card's brain step hands this pane the space with no brains, or
   // the provider key a refused space is waiting on. Acting on it once and
@@ -482,11 +526,12 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
    */
   const connectService = async (row: ServiceRow, value: string): Promise<void> => {
     setStatus('')
+    setServiceError(null)
     const outcome = await postForReason('/idealize/brains/services', { id: row.id, kind: row.kind, apiKey: value })
     if (!outcome.ok) {
       // The route knows why it refused — an environment variable already
       // supplying this key, say. Its reason beats a generic "check the key".
-      setStatus(outcome.error ?? t('brains.services.failed'))
+      setServiceError({ id: row.id, kind: row.kind, message: outcome.error ?? t('brains.services.failed') })
       return
     }
     setStatus(t('brains.services.saved'))
@@ -669,19 +714,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
       .map(p => ({ ...p, displayName: providerDisplayName(p.provider, p.displayName) })),
   )
   const catalogueModels = modelOptions.reduce((sum, provider) => sum + provider.models.length, 0)
-  /** The sheet's chat catalogue after the filter field: a group drops out when none of its models match. */
-  const filteredOptions = (() => {
-    const query = modelFilter.trim().toLowerCase()
-    if (query === '') return modelOptions
-    return modelOptions
-      .map(provider => ({
-        ...provider,
-        models: providerLabel(provider).toLowerCase().includes(query)
-          ? provider.models
-          : provider.models.filter(id => id.toLowerCase().includes(query)),
-      }))
-      .filter(provider => provider.models.length > 0)
-  })()
   /**
    * Where the route's models are served: an option's group label helps the
    * pickers, this line helps the row. It names what clears the refusal — a
@@ -728,47 +760,79 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   // A native menu draws an optgroup label small and grey, which at 650 models
   // reads as more list. The rules make each group findable while scrolling
   // (JJ, 10 Sep 2026).
-  const chatModelOptions = (): ReactNode => (
-    <>
-      <option value="">{t('brains.edit.modelDefault')}</option>
-      {filteredOptions.map(provider => (
-        <optgroup key={provider.provider} label={`──  ${providerLabel(provider)}  ──`}>
-          {provider.models.map(id => (
-            <option key={id} value={`${provider.provider} ${id}`}>{id}</option>
-          ))}
-        </optgroup>
-      ))}
-    </>
-  )
+  /** The chat catalogue as the browser lists it: every route's models, described where the details route knows them. */
+  const chatBrowserModels = (): BrowserModel[] => modelOptions.flatMap((provider) => {
+    const described = chatDetails?.find(row => row.provider === provider.provider)?.models
+    return provider.models.map(id => chatModel(
+      provider.provider,
+      providerLabel(provider),
+      described?.find(row => row.id === id) ?? { id, name: id },
+      t,
+      providerLabel(provider),
+    ))
+  })
+  /** The open sheet's generation catalogue as the browser lists it. */
+  const mediaBrowserModels = (preset: MediaPresetRow): BrowserModel[] => {
+    const kind = PRESET_KIND[preset.id] ?? 'image'
+    return preset.candidates.map(candidate => mediaModel(
+      candidate.backend,
+      candidate.model,
+      kind,
+      services?.find(row => row.id === candidate.backend)?.name ?? candidate.backend,
+      t,
+    ))
+  }
+  /** One media model's example output, from the generation route; null when it has none or the read fails. */
+  const fetchExample = async (backend: string, model: string): Promise<BrowserExample | null> => {
+    const answer = await getJson<{ example: BrowserExample | null }>(
+      `/idealize/brains/media/example?backend=${encodeURIComponent(backend)}&model=${encodeURIComponent(model)}`,
+    )
+    return answer?.example ?? null
+  }
   /**
-   * The filter field over a long chat catalogue, and the note that says what
-   * the catalogue holds and when it was read. A query matching nothing says so
-   * in place of the note, which is the moment a person is looking for a model
-   * no service has published.
+   * A model field of the sheet: the chosen model's picture, name and headline
+   * price, and Change, which opens the browser over the window.
    */
-  const chatCatalogueAids = (): ReactNode => (
-    <>
-      {catalogueModels > MODEL_FILTER_FROM && (
-        <input
-          className={css.fieldInput}
-          type="search"
-          data-brains-model-filter=""
-          aria-label={t('brains.edit.modelFilter')}
-          placeholder={t('brains.edit.modelFilter')}
-          value={modelFilter}
-          onChange={(event) => { setModelFilter(event.target.value) }}
-        />
-      )}
-      <span className={css.fieldHint} data-brains-catalogue="">
-        {modelFilter.trim() !== '' && filteredOptions.length === 0
-          ? t('brains.edit.noMatch', { query: modelFilter.trim() })
-          : t('brains.edit.catalogue', {
-            models: catalogueModels,
-            providers: modelOptions.length,
-            time: state?.readAt === undefined ? '—' : when(state.readAt),
-          })}
+  const modelField = (
+    field: 'model' | 'chatModel', label: string, kind: BrowserKind, models: readonly BrowserModel[], value: string,
+  ): ReactNode => {
+    const chosen = models.find(row => row.value === value)
+    const [, rawId] = value.split(' ')
+    const name = chosen?.name ?? (value === '' ? undefined : rawId)
+    return (
+      <span className={css.modelRow} role="group" aria-label={label} data-brains-model-row={field} data-value={value}>
+        {/* No picture, no slot: chat models never have one, and an empty tile reads as a broken image. */}
+        {chosen?.thumbnailUrl !== undefined && <img className={css.modelThumb} src={chosen.thumbnailUrl} alt="" />}
+        <span className={css.modelText}>
+          <span className={css.modelName} data-brains-model-name="">
+            {name ?? t(kind === 'chat' ? 'browser.default' : 'browser.none')}
+          </span>
+          {chosen?.price.headline !== undefined && (
+            <span className={css.modelPrice}>
+              {chosen.price.headline} {chosen.price.comparable ? t(PRICE_UNIT[kind]).toLowerCase() : chosen.price.sub ?? ''}
+            </span>
+          )}
+        </span>
+        <button
+          type="button"
+          className={css.chip}
+          data-brains-model-change={field}
+          onClick={() => { setBrowsing(field) }}
+        >
+          {t('browser.change')}
+        </button>
       </span>
-    </>
+    )
+  }
+  /** The note that says what the chat catalogue holds and when it was read. */
+  const chatCatalogueAids = (): ReactNode => (
+    <span className={css.fieldHint} data-brains-catalogue="">
+      {t('brains.edit.catalogue', {
+        models: catalogueModels,
+        providers: modelOptions.length,
+        time: state?.readAt === undefined ? '—' : when(state.readAt),
+      })}
+    </span>
   )
   /**
    * Tick or untick one space in the open sheet. The list is rebuilt from the
@@ -1137,7 +1201,7 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                                   }}
                                 />
                                 <span className={css.keyActions}>
-                                  <button type="button" className={css.secondary} onClick={() => { setServiceDraft(null) }}>
+                                  <button type="button" className={css.secondary} onClick={() => { setServiceDraft(null); setServiceError(null) }}>
                                     {t('brains.cancel')}
                                   </button>
                                   <button type="button" className={css.primary} onClick={() => { void connectService(row, serviceDraft.value) }}>
@@ -1145,6 +1209,9 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                                   </button>
                                 </span>
                               </span>
+                              {serviceError?.id === row.id && serviceError.kind === row.kind && (
+                                <span className={css.keyError} role="alert" data-service-error={row.id}>{serviceError.message}</span>
+                              )}
                               {row.keyUrl !== undefined && (
                                 <a className={css.rowHint} href={row.keyUrl} target="_blank" rel="noreferrer" data-service-key-link={row.id}>
                                   {t('brains.services.keyLink', { service: row.name })}
@@ -1315,55 +1382,54 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                   <span className={css.fieldHint}>{t('brains.edit.cliHint')}</span>
                 </label>
               )}
-              <label className={css.field} data-brains-field="model">
+              <div className={css.field} data-brains-field="model">
                 <span className={css.fieldLabel}>{t(sheetGeneration === undefined ? 'brains.edit.model' : 'brains.edit.generationModel')}</span>
                 {/* Narrowed by the spaces above: a brain confined to one
                     generating space picks from that space's compatible models,
-                    and every other brain picks from the chat catalogue. */}
-                <select
-                  className={css.fieldSelect}
-                  data-brains-model=""
-                  aria-label={t(sheetGeneration === undefined ? 'brains.edit.model' : 'brains.edit.generationModel')}
-                  value={draft.model}
-                  onChange={(event) => { setDraft({ ...draft, model: event.target.value }) }}
-                >
-                  {sheetGeneration === undefined
-                    ? chatModelOptions()
-                    : (
-                      <>
-                        <option value="">{t('brains.media.choose')}</option>
-                        {sortedCandidates(sheetGeneration.candidates).map(candidate => (
-                          <option
-                            key={`${candidate.backend} ${candidate.model.id}`}
-                            value={`${candidate.backend} ${candidate.model.id}`}
-                          >
-                            {candidate.model.name}
-                          </option>
-                        ))}
-                      </>
-                    )}
-                </select>
+                    and every other brain picks from the chat catalogue. Change
+                    opens the model browser over the window. */}
+                {sheetGeneration === undefined
+                  ? modelField('model', t('brains.edit.model'), 'chat', chatBrowserModels(), draft.model)
+                  : modelField(
+                    'model', t('brains.edit.generationModel'), PRESET_KIND[sheetGeneration.id] ?? 'image', mediaBrowserModels(sheetGeneration), draft.model,
+                  )}
                 {sheetGeneration === undefined && chatCatalogueAids()}
-              </label>
+              </div>
               {sheetGeneration !== undefined && (
-                <label className={css.field} data-brains-field="chat-model">
+                <div className={css.field} data-brains-field="chat-model">
                   <span className={css.fieldLabel}>{t('brains.edit.chatModel')}</span>
                   {/* The model that drives the generation tool. Its own field,
                       so a generating brain can leave an unreachable default
                       route without moving every other brain off it. */}
-                  <select
-                    className={css.fieldSelect}
-                    data-brains-chat-model=""
-                    aria-label={t('brains.edit.chatModel')}
-                    value={draft.chatModel}
-                    onChange={(event) => { setDraft({ ...draft, chatModel: event.target.value }) }}
-                  >
-                    {chatModelOptions()}
-                  </select>
+                  {modelField('chatModel', t('brains.edit.chatModel'), 'chat', chatBrowserModels(), draft.chatModel)}
                   {chatCatalogueAids()}
                   <span className={css.fieldHint}>{t('brains.edit.chatModelHint')}</span>
-                </label>
+                </div>
               )}
+              {browsing !== null && (() => {
+                const generating = browsing === 'model' && sheetGeneration !== undefined
+                const kind: BrowserKind = generating ? PRESET_KIND[sheetGeneration.id] ?? 'image' : 'chat'
+                const label = sheetGeneration === undefined ? undefined : MEDIA_LABEL_KEYS[sheetGeneration.id]
+                return (
+                  <ModelBrowser
+                    kind={kind}
+                    spaceLabel={generating ? (label === undefined ? sheetGeneration.name : t(label)) : draft.name.trim() === '' ? t('brains.edit.model') : draft.name}
+                    models={generating ? mediaBrowserModels(sheetGeneration) : chatDetails === null ? null : chatBrowserModels()}
+                    current={draft[browsing]}
+                    allowDefault={!generating}
+                    sampleSource={generating ? services?.find(row => row.id === draft.model.split(' ')[0])?.name ?? 'fal.ai' : undefined}
+                    t={t}
+                    fetchExample={fetchExample}
+                    ratings={ratings}
+                    onRate={(model, tag, stars) => { void rate(model, tag, stars) }}
+                    onClose={() => { setBrowsing(null) }}
+                    onApply={(value) => {
+                      setDraft({ ...draft, [browsing]: value })
+                      setBrowsing(null)
+                    }}
+                  />
+                )
+              })()}
               <label className={css.field} data-brains-field="instructions">
                 <span className={css.fieldLabel}>{t('brains.edit.instructions')}</span>
                 <textarea

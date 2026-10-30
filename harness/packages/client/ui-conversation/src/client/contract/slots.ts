@@ -594,6 +594,13 @@ export interface ComposerBarInjected {
    */
   command: ((line: string) => Promise<boolean>) | undefined
   /**
+   * Keep one permission preset as the one every new chat starts with: the
+   * permission settings namespace's `defaultPreset`, the field the Settings
+   * Permission row edits. Absent with the session, and where settings stay
+   * process-local (a remote browser), so the chip offers no choice it cannot keep.
+   */
+  rememberPermission: ((preset: string) => Promise<void>) | undefined
+  /**
    * Registrant hooks compartment: the renderer binds these to
    * useNotices/useLexicon (static absent sources without a session — hook
    * order stays constant).

@@ -174,4 +174,28 @@ describe('application shutdown requests', () => {
     expect(signalListeners.size).toBe(0)
     expect(appListeners.size).toBe(0)
   })
+
+  it('hands a quit the person asked for to its own handler and leaves signals on the plain quit (feedback 495cec0a)', () => {
+    const signalListeners = new Map<string, () => void>()
+    const appListeners = new Map<string, (event: DesktopQuitEvent) => void>()
+    const signals: DesktopSignalSource = {
+      on: (event, listener) => signalListeners.set(event, listener),
+      off: (event) => { signalListeners.delete(event) },
+    }
+    const app: DesktopQuitSource = {
+      on: (event, listener) => appListeners.set(event, listener),
+      off: (event) => { appListeners.delete(event) },
+    }
+    const requestQuit = vi.fn()
+    const requestUserQuit = vi.fn()
+    installShutdownRequests(signals, app, requestQuit, requestUserQuit)
+    const quitEvent = { preventDefault: vi.fn() }
+
+    appListeners.get('before-quit')?.(quitEvent)
+    signalListeners.get('SIGTERM')?.()
+
+    expect(quitEvent.preventDefault).toHaveBeenCalledOnce()
+    expect(requestUserQuit).toHaveBeenCalledOnce()
+    expect(requestQuit.mock.calls).toEqual([[0]])
+  })
 })

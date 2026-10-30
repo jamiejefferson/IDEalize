@@ -359,6 +359,13 @@
   text-decoration: underline;
 }
 
+/* Why the last Connect failed, under the buttons that were pressed. */
+.keyError {
+  display: block;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-state-error-primary);
+}
+
 /* ── Free Token Use card ───────────────────────────────────────────────── */
 
 .card {
@@ -932,4 +939,46 @@
   .tableHead .colCost {
     padding: 9px 12px;
   }
+}
+
+/* A sheet's model field (Paper "Model picker" board 00): the chosen model's
+   picture, name and headline price, with Change opening the model browser. */
+.modelRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--dsw-alias-border-l2, #c9cbce);
+  border-radius: 14px;
+}
+
+.modelThumb {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--dsw-alias-interactive-bg-hover, #f2f4f7);
+}
+
+.modelText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.modelName {
+  overflow: hidden;
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelPrice {
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
 }

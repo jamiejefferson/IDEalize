@@ -5,7 +5,7 @@
  * @module @idealize/services/join
  */
 
-import { KEY_PAGES, orderMakes, orderServices, SERVICE_NAMES } from './directory.ts'
+import { KEY_PAGES, orderMakes, orderServices, SERVICE_NAMES, SUPERSEDED_ROUTES } from './directory.ts'
 import type { ServiceMakes, ServiceRow } from './directory.ts'
 
 /** One chat route as the LLM directory reports it, plus whether its key is stored. */
@@ -80,7 +80,19 @@ export function joinServices(
   media: readonly MediaCandidate[],
 ): ServiceRow[] {
   const rows: ServiceRow[] = []
+  // One row per company: a route another stands in for steps aside, unless
+  // it alone holds a key, when the stand-in steps aside instead, because
+  // hiding the keyed row would hide a connection the person made.
+  const routes = new Map(chat.map(entry => [entry.provider, entry]))
+  const hidden = new Set<string>()
+  for (const [superseded, standInId] of Object.entries(SUPERSEDED_ROUTES)) {
+    const old = routes.get(superseded)
+    const standIn = routes.get(standInId)
+    if (old === undefined || standIn === undefined) continue
+    hidden.add(old.connected && !standIn.connected ? standInId : superseded)
+  }
   for (const entry of chat) {
+    if (hidden.has(entry.provider)) continue
     const name = serviceName(entry.provider, entry.displayName)
     const keyUrl = keyPageFor(entry.provider, name)
     rows.push({

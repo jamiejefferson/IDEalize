@@ -1,0 +1,166 @@
+/* The router's line under the composer: one row, the width of the composer. */
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  margin: 0 0 8px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 8%));
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary, #151a24);
+}
+
+.heart,
+.dislike {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.heart {
+  color: var(--dsw-alias-state-error-primary, #e5484d);
+}
+
+.dislike {
+  color: var(--dsw-alias-label-primary, #151a24);
+}
+
+.text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.muted {
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+/* The rating line's tag reads as part of the sentence, with its own chevron. */
+.tag {
+  flex-shrink: 0;
+  max-width: 180px;
+  padding: 3px 22px 3px 8px;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.stars {
+  display: flex;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.star {
+  display: flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.starFilled {
+  fill: var(--dsw-alias-label-primary, #151a24);
+  stroke: var(--dsw-alias-label-primary, #151a24);
+}
+
+.starOpen {
+  fill: none;
+  stroke: var(--dsw-alias-label-tertiary, #8a8e94);
+}
+
+.star:hover .starOpen {
+  stroke: var(--dsw-alias-label-primary, #151a24);
+}
+
+.link {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #151a24);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.secondary,
+.primary {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.secondary {
+  margin-left: auto;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #151a24);
+}
+
+.primary {
+  border: 0;
+  background: var(--dsw-alias-button-primary-fill, #151a24);
+  color: var(--dsw-alias-label-primary-foreground, #fff);
+}
+
+.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.close {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  cursor: pointer;
+}
+
+.close:hover,
+.secondary:hover,
+.star:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgb(38 49 72 / 6%));
+}
+
+.star:focus-visible,
+.close:focus-visible,
+.link:focus-visible,
+.secondary:focus-visible,
+.primary:focus-visible,
+.tag:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3, rgb(0 0 0 / 20%));
+}
+
+/* A media comparison sits above the line, capped so the composer stays in view. */
+.compare {
+  max-height: 50vh;
+  margin: 0 0 8px;
+  overflow-y: auto;
+}

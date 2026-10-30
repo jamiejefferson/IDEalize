@@ -20,6 +20,7 @@ export type BridgeEventKind =
   | 'open-folder'
   | 'open-file'
   | 'attention'
+  | 'pause-changed'
 
 /** One notification the host wants a shell (desktop or browser) to surface. */
 export interface BridgeEvent {
@@ -40,7 +41,10 @@ export interface BridgeEvent {
   studioEvent?: string
   /** On `agent-finished`: the turn the agent stopped on ended in an error, so no reply is waiting. */
   failed?: boolean
-  /** On `agent-finished`: the chat answered aloud itself (Powell), so surfaces skip the chime and the notification. */
+  /**
+   * On `agent-finished`: the chat answered aloud itself (Powell), or a subagent
+   * finished a step of its parent's turn, so surfaces skip the chime and the notification.
+   */
   quiet?: boolean
   /**
    * The absolute folder an `open-folder` event asks the shell to register as a

@@ -8,7 +8,9 @@
  * empty key, removes) one backend's key through `ctx.credentials` and
  * refreshes that backend's catalogue. The `/idealize/generate/inputs` route:
  * GET with `?space=` answers the space's chosen media model and the inputs a
- * person may choose for it, read from the model's own schema. Loopback-fenced;
+ * person may choose for it, read from the model's own schema. The
+ * `/idealize/brains/media/example` route: GET with `?backend=&model=` answers
+ * one example output the model's service publishes, or null. Loopback-fenced;
  * the mutations demand the `x-idealize-auth` header.
  * @module @idealize/generate/routes
  */
@@ -103,6 +105,32 @@ export function installMediaRoutes(ctx: Context, runtime: GenerationQueries & Ge
         }
       },
     }), 'idealize-generate: /idealize/generate/inputs')
+
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/idealize/brains/media/example',
+      handler: async (req, res) => {
+        if (req.method !== 'GET') {
+          res.writeHead(405, { 'content-type': 'text/plain', allow: 'GET' }).end('method not allowed')
+          return
+        }
+        if (refuse(req, res)) return
+        const query = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams
+        const backend = query.get('backend') ?? ''
+        const model = query.get('model') ?? ''
+        if (backend === '' || model === '') {
+          sendJson(res, 400, { error: 'backend and model must both be named' })
+          return
+        }
+        try {
+          sendJson(res, 200, { example: await runtime.example({ backend, model }) ?? null })
+        } catch (error) {
+          // The detail pane shows the thumbnail instead; the lookup retries on the next open.
+          webCtx.logger.warn(`idealize-generate: example for ${backend}/${model} unavailable: ${error instanceof Error ? error.message : String(error)}`)
+          sendJson(res, 200, { example: null })
+        }
+      },
+    }), 'idealize-generate: /idealize/brains/media/example')
 
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',

@@ -6116,6 +6116,15 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
+      '@idealize/artefacts':
+        specifier: workspace:^
+        version: link:../artefacts
+      '@idealize/gen-tools':
+        specifier: workspace:^
+        version: link:../gen-tools
+      '@idealize/generate':
+        specifier: workspace:^
+        version: link:../generate
       '@idealize/models':
         specifier: workspace:^
         version: link:../models
@@ -6612,6 +6621,9 @@ importers:
       '@idealize/askbar':
         specifier: workspace:^
         version: link:../askbar
+      '@idealize/router':
+        specifier: workspace:^
+        version: link:../router
       '@idealize/setup':
         specifier: workspace:^
         version: link:../setup
@@ -6636,6 +6648,9 @@ importers:
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
+      '@types/react-dom':
+        specifier: ~18.3.0
+        version: 18.3.7(@types/react@18.3.31)
       react:
         specifier: ^18.2.0
         version: 18.3.1

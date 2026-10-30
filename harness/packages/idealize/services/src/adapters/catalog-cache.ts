@@ -13,7 +13,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { GenArtefact, GenModality, GenModelInfo } from '@idealize/generate'
+import type { GenArtefact, GenModality, GenModelInfo, GenModelPrice } from '@idealize/generate'
 import type { InputProperty, InputPropertyType, InputSchema } from './input-schema.ts'
 
 /** Directory name, under the harness home, holding one file per service. */
@@ -38,13 +38,42 @@ function modelFrom(raw: unknown): GenModelInfo | undefined {
   const inputs = Array.isArray(row.inputModalities) ? row.inputModalities.filter(one => typeof one === 'string') : []
   const outputs = Array.isArray(row.outputMediaTypes) ? row.outputMediaTypes.filter(one => typeof one === 'string') : []
   if (inputs.length === 0 || outputs.length === 0) return undefined
-  return {
+  const model: GenModelInfo = {
     id: row.id,
     name: row.name,
     artefact: artefact as GenArtefact,
     inputModalities: inputs as GenModality[],
     outputMediaTypes: outputs,
   }
+  // The browser's fields are optional: a cache written before they existed
+  // reads as rows without them, and a bad value drops only that field.
+  const required = Array.isArray(row.requiredInputs) ? row.requiredInputs.filter(one => typeof one === 'string') : []
+  if (required.length > 0) model.requiredInputs = required as GenModality[]
+  for (const field of ['description', 'thumbnailUrl', 'thumbnailAnimatedUrl', 'licence', 'released', 'maker'] as const) {
+    const value = row[field]
+    if (typeof value === 'string' && value !== '') model[field] = value
+  }
+  const tags = Array.isArray(row.tags) ? row.tags.filter((tag): tag is string => typeof tag === 'string' && tag !== '') : []
+  if (tags.length > 0) model.tags = tags
+  const price = priceFrom(row.price)
+  if (price !== undefined) model.price = price
+  return model
+}
+
+const PER_OUTPUTS: readonly string[] = ['image', '1 MP image', '5 s clip', 'minute of audio']
+
+/** One cached price, validated the way a cached model row is. */
+function priceFrom(raw: unknown): GenModelPrice | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const row = raw as Record<string, unknown>
+  if (typeof row.unitPrice !== 'number' || !Number.isFinite(row.unitPrice) || row.unitPrice < 0) return undefined
+  if (typeof row.unit !== 'string' || row.unit === '' || typeof row.currency !== 'string' || row.currency === '') return undefined
+  const price: GenModelPrice = { unitPrice: row.unitPrice, unit: row.unit, currency: row.currency }
+  const per = row.perOutput as { amount?: unknown; output?: unknown } | undefined
+  if (typeof per?.amount === 'number' && Number.isFinite(per.amount) && typeof per.output === 'string' && PER_OUTPUTS.includes(per.output)) {
+    price.perOutput = { amount: per.amount, output: per.output as NonNullable<GenModelPrice['perOutput']>['output'] }
+  }
+  return price
 }
 
 /**
@@ -127,14 +156,21 @@ export function readInputSchemaCache(home: string, id: string, endpoint: string)
     return undefined
   }
   try {
-    const parsed = JSON.parse(raw) as { properties?: unknown }
+    const parsed = JSON.parse(raw) as { properties?: unknown; example?: unknown }
     if (!Array.isArray(parsed.properties)) return undefined
-    return {
+    const schema: InputSchema = {
       properties: parsed.properties.flatMap((row) => {
         const property = propertyFrom(row)
         return property === undefined ? [] : [property]
       }),
     }
+    // Absent means not looked for yet; null means looked and none found.
+    if (parsed.example === null) schema.example = null
+    const example = parsed.example as { url?: unknown; mediaType?: unknown } | null | undefined
+    if (typeof example?.url === 'string' && example.url.startsWith('https://') && typeof example.mediaType === 'string' && example.mediaType !== '') {
+      schema.example = { url: example.url, mediaType: example.mediaType }
+    }
+    return schema
   } catch {
     // A truncated or hand-edited file reads as no cache; the next fetch replaces it.
     return undefined

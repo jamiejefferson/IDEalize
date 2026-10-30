@@ -15,6 +15,7 @@ import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import * as models from '../src/index.ts'
 import { FAL_USAGE_URL } from '../src/generations.ts'
+import { chatFacts } from '@idealize/services'
 import { OPENROUTER_MODELS_URL } from '../src/prices.ts'
 import type { GenerationRow } from '../src/generations.ts'
 import type { ModelsConfig } from '../src/index.ts'
@@ -26,7 +27,11 @@ const HEADERS = { 'x-idealize-auth': '1', 'content-type': 'application/json' }
 /** A slice of OpenRouter's directory: two priced models, one without a completion price. */
 const DIRECTORY = {
   data: [
-    { id: 'anthropic/claude-sonnet-4.5', pricing: { prompt: '0.000003', completion: '0.000015' } },
+    {
+      id: 'anthropic/claude-sonnet-4.5', name: 'Anthropic: Claude Sonnet 4.5', description: 'Writes well.', created: 1790000000,
+      context_length: 1000000, architecture: { input_modalities: ['text', 'image', 'file'] }, supported_parameters: ['tools', 'reasoning'],
+      pricing: { prompt: '0.000003', completion: '0.000015' },
+    },
     { id: 'openai/gpt-oss-120b', pricing: { prompt: '0.00000015', completion: '0.0000006' } },
     { id: 'broken/no-completion', pricing: { prompt: '0.000001' } },
   ],
@@ -212,6 +217,41 @@ describe('the /idealize/models usage route and OpenRouter prices', () => {
     const payload = await (await fetch(`${origin}/idealize/models/usage`)).json() as UsagePayload
     expect(payload.openRouterPrices).toBeNull()
     expect(directoryCalls).toHaveLength(0)
+  }, 30_000)
+})
+
+describe('the /idealize/models/details route', () => {
+  it('lists each chat model with the directory\'s description, date, context, inputs, abilities and price', async () => {
+    const { ctx, stored, origin } = await boot()
+    await ctx.settings.update(LLM_NS, { providers: { openrouter: { apiKeyEnv: 'OPENROUTER_API_KEY' } } })
+    stored.set('OPENROUTER_API_KEY', 'sk-or-test')
+    const payload = await (await fetch(`${origin}/idealize/models/details`)).json() as { providers: unknown[] }
+    expect(payload.providers).toEqual([{
+      provider: 'openrouter',
+      displayName: expect.any(String) as string,
+      models: [{
+        id: 'anthropic/claude-sonnet-4.5',
+        name: 'Anthropic: Claude Sonnet 4.5',
+        description: 'Writes well.',
+        released: '2026-09-21',
+        contextWindow: 1000000,
+        inputModalities: ['text', 'image', 'file'],
+        tools: true,
+        reasoning: true,
+        price: { input: 3, output: 15, source: 'market' },
+        // The shipped labels and controls the browser filters on.
+        ...chatFacts('anthropic/claude-sonnet-4.5'),
+      }],
+    }])
+    expect(chatFacts('anthropic/claude-sonnet-4.5').goodAt?.length).toBeGreaterThan(0)
+  }, 30_000)
+
+  it('states what the adapter lists when no directory has been read', async () => {
+    const { origin } = await boot()
+    const payload = await (await fetch(`${origin}/idealize/models/details`)).json() as { providers: { models: unknown[] }[] }
+    expect(payload.providers[0]?.models).toEqual([{
+      id: 'anthropic/claude-sonnet-4.5', name: 'Claude', inputModalities: ['text'], ...chatFacts('anthropic/claude-sonnet-4.5'),
+    }])
   }, 30_000)
 })
 

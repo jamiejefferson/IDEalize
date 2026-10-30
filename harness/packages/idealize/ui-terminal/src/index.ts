@@ -16,7 +16,9 @@
  *   reattach — the replay buffer already holds output — never does. `launch`
  *   reports the command a fresh open scheduled. A Claude Code, Pi or Codex launch
  *   is typed with IDEalize's standing rules passed on its command line (see
- *   `knowledge.ts`); `launch` still reports the configured command, which is
+ *   `knowledge.ts`), and a Claude Code or Pi launch names the chat's own
+ *   conversation, so a relaunch after a restart reopens it (see
+ *   `conversation.ts`); `launch` still reports the configured command, which is
  *   what a brain switch compares. `plain: true` opens a bare
  *   shell for the tool rail's Terminal pane: no launch command, and no chat
  *   recorded for the activity watcher, because the key is not a chat.
@@ -42,17 +44,27 @@ import { cliInstalled } from '@idealize/activity-pills'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { gatherKnowledge, promptChannel, withKnowledge, writeKnowledgeFile } from './knowledge.ts'
+import { withConversation } from './conversation.ts'
 import { LAUNCHES_PATH, launchCommandFor, type TerminalCliOption, type TerminalLaunches } from './launches.ts'
-import { TerminalActivity } from './activity.ts'
+import { QUIET_MS, TerminalActivity } from './activity.ts'
 import { programOf, TerminalNudges } from './nudge.ts'
+import { takesTurnHooks, TerminalTurns, type TerminalTurn, withTurnHooks, writeTurnHooks } from './turns.ts'
+import { TerminalDeliveries, type TerminalDelivery } from './delivery.ts'
 import { PromptLines } from './client/prompt-line.ts'
 import { resolveSessionTitleLlmConfig, suggestSessionTitle } from '@deepseek-ai/dsh-session-title-llm'
 
-export { LAUNCHES_PATH, launchCommandFor } from './launches.ts'
+export { LAUNCHES_PATH, launchBrainOf, launchCommandFor } from './launches.ts'
 export type { TerminalCliOption, TerminalLaunches } from './launches.ts'
 export { gatherKnowledge, KNOWLEDGE_PREAMBLE, KNOWLEDGE_SERVICES, PROMPT_CHANNELS, promptChannel, withKnowledge } from './knowledge.ts'
 export type { PromptChannel } from './knowledge.ts'
+export { claudeConversationExists, CONVERSATION_CHANNELS, conversationId, withConversation } from './conversation.ts'
+export type { ConversationChannel } from './conversation.ts'
 export { AGENT_PROGRAMS, isAgentProgram, programOf, showsChoice, TerminalNudges } from './nudge.ts'
+export type { NudgeOutcome } from './nudge.ts'
+export { takesTurnHooks, TerminalTurns, TURN_HOOKS, TURN_HOOKS_FILE, withTurnHooks, writeTurnHooks } from './turns.ts'
+export type { TerminalTurn } from './turns.ts'
+export { ANSWER_START_MS, TerminalDeliveries } from './delivery.ts'
+export type { DeliveryHandle, TerminalDelivery } from './delivery.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'idealize-ui-terminal'
@@ -84,7 +96,8 @@ export interface Config {
   /**
    * Whether a Claude Code, Pi or Codex launch carries IDEalize's standing rules
    * (where documentation goes, and whatever else a composed service offers) on
-   * its command line. On by default; off types the command as written.
+   * its command line, and a Claude Code launch the hooks that report its turns
+   * (`turns.ts`). On by default; off types the command as written.
    */
   appendKnowledge?: boolean
   /**
@@ -187,6 +200,48 @@ export interface IdealizeTerminals {
    * @returns false when the chat has no open terminal here.
    */
   nudge(sessionId: string, text: string, wanted?: () => boolean): boolean
+  /**
+   * Record what a Terminal chat's agent reported about its turns through its
+   * own hooks (`idealize turn`, see `turns.ts`); a stop is the done chime.
+   * @param sessionId - the chat.
+   * @param turn - what the agent reported.
+   * @returns false when the chat has no open terminal here.
+   */
+  turn(sessionId: string, turn: TerminalTurn): boolean
+  /**
+   * Type a line into a Terminal chat's agent, as {@link nudge} does, and wait
+   * for the agent to answer it (see `delivery.ts`). Pausing every agent uses
+   * this to know when each has saved its notes.
+   *
+   * With `interruptWith`, an agent in the middle of a run is stopped first
+   * (Escape), and once its prompt is back its input box is emptied and that
+   * line is typed instead of `text` (JJ, 30 Oct 2026: "if a terminal agent is
+   * in the middle of a run, the pause button needs to interrupt"). An agent
+   * at its prompt gets `text`, as before.
+   * @param sessionId - the chat.
+   * @param text - one line.
+   * @param wanted - asked before a held line is typed; false drops it.
+   * @param options - the line for an agent this interrupts.
+   * @returns what became of the line, or undefined when the chat has no open terminal here.
+   */
+  deliver(
+    sessionId: string, text: string, wanted?: () => boolean, options?: { interruptWith?: string },
+  ): Promise<TerminalDelivery> | undefined
+  /**
+   * Stop a Terminal chat's agent where it stands: drop any line held for it
+   * and, when the agent is working, press Escape, which Claude Code, Codex,
+   * Pi and Kimi each take as "stop". An idle agent gets no key: a second
+   * Escape at the prompt opens Claude Code's rewind and Codex's backtrack.
+   * @param sessionId - the chat.
+   * @returns false when the chat has no open terminal here.
+   */
+  interrupt(sessionId: string): boolean
+  /**
+   * Hear each time a chat's terminal opens or reattaches here.
+   * @param listener - called with the chat's session id.
+   * @returns a function that stops the listening.
+   */
+  onOpened(listener: (sessionId: string) => void): () => void
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -375,26 +430,53 @@ export function apply(ctx: Context, config?: Config): void {
   /** Shells already given their launch, so a racing reopen cannot type twice. */
   const autoLaunched = new Set<string>()
   /**
-   * The command as the shell types it: a Claude Code, Pi or Codex launch gains the standing
+   * The command as the shell types it: a Claude Code launch gains the hooks
+   * that report its turns, and a Claude Code, Pi or Codex launch gains the standing
    * rules the composed services hold for a terminal agent. Anything else, a
    * deployment with no rules to give, or a failed write types the command as
    * configured, because guidance must never cost the user their launch.
    */
   const typedLaunch = async (terminal: DesktopTerminalLike, command: string, cwd: string): Promise<string> => {
-    if (current().appendKnowledge === false || promptChannel(command) === undefined) return command
+    if (current().appendKnowledge === false) return command
+    const hooked = await withHooks(command)
+    if (promptChannel(command) === undefined) return hooked
     try {
       const probe = (name: string): unknown => (ctx as unknown as { get(name: string): unknown }).get(name)
       const text = await gatherKnowledge(probe, cwd, (message) => { ctx.logger.warn(message) })
-      if (text === undefined) return command
+      if (text === undefined) return hooked
       const file = await writeKnowledgeFile(join(resolveDshHome(), 'idealize', 'terminal-knowledge'), terminal.id, text)
       const off = terminal.subscribe((event) => {
         if (event.kind !== 'exit') return
         off()
         rm(file, { force: true }).catch(() => {})
       })
-      return withKnowledge(command, file) ?? command
+      return withKnowledge(hooked, file) ?? hooked
     } catch (error) {
       ctx.logger.warn(`idealize-ui-terminal: the launch goes without its standing rules: ${String(error)}`)
+      return hooked
+    }
+  }
+  /** A Claude Code launch with its turn hooks; any other command, or a failed write, as given. */
+  const withHooks = async (command: string): Promise<string> => {
+    if (!takesTurnHooks(command)) return command
+    try {
+      return withTurnHooks(command, await writeTurnHooks(join(resolveDshHome(), 'idealize', 'terminal-turns')))
+    } catch (error) {
+      ctx.logger.warn(`idealize-ui-terminal: the launch goes without its turn hooks: ${String(error)}`)
+      return command
+    }
+  }
+  /**
+   * The command with the chat's conversation named on it, so its agent
+   * reopens what it had before the app restarted (`conversation.ts`). A
+   * failed look for the conversation types the command as configured: a fresh
+   * conversation beats a launch that refuses to start.
+   */
+  const conversationLaunch = async (command: string, chat: string): Promise<string> => {
+    try {
+      return await withConversation(command, chat)
+    } catch (error) {
+      ctx.logger.warn(`idealize-ui-terminal: the launch starts a fresh conversation: ${String(error)}`)
       return command
     }
   }
@@ -416,48 +498,130 @@ export function apply(ctx: Context, config?: Config): void {
     draft: id => drafts.get(id)?.draft ?? '',
     program: id => programs.get(id),
   })
+  // What each terminal's agent says about its own turns, where it says
+  // anything (a Claude Code launch's hooks, see `turns.ts`).
+  const turns = new TerminalTurns()
+  /**
+   * A terminal agent finished: the done chime, and the line the harness
+   * agents post for themselves in the group chat. A terminal agent cannot be
+   * told to post, so the host says it on the agent's behalf.
+   * @param id - the terminal.
+   * @param ranForMs - how long the run took, or null when nobody heard it start.
+   */
+  const finished = (id: string, ranForMs: number | null): void => {
+    const chat = chats.get(id)
+    /* v8 ignore next -- a run or a report only reaches here for a terminal the open route recorded. */
+    if (chat === undefined) return
+    ;(ctx.get('idealizeBridge') as BridgeLike | undefined)?.buffer.push({
+      kind: 'agent-finished',
+      title: 'Agent finished',
+      body: '',
+      sessionId: chat.session,
+    })
+    const studio = ctx.get('idealizeStudio') as StudioLike | undefined
+    if (studio === undefined || chat.cwd === '' || chat.cwd === '/') return
+    studio.record({
+      project: chat.cwd,
+      author: chat.session,
+      kind: 'message',
+      body: ranForMs === null ? 'Finished a run in the terminal.' : `Finished a run in the terminal (${describeRun(ranForMs)}).`,
+    }).catch((error: unknown) => {
+      ctx.logger.warn(`idealize-ui-terminal: the group-chat post failed: ${String(error)}`)
+    })
+  }
+  const deliveries = new TerminalDeliveries()
+  const openedListeners = new Set<(sessionId: string) => void>()
   const activity = new TerminalActivity({
     onQuiet: (id) => { nudges.quiet(id) },
     onWorking: (id) => {
+      deliveries.working(id)
       ctx.emit('idealize/terminal-activity', { id, working: true })
     },
-    onDone: (id, ranForMs) => {
+    onDone: (id, ranForMs, cut) => {
       ctx.emit('idealize/terminal-activity', { id, working: false })
-      const chat = chats.get(id)
-      /* v8 ignore next -- a run only exists for a terminal the open route recorded. */
-      if (chat === undefined) return
-      ;(ctx.get('idealizeBridge') as BridgeLike | undefined)?.buffer.push({
-        kind: 'agent-finished',
-        title: 'Agent finished',
-        body: '',
-        sessionId: chat.session,
-      })
-      // The same line the harness agents post for themselves: a terminal
-      // agent cannot be told to, so the host says it on the agent's behalf.
-      const studio = ctx.get('idealizeStudio') as StudioLike | undefined
-      if (studio === undefined || chat.cwd === '' || chat.cwd === '/') return
-      studio.record({
-        project: chat.cwd,
-        author: chat.session,
-        kind: 'message',
-        body: `Finished a run in the terminal (${describeRun(ranForMs)}).`,
-      }).catch((error: unknown) => {
-        ctx.logger.warn(`idealize-ui-terminal: the group-chat post failed: ${String(error)}`)
-      })
+      // A run this host interrupted is not the agent finishing a piece of
+      // work, so it neither chimes nor answers a delivered line.
+      if (cut) return
+      // An agent that reports its own turns chimes on its stop, and answers a
+      // delivered line there too; quiet here is only a pause, often the person
+      // typing or a long tool run.
+      if (turns.reporting(id)) return
+      deliveries.done(id)
+      finished(id, ranForMs)
     },
   })
   ctx.effect(() => () => { activity.stop() }, 'idealize-ui-terminal: activity watcher')
+  /** A chat's live terminal here, if it has one open. */
+  const terminalOf = (sessionId: string): DesktopTerminalLike | undefined => {
+    const id = [...chats.entries()].find(([, chat]) => chat.session === sessionId)?.[0]
+    const terminal = id === undefined ? undefined : opened.get(id)
+    return terminal === undefined || terminal.exit !== undefined ? undefined : terminal
+  }
+  /**
+   * Press Escape on an agent that is in the middle of a run: one its own
+   * hooks report as a turn, or one the watcher has announced. `printing`
+   * also counts a run too young to announce, for a caller that knows the
+   * agent was working. The interrupted run then ends without a chime.
+   * @returns whether the agent was working and was interrupted.
+   */
+  const interruptRun = (terminal: DesktopTerminalLike, printing: boolean): boolean => {
+    const working = turns.inTurn(terminal.id)
+      || activity.working().includes(terminal.id)
+      || (printing && activity.busy(terminal.id))
+    if (!working) return false
+    terminal.write('\u001b')
+    activity.interrupted(terminal.id)
+    turns.interrupted(terminal.id)
+    return true
+  }
   ctx.effect(() => ctx.provide('idealizeTerminals', {
     working: () => activity.working().flatMap((id) => {
       const chat = chats.get(id)
       return chat === undefined ? [] : [chat.session]
     }),
     nudge: (sessionId: string, text: string, wanted?: () => boolean) => {
-      const id = [...chats.entries()].find(([, chat]) => chat.session === sessionId)?.[0]
-      const terminal = id === undefined ? undefined : opened.get(id)
-      if (terminal === undefined || terminal.exit !== undefined) return false
+      const terminal = terminalOf(sessionId)
+      if (terminal === undefined) return false
       nudges.nudge(terminal, text, wanted)
       return true
+    },
+    turn: (sessionId: string, turn: TerminalTurn) => {
+      const terminal = terminalOf(sessionId)
+      if (terminal === undefined) return false
+      const ranForMs = turns.report(terminal.id, turn, Date.now())
+      // The agent's own report is exact: a delivered line's answer starts and
+      // ends with its turn.
+      if (turn === 'start') deliveries.working(terminal.id)
+      if (turn === 'stop') deliveries.done(terminal.id)
+      if (turn === 'stop' && ranForMs !== undefined) finished(terminal.id, ranForMs)
+      return true
+    },
+    deliver: (sessionId: string, text: string, wanted?: () => boolean, options: { interruptWith?: string } = {}) => {
+      const terminal = terminalOf(sessionId)
+      if (terminal === undefined) return undefined
+      const handle = deliveries.begin(terminal.id)
+      const stopped = options.interruptWith !== undefined && interruptRun(terminal, false)
+      nudges.nudge(terminal, stopped ? options.interruptWith ?? text : text, wanted, { typed: handle.typed, dropped: handle.dropped }, {
+        clearFirst: stopped,
+        holdUntilQuiet: stopped,
+      })
+      // The interrupt's redraw ends in a quiet spell, which types the line.
+      // One that prints nothing after the key still gets its line once the
+      // watcher's quiet has passed.
+      if (stopped) setTimeout(() => { nudges.quiet(terminal.id) }, QUIET_MS + 250).unref()
+      return handle.outcome
+    },
+    interrupt: (sessionId: string) => {
+      const terminal = terminalOf(sessionId)
+      if (terminal === undefined) return false
+      nudges.closed(terminal.id)
+      deliveries.dropped(terminal.id)
+      interruptRun(terminal, true)
+      return true
+    },
+    onOpened: (listener: (sessionId: string) => void) => {
+      openedListeners.add(listener)
+      return () => { openedListeners.delete(listener) }
     },
   }), 'idealize-ui-terminal: idealizeTerminals')
   // The Brains pane's launch choice: a per-brain override, or the default when
@@ -510,7 +674,9 @@ export function apply(ctx: Context, config?: Config): void {
     const off = terminal.subscribe((event) => {
       if (event.kind === 'exit') {
         activity.closed(terminal.id)
+        turns.forget(terminal.id)
         nudges.closed(terminal.id)
+        deliveries.closed(terminal.id)
         opened.delete(terminal.id)
         programs.delete(terminal.id)
         drafts.delete(terminal.id)
@@ -629,7 +795,10 @@ export function apply(ctx: Context, config?: Config): void {
         autoLaunched.add(terminal.id)
         const program = programOf(command)
         if (program !== undefined) programs.set(terminal.id, program)
-        scheduleLaunch(terminal, await typedLaunch(terminal, command, cwd))
+        // A chat's agent reopens its own conversation; a key-less shell names no chat.
+        const chat = typeof body.key === 'string' && body.key !== '' ? body.key : undefined
+        const named = chat === undefined ? command : await conversationLaunch(command, chat)
+        scheduleLaunch(terminal, await typedLaunch(terminal, named, cwd))
       }
       // The chat this shell belongs to, and the project it runs in, so a run
       // that ends can name them. The key is the chat's session id; a plain
@@ -637,6 +806,15 @@ export function apply(ctx: Context, config?: Config): void {
       if (!plain && typeof body.key === 'string' && body.key !== '') {
         chats.set(terminal.id, { session: body.key, cwd })
         watch(terminal)
+        // A pause's resume waits on this to type into a chat that had no
+        // shell when Resume was pressed (feedback 495cec0a).
+        for (const listener of [...openedListeners]) {
+          try {
+            listener(body.key)
+          } catch (error) {
+            ctx.logger.warn(`idealize-ui-terminal: an open listener failed: ${String(error)}`)
+          }
+        }
       }
       sendJson(res, 200, {
         id: terminal.id, cols: terminal.cols, rows: terminal.rows, cwd,
@@ -708,6 +886,8 @@ export function apply(ctx: Context, config?: Config): void {
       const terminal = named(res, body)
       if (terminal === undefined) return
       if (typeof body.data === 'string') {
+        // Before the write, so the echo it brings back is known for the person's.
+        activity.sawInput(terminal.id)
         terminal.write(body.data)
         // Read back as lines, so a nudge never lands on a line the person is still typing.
         let lines = drafts.get(terminal.id)

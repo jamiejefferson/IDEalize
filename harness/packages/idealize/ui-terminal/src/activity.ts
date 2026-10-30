@@ -6,10 +6,15 @@
  * nothing. The person reads the shell the same way this does: output means it
  * is doing something, and a stretch of quiet means it has stopped.
  *
- * Two thresholds keep ordinary use out of it. {@link QUIET_MS} of silence ends
+ * Three rules keep ordinary use out of it. {@link QUIET_MS} of silence ends
  * a run, so a CLI thinking between lines stays one run rather than several.
- * A run shorter than {@link MIN_RUN_MS} is never reported, so typing at a
- * prompt — which echoes, and so is output — raises nothing.
+ * A run shorter than {@link MIN_RUN_MS} is never reported. And output within
+ * {@link ECHO_MS} of the person's keystroke is their typing echoing back, so
+ * it never counts towards that floor: typing a long prompt, or moving through
+ * a CLI's menu, had raised a done chime at every pause (feedback 1047a635).
+ *
+ * A CLI that reports its own turns (`turns.ts`) is still watched here for its
+ * working state; its done chime comes from its report.
  * @module @idealize/ui-terminal/activity
  */
 
@@ -22,10 +27,18 @@ export const QUIET_MS = 1_500
  */
 export const MIN_RUN_MS = 4_000
 
+/**
+ * How long after a keystroke the terminal's output is still the person's: the
+ * echo, and the redraw a CLI's prompt or menu makes round the key.
+ */
+export const ECHO_MS = 500
+
 /** One terminal's run, while it lasts. */
 interface Run {
   /** When output first arrived. */
   startedAt: number
+  /** When output that was not the person's typing first arrived; the floor is measured from here. */
+  workingSince: number | undefined
   /** When output last arrived; the quiet is measured from here. */
   lastOutputAt: number
   /** True when output has arrived since the quiet timer was last armed. */
@@ -34,6 +47,8 @@ interface Run {
   timer: ReturnType<typeof setTimeout>
   /** True once the run was reported as started, so it is reported as finished exactly once. */
   announced: boolean
+  /** True when the host interrupted this run, so its end is not the CLI finishing a piece of work. */
+  cut: boolean
 }
 
 /** What a watcher reports, and what it reads the clock and the timer from. */
@@ -48,8 +63,9 @@ export interface ActivityOptions {
    * A terminal stopped working: an announced run has fallen quiet.
    * @param id - the terminal's id.
    * @param ranForMs - how long the run lasted.
+   * @param cut - true when the host interrupted the run ({@link TerminalActivity.interrupted}).
    */
-  onDone(id: string, ranForMs: number): void
+  onDone(id: string, ranForMs: number, cut: boolean): void
   /**
    * A terminal fell quiet after any run, announced or not, so a nudge held
    * back while it was printing can be tried again.
@@ -70,6 +86,8 @@ export interface ActivityOptions {
  */
 export class TerminalActivity {
   readonly #runs = new Map<string, Run>()
+  /** When each terminal last received a keystroke from the person. */
+  readonly #typedAt = new Map<string, number>()
   readonly #options: ActivityOptions
   readonly #now: () => number
 
@@ -100,26 +118,62 @@ export class TerminalActivity {
   }
 
   /**
+   * Record that the person typed into a terminal (a key, a paste, a click the
+   * CLI asked to hear), so the output it brings back is known for theirs.
+   * @param id - the terminal's id.
+   */
+  sawInput(id: string): void {
+    this.#typedAt.set(id, this.#now())
+    // The person has taken over: whatever this run becomes is theirs.
+    const run = this.#runs.get(id)
+    if (run !== undefined) run.cut = false
+  }
+
+  /**
+   * Record that the host interrupted a terminal's run, so its end is reported
+   * as cut. The mark lives on the run and ends with it; the next run starts
+   * unmarked.
+   * @param id - the terminal's id.
+   */
+  interrupted(id: string): void {
+    const run = this.#runs.get(id)
+    if (run !== undefined) run.cut = true
+  }
+
+  /**
    * Record that a terminal wrote output.
    * @param id - the terminal's id.
    */
   sawOutput(id: string): void {
+    const now = this.#now()
+    // Typed, the output is the person's: it keeps a run standing, so a nudge
+    // still waits for the redraw, but it is not the CLI working.
+    const typed = now - (this.#typedAt.get(id) ?? -Infinity) < ECHO_MS
     const existing = this.#runs.get(id)
     if (existing !== undefined) {
       // Output is the hot path, so it only notes the time: the standing timer
       // reads it when it fires and waits out whatever quiet is still owed.
-      existing.lastOutputAt = this.#now()
+      existing.lastOutputAt = now
       existing.outputSinceArmed = true
+      if (existing.announced || typed) return
+      existing.workingSince ??= now
       // A run that has now outlasted the floor is the CLI working, and says so
       // once — while the output is still arriving, not after it stops.
-      if (!existing.announced && this.#now() - existing.startedAt >= MIN_RUN_MS) {
+      if (now - existing.workingSince >= MIN_RUN_MS) {
         existing.announced = true
         this.#options.onWorking(id)
       }
       return
     }
-    const startedAt = this.#now()
-    this.#runs.set(id, { startedAt, lastOutputAt: startedAt, outputSinceArmed: false, timer: this.#arm(id, QUIET_MS), announced: false })
+    this.#runs.set(id, {
+      startedAt: now,
+      workingSince: typed ? undefined : now,
+      lastOutputAt: now,
+      outputSinceArmed: false,
+      timer: this.#arm(id, QUIET_MS),
+      announced: false,
+      cut: false,
+    })
   }
 
   /**
@@ -128,6 +182,7 @@ export class TerminalActivity {
    * @param id - the terminal's id.
    */
   closed(id: string): void {
+    this.#typedAt.delete(id)
     const run = this.#runs.get(id)
     if (run === undefined) return
     clearTimeout(run.timer)
@@ -138,6 +193,7 @@ export class TerminalActivity {
   stop(): void {
     for (const run of this.#runs.values()) clearTimeout(run.timer)
     this.#runs.clear()
+    this.#typedAt.clear()
   }
 
   /**
@@ -158,7 +214,7 @@ export class TerminalActivity {
       }
       this.#runs.delete(id)
       // A run nobody was told about started never finished, so nothing to say.
-      if (run.announced) this.#options.onDone(id, this.#now() - run.startedAt)
+      if (run.announced) this.#options.onDone(id, this.#now() - (run.workingSince ?? run.startedAt), run.cut)
       this.#options.onQuiet?.(id)
     }, ms)
     // The watcher must never hold the process open on its own account.

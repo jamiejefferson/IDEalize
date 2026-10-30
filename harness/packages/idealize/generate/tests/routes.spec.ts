@@ -133,3 +133,56 @@ describe('GenerationRuntime.inputs', () => {
     expect(await ctx.generation.inputs({ backend: 'loud', model: 'x' })).toEqual([{ name: 'x', label: 'x', kind: 'enum', values: ['a'] }])
   })
 })
+
+describe('GET /idealize/brains/media', () => {
+  it('lists each candidate with what the model browser shows: picture, tags, licence, date, maker, price', async () => {
+    const { ctx, port } = await boot({})
+    const described: GenerationBackend = {
+      id: 'shop',
+      describe: () => [],
+      models: () => [{
+        id: 'acme/animate', name: 'Animate', artefact: 'video', inputModalities: ['text', 'image'], outputMediaTypes: ['video/*'],
+        requiredInputs: ['image'], description: 'Animates a picture.', thumbnailUrl: 'https://x/y.jpg', tags: ['motion'],
+        licence: 'commercial', released: '2026-10-01', maker: 'acme',
+        price: { unitPrice: 0.07, unit: 'seconds', currency: 'USD', perOutput: { amount: 0.35, output: '5 s clip' } },
+      }],
+      generate: () => Promise.reject(new Error('unused')),
+    }
+    ctx.generation.register(described)
+    const { status, body } = await get(port, '/idealize/brains/media')
+    expect(status).toBe(200)
+    const motion = (body as { presets: { id: string; candidates: { backend: string; model: Record<string, unknown> }[] }[] })
+      .presets.find(preset => preset.id === 'motion')
+    expect(motion?.candidates.find(entry => entry.backend === 'shop')?.model).toEqual(described.models()[0])
+  })
+})
+
+describe('GET /idealize/brains/media/example', () => {
+  it('answers the example a backend publishes, null when it has none, and null with a warning when the lookup fails', async () => {
+    const { ctx, port, warnings } = await boot({})
+    ctx.generation.register({
+      id: 'shop',
+      describe: () => [],
+      models: () => [],
+      example: (modelId: string) => (modelId === 'clip'
+        ? Promise.resolve({ url: 'https://x/out.mp4', mediaType: 'video/mp4' })
+        : modelId === 'quiet' ? Promise.resolve(undefined) : Promise.reject(new GenerationError('schema refused (404)', 'INVALID_REQUEST'))),
+      generate: () => Promise.reject(new Error('unused')),
+    })
+    expect(await get(port, '/idealize/brains/media/example?backend=shop&model=clip'))
+      .toEqual({ status: 200, body: { example: { url: 'https://x/out.mp4', mediaType: 'video/mp4' } } })
+    expect(await get(port, '/idealize/brains/media/example?backend=shop&model=quiet')).toEqual({ status: 200, body: { example: null } })
+    // A backend without the lookup, and one nobody registered, answer null too.
+    expect(await get(port, '/idealize/brains/media/example?backend=fx&model=cut')).toEqual({ status: 200, body: { example: null } })
+    expect(await get(port, '/idealize/brains/media/example?backend=nobody&model=x')).toEqual({ status: 200, body: { example: null } })
+    expect(await get(port, '/idealize/brains/media/example?backend=shop&model=broken')).toEqual({ status: 200, body: { example: null } })
+    expect(warnings).toEqual(['idealize-generate: example for shop/broken unavailable: schema refused (404)'])
+  })
+
+  it('refuses a missing backend or model and a non-loopback host', async () => {
+    const { port } = await boot({})
+    expect((await get(port, '/idealize/brains/media/example?backend=shop')).status).toBe(400)
+    expect((await get(port, '/idealize/brains/media/example?model=x')).status).toBe(400)
+    expect((await get(port, '/idealize/brains/media/example?backend=shop&model=x', 'example.com')).status).toBe(403)
+  })
+})

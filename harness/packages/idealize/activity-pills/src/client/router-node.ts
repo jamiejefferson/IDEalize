@@ -35,7 +35,8 @@ export const routerNoteDefinition: ConversationNodeDefinition<RouterEventData> =
   },
   update: context => context.state,
   buildViewNode: (context): ChatConversationViewNode | null => {
-    if (context.state === undefined) return null
+    // A switch made by keeping another model's answer: the comparison card already says so.
+    if (context.state === undefined || context.state.via === 'dislike') return null
     return {
       key: context.key,
       kind: 'router-note',

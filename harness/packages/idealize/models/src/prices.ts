@@ -43,12 +43,33 @@ export type PricedModel = TokenPrice & { source: PriceSource }
 /** Prices with their origin, per provider then model. */
 export type PricedTable = Record<string, Record<string, PricedModel>>
 
+/**
+ * What OpenRouter's directory says about one model beyond its price, for the
+ * model browser: every field is optional, because a row states what it states.
+ */
+export interface OpenRouterModelDetail {
+  name?: string
+  description?: string
+  /** When the model was listed, as an ISO date (`YYYY-MM-DD`). */
+  released?: string
+  /** The context window in tokens. */
+  contextLength?: number
+  /** What the model reads: `text`, `image`, `file`, `audio`, `video`. */
+  inputModalities?: string[]
+  /** Whether the model takes tool definitions. */
+  tools?: boolean
+  /** Whether the model reasons before it answers. */
+  reasoning?: boolean
+}
+
 /** What the price cache file holds. */
 export interface OpenRouterPriceCache {
   /** ISO instant the directory was read. */
   fetchedAt: string
   /** USD per million tokens, by OpenRouter model id. */
   prices: Record<string, TokenPrice>
+  /** Each model's description and capabilities, by OpenRouter model id; absent in a cache written before the browser. */
+  details?: Record<string, OpenRouterModelDetail>
 }
 
 /** A USD-per-token string as OpenRouter prints it, or a number, to a finite non-negative per-million figure. */
@@ -94,6 +115,64 @@ export function openRouterPrices(payload: unknown): Record<string, TokenPrice> {
   return prices
 }
 
+const MODALITIES: readonly string[] = ['text', 'image', 'file', 'audio', 'video']
+
+/**
+ * One model's detail, validated field by field: from an OpenRouter row (with
+ * `created` in seconds, `architecture.input_modalities` and
+ * `supported_parameters`) or from a cache file (already in this shape).
+ */
+function detailFrom(raw: unknown): OpenRouterModelDetail | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const row = raw as Record<string, unknown>
+  const detail: OpenRouterModelDetail = {}
+  const text = (value: unknown): string | undefined =>
+    typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+  const name = text(row.name)
+  if (name !== undefined) detail.name = name
+  const description = text(row.description)
+  if (description !== undefined) detail.description = description
+  const released = typeof row.created === 'number' && Number.isFinite(row.created) && row.created > 0
+    ? new Date(row.created * 1000).toISOString().slice(0, 10)
+    : typeof row.released === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.released) ? row.released : undefined
+  if (released !== undefined) detail.released = released
+  const context = row.context_length ?? row.contextLength
+  if (typeof context === 'number' && Number.isInteger(context) && context > 0) detail.contextLength = context
+  const modalities = (row.architecture as { input_modalities?: unknown } | undefined)?.input_modalities ?? row.inputModalities
+  if (Array.isArray(modalities)) {
+    const kept = modalities.filter((one): one is string => typeof one === 'string' && MODALITIES.includes(one))
+    if (kept.length > 0) detail.inputModalities = [...new Set(kept)]
+  }
+  if (Array.isArray(row.supported_parameters)) {
+    const parameters = row.supported_parameters.filter((one): one is string => typeof one === 'string')
+    detail.tools = parameters.includes('tools')
+    detail.reasoning = parameters.includes('reasoning') || parameters.includes('include_reasoning')
+  } else {
+    if (typeof row.tools === 'boolean') detail.tools = row.tools
+    if (typeof row.reasoning === 'boolean') detail.reasoning = row.reasoning
+  }
+  return detail
+}
+
+/**
+ * Read each model's description and capabilities out of an OpenRouter
+ * `/api/v1/models` payload, for the model browser.
+ * @param payload - the parsed JSON body.
+ * @returns details by model id; empty when the payload has no usable rows.
+ */
+export function openRouterDetails(payload: unknown): Record<string, OpenRouterModelDetail> {
+  const details: Record<string, OpenRouterModelDetail> = {}
+  const rows = (payload as { data?: unknown } | null)?.data
+  if (!Array.isArray(rows)) return details
+  for (const row of rows) {
+    const id = (row as { id?: unknown } | null)?.id
+    if (typeof id !== 'string' || id === '') continue
+    const detail = detailFrom(row)
+    if (detail !== undefined) details[id] = detail
+  }
+  return details
+}
+
 /** One cached price, validated: the file is a boundary, whoever wrote it. */
 function priceFrom(raw: unknown): TokenPrice | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined
@@ -124,14 +203,20 @@ export function readOpenRouterPriceCache(home: string): OpenRouterPriceCache | u
     return undefined
   }
   try {
-    const parsed = JSON.parse(raw) as { fetchedAt?: unknown; prices?: unknown }
+    const parsed = JSON.parse(raw) as { fetchedAt?: unknown; prices?: unknown; details?: unknown }
     if (typeof parsed.fetchedAt !== 'string' || typeof parsed.prices !== 'object' || parsed.prices === null) return undefined
     const prices: Record<string, TokenPrice> = {}
     for (const [id, row] of Object.entries(parsed.prices as Record<string, unknown>)) {
       const price = priceFrom(row)
       if (price !== undefined) prices[id] = price
     }
-    return { fetchedAt: parsed.fetchedAt, prices }
+    if (typeof parsed.details !== 'object' || parsed.details === null) return { fetchedAt: parsed.fetchedAt, prices }
+    const details: Record<string, OpenRouterModelDetail> = {}
+    for (const [id, row] of Object.entries(parsed.details as Record<string, unknown>)) {
+      const detail = detailFrom(row)
+      if (detail !== undefined) details[id] = detail
+    }
+    return { fetchedAt: parsed.fetchedAt, prices, details }
   } catch {
     // A truncated or hand-edited file reads as no cache; the next fetch replaces it.
     return undefined
@@ -143,12 +228,17 @@ export function readOpenRouterPriceCache(home: string): OpenRouterPriceCache | u
  * @param home - the harness home directory.
  * @param prices - the converted per-million prices.
  * @param fetchedAt - the instant they were read (ms).
+ * @param details - each model's description and capabilities, when read.
  * @returns the cache as written.
  */
-export function writeOpenRouterPriceCache(home: string, prices: Record<string, TokenPrice>, fetchedAt: number): OpenRouterPriceCache {
+export function writeOpenRouterPriceCache(
+  home: string, prices: Record<string, TokenPrice>, fetchedAt: number, details?: Record<string, OpenRouterModelDetail>,
+): OpenRouterPriceCache {
   const dir = join(home, DIR)
   mkdirSync(dir, { recursive: true })
-  const body: OpenRouterPriceCache = { fetchedAt: new Date(fetchedAt).toISOString(), prices }
+  const body: OpenRouterPriceCache = {
+    fetchedAt: new Date(fetchedAt).toISOString(), prices, ...details === undefined ? {} : { details },
+  }
   writeFileSync(join(dir, FILE), `${JSON.stringify(body, null, 2)}\n`, 'utf8')
   return body
 }
@@ -172,13 +262,17 @@ export async function refreshOpenRouterPrices(options: {
 }): Promise<OpenRouterPriceCache | undefined> {
   const cached = readOpenRouterPriceCache(options.home)
   if (options.maxAgeMs <= 0) return cached
-  if (cached !== undefined && options.now - Date.parse(cached.fetchedAt) < options.maxAgeMs) return cached
+  // A cache written before the browser read details is refreshed once, so
+  // the browser does not wait a day to describe OpenRouter's models.
+  const fresh = cached !== undefined && cached.details !== undefined && options.now - Date.parse(cached.fetchedAt) < options.maxAgeMs
+  if (fresh) return cached
   try {
     const response = await options.fetchImpl(OPENROUTER_MODELS_URL, { signal: AbortSignal.timeout(15_000) })
     if (!response.ok) return cached
-    const prices = openRouterPrices(await response.json())
+    const payload: unknown = await response.json()
+    const prices = openRouterPrices(payload)
     if (Object.keys(prices).length === 0) return cached
-    return writeOpenRouterPriceCache(options.home, prices, options.now)
+    return writeOpenRouterPriceCache(options.home, prices, options.now, openRouterDetails(payload))
   } catch {
     // Offline or refused: the last list read stands until the next request.
     return cached

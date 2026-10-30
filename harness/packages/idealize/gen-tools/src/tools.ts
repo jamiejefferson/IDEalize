@@ -43,12 +43,13 @@ import type {
   GenAttachment,
   GenCatalogEntry,
   GenerationRequest,
+  GenModality,
   MediaPresetDefinition,
 } from '@idealize/generate'
-import type { GenerationReroutedData } from './types.ts'
+import type { GenerationChoice, GenerationReroutedData } from './types.ts'
 import { createTalkTools, TALK_SECTION } from './talk.ts'
 
-export type { GenerationReroutedData } from './types.ts'
+export type { GenerationChoice, GenerationReroutedData } from './types.ts'
 export { createTalkTools, TALK_SECTION } from './talk.ts'
 
 declare module '@deepseek-ai/dsh-jobs' {
@@ -348,34 +349,6 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
           throw new Error(`${spec.toolName}: the session has no working directory to store artefacts in`)
         }
 
-        const candidates: GenCatalogEntry[] = ctx.generation.compatible(preset.requiredCapabilities)
-        const [first] = candidates
-        if (first === undefined) {
-          const availability = ctx.generation.availability(preset.requiredCapabilities)
-          const recovery = availability.state === 'unavailable' ? ` ${availability.recovery}` : ''
-          throw new Error(`no compatible ${spec.artefact} generation model is available.${recovery}`)
-        }
-
-        const face = ctx.get('settings')?.get(ACTIVITY_NS) as ActivityModelsSectionFace | undefined
-        const stored = storedMediaModel(face, preset.id)
-        const storedEntry = stored === null
-          ? undefined
-          : candidates.find(entry => entry.backend === stored.backend && entry.model.id === stored.model)
-        const entry = storedEntry ?? first
-        let notice: string | undefined
-        if (stored !== null && storedEntry === undefined) {
-          notice = `the stored ${preset.id} model ${stored.backend}/${stored.model} is unavailable; `
-            + `this task ran on ${entry.backend}/${entry.model.id}`
-          const rerouted: GenerationReroutedData = {
-            presetId: preset.id,
-            artefact: spec.artefact,
-            stored,
-            used: { backend: entry.backend, model: entry.model.id },
-            reason: 'the stored model is not in the current compatible catalogue',
-          }
-          session.append('generation/rerouted', rerouted, { ignorable: true })
-        }
-
         const workspace = await ctx.workspaceRegistry.resolveByPath(cwd) ?? await ctx.workspaceRegistry.create(cwd)
         // The model's own inputs first, so a named parameter wins over an
         // `options` entry of the same name.
@@ -396,6 +369,57 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
           ? undefined
           : await resolveReferenceImage(ctx, spec.toolName, args.reference_image, workspace.path)
         const recorded: JsonValue = reference === undefined ? settings : { ...settings, reference_image: args.reference_image ?? '' }
+        const candidates: GenCatalogEntry[] = ctx.generation.compatible(preset.requiredCapabilities)
+        // A model that starts from a picture (image-to-image, image-to-video)
+        // cannot run on a prompt alone; it is passed over when the call
+        // carries no reference image.
+        const provided: GenModality[] = reference === undefined ? ['text'] : ['text', 'image']
+        const runnable = (candidate: GenCatalogEntry): boolean =>
+          (candidate.model.requiredInputs ?? []).every(modality => provided.includes(modality))
+        const first = candidates.find(runnable)
+        if (first === undefined) {
+          const availability = ctx.generation.availability(preset.requiredCapabilities)
+          const recovery = availability.state === 'unavailable' ? ` ${availability.recovery}` : ''
+          throw new Error(`no compatible ${spec.artefact} generation model is available.${recovery}`)
+        }
+
+        const face = ctx.get('settings')?.get(ACTIVITY_NS) as ActivityModelsSectionFace | undefined
+        const stored = storedMediaModel(face, preset.id)
+        const storedEntry = stored === null
+          ? undefined
+          : candidates.find(entry => entry.backend === stored.backend && entry.model.id === stored.model)
+        if (storedEntry !== undefined && !runnable(storedEntry)) {
+          throw new Error(`${spec.toolName}: ${storedEntry.model.name} starts from a picture; pass reference_image, `
+            + 'or ask the person to choose a model that starts from a prompt under Brains')
+        }
+        const fallback = storedEntry ?? first
+        // The router may move this one call to a model the person rated for the work the prompt asks for.
+        const choice: GenerationChoice = {
+          session, presetId: preset.id, artefact: spec.artefact, prompt: args.prompt,
+          candidates: candidates.filter(runnable), hasReference: reference !== undefined,
+        }
+        let offered = fallback
+        try {
+          offered = await ctx.waterfall('generation/choose-model', choice, () => Promise.resolve(fallback))
+        } catch (error) {
+          // A chooser that fails never fails the generation: the call runs on the stored choice.
+          ctx.logger.warn(`${spec.toolName}: choosing a model failed, the stored choice runs: ${String(error)}`)
+        }
+        const entry = choice.candidates.find(one => one.backend === offered.backend && one.model.id === offered.model.id) ?? fallback
+        let notice: string | undefined
+        if (stored !== null && storedEntry === undefined) {
+          notice = `the stored ${preset.id} model ${stored.backend}/${stored.model} is unavailable; `
+            + `this task ran on ${entry.backend}/${entry.model.id}`
+          const rerouted: GenerationReroutedData = {
+            presetId: preset.id,
+            artefact: spec.artefact,
+            stored,
+            used: { backend: entry.backend, model: entry.model.id },
+            reason: 'the stored model is not in the current compatible catalogue',
+          }
+          session.append('generation/rerouted', rerouted, { ignorable: true })
+        }
+
         const request: GenerationRequest = {
           schemaVersion: GENERATION_SCHEMA_VERSION,
           taskIntent: preset.taskIntent,

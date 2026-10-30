@@ -16,6 +16,10 @@ A one-off fire writes `done` on the task before the run is announced, so a pane 
 
 The task's `provider` and `model` select the run's model; absent, the deployment default (`agentDefaultModel`) applies at fire time.
 
+## While every agent is paused
+
+`@idealize/comm`'s pause (feedback 495cec0a) holds the schedule: a task that runs an agent and comes due while `ctx.idealizePause.held()` answers true is owed instead of fired, and its next fire is armed as usual; a reminder runs no agent and still fires. Resume calls `releaseHeld()`, which runs each owed task once, however many fires the pause covered. The owed set lives in memory; a one-off still owed after a restart comes due again when the scheduler re-arms it.
+
 ## Routes (loopback; mutations need `x-idealize-auth: 1`)
 
 - `GET /idealize/cron/tasks` → every task with `nextFireAt` (enabled, not done) and `running`.

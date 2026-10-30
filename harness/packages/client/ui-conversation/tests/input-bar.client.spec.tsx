@@ -82,6 +82,7 @@ interface BenchOptions {
   placeholder?: string
   t?: InputBarProps['t']
   command?: (line: string) => Promise<boolean>
+  rememberPermission?: (preset: string) => Promise<void>
   accessory?: React.ReactNode
   overlay?: React.ReactNode
   leftItems?: React.ReactNode
@@ -187,6 +188,7 @@ function bench(over?: BenchOptions) {
     useComposerMenu: bindSnapshotSelector(composerMenu),
     stop,
     command: over?.command ?? (() => Promise.resolve(true)),
+    rememberPermission: over?.rememberPermission,
     // Mirrors the real lookup chain (conversation namespace, then common).
     t: over?.t ?? makeTranslate(zh, commonZh),
     renderSlot,
@@ -1574,6 +1576,67 @@ describe('the "+" menu and control seats', () => {
     expect(view.queryByRole('dialog')).toBeNull()
     expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Full access')
     await act(async () => {})
+  })
+
+  it('offers to keep Full access as the new-chat default, and keeps it only when asked', async () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const rememberPermission = vi.fn(() => Promise.resolve())
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view } = bench({ permissions, command, rememberPermission })
+    const confirmWith = (keep: boolean) => {
+      fireEvent.click(view.getByLabelText(/^访问模式/))
+      fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+      const remember = view.getByRole('checkbox', { name: /所有新对话都使用 Full access/ }) as HTMLInputElement
+      // A fresh confirmation never arrives pre-ticked.
+      expect(remember.checked).toBe(false)
+      fireEvent.click(view.getByRole('checkbox', { name: '我已了解风险，并愿意继续' }))
+      if (keep) fireEvent.click(remember)
+      fireEvent.click(view.getByRole('button', { name: '启用 Full access' }))
+    }
+
+    confirmWith(false)
+    expect(command).toHaveBeenLastCalledWith('/permission danger-full-access')
+    expect(rememberPermission).not.toHaveBeenCalled()
+    await act(async () => {})
+
+    // The chip reads the projection, which the stub never moves; the
+    // confirmation opens again from Workspace Write.
+    confirmWith(true)
+    expect(command).toHaveBeenCalledTimes(2)
+    expect(rememberPermission).toHaveBeenCalledExactlyOnceWith('danger-full-access')
+    await act(async () => {})
+  })
+
+  it('a cancelled confirmation keeps nothing, and the choice is absent where it cannot be kept', () => {
+    const rememberPermission = vi.fn(() => Promise.resolve())
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view } = bench({ permissions, rememberPermission })
+    fireEvent.click(view.getByLabelText(/^访问模式/))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    fireEvent.click(view.getByRole('checkbox', { name: /所有新对话都使用 Full access/ }))
+    fireEvent.click(view.getByRole('button', { name: '取消' }))
+    expect(rememberPermission).not.toHaveBeenCalled()
+    fireEvent.click(view.getByLabelText(/^访问模式/))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    expect((view.getByRole('checkbox', { name: /所有新对话都使用 Full access/ }) as HTMLInputElement).checked).toBe(false)
+    cleanup()
+
+    const bare = bench({ permissions })
+    fireEvent.click(bare.view.getByLabelText(/^访问模式/))
+    fireEvent.click(bare.view.getByRole('menuitem', { name: 'Full access' }))
+    expect(bare.view.getAllByRole('checkbox')).toHaveLength(1)
   })
 
   it('cancels a Full access selection without changing permission and resets acknowledgement', () => {

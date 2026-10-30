@@ -28,8 +28,20 @@
  * - POST /idealize/router/lock — {sessionId, locked}.
  * - POST /idealize/router/reset — {sessionId}: the user took the model back; the earlier switch no longer holds.
  * - GET  /idealize/router/log?limit=n — the newest decisions, newest first.
+ * - GET  /idealize/router/ratings — the tag list per kind of model and every rating the person holds.
+ * - POST /idealize/router/ratings — {kind, provider, model, tag, stars (1 to 5, or null to clear), label?}.
+ * - GET  /idealize/router/rate-target?sessionId= — the model behind the chat's last answer and the tag its line opens on.
+ * - GET  /idealize/router/offer?sessionId= — after a dislike: the two models to try, and what both runs should cost.
+ * - POST /idealize/router/compare — {sessionId, alternatives}: run them; the steps land in the log as `idealize/router-compare`.
+ * - POST /idealize/router/pick — {sessionId, id, index}: keep an alternative (or -1, the first answer).
+ *
+ * The generating spaces: when the person has starred a media model, each
+ * generation's prompt is read as one kind of work, and the call moves to the
+ * model they rated highest for it (`generation/choose-model`). A model kept
+ * after a dislike serves the rest of that chat's generations of its kind.
  */
 
+import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -39,15 +51,25 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
+import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { effectivePrices, readOpenRouterPriceCache } from '@idealize/models'
 import type { TokenPriceTable } from '@idealize/models'
-import { shippedTokenPrices } from '@idealize/services'
+import { recordedKeyEnv, shippedTokenPrices } from '@idealize/services'
 import { foldBrainRecord, resolveSessionSpace } from '@idealize/spaces'
+import type { ArtefactRecord } from '@idealize/artefacts'
+import { GENERATION_SCHEMA_VERSION, MEDIA_PRESETS } from '@idealize/generate'
+import type { GenCatalogEntry, GenerationRequest, GenerationResult } from '@idealize/generate'
+// Type-only: the `generation/choose-model` Events merge.
+import type {} from '@idealize/gen-tools'
+
+import { alternativesFor } from './alternatives.ts'
+import { ANSWER_IN_TEXT, askBefore, compareCost, foldCompare, foldMediaKept, keptNote, lastReply } from './compare.ts'
 
 import { candidatesFrom, FREE_PROVIDER } from './candidates.ts'
 import { criteriaFor, engineWeights, ROUTING_HEADER, routingHeaderValue, SHIPPED_CRITERIA } from './criteria.ts'
@@ -58,11 +80,21 @@ import { askJev, JEV_TIMEOUT_MS, JEV_URL, requestFor } from './jev.ts'
 import type { JevFailure } from './jev.ts'
 import { appendLog, entryFor, readLog } from './log.ts'
 import { foldLocked, foldRouted, routerProjectionDefinition } from './projection.ts'
+import {
+  decideMedia, hasStarsFor, MEDIA_CONFIDENCE, mediaAlternativesFor, mediaCost, mediaTagFor, PRESET_KIND, readableTags, readPrompt,
+} from './media.ts'
+import type { CompareKind, RoutedModel, RouterCompareEventData } from './projection-types.ts'
+import {
+  addMark, isRatingKind, isStars, isTag, RATING_TAGS, ratingsOf, readRatings, setStars, standing, TASK_TAG, updateRatings,
+} from './ratings.ts'
+import type { RatingKind, RatingsFile } from './ratings.ts'
 import { noteRefusal, readRefusals, routeKey } from './refused.ts'
 import type { Refusals } from './refused.ts'
 import { routeTurn } from './route.ts'
 import { SHIPPED_SCORES } from './score-table.ts'
 import type { ScoreRow } from './score-table.ts'
+import { readLocally } from './tasks.ts'
+import type { TaskReading } from './tasks.ts'
 
 export { candidatesFrom } from './candidates.ts'
 export { criteriaFor, engineWeights, ROUTING_HEADER, routingHeaderValue, SHIPPED_CRITERIA } from './criteria.ts'
@@ -75,6 +107,11 @@ export type { RoutedModel, RouterEventData, RouterLockEventData, RouterProjectio
 export { routeTurn } from './route.ts'
 export { SHIPPED_SCORES } from './score-table.ts'
 export type { ScoreRow } from './score-table.ts'
+export { alternativesFor } from './alternatives.ts'
+export { askBefore, compareCost, foldCompare, foldMediaKept, keptNote, lastReply } from './compare.ts'
+export { decideMedia, hasStarsFor, mediaAlternativesFor, mediaCost, mediaTagFor, readableTags } from './media.ts'
+export { addMark, RATING_TAGS, ratingKey, ratingsOf, readRatings, setStars, standing, TASK_TAG, updateRatings } from './ratings.ts'
+export type { RatedModel, RatingKind, RatingsFile, Stars, TagRating } from './ratings.ts'
 export { readLocally, TASKS } from './tasks.ts'
 export type { TaskReading, TaskType } from './tasks.ts'
 
@@ -83,12 +120,19 @@ export const name = 'idealize-router'
 
 const NS = settingsNamespace('idealize-router')
 const MODELS_NS = settingsNamespace('idealize-models')
-const LLM_NS = settingsNamespace('llm-pi-ai')
 const OPENROUTER_KEY_ENV = 'OPENROUTER_API_KEY'
 /** The user's own capability rows, read over the shipped table. */
 const USER_SCORES_FILE = 'router-scores.json'
 /** Routes and their model lists change rarely; a turn does not wait on them twice a minute. */
 const CANDIDATES_FRESH_MS = 60_000
+/** The longest one alternative may take over a chat answer. */
+const COMPARE_CHAT_MS = 180_000
+/** The longest one alternative may take over a picture, clip or sound. */
+const COMPARE_MEDIA_MS = 600_000
+/** The space a chat runs in, as the kind of model its answers come from. */
+const SPACE_KIND: Readonly<Record<string, CompareKind>> = { chat: 'chat', gallery: 'image', motion: 'video', soundstage: 'audio' }
+/** The media preset each kind of model serves. */
+const KIND_PRESET: Readonly<Record<Exclude<RatingKind, 'chat'>, string>> = { image: 'images', video: 'motion', audio: 'sound' }
 
 export interface RouterConfig {
   /** Off: every chat stays on the model it has. */
@@ -171,6 +215,47 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
 const sameModel = (a: { provider: string; model: string }, b: { provider: string; model: string }): boolean =>
   a.provider === b.provider && a.model === b.model
 
+/** The generation service's face, as far as this plugin reads it. */
+interface GenerationFace {
+  compatible(required: readonly unknown[]): GenCatalogEntry[]
+  /** The backends that take a key, and whether one is stored. */
+  credentials?(): { backend: string; connected: boolean }[]
+  generate(request: GenerationRequest, onProgress?: undefined, signal?: AbortSignal): Promise<GenerationResult>
+}
+
+/** The artefact store's face, as far as this plugin reads it. */
+interface ArtefactsFace {
+  create(request: {
+    session: Session
+    mediaType: string
+    bytes: Uint8Array
+    settings: ArtefactRecord['settings']
+    sourceTask: { turnSeq: number; callId: CallId; toolName: string }
+    provenance: ArtefactRecord['provenance']
+  }): Promise<ArtefactRecord>
+}
+
+/**
+ * The catalogue entries a person can run now: a backend that takes a key and
+ * has none stored is left out, so an offer never names a model that cannot answer.
+ */
+function runnable(service: GenerationFace | undefined, entries: readonly GenCatalogEntry[]): GenCatalogEntry[] {
+  const unkeyed = new Set((service?.credentials?.() ?? []).filter(row => !row.connected).map(row => row.backend))
+  return entries.filter(entry => !unkeyed.has(entry.backend))
+}
+
+/** The last picture, clip or sound the chat made. */
+function lastArtefact(events: readonly SessionEvent[]): ArtefactRecord | undefined {
+  const created = events.findLast(event => event.type === 'artefact/created')
+  return created?.type === 'artefact/created' ? created.data.record : undefined
+}
+
+/** The kind of model that makes one media type. */
+function kindOfMedia(mediaType: string): Exclude<RatingKind, 'chat'> | undefined {
+  const top = mediaType.split('/')[0]
+  return top === 'image' || top === 'video' || top === 'audio' ? top : undefined
+}
+
 /** The tokens the chat's last answer read: the closest figure the log holds to what the next model must take in. */
 function contextTokensOf(events: readonly SessionEvent[]): number | undefined {
   const last = events.findLast(event => event.type === 'assistant/message' && event.data.usage !== undefined)
@@ -225,6 +310,19 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
     let lastJevFailure: { failure: JevFailure; at: string } | undefined
     let cached: { at: number; candidates: Candidate[] } | undefined
     let refusals: Refusals | undefined
+    /** The ratings as last read or written; every write goes through {@link rate}. */
+    let ratings: RatingsFile | undefined
+    const currentRatings = async (): Promise<RatingsFile> => (ratings ??= await readRatings(home))
+    /** The kind of work the router read for each chat's latest turn, for the heart's line. */
+    const readings = new Map<string, { turn: number; reading: TaskReading }>()
+    /** The tag the router read for each chat's latest generation, by preset. */
+    const mediaReadings = new Map<string, Map<string, string>>()
+    /** Chats with a comparison running, so a second tap does not pay twice. */
+    const comparing = new Set<string>()
+    const rate = async (change: (file: RatingsFile) => void): Promise<RatingsFile> => {
+      ratings = await updateRatings(home, change)
+      return ratings
+    }
 
     /** A stored key first; a person who signed in to OpenRouter holds a key in the sign-in store, under `access`. */
     const openRouterKey = async (): Promise<string | undefined> => {
@@ -250,12 +348,13 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
      * a signed-in subscription, or the free engine with models registered.
      */
     const connectedRoutes = async (): Promise<ConnectedRoute[]> => {
-      const llm = routeCtx.settings.get(LLM_NS) as { providers?: Record<string, { apiKeyEnv?: unknown }> } | undefined
-      const profiles = llm?.providers ?? {}
+      const read = (ns: Parameters<typeof routeCtx.settings.get>[0]): unknown => routeCtx.settings.get(ns)
       const oauth = routeCtx.get('idealizeOAuth') as OAuthFace | undefined
       const subs = oauth?.status === undefined ? [] : await oauth.status().catch(() => [])
       const routes = await Promise.all(routeCtx.llm.listConfigurableProviders().map(async (entry): Promise<ConnectedRoute | undefined> => {
-        const apiKeyEnv = profiles[entry.provider]?.apiKeyEnv
+        // Read where the route's own adapter keeps it: DeepSeek's key lives in
+        // llm-deepseek, not under pi-ai's providers (JJ, 30 Oct 2026).
+        const apiKeyEnv = recordedKeyEnv(read, entry)
         const sub = subs.find(row => row.id === entry.provider)
         const auth: RouteAuth = entry.provider === FREE_PROVIDER
           ? 'free'
@@ -349,6 +448,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
           ...criteria(record?.brain),
           preferFree: settings.preferFree ?? true,
           table: await scoreTable(home),
+          ratings: await currentRatings(),
           now: new Date(),
         }, {
           askJev: settings.useJev === false
@@ -362,6 +462,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         })
         if (result.jevFailure !== undefined) lastJevFailure = { failure: result.jevFailure, at: new Date().toISOString() }
         else if (result.jev?.reading !== undefined) lastJevFailure = undefined
+        readings.set(String(agent.session.header.id), { turn, reading: result.reading })
         for (const event of result.events) {
           const { rationale: _why, ...bare } = event
           agent.session.append('idealize/router', settings.showRationale === false ? bare : event, { ignorable: true })
@@ -396,6 +497,53 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       routeCtx.logger.warn(`idealize-router: ${routeKey(routed.use)} failed (${failure.code}: ${failure.message}); the turn returns to ${routeKey(routed.resolved)} and the router leaves that model alone for ${cause === 'rate-limited' ? 'an hour' : 'a week'}`)
       return { kind: 'retry' }
     }, { prepend: true })
+
+    // The generating spaces: a generation moves to the model the person rated highest for the work its prompt asks
+    // for, or stays on the stored choice. With no stars for the kind, nothing is read and nothing moves (JJ, 28 Oct 2026).
+    routeCtx.on('generation/choose-model', async (choice, next) => {
+      const stored = await next()
+      try {
+        const kind = PRESET_KIND[choice.presetId]
+        const settings = current()
+        const events = choice.session.events
+        if (kind === undefined || settings.enabled === false || foldLocked(events)) return stored
+        const record = foldBrainRecord(events)
+        if (record !== undefined && (settings.offBrains ?? []).includes(record.brain)) return stored
+        const named = (entry: GenCatalogEntry): RoutedModel =>
+          ({ provider: entry.backend, model: entry.model.id, label: entry.model.name || entry.model.id })
+        const kept = foldMediaKept(events, choice.presetId)
+        const held = kept === undefined
+          ? undefined
+          : choice.candidates.find(entry => entry.backend === kept.to.provider && entry.model.id === kept.to.model)
+        if (held !== undefined) return held
+        const file = await currentRatings()
+        if (!hasStarsFor(file, kind) || settings.useJev === false) return stored
+        const tags = readableTags(kind, choice.hasReference)
+        const read = await readPrompt(choice.prompt, kind, tags, {
+          key: await openRouterKey(), url: settings.jevUrl ?? JEV_URL, timeoutMs: settings.jevTimeoutMs ?? JEV_TIMEOUT_MS,
+        })
+        if (read.failure !== undefined) lastJevFailure = { failure: read.failure, at: new Date().toISOString() }
+        if (read.reading === undefined || read.reading.confidence < MEDIA_CONFIDENCE) return stored
+        const sessionId = String(choice.session.header.id)
+        const byPreset = mediaReadings.get(sessionId) ?? new Map<string, string>()
+        byPreset.set(choice.presetId, read.reading.tag)
+        mediaReadings.set(sessionId, byPreset)
+        const decision = decideMedia({
+          kind, stored, candidates: runnable(routeCtx.get('generation'), choice.candidates), tag: read.reading.tag, ratings: file,
+          aggressiveness: criteria(record?.brain).aggressiveness,
+        })
+        if (!decision.switched) return stored
+        choice.session.append('idealize/router-media', {
+          outcome: 'switched', at: new Date().toISOString(), presetId: choice.presetId,
+          from: named(stored), to: named(decision.use), tag: read.reading.tag, rationale: decision.rationale,
+        }, { ignorable: true })
+        return decision.use
+      } catch (error) {
+        // The router never fails a generation: whatever went wrong, the stored choice runs.
+        routeCtx.logger.warn(`idealize-router: choosing a media model failed, the stored choice runs: ${String(error)}`)
+        return stored
+      }
+    })
 
     // The free-token engine picks its provider on the brain's priorities: every request of a chat carries them.
     routeCtx.inject(['idealizeAttribution', 'sessions'], (engineCtx) => {
@@ -524,6 +672,333 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
           session.append('idealize/router', { outcome: 'reset', at: new Date().toISOString(), from: open.to, to: open.from }, { ignorable: true })
         }
         sendJson(res, 200, { ok: true, reset: open !== undefined })
+      })
+
+      register('/idealize/router/ratings', false, async (req, res) => {
+        if (req.method === 'POST') {
+          if (req.headers['x-idealize-auth'] !== '1') {
+            res.writeHead(403, { 'content-type': 'text/plain' }).end('missing x-idealize-auth header')
+            return
+          }
+          const body = await readBody(req)
+          const { kind, provider, model, tag, stars } = body
+          if (!isRatingKind(kind) || typeof provider !== 'string' || typeof model !== 'string' || model === '') {
+            sendJson(res, 400, { error: 'send kind (chat, image, video or audio), provider and model' })
+            return
+          }
+          if (!isTag(kind, tag)) {
+            sendJson(res, 400, { error: `tag must be one of ${RATING_TAGS[kind].join(', ')}` })
+            return
+          }
+          if (stars !== null && !isStars(stars)) {
+            sendJson(res, 400, { error: 'stars must be 1 to 5, or null to clear' })
+            return
+          }
+          const label = typeof body.label === 'string' ? body.label : undefined
+          const file = await rate((next) => {
+            setStars(next, { kind, provider, model }, tag, stars ?? undefined, new Date().toISOString(), label)
+          })
+          sendJson(res, 200, { ok: true, models: file.models })
+          return
+        }
+        sendJson(res, 200, { tags: RATING_TAGS, models: (await currentRatings()).models })
+      })
+
+      const sessionParam = (req: IncomingMessage, res: ServerResponse) => {
+        const id = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('sessionId') ?? undefined
+        return sessionOf({ sessionId: id }, res)
+      }
+      const generation = (): GenerationFace | undefined => routeCtx.get('generation')
+      const presetOf = (kind: Exclude<RatingKind, 'chat'>) => MEDIA_PRESETS.find(preset => preset.id === KIND_PRESET[kind])
+      /** The name the person knows a model by: the router's own list, then the route's model list, then its id. */
+      const labelOf = async (model: { provider: string; model: string }): Promise<string> => {
+        const known = (await candidates()).find(candidate => sameModel(candidate, model))?.label
+        if (known !== undefined) return known
+        const listed = (await routeCtx.llm.listModels(model.provider).catch(() => [])).find(one => one.id === model.model)
+        return listed?.name ?? model.model
+      }
+      const starsOf = (file: RatingsFile, kind: RatingKind, model: string): Record<string, number> =>
+        Object.fromEntries(Object.entries(ratingsOf(file, { kind, model }))
+          .flatMap(([tag, rating]) => rating.stars === undefined ? [] : [[tag, rating.stars]]))
+
+      /** The kind of work a chat's reply answered: the router's reading for that turn, else the keyword rules on the ask. */
+      const chatReading = (session: Session, reply: { seq: number; turn: number }): TaskReading => {
+        const held = readings.get(String(session.header.id))
+        if (held !== undefined && held.turn === reply.turn) return held.reading
+        return readLocally(askBefore(session, reply.seq)?.ask ?? '', foldBrainRecord(session.events)?.brain)
+      }
+
+      /** What the heart's line and a dislike are about in this chat. */
+      const subjectOf = async (session: Session) => {
+        const kind = SPACE_KIND[resolveSessionSpace(session)]
+        const file = await currentRatings()
+        if (kind === 'chat') {
+          const reply = lastReply(session.events)
+          if (reply === undefined) return undefined
+          const reading = chatReading(session, reply)
+          const model = { provider: reply.provider, model: reply.model, label: await labelOf(reply) }
+          return { kind, model, tag: TASK_TAG[reading.task], reading, reply, file }
+        }
+        if (kind === undefined) return undefined
+        const record = lastArtefact(session.events)
+        const recordKind = record === undefined ? undefined : kindOfMedia(record.mediaType)
+        if (record === undefined || recordKind === undefined) return undefined
+        const preset = presetOf(recordKind)
+        const entry = preset === undefined
+          ? undefined
+          : generation()?.compatible(preset.requiredCapabilities)
+            .find(one => one.backend === record.provenance.provider && one.model.id === record.provenance.model)
+        const model = {
+          provider: record.provenance.provider, model: record.provenance.model, label: entry?.model.name || record.provenance.model,
+        }
+        const tag = mediaReadings.get(String(session.header.id))?.get(KIND_PRESET[recordKind]) ?? mediaTagFor(recordKind, model.model, file)
+        return { kind: recordKind, model, tag, record, file }
+      }
+
+      register('/idealize/router/rate-target', false, async (req, res) => {
+        const session = sessionParam(req, res)
+        if (session === undefined) return
+        const subject = await subjectOf(session)
+        if (subject === undefined) {
+          sendJson(res, 409, { error: 'this chat has no answer to rate yet' })
+          return
+        }
+        sendJson(res, 200, {
+          kind: subject.kind, ...subject.model, tag: subject.tag, tags: RATING_TAGS[subject.kind],
+          stars: starsOf(subject.file, subject.kind, subject.model.model),
+        })
+      })
+
+      /** The two models a dislike offers, and what both runs should cost. */
+      const offerFor = async (session: Session) => {
+        const subject = await subjectOf(session)
+        if (subject === undefined) return { error: 'this chat has no answer to compare yet' }
+        const { kind, tag, file } = subject
+        if (subject.kind === 'chat') {
+          const record = foldBrainRecord(session.events)
+          const hasImages = session.events.some(event => event.type === 'user/message' && event.data.content.some(block => block.type === 'image'))
+          const picked = alternativesFor({
+            current: subject.model, candidates: await usable(), reading: subject.reading, weights: criteria(record?.brain).weights,
+            hasImages, table: await scoreTable(home),
+            standingOf: candidate => standing(file, { kind: 'chat', model: candidate.model }, tag),
+          })
+          return {
+            kind, tag, first: subject.model,
+            alternatives: picked.map(one => ({ provider: one.provider, model: one.model, label: one.label })),
+            price: compareCost(picked.map(one => one.price), subject.reply.usage),
+          }
+        }
+        const settings = subject.record.settings as Record<string, unknown>
+        if (typeof settings.reference_image === 'string' && settings.reference_image !== '') {
+          return { error: 'this one started from a picture; other models can only be tried on a prompt for now' }
+        }
+        const preset = presetOf(subject.kind)
+        const all = preset === undefined ? [] : runnable(generation(), generation()?.compatible(preset.requiredCapabilities) ?? [])
+        const picked = mediaAlternativesFor({
+          kind: subject.kind, current: { backend: subject.model.provider, model: subject.model.model }, candidates: all, tag, ratings: file,
+        })
+        const count = typeof settings.count === 'number' && settings.count > 0 ? settings.count : 1
+        return {
+          kind, tag, first: subject.model,
+          alternatives: picked.map(one => ({ provider: one.backend, model: one.model.id, label: one.model.name || one.model.id })),
+          price: mediaCost(picked, count),
+        }
+      }
+
+      register('/idealize/router/offer', false, async (req, res) => {
+        const session = sessionParam(req, res)
+        if (session === undefined) return
+        const offer = await offerFor(session)
+        if ('error' in offer) {
+          sendJson(res, 409, offer)
+          return
+        }
+        if (offer.alternatives.length === 0) {
+          sendJson(res, 409, { error: 'no other connected model can take this ask' })
+          return
+        }
+        sendJson(res, 200, offer)
+      })
+
+      const appendStep = (session: Session, step: RouterCompareEventData): void => {
+        try {
+          session.append('idealize/router-compare', step, { ignorable: true })
+        } catch (error) {
+          // A chat closed mid-run has nowhere to put the answer; it is dropped.
+          routeCtx.logger.warn(`idealize-router: a comparison step could not be recorded: ${String(error)}`)
+        }
+      }
+
+      /** One chat alternative: the same history, one answer, no tools run. */
+      const answerOn = async (session: Session, messages: Message[], model: RoutedModel): Promise<Pick<RouterCompareEventData, 'text' | 'failed'>> => {
+        const header = session.requestHeader()
+        const options: GenerateOptions = {
+          provider: model.provider,
+          model: model.model,
+          messages,
+          system: [header?.system, ANSWER_IN_TEXT].filter(part => part !== undefined && part !== '').join('\n\n'),
+          // Earlier turns may hold tool calls, and some providers refuse those without the tools declared.
+          ...header?.tools === undefined || header.tools.length === 0 ? {} : { tools: [...header.tools] },
+          signal: AbortSignal.timeout(COMPARE_CHAT_MS),
+        }
+        try {
+          const assembler = new BlockAssembler()
+          for await (const chunk of routeCtx.llm.stream(options)) assembler.push(chunk)
+          const finish = assembler.finish
+          if (finish.kind === 'error' || finish.kind === 'aborted') return { failed: finish.failure.message }
+          const blocks = assembler.blocks()
+          const text = blocks.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n').trim()
+          if (text !== '') return { text }
+          const tool = blocks.find(block => block.type === 'tool-call')
+          return { failed: tool?.type === 'tool-call' ? `It tried to run ${tool.name} instead of answering.` : 'It gave no answer.' }
+        } catch (error) {
+          return { failed: error instanceof Error ? error.message : String(error) }
+        }
+      }
+
+      /** One media alternative: the same prompt and settings on another model, kept as the chat's artefacts. */
+      const makeOn = async (session: Session, record: ArtefactRecord, kind: Exclude<RatingKind, 'chat'>, model: RoutedModel, callId: string): Promise<Pick<RouterCompareEventData, 'artefacts' | 'failed'>> => {
+        const service = generation()
+        const artefacts = routeCtx.get('artefacts') as ArtefactsFace | undefined
+        const preset = presetOf(kind)
+        if (service === undefined || artefacts === undefined || preset === undefined) return { failed: 'Generation is not available in this app.' }
+        const settings = record.settings as Record<string, unknown>
+        const workspaces = routeCtx.get('workspaceRegistry') as { resolveByPath?(path: string): Promise<{ path: string } | undefined> } | undefined
+        const cwd = session.header.cwd ?? ''
+        const projectPath = (await workspaces?.resolveByPath?.(cwd).catch(() => undefined))?.path ?? cwd
+        try {
+          const result = await service.generate({
+            schemaVersion: GENERATION_SCHEMA_VERSION,
+            taskIntent: preset.taskIntent,
+            requiredCapabilities: preset.requiredCapabilities,
+            model: { backend: model.provider, model: model.model },
+            prompt: typeof settings.prompt === 'string' ? settings.prompt : '',
+            settings,
+            projectPath,
+          }, undefined, AbortSignal.timeout(COMPARE_MEDIA_MS))
+          const made: ArtefactRecord[] = []
+          for (const output of result.outputs) {
+            made.push(await artefacts.create({
+              session,
+              mediaType: output.mediaType,
+              bytes: Buffer.from(output.data, 'base64'),
+              settings: record.settings,
+              sourceTask: { turnSeq: record.sourceTask.turnSeq, callId: callId as CallId, toolName: record.sourceTask.toolName },
+              provenance: { ...record.provenance, provider: result.backend, model: result.model },
+            }))
+          }
+          return made.length === 0 ? { failed: 'It made nothing.' } : { artefacts: made.map(one => ({ id: String(one.id), mediaType: one.mediaType })) }
+        } catch (error) {
+          return { failed: error instanceof Error ? error.message : String(error) }
+        }
+      }
+
+      register('/idealize/router/compare', true, async (req, res) => {
+        const body = await readBody(req)
+        const session = sessionOf(body, res)
+        if (session === undefined) return
+        const sessionId = String(session.header.id)
+        if (comparing.has(sessionId)) {
+          sendJson(res, 409, { error: 'a comparison is already running in this chat' })
+          return
+        }
+        const offer = await offerFor(session)
+        if ('error' in offer) {
+          sendJson(res, 409, offer)
+          return
+        }
+        // The models the person was shown, where they are still on offer; otherwise the offer as it stands now.
+        const asked = Array.isArray(body.alternatives)
+          ? offer.alternatives.filter(one => (body.alternatives as unknown[]).some(item =>
+            typeof item === 'object' && item !== null && sameModel(item as RoutedModel, one)))
+          : []
+        const alternatives = asked.length > 0 ? asked : offer.alternatives
+        if (alternatives.length === 0) {
+          sendJson(res, 409, { error: 'no other connected model can take this ask' })
+          return
+        }
+        const id = randomUUID()
+        const subject = await subjectOf(session)
+        const replySeq = subject?.kind === 'chat' ? subject.reply.seq : undefined
+        const ask = replySeq === undefined ? undefined : askBefore(session, replySeq)
+        if (offer.kind === 'chat' && ask === undefined) {
+          sendJson(res, 409, { error: 'the message that reply answered is no longer in the chat' })
+          return
+        }
+        appendStep(session, {
+          id, phase: 'started', at: new Date().toISOString(), kind: offer.kind, tag: offer.tag,
+          first: offer.first, alternatives, ...replySeq === undefined ? {} : { replySeq },
+        })
+        comparing.add(sessionId)
+        sendJson(res, 200, { ok: true, id })
+        const record = subject !== undefined && subject.kind !== 'chat' ? subject.record : undefined
+        void Promise.all(alternatives.map(async (model, index) => {
+          const outcome = ask !== undefined
+            ? await answerOn(session, ask.messages, model)
+            : record !== undefined && offer.kind !== 'chat'
+              ? await makeOn(session, record, offer.kind, model, `compare-${id}-${String(index)}`)
+              : { failed: 'There was nothing to try it on.' }
+          appendStep(session, { id, phase: 'answer', at: new Date().toISOString(), index, ...outcome })
+        })).finally(() => { comparing.delete(sessionId) })
+      })
+
+      register('/idealize/router/pick', true, async (req, res) => {
+        const body = await readBody(req)
+        const session = sessionOf(body, res)
+        if (session === undefined) return
+        const state = typeof body.id === 'string' ? foldCompare(session.events, body.id) : undefined
+        const index = body.index
+        if (state === undefined || typeof index !== 'number' || !Number.isInteger(index)) {
+          sendJson(res, 400, { error: 'send the comparison id and the index kept (-1 for the first answer)' })
+          return
+        }
+        if (state.picked !== undefined) {
+          sendJson(res, 409, { error: 'this comparison has already been decided' })
+          return
+        }
+        const { id, kind, tag, first } = state.started
+        const at = new Date().toISOString()
+        if (index === -1) {
+          appendStep(session, { id, phase: 'picked', at, index: -1 })
+          sendJson(res, 200, { ok: true })
+          return
+        }
+        const kept = state.started.alternatives?.[index]
+        const answer = state.answers[index]
+        const made = answer?.text !== undefined || (answer?.artefacts?.length ?? 0) > 0
+        if (kept === undefined || first === undefined || kind === undefined || tag === undefined || !made) {
+          sendJson(res, 409, { error: 'that alternative has no answer to keep' })
+          return
+        }
+        // Quiet marks: a small step up for the answer kept, a small step down for the one passed over.
+        await rate((file) => {
+          addMark(file, { kind, ...kept }, tag, 1, at, kept.label)
+          addMark(file, { kind, ...first }, tag, -1, at, first.label)
+        })
+        let replaced = false
+        if (kind === 'chat') {
+          const replySeq = state.started.replySeq
+          // The kept answer takes the first reply's place in what the model reads, while the chat is idle on that reply.
+          if (replySeq !== undefined && answer?.text !== undefined && lastReply(session.events)?.seq === replySeq
+            && session.surface.nodes.includes(replySeq)) {
+            session.append('user/message', createUserMessage({
+              content: [{ type: 'text', text: keptNote(kept.label, answer.text) }],
+              source: { kind: 'plugin', plugin: name },
+            }), { surfaceOp: { op: 'replace', start: replySeq, end: replySeq }, sourceEventSeqs: [replySeq] })
+            replaced = true
+          }
+          // The chat moves onto the kept model the way a router switch does, so the composer's chip can take it back.
+          const { routed } = foldRouted(session.events)
+          const own = routed !== undefined && sameModel(routed.to, first) ? routed.from : first
+          session.append('idealize/router', sameModel(own, kept)
+            ? { outcome: 'reset', at, from: first, to: kept, via: 'dislike' }
+            : { outcome: 'switched', at, from: own, to: kept, via: 'dislike', rationale: `You kept ${kept.label}'s answer.` },
+          { ignorable: true })
+        } else {
+          session.append('idealize/router-media', { outcome: 'kept', at, presetId: KIND_PRESET[kind], from: first, to: kept, tag }, { ignorable: true })
+        }
+        appendStep(session, { id, phase: 'picked', at, index })
+        sendJson(res, 200, { ok: true, replaced })
       })
 
       register('/idealize/router/log', false, async (req, res) => {

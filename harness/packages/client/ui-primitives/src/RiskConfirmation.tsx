@@ -2,6 +2,7 @@
  * Controlled risk acknowledgement dialog shared by product surfaces that
  * must gate a sensitive action behind an explicit checkbox.
  */
+import clsx from 'clsx'
 import { Button } from './Button.tsx'
 import { IconWarningOutline16 } from './icons/index.tsx'
 import { Modal } from './Modal.tsx'
@@ -19,6 +20,16 @@ export interface RiskConfirmationProps {
   onAcknowledgedChange: (acknowledged: boolean) => void
   onCancel: () => void
   onConfirm: () => void
+  /**
+   * An optional second checkbox under the acknowledgement, for a caller that
+   * can keep the choice beyond this one action. It never gates the primary
+   * action; the caller reads `checked` when the confirm lands.
+   */
+  remember?: {
+    label: string
+    checked: boolean
+    onChange: (checked: boolean) => void
+  }
 }
 
 /**
@@ -37,6 +48,7 @@ export function RiskConfirmation({
   onAcknowledgedChange,
   onCancel,
   onConfirm,
+  remember,
 }: RiskConfirmationProps) {
   return (
     <Modal
@@ -75,6 +87,17 @@ export function RiskConfirmation({
         />
         <span>{acknowledgeLabel}</span>
       </label>
+      {remember !== undefined && (
+        <label className={clsx(css.acknowledgement, css.remember)}>
+          <input
+            type="checkbox"
+            checked={remember.checked}
+            disabled={disabled}
+            onChange={(event) => { remember.onChange(event.currentTarget.checked) }}
+          />
+          <span>{remember.label}</span>
+        </label>
+      )}
     </Modal>
   )
 }

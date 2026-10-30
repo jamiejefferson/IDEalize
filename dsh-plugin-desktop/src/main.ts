@@ -1,6 +1,6 @@
 /** IDEalize executable: minimal Electron bootstrap around the Host Cordis root. */
 
-import { app, crashReporter, dialog, globalShortcut, net, session, shell } from 'electron'
+import { app, BrowserWindow, crashReporter, dialog, globalShortcut, net, session, shell } from 'electron'
 
 // Chromium caps HTTP/1.1 at six connections per origin, and every window's
 // event streams hold theirs open (main + Askbar SSE pairs, a Terminal chat's
@@ -105,6 +105,7 @@ import {
 } from './windows-volume-diagnostics.ts'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 import { desktopLocaleFromLanguageTag } from './tray-locale.ts'
+import { createDesktopQuitGuard, type DesktopPauseService } from './quit-guard.ts'
 
 const BIN_NAME = 'dsh-plugin-desktop'
 const PRODUCT_NAME = 'IDEalize'
@@ -390,7 +391,21 @@ async function start(): Promise<void> {
     electronLogger,
     requestQuit,
   )
-  removeShutdownRequests = installShutdownRequests(process, app, requestQuit)
+  // A quit the person asks for while agents work asks whether to pause them
+  // first, so each saves its notes before the Host tree goes (feedback 495cec0a).
+  const quitGuard = createDesktopQuitGuard({
+    pause: () => current?.get('idealizePause') as DesktopPauseService | undefined,
+    ask: async (question) => {
+      const options = { type: 'question' as const, title: PRODUCT_NAME, ...question, buttons: [...question.buttons], noLink: true }
+      const window = BrowserWindow.getFocusedWindow()
+      return (window === null ? await dialog.showMessageBox(options) : await dialog.showMessageBox(window, options)).response
+    },
+    show: () => { runtime.show() },
+    quit: () => { requestQuit(0) },
+    locale: () => runtime.locale,
+    warn: (message) => { electronLogger.error(`${BIN_NAME}: ${message}`) },
+  })
+  removeShutdownRequests = installShutdownRequests(process, app, requestQuit, () => { void quitGuard.request() })
 
   const openStartupRecoveryWindow = async (
     failureDetail: string,

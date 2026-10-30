@@ -71,6 +71,11 @@
     searchProvider: openrouter
 - id: web-search-deepseek
   disabled: true
+# The heart and the broken heart beside the send button rate the model behind
+# an answer and offer other models on it (JJ, 30 Oct 2026), so the Like and
+# Dislike pair under each reply, which nothing in IDEalize reads, stays out.
+- id: ui-message-feedback
+  disabled: true
 - insert:
     - id: idealize-web-search-openrouter
       name: '@idealize/web-search-openrouter'

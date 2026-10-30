@@ -50,7 +50,15 @@ async function bench() {
   runtime.provide('connection', { api: { settings: {} }, isLoopback: false })
   // The plugin injects both; these specs exercise no settings path.
   runtime.provide('remote', { $on: () => () => {} })
-  runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  // One stub per bound namespace, so a case can read what a face wrote.
+  const scopes = new Map<string, ReturnType<typeof stubSettingsScope>>()
+  runtime.provide('settingsScope', {
+    bind: (spec: { namespace: string }) => {
+      const stub = stubSettingsScope()
+      scopes.set(spec.namespace, stub)
+      return stub.scope
+    },
+  } as never)
   const sessionFake = sessionFakeFor()
   await runtime.sessions.add({
     id: ROOT,
@@ -124,7 +132,7 @@ async function bench() {
   return {
     runtime, feature, slots: runtime.slots, entryOf,
     conversationApi, conversationHeaderApi, residentApi, composerApi, chatViewApi, inputApi,
-    sessionFake, layoutFake,
+    sessionFake, layoutFake, scopes,
   }
 }
 
@@ -191,6 +199,17 @@ describe('conversation slot inject API', () => {
     b.composerApi(ROOT).stop!()
     await new Promise(r => setTimeout(r, 0))
     expect(b.sessionFake.cancel).toHaveBeenCalledTimes(1)
+    await b.runtime.dispose()
+  })
+
+  it('the composer keeps a permission default in the permission namespace, where settings persist', async () => {
+    const b = await bench()
+    await b.composerApi(ROOT).rememberPermission!('danger-full-access')
+    expect(b.scopes.get('permission')?.set).toHaveBeenCalledExactlyOnceWith('defaultPreset', 'danger-full-access')
+    expect(b.composerApi(undefined).rememberPermission).toBeUndefined()
+    // A remote browser keeps settings process-local: nothing it ticks would last.
+    b.scopes.get('permission')!.publish({ mode: 'memory' })
+    expect(b.composerApi(ROOT).rememberPermission).toBeUndefined()
     await b.runtime.dispose()
   })
 

@@ -39,8 +39,8 @@ import { foldAgentName } from './projection.ts'
 import { presetOfRole, ROLE_OPENING, ROLE_TITLES, roleOfPreset, STUDIO_AGENT_NAME } from './roles.ts'
 import type { CommConfig } from './config.ts'
 import type { CommRole } from './store.ts'
-import { chatNameFromTask, COMMANDS_SECTION, TRUNCATION_WARNING, Wire } from './wire.ts'
-import type { CommExchange, CommMessage, CommRequest, CommResponse, CommRung, CommSessionInfo, StudioTaskRow } from './wire.ts'
+import { chatNameFromTask, COMM_TURNS, COMMANDS_SECTION, TRUNCATION_WARNING, Wire } from './wire.ts'
+import type { CommExchange, CommMessage, CommRequest, CommResponse, CommRung, CommSessionInfo, CommTurn, StudioTaskRow } from './wire.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -186,7 +186,7 @@ function sourceTurnEnded(events: readonly SessionEvent[], turn: number, seq: num
 }
 
 /** One roster entry with what `list` and the handlers need beyond addressing. */
-interface RosterEntry extends SessionRecord {
+export interface RosterEntry extends SessionRecord {
   running: boolean
   live: Agent | undefined
 }
@@ -204,9 +204,10 @@ function wakeable(agent: Agent): boolean {
   return agent.status === 'idle' && foldSpace(agent.session.events) !== 'terminal'
 }
 
-/** The terminal plugin's nudge, probed structurally so comm takes no dependency on it. */
+/** The terminal plugin's nudge and turn report, probed structurally so comm takes no dependency on it. */
 interface TerminalsLike {
   nudge?(sessionId: string, text: string, wanted?: () => boolean): boolean
+  turn?(sessionId: string, turn: CommTurn): boolean
 }
 
 /**
@@ -301,8 +302,43 @@ export class IdealizeComm extends Service {
    * @returns true when the chat has a terminal, so its own agent is not woken.
    */
   private nudgeTerminal(sessionId: string, text: string): boolean {
-    const terminals = this.ctx.get('idealizeTerminals' as never) as TerminalsLike | undefined
-    return terminals?.nudge?.(sessionId, text, () => this.store.unread(sessionId) > 0) === true
+    return this.terminals()?.nudge?.(sessionId, text, () => this.store.unread(sessionId) > 0) === true
+  }
+
+  /** The terminal plugin, when composed; probed by name because comm takes no dependency on it. */
+  private terminals(): TerminalsLike | undefined {
+    return (this.ctx as unknown as { get(name: string): unknown }).get('idealizeTerminals') as TerminalsLike | undefined
+  }
+
+  /**
+   * Whether every agent is paused (feedback 495cec0a): while it holds, notes
+   * still land in their inboxes and wake nobody, and Resume wakes the chats
+   * whose inbox filled meanwhile ({@link releaseHeldMail}).
+   * @returns true from Pause until Resume.
+   */
+  private held(): boolean {
+    const pause = (this.ctx as unknown as { get(name: string): unknown }).get('idealizePause') as { held?: () => boolean } | undefined
+    return pause?.held?.() === true
+  }
+
+  /**
+   * Resume's half of the wake hold: every chat outside `skip` with notes
+   * waiting is woken the way its first note would have woken it. A stored chat
+   * stays asleep, as it would have without the pause.
+   * @param skip - the chats Resume is already telling to carry on.
+   */
+  async releaseHeldMail(skip: ReadonlySet<string>): Promise<void> {
+    for (const entry of await this.roster()) {
+      if (skip.has(entry.id) || this.store.unread(entry.id) === 0) continue
+      const fromStudio = this.store.peek(entry.id).some(message => message.from === STUDIO_SENDER)
+      const notice = fromStudio ? STUDIO_MAIL_NOTICE : MAIL_NOTICE
+      if (this.nudgeTerminal(entry.id, notice)) continue
+      if (entry.live === undefined || !wakeable(entry.live)) continue
+      entry.live.followup(createUserMessage({
+        content: [{ type: 'text', text: notice }],
+        source: { kind: 'plugin', plugin: 'idealize-comm', form: 'notice', summary: fromStudio ? 'Studio mail' : 'Mail' },
+      }))
+    }
   }
 
   constructor(ctx: Context, options: { store: CommStore; config: () => CommConfig }) {
@@ -552,6 +588,15 @@ export class IdealizeComm extends Service {
         return { ok: true }
       }
 
+      // A terminal agent's own hook reporting its turn (`idealize turn stop`
+      // from Claude Code's Stop hook), so the done chime follows the agent
+      // rather than a guess from its output (feedback 1047a635).
+      case 'turn': {
+        if (me === undefined) return failure('turn needs a chat')
+        if (request.turn === undefined) return failure(`turn needs one of ${COMM_TURNS.join('|')}`)
+        return this.terminals()?.turn?.(me.id, request.turn) === true ? { ok: true } : failure('this chat has no terminal open here')
+      }
+
       case 'send': {
         if (request.target === undefined) return failure('missing target')
         const found = find(request.target)
@@ -578,7 +623,7 @@ export class IdealizeComm extends Service {
         const first = found.session.id !== request.from && this.store.unread(found.session.id) === 1
         // A Terminal chat's agent is the program in its shell: the notice is
         // typed there, and its own agent behind the terminal stays asleep.
-        if (first && !this.nudgeTerminal(found.session.id, notice) && recipient !== undefined && wakeable(recipient)) {
+        if (first && !this.held() && !this.nudgeTerminal(found.session.id, notice) && recipient !== undefined && wakeable(recipient)) {
           recipient.followup(createUserMessage({
             content: [{ type: 'text', text: notice }],
             source: { kind: 'plugin', plugin: 'idealize-comm', form: 'notice', summary: fromStudio ? 'Studio mail' : 'Mail' },
@@ -999,7 +1044,7 @@ export class IdealizeComm extends Service {
       body: `[studio] ${line}`,
       timestamp: new Date().toISOString(),
     })
-    if (this.store.unread(coordinator.id) !== 1 || this.nudgeTerminal(coordinator.id, WAKE_NOTICE)) return
+    if (this.store.unread(coordinator.id) !== 1 || this.held() || this.nudgeTerminal(coordinator.id, WAKE_NOTICE)) return
     if (coordinator.live !== undefined && wakeable(coordinator.live)) {
       coordinator.live.followup(createUserMessage({
         content: [{ type: 'text', text: WAKE_NOTICE }],
@@ -1194,7 +1239,7 @@ export class IdealizeComm extends Service {
     } catch (error) {
       return failure(error instanceof Error ? error.message : String(error))
     }
-    if (this.store.unread(existing.id) > 0 && wakeable(agent)) {
+    if (this.store.unread(existing.id) > 0 && wakeable(agent) && !this.held()) {
       const fromStudio = this.store.peek(existing.id).some(message => message.from === STUDIO_SENDER)
       agent.followup(createUserMessage({
         content: [{ type: 'text', text: fromStudio ? STUDIO_MAIL_NOTICE : MAIL_NOTICE }],

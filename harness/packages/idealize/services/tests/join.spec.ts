@@ -57,6 +57,20 @@ describe('the services list', () => {
     expect(rows.map(row => [row.kind, row.connected])).toEqual([['chat', true], ['media', false]])
   })
 
+  it('shows DeepSeek once: its own adapter stands in for the catalogue route', () => {
+    const both = (official: boolean, catalogue: boolean) => joinServices([
+      { provider: 'deepseek', displayName: 'DeepSeek', connected: catalogue },
+      { provider: 'deepseek-official', displayName: 'DeepSeek', connected: official },
+    ], []).map(row => row.id)
+    expect(both(true, true)).toEqual(['deepseek-official'])
+    expect(both(false, false)).toEqual(['deepseek-official'])
+    // The catalogue route alone holds a key: hiding it would hide that connection.
+    expect(both(false, true)).toEqual(['deepseek'])
+    // Without DeepSeek's own adapter composed, the catalogue route is the only one.
+    expect(joinServices([{ provider: 'deepseek', displayName: 'DeepSeek', connected: false }], []).map(row => row.id))
+      .toEqual(['deepseek'])
+  })
+
   it('offers a key page only where one is known, by id or by name', () => {
     expect(keyPageFor('fal', 'fal.ai')).toBe('https://fal.ai/dashboard/keys')
     // A backend id that is not the company's own name still finds its page.

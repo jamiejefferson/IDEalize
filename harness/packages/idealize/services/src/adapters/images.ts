@@ -38,6 +38,7 @@ import {
   outputsFromChatResponse,
 } from './images-api.ts'
 import { defaultMediaTypes, fromImagesModel, liveModelsFrom, mergeCatalog } from './images-catalog.ts'
+import { withModelFacts } from '../model-facts.ts'
 
 /** Construction options for {@link createImagesBackend}. */
 export interface ImagesBackendOptions {
@@ -220,7 +221,7 @@ export function createImagesBackend(options: ImagesBackendOptions): ImagesBacken
     id: options.id,
     ...options.credential === undefined ? {} : { credential: options.credential },
     describe: () => describeModels(allModels(), credentialConfigured),
-    models: allModels,
+    models: () => withModelFacts(allModels()),
     refresh: async () => {
       // The credential is read here, as the queue adapter reads it: a key
       // pasted after the app started reaches the descriptors only through a

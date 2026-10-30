@@ -139,6 +139,13 @@ export class IdealizeCron extends Service {
   readonly store: CronStore
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly running = new Set<string>()
+  /**
+   * Tasks that came due while every agent was paused (feedback 495cec0a). Each
+   * runs once on {@link releaseHeld}, however many of its fires the pause
+   * covered. Held in memory: a one-off still owed after a restart comes due
+   * again as the scheduler re-arms it.
+   */
+  private readonly owed = new Set<string>()
   private readonly notifier: () => CronNotifier | undefined
   private disposed = false
 
@@ -176,10 +183,50 @@ export class IdealizeCron extends Service {
         this.arm(task)
         return
       }
-      void this.fire(task.id)
+      this.due(task)
     }, bounded)
     timer.unref()
     this.timers.set(task.id, timer)
+  }
+
+  /**
+   * Whether every agent is paused, read from `@idealize/comm`'s pause service,
+   * probed so the scheduler takes no dependency on it.
+   * @returns true while a pause holds agent work.
+   */
+  private held(): boolean {
+    const pause = (this.ctx as unknown as { get(name: string): unknown }).get('idealizePause') as { held?: () => boolean } | undefined
+    return pause?.held?.() === true
+  }
+
+  /**
+   * A task's timer fired. A task that runs an agent waits while every agent is
+   * paused, and its next fire is armed as usual; a reminder runs no agent, so
+   * the person still hears it. The armed copy is current: every edit re-arms.
+   * @param task - the task that came due.
+   */
+  private due(task: CronTask): void {
+    if (task.prompt !== '' && this.held()) {
+      this.owed.add(task.id)
+      if (task.schedule.kind !== 'at') this.arm(task)
+      return
+    }
+    void this.fire(task.id)
+  }
+
+  /**
+   * Run, once each, the tasks that came due while every agent was paused. The
+   * pause service calls this on Resume.
+   * @returns the runs recorded.
+   */
+  async releaseHeld(): Promise<CronRun[]> {
+    const owed = [...this.owed]
+    this.owed.clear()
+    const runs: CronRun[] = []
+    for (const taskId of owed) {
+      if ((await this.store.tasks()).some(task => task.id === taskId)) runs.push(await this.fire(taskId))
+    }
+    return runs
   }
 
   /**

@@ -15,6 +15,10 @@
  * - GET  /idealize/models/state — providers+models (display names resolved
  *   through `@idealize/services`' directory, each with where its catalogue
  *   comes from), default, mode, auto verdict, preferences, and `readAt`.
+ * - GET  /idealize/models/details — every chat model with what the model
+ *   browser shows: name, description, release date (OpenRouter's directory),
+ *   context window, what it reads, whether it takes tools and reasons, and
+ *   its effective token price with the price's source.
  * - POST /idealize/models/default — {provider, model} becomes the default (switches mode to manual).
  * - POST /idealize/models/mode — {mode: 'manual'|'auto'}; auto evaluates at once.
  * - POST /idealize/models/preferences — {cost, speed, intelligence} weights.
@@ -55,7 +59,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { serviceName, SHIPPED_PRICE_CURRENCY, shippedTokenPrices } from '@idealize/services'
+import { chatFacts, serviceName, SHIPPED_PRICE_CURRENCY, shippedTokenPrices } from '@idealize/services'
 
 import { createEngineKeyReader } from './engine-keys.ts'
 import { emptyGenerationPeriods, FAL_PROVIDER, foldGenerations, generationRows, refreshFalUsage } from './generations.ts'
@@ -63,7 +67,7 @@ import type { FalUsageCache } from './generations.ts'
 import { modelsPage } from './models-page.ts'
 import { choose, freeUsable } from './policy.ts'
 import type { FreetokensFacts, PolicyDecision } from './policy.ts'
-import { effectivePrices, OPENROUTER_PROVIDER, parsePriceBody, refreshOpenRouterPrices } from './prices.ts'
+import { effectivePrices, OPENROUTER_PROVIDER, parsePriceBody, readOpenRouterPriceCache, refreshOpenRouterPrices } from './prices.ts'
 import { costBreakdown, modelRows } from './pricing.ts'
 import type { CostBreakdown, SubscriptionPlan, TokenPrice, TokenPriceTable } from './pricing.ts'
 import { categoryOf, emptyUsagePeriods, foldUsage } from './usage.ts'
@@ -75,10 +79,10 @@ export type {
   CostBreakdown, CostTotals, ModelCostRow, SubscriptionPlan, SubscriptionPlanTable, TokenPrice, TokenPriceTable,
 } from './pricing.ts'
 export {
-  effectivePrices, OPENROUTER_MODELS_URL, OPENROUTER_PROVIDER, openRouterPrices, parsePriceBody,
+  effectivePrices, OPENROUTER_MODELS_URL, OPENROUTER_PROVIDER, openRouterDetails, openRouterPrices, parsePriceBody,
   readOpenRouterPriceCache, refreshOpenRouterPrices, writeOpenRouterPriceCache,
 } from './prices.ts'
-export type { OpenRouterPriceCache, PricedModel, PricedTable, PriceSource, PriceWrite } from './prices.ts'
+export type { OpenRouterModelDetail, OpenRouterPriceCache, PricedModel, PricedTable, PriceSource, PriceWrite } from './prices.ts'
 export {
   emptyGenerationPeriods, FAL_PROVIDER, FAL_USAGE_URL, falUsageLines, foldGenerations, generationRows,
   readFalUsageCache, refreshFalUsage, writeFalUsageCache,
@@ -383,6 +387,45 @@ export function apply(ctx: Context, config: ModelsConfig): void {
           intelligence: current().intelligence ?? 33,
         },
       })
+    })
+
+    register('/idealize/models/details', false, async (_req, res) => {
+      const now = Date.now()
+      const { prices, openRouter } = await pricingFacts(now)
+      const details = openRouter?.details ?? readOpenRouterPriceCache(resolveDshHome())?.details ?? {}
+      const providers = await Promise.all(webCtx.llm.listConfigurableProviders().map(async (entry) => {
+        const models = await webCtx.llm.listModels(entry.provider).catch(() => [])
+        // OpenRouter's directory describes its own models; every other route
+        // states what its adapter resolves (context window, reasoning).
+        const fromDirectory = entry.provider === OPENROUTER_PROVIDER
+        const rows = await Promise.all(models.map(async (model) => {
+          const detail = fromDirectory ? details[model.id] : undefined
+          const resolved = fromDirectory
+            ? undefined
+            : await webCtx.llm.resolveModelInfo(entry.provider, model.id, AbortSignal.timeout(3_000)).catch(() => undefined)
+          const price = prices[entry.provider]?.[model.id]
+          const inputModalities = detail?.inputModalities ?? model.inputModalities
+          const contextWindow = detail?.contextLength ?? resolved?.context?.contextWindow
+          const reasoning = detail?.reasoning ?? (resolved?.reasoning === undefined ? undefined : true)
+          const description = detail?.description ?? model.description
+          const facts = chatFacts(model.id)
+          return {
+            id: model.id,
+            name: detail?.name ?? model.name,
+            ...description === undefined ? {} : { description },
+            ...detail?.released === undefined ? {} : { released: detail.released },
+            ...contextWindow === undefined ? {} : { contextWindow },
+            ...inputModalities === undefined ? {} : { inputModalities: [...inputModalities] },
+            ...detail?.tools === undefined ? {} : { tools: detail.tools },
+            ...reasoning === undefined ? {} : { reasoning },
+            ...price === undefined ? {} : { price: { input: price.input, output: price.output, source: price.source } },
+            ...facts.controls === undefined ? {} : { controls: facts.controls },
+            ...facts.goodAt === undefined ? {} : { goodAt: facts.goodAt },
+          }
+        }))
+        return { provider: entry.provider, displayName: serviceName(entry.provider, entry.displayName), models: rows }
+      }))
+      sendJson(res, 200, { providers: providers.filter(provider => provider.models.length > 0) })
     })
 
     register('/idealize/models/default', true, async (req, res) => {

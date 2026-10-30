@@ -77,7 +77,10 @@ interface FeedEvent extends GateEvent {
   studioEvent?: string
   /** On `agent-finished`: the turn ended in an error, so no reply is waiting. */
   failed?: boolean
-  /** On `agent-finished`: the chat answers aloud itself (Powell), so no chime and no notification. */
+  /**
+   * On `agent-finished`: the chat answers aloud itself (Powell), or a subagent
+   * finished inside its parent's turn, so no chime and no notification.
+   */
   quiet?: boolean
 }
 

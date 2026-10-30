@@ -23,6 +23,7 @@ import type {
   GenerationProgressSink,
   GenerationRequest,
   GenerationResult,
+  GenExample,
   GenInputField,
   GenModelRef,
 } from './types.ts'
@@ -119,6 +120,17 @@ export class GenerationRuntime extends Service {
     const backend = this.backendsById.get(model.backend)
     if (backend?.inputs === undefined) return []
     return backend.inputs(model.model)
+  }
+
+  /**
+   * One example output for a model, from its backend's {@link GenerationBackend.example}.
+   * @param model - the backend and model id.
+   * @returns the example; undefined when no backend has that id or it publishes none. Rejects when the backend's fetch fails.
+   */
+  async example(model: GenModelRef): Promise<GenExample | undefined> {
+    const backend = this.backendsById.get(model.backend)
+    if (backend?.example === undefined) return undefined
+    return backend.example(model.model)
   }
 
   /**

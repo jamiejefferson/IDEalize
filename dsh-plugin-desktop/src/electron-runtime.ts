@@ -925,7 +925,8 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       },
       { label: desktopTrayLabel(this.locale, 'shellMode'), submenu: modeItems },
       { type: 'separator' },
-      { label: desktopTrayLabel(this.locale, 'quit'), click: () => { spec.requestQuit(0) } },
+      // Through Electron's quit, so the tray asks before quitting on working agents as Cmd-Q does (feedback 495cec0a).
+      { label: desktopTrayLabel(this.locale, 'quit'), click: () => { app.quit() } },
     )
     return template
   }

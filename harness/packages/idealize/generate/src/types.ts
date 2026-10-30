@@ -51,6 +51,59 @@ export interface GenModelInfo {
   artefact: GenArtefact
   inputModalities: readonly GenModality[]
   outputMediaTypes: readonly string[]
+  /**
+   * Inputs the model cannot run without, beyond the prompt: an image-to-video
+   * model needs a picture to start from. Absent when the prompt is enough.
+   */
+  requiredInputs?: readonly GenModality[]
+  /** What the provider says the model is for, in its own words. */
+  description?: string
+  /** A sample output the provider publishes, for a picker to show. */
+  thumbnailUrl?: string
+  /** A moving version of the thumbnail, when the provider publishes one. */
+  thumbnailAnimatedUrl?: string
+  /** The provider's style tags, minus ones that only restate the category. */
+  tags?: readonly string[]
+  /** The licence the provider states, for example `commercial` or `research`. */
+  licence?: string
+  /** When the provider released the model, as an ISO date (`YYYY-MM-DD`). */
+  released?: string
+  /** Who makes the model, or the family it belongs to. */
+  maker?: string
+  /** What one run costs, when the provider publishes a price. */
+  price?: GenModelPrice
+  /** The controls the model offers, as `@idealize/services` model-facts ids (`seed`, `lora`). */
+  controls?: readonly string[]
+  /** What the model is good at, as model-facts ids (`photoreal`, `lettering`). */
+  goodAt?: readonly string[]
+}
+
+/**
+ * A model's published price: the provider's own rate, and the same rate per
+ * output where the unit allows one to be stated, so prices across units can
+ * be sorted together.
+ */
+export interface GenModelPrice {
+  /** Price of one unit, in `currency`. */
+  unitPrice: number
+  /** The provider's unit, as it names it (`image`, `megapixels`, `seconds`). */
+  unit: string
+  /** ISO currency code. */
+  currency: string
+  /**
+   * The cost of one typical output: one image, one 1-megapixel image, or one
+   * 5-second clip. Absent when the unit says nothing about outputs (`units`,
+   * tokens, compute seconds).
+   */
+  perOutput?: { amount: number; output: 'image' | '1 MP image' | '5 s clip' | 'minute of audio' }
+}
+
+/** One example output a model's provider publishes: a file a detail pane can play or show. */
+export interface GenExample {
+  /** Where the file is served, https only. */
+  url: string
+  /** Its media type, from the provider's statement or the file's extension. */
+  mediaType: string
 }
 
 /** The model a request runs on: backend registry id plus that backend's model id. */
@@ -211,6 +264,14 @@ export interface GenerationBackend {
    * @param modelId - the backend's model id.
    */
   inputs?(modelId: string): Promise<readonly GenInputField[]>
+  /**
+   * One example output the service publishes for a model, read when the
+   * person opens that model rather than for the whole catalogue. Optional;
+   * resolves undefined when the service publishes none, and rejects with a
+   * GenerationError when the lookup cannot be fetched.
+   * @param modelId - the backend's model id.
+   */
+  example?(modelId: string): Promise<GenExample | undefined>
   /**
    * Run one generation. Rejects with a GenerationError carrying the shared
    * code union; provider failures are translated, never rethrown raw.

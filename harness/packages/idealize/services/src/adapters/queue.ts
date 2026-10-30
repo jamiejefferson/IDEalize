@@ -25,16 +25,21 @@ import type {
   GenerationBackend,
   GenerationOutput,
   GenerationProgressSink,
+  GenExample,
   GenInputField,
   GenModelInfo,
 } from '@idealize/generate'
 import { coerceBody, enumRetryValues, inputFieldsFrom, parseInputSchema } from './input-schema.ts'
 import type { InputSchema } from './input-schema.ts'
+import { exampleOutput } from './example-output.ts'
 import {
   classifyStatus, endpointFor, queuePayload, refusalReason, refusedFields, requiredFieldDefaults, resultFilesFrom,
 } from './queue-api.ts'
 import { defaultMediaTypes, liveModelsFrom, mergeCatalog } from './queue-catalog.ts'
 import type { QueueCategory } from './queue-catalog.ts'
+import { modelPrice, pricesFrom, pricingUrls } from './queue-pricing.ts'
+import { withModelFacts } from '../model-facts.ts'
+import type { ListedPrice } from './queue-pricing.ts'
 
 /** How a service wants its key presented on the wire. */
 export interface ServiceAuth {
@@ -80,14 +85,30 @@ export interface QueueBackendOptions {
   cachedInputs?(modelId: string): InputSchema | undefined
   /** Record a freshly fetched input schema; the adapter never decides where it goes. */
   onInputSchema?(modelId: string, schema: InputSchema): void
+  /**
+   * Where the service prices its endpoints (`?endpoint_id=` repeated). Absent
+   * when it publishes no prices; a refresh then leaves prices as they were.
+   * The request carries the person's key, so prices are fetched only when one
+   * is stored.
+   */
+  pricingUrl?: string
+  /** First wait in milliseconds before retrying a rate-limited catalogue read; doubles per retry. */
+  retryDelayMs?: number
   /** Fetch used for every request; injectable for keyless tests. */
   fetchImpl?: typeof fetch
 }
+
+/** Catalogue and pricing reads retried after a 429 before the refresh gives up. */
+const RATE_LIMIT_RETRIES = 4
+
+/** Catalogue pages read per category before the refresh stops, against a cursor that never ends. */
+const MAX_PAGES = 50
 
 /** The backend plus its adapter-side refresh and input-schema read. */
 export interface QueueBackend extends GenerationBackend {
   refresh(): Promise<void>
   inputs(modelId: string): Promise<readonly GenInputField[]>
+  example(modelId: string): Promise<GenExample | undefined>
 }
 
 /**
@@ -146,18 +167,11 @@ export function createQueueBackend(options: QueueBackendOptions): QueueBackend {
   const schemas = new Map<string, InputSchema>()
 
   /**
-   * One endpoint's input schema: memory, then the caller's disk cache, then
-   * the service's document. Undefined when the service publishes no schema
-   * URL or the document carries no input schema. Rejects when the fetch fails.
+   * Fetch one endpoint's OpenAPI document and read its input schema and,
+   * when the model is in the catalogue, its example output, recording both.
+   * Undefined when the document carries neither. Rejects when the fetch fails.
    */
-  const schemaFor = async (modelId: string): Promise<InputSchema | undefined> => {
-    const template = options.inputSchemaUrl
-    if (template === undefined) return undefined
-    const held = schemas.get(modelId) ?? options.cachedInputs?.(modelId)
-    if (held !== undefined) {
-      schemas.set(modelId, held)
-      return held
-    }
+  const fetchSchema = async (modelId: string, template: string): Promise<InputSchema | undefined> => {
     const url = template.replace('{id}', modelId)
     let response: Response
     try {
@@ -172,11 +186,34 @@ export function createQueueBackend(options: QueueBackendOptions): QueueBackend {
         { status: response.status },
       )
     }
-    const schema = parseInputSchema(await response.json().catch(() => null))
-    if (schema === undefined) return undefined
+    const document: unknown = await response.json().catch(() => null)
+    const parsed = parseInputSchema(document)
+    const artefact = models.find(model => model.id === modelId)?.artefact
+    // null records "looked, none found", so a model without an example is
+    // not fetched again each time it is opened. A document with neither an
+    // input schema nor an example is not recorded, and is read again next time.
+    const example = artefact === undefined ? undefined : exampleOutput(document, artefact) ?? null
+    if (parsed === undefined && (example === undefined || example === null)) return undefined
+    const schema: InputSchema = { ...parsed ?? { properties: [] }, ...example === undefined ? {} : { example } }
     schemas.set(modelId, schema)
     options.onInputSchema?.(modelId, schema)
     return schema
+  }
+
+  /**
+   * One endpoint's input schema: memory, then the caller's disk cache, then
+   * the service's document. Undefined when the service publishes no schema
+   * URL or the document carries no input schema. Rejects when the fetch fails.
+   */
+  const schemaFor = async (modelId: string): Promise<InputSchema | undefined> => {
+    const template = options.inputSchemaUrl
+    if (template === undefined) return undefined
+    const held = schemas.get(modelId) ?? options.cachedInputs?.(modelId)
+    if (held !== undefined) {
+      schemas.set(modelId, held)
+      return held
+    }
+    return fetchSchema(modelId, template)
   }
 
   const resolveKey = async (): Promise<string> => {
@@ -310,31 +347,107 @@ export function createQueueBackend(options: QueueBackendOptions): QueueBackend {
     return outputs
   }
 
+  /**
+   * GET one catalogue or pricing page as JSON, waiting and retrying when the
+   * service rate-limits (429): its `retry-after` when it states one, else a
+   * doubling delay. Any other refusal throws at once.
+   */
+  const readCatalogue = async (url: string, what: string, headers: Record<string, string>): Promise<unknown> => {
+    let delay = options.retryDelayMs ?? 2000
+    for (let attempt = 0; ; attempt++) {
+      const response = await fetchImpl(url, { headers: { accept: 'application/json', ...headers }, signal: AbortSignal.timeout(options.timeoutMs) })
+      if (response.status === 429 && attempt < RATE_LIMIT_RETRIES) {
+        const stated = Number(response.headers.get('retry-after'))
+        await new Promise(resolve => setTimeout(resolve, Number.isFinite(stated) && stated > 0 ? stated * 1000 : delay))
+        delay *= 2
+        continue
+      }
+      if (!response.ok) {
+        throw new GenerationError(
+          `${options.name} refused the ${what} request (${String(response.status)})`,
+          classifyStatus(response.status),
+          { status: response.status },
+        )
+      }
+      // A description can carry raw control characters, which strict JSON
+      // parsing refuses; they are replaced before parsing.
+      return JSON.parse((await response.text()).replace(/[\u0000-\u001f]+/g, ' ')) as unknown
+    }
+  }
+
+  /** Every listed price for the given endpoints, batched and paged. */
+  const readPrices = async (pricingUrl: string, ids: readonly string[], key: string): Promise<Map<string, ListedPrice>> => {
+    const prices = new Map<string, ListedPrice>()
+    const headers = { [options.auth.header]: `${options.auth.prefix}${key}` }
+    for (const first of pricingUrls(pricingUrl, ids)) {
+      let url = first
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const body = await readCatalogue(url, 'pricing', headers) as { next_cursor?: unknown; has_more?: unknown } | null
+        for (const [id, price] of pricesFrom(body)) prices.set(id, price)
+        const next = body?.next_cursor
+        if (body?.has_more !== true || typeof next !== 'string' || next === '') break
+        const paged = new URL(first)
+        paged.searchParams.set('cursor', next)
+        url = paged.toString()
+      }
+    }
+    return prices
+  }
+
   return {
     id: options.id,
     credential: options.credential,
     describe: () => describeModels(models, options.categories, credentialConfigured),
-    models: () => models,
+    models: () => withModelFacts(models, id => (schemas.get(id) ?? options.cachedInputs?.(id))?.properties),
     refresh: async () => {
-      credentialConfigured = await options.resolveApiKey().then(key => key !== undefined && key !== '', () => false)
+      const key = await options.resolveApiKey().then(value => value === '' ? undefined : value, () => undefined)
+      credentialConfigured = key !== undefined
       const live: GenModelInfo[] = []
       for (const entry of options.categories) {
-        const url = `${options.baseUrl}/models?limit=100&category=${encodeURIComponent(entry.category)}`
-        const response = await fetchImpl(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(options.timeoutMs) })
-        if (!response.ok) {
-          throw new GenerationError(
-            `${options.name} refused the ${entry.category} catalogue request (${String(response.status)})`,
-            classifyStatus(response.status),
-            { status: response.status },
-          )
+        let cursor: string | undefined
+        for (let page = 0; page < MAX_PAGES; page++) {
+          const url = new URL(`${options.baseUrl}/models`)
+          url.searchParams.set('limit', '100')
+          url.searchParams.set('category', entry.category)
+          if (cursor !== undefined) url.searchParams.set('cursor', cursor)
+          const body = await readCatalogue(url.toString(), `${entry.category} catalogue`, {}) as
+            { next_cursor?: unknown; has_more?: unknown } | null
+          live.push(...liveModelsFrom(body, options.categories))
+          const next = body?.next_cursor
+          if (body?.has_more !== true || typeof next !== 'string' || next === '' || next === cursor) break
+          cursor = next
         }
-        live.push(...liveModelsFrom(await response.json(), options.categories))
       }
-      // The live list replaces what was cached: it is the service's own
-      // answer, and keeping a row it no longer lists would offer a model the
-      // person cannot run.
+      // A model the service has dropped stays in the cache (mergeCatalog
+      // keeps known rows), so a refresh cut short never shrinks the picker.
       models = mergeCatalog(models, live)
+      if (key !== undefined && options.pricingUrl !== undefined) {
+        // Prices are a nicety beside the catalogue: a failed price read keeps
+        // the prices already known and the catalogue still lands.
+        try {
+          const prices = await readPrices(options.pricingUrl, models.map(model => model.id), key)
+          models = models.map((model) => {
+            const listed = prices.get(model.id)
+            return listed === undefined ? model : { ...model, price: modelPrice(listed, model.artefact) }
+          })
+        } catch (error) {
+          options.onCatalog?.(models)
+          throw error
+        }
+      }
       options.onCatalog?.(models)
+    },
+    example: async (modelId) => {
+      const template = options.inputSchemaUrl
+      if (template === undefined) return undefined
+      const held = schemas.get(modelId) ?? options.cachedInputs?.(modelId)
+      // A schema cached before examples were read carries no answer either
+      // way; the document is read again to find one.
+      if (held !== undefined && held.example !== undefined) {
+        schemas.set(modelId, held)
+        return held.example ?? undefined
+      }
+      return (await fetchSchema(modelId, template))?.example ?? undefined
     },
     inputs: async (modelId) => {
       const schema = await schemaFor(modelId)

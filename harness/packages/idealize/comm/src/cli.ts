@@ -11,8 +11,8 @@ import { readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { commHostPath } from './index.ts'
-import { clockTime, Wire } from './wire.ts'
-import type { CommRequest, CommResponse } from './wire.ts'
+import { clockTime, COMM_TURNS, Wire } from './wire.ts'
+import type { CommRequest, CommResponse, CommTurn } from './wire.ts'
 
 const args = process.argv.slice(2)
 const env = process.env
@@ -494,6 +494,16 @@ async function main(): Promise<void> {
           out(`synthesis${resp.synthesis.stale ? ' (stale)' : ''}: ${first.length > 120 ? `${first.slice(0, 120)}…` : first}`)
         }
       }
+      return
+    }
+
+    // Not in the usage text: the hooks IDEalize gives a Claude Code launch call
+    // it, so the app hears when a turn ends instead of guessing from output.
+    case 'turn': {
+      const turn = rest[0]
+      if (turn === undefined || !(COMM_TURNS as readonly string[]).includes(turn)) fail(`turn needs one of ${COMM_TURNS.join('|')}`)
+      const resp = await send({ command: 'turn', turn: turn as CommTurn })
+      if (!resp.ok) fail(resp.error ?? 'turn failed')
       return
     }
 

@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  effectivePrices, OPENROUTER_MODELS_URL, openRouterPrices, parsePriceBody, readOpenRouterPriceCache, refreshOpenRouterPrices,
-  writeOpenRouterPriceCache,
+  effectivePrices, OPENROUTER_MODELS_URL, openRouterDetails, openRouterPrices, parsePriceBody, readOpenRouterPriceCache,
+  refreshOpenRouterPrices, writeOpenRouterPriceCache,
 } from '../src/prices.ts'
 
 const made: string[] = []
@@ -101,7 +101,7 @@ describe('refreshOpenRouterPrices', () => {
 
   it('serves a fresh cache without a fetch, refreshes a stale one, and keeps the cache when the fetch fails', async () => {
     const dir = home()
-    writeOpenRouterPriceCache(dir, { old: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }, NOW - 30_000)
+    writeOpenRouterPriceCache(dir, { old: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }, NOW - 30_000, {})
     const fetchImpl = vi.fn(() => Promise.reject(new Error('offline')))
     const fresh = await refreshOpenRouterPrices({ home: dir, fetchImpl: fetchImpl, maxAgeMs: 60_000, now: NOW })
     expect(fetchImpl).not.toHaveBeenCalled()
@@ -118,11 +118,52 @@ describe('refreshOpenRouterPrices', () => {
     expect(Object.keys(afterEmpty?.prices ?? {})).toEqual(['old'])
   })
 
+  it('refreshes a fresh cache once when it was written before details were read, and stores them', async () => {
+    const dir = home()
+    writeOpenRouterPriceCache(dir, { old: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }, NOW - 30_000)
+    const fetchImpl = vi.fn(() => Promise.resolve(ok({
+      data: [{ id: 'a/b', name: 'A: B', created: 1790000000, context_length: 200000, pricing: { prompt: '0.000001', completion: '0.000002' }, supported_parameters: ['tools'] }],
+    })))
+    const refreshed = await refreshOpenRouterPrices({ home: dir, fetchImpl, maxAgeMs: 60_000, now: NOW })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(refreshed?.details?.['a/b']).toEqual({ name: 'A: B', released: '2026-09-21', contextLength: 200000, tools: true, reasoning: false })
+    expect(readOpenRouterPriceCache(dir)?.details).toEqual(refreshed?.details)
+    await refreshOpenRouterPrices({ home: dir, fetchImpl, maxAgeMs: 60_000, now: NOW })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
   it('never fetches with refresh disabled, and yields nothing with no cache', async () => {
     const dir = home()
     const fetchImpl = vi.fn(() => Promise.resolve(ok(DIRECTORY)))
     expect(await refreshOpenRouterPrices({ home: dir, fetchImpl: fetchImpl, maxAgeMs: 0, now: NOW })).toBeUndefined()
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})
+
+describe('openRouterDetails', () => {
+  it('reads description, date, context, what a model reads, tools and reasoning, field by field', () => {
+    const details = openRouterDetails({
+      data: [
+        {
+          id: 'x/full', name: ' X: Full ', description: 'Does things.', created: 1792622765, context_length: 262144,
+          architecture: { input_modalities: ['text', 'image', 'telepathy', 'text'] },
+          supported_parameters: ['include_reasoning', 'tools', 'max_tokens'],
+        },
+        { id: 'x/bare' },
+        { id: 'x/odd', name: '', created: -1, context_length: 1.5, architecture: { input_modalities: 'text' }, supported_parameters: 'tools' },
+        { name: 'no id' },
+        null,
+      ],
+    })
+    expect(details).toEqual({
+      'x/full': {
+        name: 'X: Full', description: 'Does things.', released: '2026-10-21', contextLength: 262144,
+        inputModalities: ['text', 'image'], tools: true, reasoning: true,
+      },
+      'x/bare': {},
+      'x/odd': {},
+    })
+    expect(openRouterDetails(null)).toEqual({})
   })
 })
 

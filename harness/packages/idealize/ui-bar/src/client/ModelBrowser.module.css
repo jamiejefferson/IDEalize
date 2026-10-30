@@ -1,0 +1,820 @@
+/* The model browser (Paper "Model picker" boards 02 to 04). Geometry and type
+   follow the boards; colour comes from the app's alias tokens so the browser
+   reads the same in light and dark and under every skin. Interactive marks
+   (chips that are on, the switch, play controls, the primary button) take
+   the primary button fill, which is the highlight the person chose; static
+   text and glyphs take the label colours. Figures use the code font. */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--dsw-alias-bg-mask-1, rgb(0 0 0 / 30%));
+}
+
+.browser {
+  display: flex;
+  flex-direction: column;
+  width: min(1080px, 100%);
+  height: min(860px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 10%));
+  border-radius: 24px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  color: var(--dsw-alias-label-primary, #151a24);
+  box-shadow: var(--dsw-shadow-lv3, 0 24px 60px rgb(28 34 48 / 14%));
+  font-size: 13px;
+  line-height: 16px;
+}
+
+/* ── Head ─────────────────────────────────────────────────────────────── */
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 28px 32px 20px;
+}
+
+.titles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: -0.02em;
+}
+
+.headEnd {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.count {
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.close {
+  composes: iconButton from './controls.module.css';
+  flex: none;
+  width: 32px;
+  height: 32px;
+  background: var(--dsw-alias-interactive-bg-hover, rgb(38 49 72 / 6%));
+  color: var(--dsw-alias-label-primary, #151a24);
+}
+
+/* ── Search and sort ──────────────────────────────────────────────────── */
+
+.searchRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 32px 14px;
+}
+
+.search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: var(--dsw-alias-interactive-bg-hover, rgb(38 49 72 / 6%));
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.search:focus-within {
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3, rgb(0 0 0 / 20%));
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #151a24);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.searchInput::placeholder {
+  color: var(--dsw-alias-label-tertiary, #8a8e94);
+}
+
+.sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px 0 14px;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 10%));
+  border-radius: 12px;
+}
+
+.sort:focus-within {
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3, rgb(0 0 0 / 20%));
+}
+
+.sortLabel {
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.sortSelect {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #151a24);
+  font: inherit;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+/* ── Filters ──────────────────────────────────────────────────────────── */
+
+.filters {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 28px;
+  padding: 0 32px 22px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 8%));
+}
+
+/* Each group takes its own row, its chips wrapping under the first, so a
+   kind with a dozen labels never pushes the list off screen sideways. */
+.chipGroup {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.groupLabel {
+  composes: eyebrow;
+  flex: none;
+  width: 76px;
+}
+
+.chip {
+  padding: 5px 12px;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #151a24);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgb(38 49 72 / 6%));
+}
+
+.chip[aria-pressed='true'] {
+  border-color: transparent;
+  background: var(--dsw-alias-button-primary-fill, #151a24);
+  color: var(--dsw-alias-label-primary-foreground, #fff);
+  font-weight: 500;
+}
+
+.chip:focus-visible,
+.switchInput:focus-visible + .switchTrack {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3, rgb(0 0 0 / 20%));
+}
+
+.switchRow {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.switchInput {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.switchTrack {
+  flex: none;
+  display: flex;
+  align-items: center;
+  width: 30px;
+  height: 18px;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--dsw-alias-border-l2, rgb(0 0 0 / 20%));
+  transition: background 120ms ease;
+}
+
+.switchKnob {
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  transition: transform 120ms ease;
+}
+
+.switchInput:checked + .switchTrack {
+  background: var(--dsw-alias-button-primary-fill, #151a24);
+}
+
+.switchInput:checked + .switchTrack .switchKnob {
+  transform: translateX(12px);
+}
+
+/* ── Body: list and detail ────────────────────────────────────────────── */
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.listPane {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: 640px;
+  max-width: 60%;
+  border-right: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 8%));
+}
+
+/* The lanes every row shares: fixed widths, so a column lines up whatever a
+   row holds. */
+.columns,
+.row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-left: 32px;
+  padding-right: 24px;
+}
+
+.columns {
+  flex: none;
+  padding-top: 20px;
+  padding-bottom: 10px;
+}
+
+.columns > span {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.colModel,
+.cellModel {
+  flex: 1;
+  min-width: 0;
+}
+
+.colTakes,
+.cellTakes {
+  flex: none;
+  width: 112px;
+}
+
+.colReleased,
+.cellReleased {
+  flex: none;
+  width: 72px;
+}
+
+.colPrice,
+.cellPrice {
+  flex: none;
+  width: 120px;
+  text-align: right;
+}
+
+/* The chat unit ("Writing / 1M tokens") is wider than the lane; it keeps one
+   line and runs left over the Released head, which is short. */
+.colPrice {
+  display: flex;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 16px;
+  outline: none;
+}
+
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 62px;
+  box-sizing: border-box;
+  border-top: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 6%));
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgb(38 49 72 / 4%));
+}
+
+.row[aria-selected='true'] {
+  background: var(--dsw-alias-interactive-bg-hover, #f2f4f7);
+  box-shadow: inset 3px 0 0 var(--dsw-alias-button-primary-fill, #151a24);
+}
+
+.row:focus-visible {
+  outline: none;
+  box-shadow: inset 3px 0 0 var(--dsw-alias-button-primary-fill, #151a24), inset 0 0 0 2px var(--dsw-alias-border-l3, rgb(0 0 0 / 20%));
+}
+
+.cellModel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rowName {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMaker {
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cellTakes {
+  display: flex;
+  gap: 4px;
+}
+
+.glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover, #f2f4f7);
+  color: var(--dsw-alias-label-secondary, #3a4150);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.glyphText {
+  line-height: 14px;
+}
+
+.cellReleased {
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.cellPrice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+}
+
+.price {
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.priceMuted {
+  composes: price;
+  color: var(--dsw-alias-label-tertiary, #8a8e94);
+}
+
+.priceSub {
+  font-size: 11.5px;
+  line-height: 14px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  white-space: nowrap;
+}
+
+.priceSubMuted {
+  composes: priceSub;
+  color: var(--dsw-alias-label-tertiary, #8a8e94);
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 32px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.detail {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 28px 32px;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #151a24) 2%, var(--dsw-alias-bg-layer-1, #fff));
+}
+
+.sample {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sampleFrame {
+  position: relative;
+  flex: none;
+  height: 210px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--dsw-alias-interactive-bg-hover, #e4e7eb);
+}
+
+.sampleMedia {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+img.sampleMedia {
+  background: transparent;
+}
+
+.playPill {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(21 26 36 / 78%);
+  color: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The pill's label is white on the dark glass whatever the skin; its play
+   mark keeps the highlight fill. */
+.playPill svg circle {
+  fill: var(--dsw-alias-button-primary-fill, #fff);
+}
+
+.playMark {
+  fill: var(--dsw-alias-label-primary-foreground, #151a24);
+}
+
+.playStroke {
+  fill: none;
+  stroke: var(--dsw-alias-label-primary-foreground, #151a24);
+}
+
+.playPill:focus-visible,
+.playerButton:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.player {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 10px 10px;
+  border-radius: 999px;
+  background: rgb(21 26 36 / 80%);
+}
+
+.playerButton {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-button-primary-fill, #fff);
+  cursor: pointer;
+}
+
+.wave {
+  flex: 1;
+  height: 22px;
+}
+
+.waveLit {
+  fill: #fff;
+}
+
+.waveDim {
+  fill: rgb(255 255 255 / 40%);
+}
+
+.caption {
+  font-size: 11.5px;
+  line-height: 14px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.identity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detailName {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 28px;
+  letter-spacing: -0.015em;
+}
+
+.detailMaker {
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.description {
+  margin: 0;
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--dsw-alias-label-secondary, #3a4150);
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border-top: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 8%));
+}
+
+.fact {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 6%));
+}
+
+.fact:last-child {
+  border-bottom: 0;
+}
+
+.factLabel {
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.factValue {
+  margin: 0;
+  font-weight: 500;
+  text-align: right;
+}
+
+.factFigure {
+  margin: 0;
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  text-align: right;
+}
+
+/* ── Foot ─────────────────────────────────────────────────────────────── */
+
+.foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 32px;
+  border-top: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 8%));
+}
+
+.footNote {
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.footActions {
+  display: flex;
+  gap: 10px;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #151a24);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.primary {
+  composes: button md primary from './controls.module.css';
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.secondary {
+  composes: button md outline from './controls.module.css';
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ── Your ratings (Paper "Ratings and dislike" board 05) ─────────────────── */
+
+.rowRating {
+  color: var(--dsw-alias-label-primary, #151a24);
+}
+
+.ratings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 8%));
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+}
+
+.ratingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 26px;
+}
+
+.ratingTag {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--dsw-alias-label-primary, #151a24);
+}
+
+.ratingEnd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ratingStars {
+  display: flex;
+  align-items: center;
+}
+
+.starButton {
+  display: flex;
+  padding: 1px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.starButton:focus-visible,
+.ratingRemove:focus-visible,
+.ratingChip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3, rgb(0 0 0 / 20%));
+}
+
+.starFilled {
+  fill: var(--dsw-alias-label-primary, #151a24);
+  stroke: var(--dsw-alias-label-primary, #151a24);
+}
+
+.starOpen {
+  fill: none;
+  stroke: var(--dsw-alias-label-tertiary, #8a8e94);
+}
+
+.starButton:hover .starOpen {
+  stroke: var(--dsw-alias-label-primary, #151a24);
+}
+
+/* The remove button shows on hover or focus, so a row reads as its stars. */
+.ratingRemove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.ratingRow:hover .ratingRemove,
+.ratingRemove:focus-visible {
+  opacity: 1;
+}
+
+.ratingRemove:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgb(38 49 72 / 6%));
+}
+
+.ratingAdd {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 8%));
+}
+
+.ratingRow + .ratingAdd {
+  margin-top: 2px;
+}
+
+.ratingAddLabel {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.ratingChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ratingChip {
+  padding: 4px 10px;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #151a24);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.ratingChip:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgb(38 49 72 / 6%));
+}

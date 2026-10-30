@@ -64,6 +64,12 @@
   cursor: default;
 }
 
+/* The second checkbox sits close under the first: both answer the same dialog. */
+.remember {
+  margin-top: 8px;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .modalAction {
   min-width: 72px;
 }

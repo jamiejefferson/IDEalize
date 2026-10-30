@@ -74,6 +74,7 @@ async function mount(options: { setThrows?: unknown; refreshThrows?: unknown } =
       { backend: 'fal', displayName: 'fal.ai', env: 'FAL_KEY', connected: false, artefacts: ['image'] },
       { backend: 'keyless', displayName: 'Keyless', env: '', connected: true, artefacts: ['audio'] },
     ],
+    chatEnv: chatKeyEnv,
     recordChatKeyEnv: async (provider, env) => { recorded.push(`${provider}=${env}`) },
     forgetChatKeyEnv: async (provider, env) => { recorded.push(`-${provider}=${env}`) },
     refreshBackend: async () => {

@@ -1,6 +1,7 @@
-/* One-tap thank-you heart beside the send button. */
+/* The heart and the dislike beside the send button. */
 
-.heart {
+.heart,
+.dislike {
   display: grid;
   place-items: center;
   width: 26px;
@@ -17,7 +18,21 @@
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
 }
 
-.heart:disabled {
+.dislike:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary, #151a24);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+}
+
+.heart[aria-expanded="true"] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.dislike[aria-expanded="true"] {
+  color: var(--dsw-alias-label-primary, #151a24);
+}
+
+.heart:disabled,
+.dislike:disabled {
   opacity: 0.35;
   cursor: default;
 }

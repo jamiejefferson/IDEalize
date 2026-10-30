@@ -9,7 +9,8 @@
  * HTTP: `POST /idealize/comm` takes one {@link CommRequest} and answers one
  * {@link CommResponse}. `GET/POST /idealize/comm/roles` reads and sets which
  * Activity Agent carries the Project Coordinator role (the Brains pane's
- * role row). Loopback-fenced; every command except `ping` demands
+ * role row). `GET/POST /idealize/pause` reads the pause on every agent and
+ * presses Pause, Stop now or Resume (feedback 495cec0a; see `pause.ts`). Loopback-fenced; every command except `ping` demands
  * the `x-idealize-auth: 1` header. The shell environment of every tool run
  * carries `DSH_IDEALIZE_HOST` (the server origin) so the `idealize` binary
  * finds its host, and the same origin is written to
@@ -40,12 +41,21 @@ import type {} from '@deepseek-ai/dsh-shell-env'
 // Type-only: the prompt registry's Context merge (ctx.systemPrompt).
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { IdealizeComm } from './service.ts'
+import { IdealizePause } from './pause-service.ts'
 import { CommStore, commStorePath } from './store.ts'
-import { COMM_COMMANDS, COMMANDS_SECTION } from './wire.ts'
-import type { CommCommand, CommRequest } from './wire.ts'
+import { COMM_COMMANDS, COMM_TURNS, COMMANDS_SECTION } from './wire.ts'
+import type { CommCommand, CommRequest, CommTurn } from './wire.ts'
 import { foldSpace } from '@idealize/spaces'
 
 export { IdealizeComm, foldExchanges, MAIL_NOTICE, STUDIO_MAIL_NOTICE, WAKE_NOTICE } from './service.ts'
+export type { RosterEntry } from './service.ts'
+export { carryOnLine, fallbackNotesFolder, parsePauseDocument, PauseController, PauseFile, pauseDocumentPath, pauseNotePath, saveNotesLine, wrapUpLine } from './pause.ts'
+export type {
+  OwedLine, PausedChat, PausedChatKind, PausedChatState, PauseDocument, PausePhase, PauseSnapshot, PauseStore, PauseWorld,
+  ShellToOpen, TerminalLineOutcome, TerminalPauseLines, WorkingChat,
+} from './pause.ts'
+export { HostPauseWorld, IdealizePause } from './pause-service.ts'
+export type { IdealizePauseOptions } from './pause-service.ts'
 export { CommStore, commStorePath, parseCommState } from './store.ts'
 export type { CommRole, CommState } from './store.ts'
 export { resolveTarget } from './resolve.ts'
@@ -58,8 +68,8 @@ export type { RoleConfig } from './roles.ts'
 export { DEFAULT_COMM_CONFIG } from './config.ts'
 export type { CommConfig } from './config.ts'
 export type { Resolution, SessionRecord } from './resolve.ts'
-export { chatNameFromTask, clockTime, COMM_COMMANDS, COMMANDS_SECTION, TRUNCATION_WARNING, Wire } from './wire.ts'
-export type { CommCommand, CommExchange, CommMessage, CommRequest, CommResponse, CommRung, CommSessionInfo, StudioTaskRow } from './wire.ts'
+export { chatNameFromTask, clockTime, COMM_COMMANDS, COMM_TURNS, COMMANDS_SECTION, TRUNCATION_WARNING, Wire } from './wire.ts'
+export type { CommCommand, CommExchange, CommMessage, CommRequest, CommResponse, CommRung, CommSessionInfo, CommTurn, StudioTaskRow } from './wire.ts'
 
 export const name = 'idealize-comm'
 
@@ -75,6 +85,12 @@ export const Config: z<CommConfig> = z.object({
   backgroundPostDelayMs: z.number().min(0).default(DEFAULT_COMM_CONFIG.backgroundPostDelayMs),
 })
 
+
+/** The route the sidebar's Pause control reads and presses. */
+export const PAUSE_PATH = '/idealize/pause'
+
+/** The presses `POST /idealize/pause` takes. */
+export type PauseAction = 'pause' | 'stop' | 'resume'
 
 /** The environment key the CLI reads its host origin from inside a tool shell. */
 export const HOST_ENV_KEY = 'DSH_IDEALIZE_HOST'
@@ -140,6 +156,10 @@ export function parseRequest(text: string): CommRequest | { error: string } {
     if (typeof record.limit !== 'number' || !Number.isSafeInteger(record.limit)) return { error: 'limit must be an integer' }
     request.limit = record.limit
   }
+  if (record.turn !== undefined) {
+    if (!(COMM_TURNS as readonly unknown[]).includes(record.turn)) return { error: `turn must be one of ${COMM_TURNS.join('|')}` }
+    request.turn = record.turn as CommTurn
+  }
   return request
 }
 
@@ -179,6 +199,7 @@ export function apply(ctx: Context, config: CommConfig = DEFAULT_COMM_CONFIG): v
     onChange: () => {},
   })
   ctx.plugin(IdealizeComm, { store, config: () => current() })
+  ctx.plugin(IdealizePause)
 
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(agentNameProjectionDefinition)
@@ -358,6 +379,46 @@ export function apply(ctx: Context, config: CommConfig = DEFAULT_COMM_CONFIG): v
           },
         }),
         'idealize-comm: /idealize/comm/roles',
+      )
+    })
+
+    webCtx.inject(['idealizePause'], (pauseCtx) => {
+      pauseCtx.effect(
+        () => pauseCtx.webServer.register({
+          kind: 'exact',
+          path: PAUSE_PATH,
+          handler: async (req, res) => {
+            const method = req.method ?? 'GET'
+            if (method !== 'GET' && method !== 'POST') {
+              res.writeHead(405, { 'content-type': 'text/plain', allow: 'GET, POST' }).end('GET or POST')
+              return
+            }
+            if (refuse(req, res, method === 'GET' ? 'ping' : 'setStatus')) return
+            const pause = pauseCtx.idealizePause
+            if (method === 'GET') {
+              sendJson(res, 200, await pause.snapshot())
+              return
+            }
+            let body: unknown
+            try {
+              body = JSON.parse(await readBody(req))
+            } catch {
+              sendJson(res, 400, { error: 'body is not JSON' })
+              return
+            }
+            const action = typeof body === 'object' && body !== null ? (body as { action?: unknown }).action : undefined
+            if (action !== 'pause' && action !== 'stop' && action !== 'resume') {
+              sendJson(res, 400, { error: 'action must be pause, stop or resume' })
+              return
+            }
+            try {
+              sendJson(res, 200, action === 'pause' ? await pause.pause() : action === 'stop' ? await pause.stopNow() : await pause.resume())
+            } catch (error) {
+              sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) })
+            }
+          },
+        }),
+        'idealize-comm: /idealize/pause',
       )
     })
 

@@ -57,6 +57,8 @@ async function mount(options: {
   oauth?: false | { throws?: boolean }
   storedKeys?: string[]
   refusing?: true
+  /** Compose DeepSeek's own adapter, whose whole section is its profile. */
+  deepseek?: true
 } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'idealize-services-defaults-'))
   homes.push(home)
@@ -67,7 +69,12 @@ async function mount(options: {
   contexts.push(ctx)
   let handler: Handler | undefined
   const stored = new Set(options.storedKeys ?? [])
-  let section: unknown = options.section === false ? {} : { providers: options.providers ?? {} }
+  const sections: Record<string, unknown> = {
+    'llm-pi-ai': options.section === false ? {} : { providers: options.providers ?? {} },
+    // The resolved section, as the settings service serves it: the schema's
+    // default credential name filled in.
+    ...options.deepseek === true ? { 'llm-deepseek': { apiKeyEnv: 'DEEPSEEK_API_KEY' } } : {},
+  }
 
   ctx.provide('webServer', {
     // The plugin registers the list route and the keys-file import beside it;
@@ -86,13 +93,25 @@ async function mount(options: {
     unset: async (ref: string) => { stored.delete(ref) },
   } as never)
   ctx.provide('settings', {
-    get: () => section,
-    update: async (_ns: unknown, patch: unknown) => { section = patch },
+    get: (ns: string) => sections[ns],
+    mutate: async (ns: string, ops: PathOp[]) => {
+      for (const op of ops) {
+        // pi-ai validates every profile in its section against its catalogue,
+        // and it describes no DeepSeek route: the refusal JJ hit on 30 Oct 2026.
+        if (ns === 'llm-pi-ai' && op.path[1] === 'deepseek-official') {
+          throw new Error('llm-pi-ai: provider "deepseek-official" resolves no models')
+        }
+        sections[ns] = applyOp(sections[ns], op)
+      }
+    },
   } as never)
   ctx.provide('llm', {
     listConfigurableProviders: () => [
-      { provider: 'acme', displayName: 'Acme Gateway' },
-      { provider: 'openai-codex', displayName: 'ChatGPT' },
+      { provider: 'acme', displayName: 'Acme Gateway', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'acme'] },
+      { provider: 'openai-codex', displayName: 'ChatGPT', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai-codex'] },
+      ...options.deepseek === true
+        ? [{ provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] }]
+        : [],
     ],
   } as never)
   const oauth = options.oauth
@@ -118,7 +137,22 @@ async function mount(options: {
     return res
   }
   const list = async (): Promise<{ id: string; kind: string; connected: boolean; signIn?: boolean }[]> => (await call('GET')).json().services
-  return { ctx, call, list, section: () => section }
+  return { ctx, call, list, section: () => sections['llm-pi-ai'], sections, stored }
+}
+
+type PathOp = { op: 'set'; path: string[]; value: unknown } | { op: 'unset'; path: string[] }
+
+/** The settings service's path-op semantics, over a plain section. */
+function applyOp(section: unknown, op: PathOp): Record<string, unknown> {
+  const base = typeof section === 'object' && section !== null ? section as Record<string, unknown> : {}
+  const [head, ...rest] = op.path
+  if (head === undefined) return op.op === 'set' ? { ...op.value as Record<string, unknown> } : {}
+  if (rest.length === 0) {
+    if (op.op === 'set') return { ...base, [head]: op.value }
+    const { [head]: _removed, ...kept } = base
+    return kept
+  }
+  return { ...base, [head]: applyOp(base[head], { ...op, path: rest }) }
 }
 
 describe('the plugin with no composition config', () => {
@@ -166,6 +200,33 @@ describe('a route reached by signing in', () => {
 })
 
 describe('storing a chat route key', () => {
+  it('stores a DeepSeek key under the name DeepSeek reads, and writes nothing to pi-ai', async () => {
+    const { call, list, sections, stored } = await mount({ deepseek: true })
+    expect((await list()).find(row => row.id === 'deepseek-official')?.connected).toBe(false)
+    const response = await call('POST', { id: 'deepseek-official', kind: 'chat', apiKey: 'sk-deep' })
+    expect(response.status).toBe(200)
+    // DeepSeek's adapter reads DEEPSEEK_API_KEY by default; the derived
+    // DEEPSEEK_OFFICIAL_API_KEY would have reached nothing.
+    expect([...stored]).toEqual(['DEEPSEEK_API_KEY'])
+    expect(sections['llm-pi-ai']).toEqual({ providers: {} })
+    expect(sections['llm-deepseek']).toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY' })
+    expect((await list()).find(row => row.id === 'deepseek-official')?.connected).toBe(true)
+  })
+
+  it('answers a refused settings write with its reason, naming the stored key', async () => {
+    const { ctx, call } = await mount({ deepseek: true })
+    // A route whose profile pi-ai would have to hold: the refusal must reach
+    // the form, not stop at the web server's log.
+    ctx.llm.listConfigurableProviders = () => [
+      { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'deepseek-official'] },
+    ] as never
+    const response = await call('POST', { id: 'deepseek-official', kind: 'chat', apiKey: 'sk-deep' })
+    expect(response.status).toBe(500)
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'The key is saved, but DeepSeek could not be switched on. llm-pi-ai: provider "deepseek-official" resolves no models',
+    })
+  })
+
   it('records the credential name once and leaves a recorded one alone', async () => {
     const first = await mount()
     expect((await first.call('POST', { id: 'acme', kind: 'chat', apiKey: 'sk-one' })).status).toBe(200)

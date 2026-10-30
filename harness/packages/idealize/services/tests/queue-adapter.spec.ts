@@ -59,9 +59,14 @@ describe('catalogue mapping', () => {
     expect(models.map(model => `${model.artefact}:${model.id}:${model.name}`)).toEqual([
       'image:fal-ai/flux/dev:FLUX.1 [dev]',
       'video:acme/cut:Cut',
+      'image:acme/edit:Edit',
       'audio:acme/nameless:acme/nameless',
     ])
     expect(models[0]!.inputModalities).toEqual(['text'])
+    expect(models[0]!.requiredInputs).toBeUndefined()
+    // An image-to-image row takes a picture and cannot run without one.
+    expect(models[2]!.inputModalities).toEqual(['text', 'image'])
+    expect(models[2]!.requiredInputs).toEqual(['image'])
     expect(liveModelsFrom(null, CATEGORIES)).toEqual([])
     // A page carrying a null row skips it rather than failing the fetch.
     expect(liveModelsFrom({ models: [null] }, CATEGORIES)).toEqual([])
@@ -84,7 +89,7 @@ describe('catalogue mapping', () => {
     // shrinks the picker.
     expect(merged.map(model => model.id)).toContain('acme/retired')
     expect(merged.map(model => model.id)).toContain('acme/cut')
-    expect(merged.length).toBe(known.length + 2)
+    expect(merged.length).toBe(known.length + 3)
   })
 })
 
@@ -203,7 +208,10 @@ function fakeFal(script: {
     calls.push({ url, init })
     const json = (body: unknown, status = 200): Response =>
       new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
-    if (url.startsWith('https://catalog/models')) return Promise.resolve(json(PAGE))
+    // The first page of each category points at a second, which ends the list.
+    if (url.startsWith('https://catalog/models')) {
+      return Promise.resolve(json(url.includes('cursor=') ? { models: [], has_more: false, next_cursor: null } : PAGE))
+    }
     if (url.startsWith('https://schema/?endpoint_id=')) {
       if (script.schema === undefined) return Promise.resolve(new Response('not found', { status: 404 }))
       return Promise.resolve(script.schema(decodeURIComponent(url.slice('https://schema/?endpoint_id='.length))))
@@ -280,11 +288,10 @@ describe('the backend', () => {
     ])
     await fresh.refresh()
     expect(fresh.describe().every(descriptor => descriptor.availability === 'no-credential')).toBe(true)
-    expect(fal.calls.map(call => call.url)).toEqual([
-      'https://catalog/models?limit=100&category=text-to-image',
-      'https://catalog/models?limit=100&category=text-to-video',
-      'https://catalog/models?limit=100&category=text-to-audio',
-    ])
+    expect(fal.calls.map(call => call.url)).toEqual(CATEGORIES.flatMap(entry => [
+      `https://catalog/models?limit=100&category=${entry.category}`,
+      `https://catalog/models?limit=100&category=${entry.category}&cursor=Mg`,
+    ]))
     expect(fal.calls[0]!.init?.headers).not.toHaveProperty('authorization')
     expect(fresh.models().map(model => model.id)).toContain('acme/cut')
 
@@ -546,6 +553,7 @@ describe('the backend', () => {
       credential: { displayName: 'fal.ai', env: 'FAL_KEY' },
       resolveApiKey: () => Promise.reject(new Error('store down')),
       fetchImpl: () => Promise.resolve(new Response('', { status: 429 })),
+      retryDelayMs: 1,
       cached,
     })
     await expect(limited.refresh()).rejects.toMatchObject({ code: 'RATE_LIMIT' })

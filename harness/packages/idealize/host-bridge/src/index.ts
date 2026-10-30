@@ -116,8 +116,10 @@ export class IdealizeBridge extends Service {
         sessionId: String(agent.session.header.id),
         ...failed ? { failed: true } : {},
         // Powell answers out loud the moment it finishes, so a chime and a
-        // system notification on top of its voice only repeat it.
-        ...speaksForItself(agent) ? { quiet: true } : {},
+        // system notification on top of its voice only repeat it. A subagent
+        // finishing is a step in its parent's turn, which chimes when it ends
+        // (feedback 1047a635: the chime came before the task was done).
+        ...speaksForItself(agent) || agent.session.header.origin === 'subagent' ? { quiet: true } : {},
       })
     })
 

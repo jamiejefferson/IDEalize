@@ -84,6 +84,9 @@
       "path": "../askbar/tsconfig.client.json"
     },
     {
+      "path": "../router"
+    },
+    {
       "path": "../setup"
     },
     {

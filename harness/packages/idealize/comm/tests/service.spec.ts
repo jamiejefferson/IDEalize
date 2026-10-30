@@ -490,6 +490,8 @@ describe('parseRequest', () => {
       .toEqual({ command: 'need', task: 't-1', owner: 'lead', action: true, body: 'May I?' })
     expect(parseRequest('{"command":"need","action":"yes"}')).toEqual({ error: 'action must be a boolean' })
     expect(parseRequest('{"command":"spawn","studio":true}')).toEqual({ command: 'spawn', studio: true })
+    expect(parseRequest('{"command":"turn","turn":"stop"}')).toEqual({ command: 'turn', turn: 'stop' })
+    expect(parseRequest('{"command":"turn","turn":"done"}')).toEqual({ error: 'turn must be one of open|start|stop|close' })
   })
 })
 
@@ -543,6 +545,22 @@ describe('IdealizeComm.send', () => {
     expect(nudged[0]?.wanted?.()).toBe(false)
   })
 
+  it('hands a terminal agent\'s turn report to the terminal plugin, for the chat that sent it', async () => {
+    const { ctx, comm } = await studioComm()
+    const reported: [string, string][] = []
+    ;(ctx as unknown as { provide(name: string, value: unknown): void }).provide('idealizeTerminals', {
+      working: () => [],
+      turn: (session: string, turn: string) => { reported.push([session, turn]); return session === 'sess-lead' },
+    })
+    expect(await comm.handle({ command: 'turn', from: 'sess-lead', turn: 'stop' })).toEqual({ ok: true })
+    expect(reported).toEqual([['sess-lead', 'stop']])
+    // A chat with no terminal here, a sender that is no chat, and a report with no turn all say so.
+    expect((await comm.handle({ command: 'turn', from: 'sess-worker', turn: 'stop' })).ok).toBe(false)
+    expect((await comm.handle({ command: 'turn', from: 'nobody', turn: 'stop' })).ok).toBe(false)
+    expect((await comm.handle({ command: 'turn', from: 'sess-lead' })).ok).toBe(false)
+    expect(reported).toEqual([['sess-lead', 'stop'], ['sess-worker', 'stop']])
+  })
+
   it('leaves the note in a Terminal chat\'s inbox without starting a turn on the agent behind the terminal', async () => {
     const { comm, lead } = await studioComm()
     ;(lead.session.events as unknown[]).push({ type: 'idealize/space', data: { space: 'terminal' } })
@@ -555,5 +573,29 @@ describe('IdealizeComm.send', () => {
     await comm.wakeCoordinator(studioEvent({ kind: 'decision', author: 'sess-worker', body: 'ship Fridays' }))
     expect(comm.state.unread('sess-lead')).toBe(1)
     expect(lead.followups).toHaveLength(0)
+  })
+
+  it('holds every wake while agents are paused, keeps the notes, and wakes their chats on Resume (feedback 495cec0a)', async () => {
+    const { ctx, comm, lead } = await studioComm()
+    const pause = { held: true }
+    const nudged: string[] = []
+    const provide = (ctx as unknown as { provide(name: string, value: unknown): void }).provide.bind(ctx)
+    provide('idealizePause', { held: () => pause.held })
+    provide('idealizeTerminals', { working: () => [], nudge: (session: string) => { nudged.push(session); return false } })
+    await comm.handle({ command: 'send', from: 'sess-worker', target: 'sess-lead', body: 'chapter 12 is done' })
+    await comm.state.setRole('sess-lead', 'project-agent')
+    await comm.wakeCoordinator(studioEvent({ kind: 'decision', author: 'sess-worker', body: 'ship Fridays' }))
+    expect(comm.state.unread('sess-lead')).toBe(2)
+    expect(nudged).toEqual([])
+    expect(lead.followups).toHaveLength(0)
+
+    pause.held = false
+    // A chat Resume is already telling to carry on is not woken twice.
+    await comm.releaseHeldMail(new Set(['sess-lead']))
+    expect(lead.followups).toHaveLength(0)
+    await comm.releaseHeldMail(new Set())
+    expect(nudged).toEqual(['sess-lead'])
+    expect(lead.followups).toHaveLength(1)
+    expect(JSON.stringify(lead.followups[0])).toContain(MAIL_NOTICE)
   })
 })

@@ -27,6 +27,7 @@ The `idealize` command surface: one host route, `POST /idealize/comm`, plus the 
 | `handoff <taskId> --to <session> [reason]` / `accept <taskId>` / `reject <taskId>` | offer a task's ownership to a peer; only the named recipient can take or decline it |
 | `decide <text>` | record a project decision on the timeline (it wakes the coordinator and stales the synthesis) |
 | `synthesis <text>` | publish the project view; coordinator only, and `studio` prints it with its staleness |
+| `turn open\|start\|stop\|close` | not for agents, and left out of `idealize help`: the hooks `@idealize/ui-terminal` gives a Claude Code launch report its turns with it, and the command hands the report to `ctx.idealizeTerminals.turn` (a stop is the done chime). It answers an error when the sender is no chat or has no terminal open |
 
 A `<session>` is an id, an agent name, a task title, a project folder name, or the aliases `coordinator`/`project-agent` (your own project's) and `studio-agent` (the one Studio Coordinator). Several matches are an error listing the candidates.
 
@@ -39,6 +40,17 @@ Identity comes from `DSH_SESSION_ID` (stamped fresh on every tool shell), else V
 State lives in `<DSH_HOME>/idealize/comm.json`. The Studio commands write and read `@idealize/studio`'s per-project timeline through `ctx.idealizeStudio` (composed by the same bundle); a report records a structured event and invokes nobody. A note the person types in the Studio chat arrives through `send` as the sender `user`: its inbox line carries the label `Studio` plus a line saying to answer with `idealize post`, and the wake notice says the same, since the person reads the reply in the Studio. The finished-turn safety net closes the gap when an agent forgets the prompt's posting rule: on every session's `turn/end`, a turn that called `generate_image`, `generate_video` or `generate_audio` and stored artefacts (`artefact/created`), with no `message` authored by that session on its project's timeline since the turn started, earns one `idealize`-authored `message` ("Watto generated 2 images (id, id)") linked to the chat through `source.thread`; a turn with no generation, a generation that stored nothing, a chat outside a project, and the Studio chat record nothing, and the system author keeps the coordinator asleep. The same net covers a `run_in_background` generation, whose artefacts land after the turn has ended: an `artefact/created` event a generation tool stored, whose own turn (`sourceTask.turnSeq`) has already ended, joins that session's pending batch, every further artefact restarts the batching window (`backgroundPostDelayMs`, 2000 by default), and the closed batch earns one line ("Watto finished generating 2 videos (id, id) in the background"); disposing the session or the plugin drops a pending batch unposted. The defined wake triggers are the exception: an unowned blocker, a `done`, a `decision`, a `delivery`, or an accepted handoff puts one `[studio]` line in the project coordinator's mailbox, and — when that coordinator is live, idle, and had an empty mailbox — injects one wake notice so it reads the inbox and the board; everything during a busy spell piles up quietly. The event's own author is never woken. Shell-facing effects arrive as the Cordis events `idealize/comm-mail`, `idealize/comm-notify`, `idealize/comm-focus`, `idealize/comm-reveal` and as `mail`/`notify`/`focus`/`reveal` events on the host bridge feed.
 
 Decision record: [.agents/notes/implemented/architecture/2026-08-20-idealize-command-surface.md](../../../.agents/notes/implemented/architecture/2026-08-20-idealize-command-surface.md).
+
+## Pausing every agent
+
+Feedback 495cec0a (JJ, 30 Oct 2026): a Pause button for shutting the computer down, with every agent saving where it got to first. `ctx.idealizePause` (`src/pause-service.ts`) runs `PauseController` (`src/pause.ts`) over the live host, and `GET/POST /idealize/pause` serves it to the sidebar's control (`@idealize/ui-bar`) and the desktop's quit dialog. A POST takes `{ action: 'pause' | 'stop' | 'resume' }` and needs the auth header.
+
+- **Pause** finds every working agent: a live chat whose agent is running (from the roster), and a Terminal chat whose CLI is working (`ctx.idealizeTerminals.working()`). Each is told to save its notes and stop. A chat agent is steered (`agent.steer`) and counts as stopped when `whenIdle()` settles. A Terminal chat's CLI gets the line typed by `ctx.idealizeTerminals.deliver`, which settles once the run it sets off has finished. A CLI in the middle of a run is interrupted first (Escape) and, once its prompt is back, gets the wrap-up notice instead (JJ, 30 Oct 2026: "if a terminal agent is in the middle of a run, the pause button needs to interrupt and get the agent to wrap up safely ready to restart when prompted"). The phase is `saving` until every one has stopped, then `paused`; with nobody working it is `paused` at once.
+- **Notes**: each agent writes its own file, `<notes folder>/<date>-paused-<name>.md`, where the notes folder is the project's folder in the documentation folder (`docPolicy.projectFolder`), else `<project>/.idealize/paused`. A chat in no project writes its notes in its reply.
+- **Stop now** cancels each chat agent still saving and interrupts each CLI with Escape; those chats are stopped unsaved.
+- **While paused** (any phase but `running`) the schedule holds agent runs (`@idealize/cron`'s `releaseHeld`) and notes between chats land in their inboxes without waking anyone (`send`, the Studio wake and a revived role chat all check the pause).
+- **Resume** tells each paused chat to carry on from its note: a live chat by follow-up, a stored chat (the app restarted) through the gateway's `sessions.prompt`, a Terminal chat by typing into its CLI. A Terminal chat with no shell open is owed its line, which is typed when its shell next opens (`onOpened`); the response names those chats so the window opens their shells. Resume then runs the held schedule tasks and wakes every other chat whose inbox filled (`releaseHeldMail`).
+- **Persistence**: `<DSH_HOME>/idealize/pause.json`, read synchronously at start so the hold applies from the first moment. A document stored mid-save reads as `paused` with every chat stopped unsaved, because quitting ended every run.
 
 ## Model Experience
 
@@ -168,8 +180,53 @@ Fixed and small, on every request of a chat composed on a role preset; ordinary 
 
 Prefix-stable: the persona is part of the system prompt and unchanged across a chat's turns. Editing the preset's persona row changes the prefix of every later request on chats composed on it.
 
+### Pause and resume notices
+
+#### What the model sees
+
+Pause sends every working agent one plugin-sourced user message (`source.kind: 'plugin'`, `plugin: 'idealize-comm'`, form `notice`, summary `Pause`) by steering, so a running turn reads it at its next step; a Terminal chat's CLI at its prompt receives the same text typed there, and one the pause interrupted mid-run receives the wrap-up notice. `<note>` is the agent's note file; a chat in no project is asked for its notes `in your reply` instead. Resume sends each paused agent one more (summary `Resume`): a follow-up to a live chat, a queued prompt to a stored chat, or a line typed into a Terminal chat's CLI. The note leads, because a Codex or Kimi chat reopens with no conversation after a restart. A chat that Stop now interrupted gets the second resume text; without a note both resume texts point at the agent's last reply instead; when notes reached its inbox meanwhile, the inbox ending follows.
+
+##### The pause notice
+
+```markdown
+IDEalize is pausing every agent so the person can shut the computer down. Stop the current task at the next safe point, write where you got to and the exact next step into <note>, then end your turn and start nothing new.
+```
+
+##### The wrap-up notice
+
+```markdown
+IDEalize interrupted you because the person is pausing every agent to shut the computer down. Check whether your last step finished, such as a file write or a command, and note anything left half done. Then write where you got to and the exact next step into <note>, end your turn and start nothing new.
+```
+
+##### The resume notice
+
+```markdown
+IDEalize has resumed after a pause. Read <note> and carry on from the next step it names.
+```
+
+##### The resume notice after Stop now
+
+```markdown
+IDEalize has resumed after a pause that stopped you before your notes were finished. Read <note> if it exists, then carry on with the task you were doing.
+```
+
+##### The inbox ending
+
+```markdown
+Notes reached your inbox while you were paused: run `idealize inbox` (or call `idealize_inbox`) first.
+```
+
+#### Token effect
+
+Conditional: one short paragraph per paused agent at Pause and one at Resume; nothing while no pause is pressed.
+
+#### KV Cache effect
+
+Append-only: each notice enters the conversation as a new user message; nothing earlier is rewritten.
+
 ## Known Limitations and Deferred Work
 
+- **A Terminal agent's interrupt can land mid-step.** Escape stops a CLI wherever it stands, including inside a file write or a command, which is why the wrap-up notice asks it to check its last step first. A CLI that ignores Escape keeps the line waiting; Stop now cuts that wait.
 - **The role guide is injected whole, clipped at 24,000 characters.** A guide longer than the clip loses its tail silently; the guides are maintained to fit rather than paged.
 - **Mail interrupts no running turn.** An idle live recipient is woken once per quiet period; a running recipient reads its mail only when it runs `idealize inbox` (or `--wait`), and a cold chat only when the person next opens it.
 - **`idealize/agent-name` is logged with the `ignorable` marker and the name also lives in `comm.json`.** A log read by a build without this vocabulary keeps working, but the projection and the store can disagree if the store file is edited by hand; the store is authoritative for the roster.

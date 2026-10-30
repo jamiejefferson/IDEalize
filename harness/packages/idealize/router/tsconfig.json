@@ -19,6 +19,9 @@
     { "path": "../../host/webserver" },
     { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../util/home-paths" },
+    { "path": "../artefacts/tsconfig.host.json" },
+    { "path": "../gen-tools" },
+    { "path": "../generate" },
     { "path": "../models" },
     { "path": "../services" },
     { "path": "../spaces" }
