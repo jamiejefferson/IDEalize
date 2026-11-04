@@ -31,7 +31,9 @@ export type UpdateDownloadErrorCode =
   | 'invalid-artifact'
   | 'invalid-options'
   | 'network'
+  | 'not-newer'
   | 'response-too-large'
+  | 'untrusted-artifact'
 
 /** Fetch-compatible request boundary supplied by the Electron adapter or a test. */
 export type UpdateArtifactRequest = (url: string, init: RequestInit) => Promise<Response>
@@ -48,6 +50,12 @@ export interface DownloadDesktopUpdateOptions {
   readonly request: UpdateArtifactRequest
   /** Optional cancellation signal owned by the update coordinator. */
   readonly signal?: AbortSignal
+  /**
+   * Refuse the finished download before it reaches the chosen location: a
+   * rejection leaves nothing at the destination. macOS passes the certificate
+   * check; Windows passes nothing and keeps its header check alone.
+   */
+  readonly verifyArtifact?: (temporaryPath: string) => Promise<void>
 }
 
 /** Typed failure from installer request, validation, or cancellation. */
@@ -143,6 +151,8 @@ export async function downloadDesktopUpdate(options: DownloadDesktopUpdateOption
     await writeResponseBody(paths.temporary, response.body, options.signal)
     throwIfAborted(options.signal)
     await validateArtifact(paths.temporary, platform)
+    throwIfAborted(options.signal)
+    await options.verifyArtifact?.(paths.temporary)
     throwIfAborted(options.signal)
     await unlinkIfPresent(paths.completed)
     await rename(paths.temporary, paths.completed)

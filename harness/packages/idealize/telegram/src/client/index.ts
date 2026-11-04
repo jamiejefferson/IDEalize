@@ -3,9 +3,9 @@
  * settings. The row reads the host status route, stores a token through the
  * token route (the token never enters the settings document), issues and
  * withdraws pairing codes, and flips the forward toggles in the
- * `idealize-telegram` settings section. While a pairing code is live it
- * re-reads the status so the row turns to "paired" once the phone sends the
- * code.
+ * `idealize-telegram` settings section. A new bot or a claimed pairing waits
+ * here for the person to press Allow. While a pairing code is live it
+ * re-reads the status so the row shows who sent the code.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -32,6 +32,7 @@ const NS = 'idealize-telegram'
 const STATUS_PATH = '/idealize/telegram/status'
 const TOKEN_PATH = '/idealize/telegram/token'
 const PAIR_PATH = '/idealize/telegram/pair'
+const CONFIRM_PATH = '/idealize/telegram/confirm'
 
 /** How often the row re-reads the status while a pairing code waits to be sent. */
 const PAIRING_REFRESH_MS = 2_000
@@ -67,7 +68,8 @@ export function apply(ctx: ClientContext): void {
 
   ctx.effect(() => {
     const timer = setInterval(() => {
-      if (store.getSnapshot().status?.pairing !== undefined) refresh()
+      const status = store.getSnapshot().status
+      if (status?.pairing !== undefined || status?.confirmPairing !== undefined) refresh()
     }, PAIRING_REFRESH_MS)
     return () => { clearInterval(timer) }
   }, 'idealize-telegram: pairing refresh')
@@ -83,6 +85,7 @@ export function apply(ctx: ClientContext): void {
       saveToken: (token) => { void run(() => telegramCall('POST', TOKEN_PATH, { token })) },
       pair: () => { void run(() => telegramCall('POST', PAIR_PATH)) },
       unpair: () => { void run(() => telegramCall('DELETE', PAIR_PATH)) },
+      confirm: (what, allow) => { void run(() => telegramCall('POST', CONFIRM_PATH, { what, allow })) },
       setForward: (key, value) => {
         store.set({ ...store.getSnapshot(), forward: { ...store.getSnapshot().forward, [key]: value } })
         void scope.set(key, value)

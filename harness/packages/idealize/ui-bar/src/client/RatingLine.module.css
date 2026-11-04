@@ -29,6 +29,19 @@
   color: var(--dsw-alias-label-primary, #151a24);
 }
 
+.offer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.sends {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
 .text {
   min-width: 0;
   overflow: hidden;

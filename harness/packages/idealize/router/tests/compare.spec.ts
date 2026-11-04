@@ -1,7 +1,7 @@
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { GenCatalogEntry } from '@idealize/generate'
 import { describe, expect, it } from 'vitest'
-import { askBefore, compareCost, foldCompare, foldMediaKept, keptNote, lastReply } from '../src/compare.ts'
+import { askBefore, askOf, compareCost, foldCompare, foldMediaKept, keptNote, lastReply } from '../src/compare.ts'
 import { decideMedia, hasStarsFor, mediaAlternativesFor, mediaCost, mediaTagFor, readableTags } from '../src/media.ts'
 import { setStars } from '../src/ratings.ts'
 import type { RatingsFile } from '../src/ratings.ts'
@@ -47,6 +47,28 @@ describe('the reply a dislike is about', () => {
     const asked = askBefore(session, 2)
     expect(asked?.ask).toBe('Write a haiku about rain')
     expect(asked?.messages).toHaveLength(1)
+  })
+})
+
+describe('what a step asks', () => {
+  const text = (words: string) => [{ type: 'text' as const, text: words }]
+
+  it('routes a chat\'s opening brief on the brief alone', () => {
+    const asked = askOf([{
+      content: text('Another chat (Kit) started this chat. The person did not write it.\n\nBuild the footer'),
+      source: { kind: 'chat-brief', brief: 'Build the footer' } as never,
+    }])
+    expect(asked.message).toBe('Build the footer')
+    expect(asked.mine).toHaveLength(1)
+  })
+
+  it('reads the person\'s words and skips injected context', () => {
+    const asked = askOf([
+      { content: text('Build the footer'), source: { kind: 'user' } as never },
+      { content: text('injected'), source: { kind: 'plugin', plugin: 'x' } as never },
+    ])
+    expect(asked.message).toBe('Build the footer')
+    expect(asked.mine).toHaveLength(1)
   })
 })
 

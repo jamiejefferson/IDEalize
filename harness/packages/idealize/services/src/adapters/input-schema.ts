@@ -200,6 +200,19 @@ export function inputFieldsFrom(schema: InputSchema): GenInputField[] {
 }
 
 /**
+ * The number a value stands for, unit aside: `1080p` and `1080P` are 1080, `5s` is 5, `4k` is 2160.
+ * @param text - the value.
+ * @returns the number; undefined when the value is not a size.
+ */
+function sizeOf(text: string): number | undefined {
+  const match = /^(-?\d+(?:\.\d+)?)\s*(k|p|s)?$/i.exec(text.trim())
+  if (match === null) return undefined
+  const size = Number(match[1])
+  // 4K and 2K name a picture's height by its width.
+  return match[2]?.toLowerCase() === 'k' ? size * 540 + (size === 2 ? 360 : 0) : size
+}
+
+/**
  * The literal an enum accepts for a value: the value itself when it is among
  * the literals, its string form when that is (`5` for `"5"`), otherwise the
  * numeric literal nearest to a numeric value (`7.5` reads as `"8"`; a tie
@@ -213,12 +226,14 @@ export function coerceLiteral(value: unknown, literals: readonly string[]): stri
   if (typeof value !== 'string' && typeof value !== 'number') return undefined
   const text = String(value).trim()
   if (literals.includes(text)) return text
-  const numeric = Number(text)
-  if (text === '' || !Number.isFinite(numeric)) return undefined
+  const sameWord = literals.find(literal => literal.toLowerCase() === text.toLowerCase())
+  if (sameWord !== undefined) return sameWord
+  const numeric = sizeOf(text)
+  if (numeric === undefined) return undefined
   let nearest: { literal: string; distance: number; value: number } | undefined
   for (const literal of literals) {
-    const candidate = Number(literal)
-    if (literal.trim() === '' || !Number.isFinite(candidate)) continue
+    const candidate = sizeOf(literal)
+    if (candidate === undefined) continue
     const distance = Math.abs(candidate - numeric)
     if (nearest === undefined || distance < nearest.distance || (distance === nearest.distance && candidate > nearest.value)) {
       nearest = { literal, distance, value: candidate }

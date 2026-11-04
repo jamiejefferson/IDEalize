@@ -4,10 +4,12 @@ import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import PermissionPresetService, {
-  CUSTOM_PRESET, effectivePermissionPreset, PERMISSION_SETTINGS_NAMESPACE,
+  CONFINE_STARTED_CHATS, CUSTOM_PRESET, effectivePermissionPreset, PERMISSION_SETTINGS_NAMESPACE,
 } from '@deepseek-ai/dsh-permission-presets'
 import type { Config } from '@deepseek-ai/dsh-permission-presets'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
+import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import { effectiveApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 
 /** Writable memory provider for the permission/settings lifecycle specs. */
@@ -63,6 +65,65 @@ async function mountedStore(options: { approvalDefault?: ApprovalPolicy | undefi
   await ctx.plugin(PermissionPresetService, {})
   return ctx
 }
+
+describe('a chat no person started', () => {
+  /** A Mac with Full access ticked: every new chat is pinned to it. */
+  const onFullAccess = async () => {
+    const ctx = await mounted()
+    const session = freshSession('sess-started')
+    ctx.permissionPresets.set(session, 'danger-full-access')
+    return { ctx, session }
+  }
+
+  it('is confined by default', () => {
+    expect(CONFINE_STARTED_CHATS).toBe(true)
+  })
+
+  it('drops to workspace-write when the chat that started it holds no Full access', async () => {
+    const { ctx, session } = await onFullAccess()
+    const starter = freshSession('sess-starter')
+    ctx.permissionPresets.set(starter, 'workspace-write')
+    expect(ctx.permissionPresets.confineStartedChat(session, { starterEvents: starter.events })).toBe(true)
+    expect(effectiveSandboxMode(session.events)).toBe('workspace-write')
+    expect(effectiveApprovalPolicy(session.events)).toBe('ask')
+    expect(effectivePermissionPreset(session.events)).toBe('workspace-write')
+  })
+
+  it('keeps Full access when the chat that started it holds Full access', async () => {
+    const { ctx, session } = await onFullAccess()
+    const starter = freshSession('sess-starter')
+    ctx.permissionPresets.set(starter, 'danger-full-access')
+    expect(ctx.permissionPresets.confineStartedChat(session, { starterEvents: starter.events })).toBe(false)
+    expect(effectiveSandboxMode(session.events)).toBe('danger-full-access')
+  })
+
+  it('drops to workspace-write with no starter, and never widens a chat already inside', async () => {
+    const { ctx, session } = await onFullAccess()
+    ctx.permissionPresets.confineStartedChat(session)
+    expect(effectiveSandboxMode(session.events)).toBe('workspace-write')
+    const narrow = freshSession('sess-narrow')
+    narrow.append('sandbox/mode', { mode: 'read-only' })
+    ctx.permissionPresets.confineStartedChat(narrow)
+    expect(effectiveSandboxMode(narrow.events)).toBe('read-only')
+  })
+
+  it('refuses at once when nobody is watching, so a scheduled run cannot hang on an approval', async () => {
+    const { ctx, session } = await onFullAccess()
+    expect(ctx.permissionPresets.confineStartedChat(session, { unattended: true })).toBe(true)
+    expect(effectiveSandboxMode(session.events)).toBe('workspace-write')
+    expect(effectiveApprovalPolicy(session.events)).toBe('never')
+  })
+
+  it('stands down when the switch is off, and on Windows', async () => {
+    const off = await onFullAccess()
+    expect(off.ctx.permissionPresets.confineStartedChat(off.session, { confine: false })).toBe(false)
+    expect(effectiveSandboxMode(off.session.events)).toBe('danger-full-access')
+    const windows = await onFullAccess()
+    expect(windows.ctx.permissionPresets.confineStartedChat(windows.session, { platform: 'win32', unattended: true })).toBe(false)
+    expect(effectiveSandboxMode(windows.session.events)).toBe('danger-full-access')
+    expect(effectiveApprovalPolicy(windows.session.events)).toBe('never')
+  })
+})
 
 describe('effectivePermissionPreset', () => {
   it('folds to the last event, or undefined without one', () => {

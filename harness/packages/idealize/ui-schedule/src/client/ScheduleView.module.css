@@ -267,6 +267,75 @@
   flex-shrink: 0;
 }
 
+/* What a chat added and the person has not approved: read it, then decide. */
+.approvals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 24px 0;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(36, 41, 47, 0.13));
+  border-radius: 8px;
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
+}
+
+.approvalsTitle {
+  margin: 0;
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+}
+
+.approvalsNote {
+  margin: 0;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.approvalRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l2, rgba(36, 41, 47, 0.13));
+}
+
+.approvalName {
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+}
+
+.approvalRule {
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.approvalWhat {
+  margin: 0;
+  font-size: var(--idealize-type-small, 11.5px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approvalActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.approvalButton {
+  composes: button md outline from './controls.module.css';
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+}
+
+.approvalError {
+  margin: 0;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-state-danger-primary, #cf222e);
+}
+
 /* ── Day view: ALL DAY row + hour lane (the frame's default) ─────────── */
 
 .allDay {

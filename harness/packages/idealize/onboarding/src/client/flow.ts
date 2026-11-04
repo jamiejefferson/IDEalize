@@ -27,8 +27,6 @@ export interface OnboardingViewState {
   step: OnboardingStepId | null
   /** The live celebration; completions fire one, skips never do. */
   celebration: OnboardingCelebration | null
-  /** Unsaved Tools choices retained while a recovery visits the Agents step. */
-  toolDrafts: Record<string, string>
 }
 
 /**
@@ -66,11 +64,6 @@ export interface OnboardingFlow {
   quitAll: () => void
   /** Return to the previous step without touching recorded outcomes. */
   back: () => void
-  /**
-   * Retain the Tools choices across step-component lifetimes.
-   * @param drafts - packed choices keyed by the six row ids.
-   */
-  setToolDrafts: (drafts: Record<string, string>) => void
   /** The finish step's completion: persist `done` + `completedAt`, final burst. */
   finish: () => void
   /** The burst's lifetime ended; a final burst closes the flow. */
@@ -83,7 +76,7 @@ export interface OnboardingFlow {
  * @returns the flow the client plugin wires into the overlay's inject face.
  */
 export function createOnboardingFlow(deps: OnboardingFlowDeps): OnboardingFlow {
-  const view = createSnapshotStore<OnboardingViewState>({ step: null, celebration: null, toolDrafts: {} })
+  const view = createSnapshotStore<OnboardingViewState>({ step: null, celebration: null })
   // Resolved outcomes mirror the durable `steps` field so the session's writes
   // accumulate without re-reading the scope (its snapshot lags the wire).
   let resolved: Partial<Record<OnboardingStepId, OnboardingStepOutcome>> = {}
@@ -148,9 +141,6 @@ export function createOnboardingFlow(deps: OnboardingFlowDeps): OnboardingFlow {
       })
     },
 
-    setToolDrafts(drafts) {
-      view.update((state) => { state.toolDrafts = { ...drafts } })
-    },
 
     finish() {
       completeStep('finish')

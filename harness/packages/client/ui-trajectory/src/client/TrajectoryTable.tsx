@@ -10,6 +10,7 @@ import {
   IconUserOutline16,
   JsonTree,
   MarkdownText,
+  RemoteImage,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { structuredPatch } from 'diff'
@@ -1096,7 +1097,7 @@ function SourceBlocks({
   )
 }
 
-function PanelImage({
+export function PanelImage({
   block,
   preview = false,
 }: {
@@ -1104,6 +1105,7 @@ function PanelImage({
   preview?: boolean
 }) {
   if (block.imageSrc === undefined) return null
+  if (/^https?:/iu.test(block.imageSrc)) return <RemoteImage src={block.imageSrc} alt={block.imageAlt ?? ''} />
   return (
     <a
       className={preview ? `${css.panelImageLink} ${css.panelImageLinkPreview}` : css.panelImageLink}

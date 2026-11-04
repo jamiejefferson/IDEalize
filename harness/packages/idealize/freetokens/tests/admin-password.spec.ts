@@ -37,6 +37,14 @@ describe('the sidecar admin-password record', () => {
     expect(statSync(join(dataDir, 'host-admin.json')).mode & 0o077).toBe(0)
   })
 
+  it('narrows a record an older version left readable before writing to it', () => {
+    const dataDir = dir()
+    const path = join(dataDir, 'host-admin.json')
+    writeFileSync(path, '{}', { mode: 0o644 })
+    writeAdminPassword(dataDir, 'p')
+    expect(statSync(path).mode & 0o077).toBe(0)
+  })
+
   it('reports no record rather than throwing when the directory has none', () => {
     expect(readAdminPassword(dir())).toBeUndefined()
   })

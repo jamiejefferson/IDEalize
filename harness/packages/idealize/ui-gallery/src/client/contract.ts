@@ -63,6 +63,8 @@ export interface GalleryRow {
    * adapter reached the provider, and from the failing tool result otherwise.
    */
   readonly error?: string
+  /** Why the task ran on another model than the one chosen, as the router told it. */
+  readonly note?: string
 }
 
 /**

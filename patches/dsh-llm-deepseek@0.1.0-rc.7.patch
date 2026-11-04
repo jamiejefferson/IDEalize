@@ -1,9 +1,28 @@
 diff --git a/lib/index.js b/lib/index.js
-index 85201f297e55b3fcbd81b9258eca232f00eaa522..ee79a72a0d23121ec373aa510651f067e45aa735 100644
+index 6e62a9c..d2ee53f 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -321,2 +321,2 @@ async function* translate(response, request) {
+@@ -55,8 +55,10 @@ function serializeAssistant(message) {
+ 	return {
+ 		role: "assistant",
+ 		content: text,
+-		...toolCalls.length > 0 && reasoning.length > 0 ? { reasoning_content: reasoning } : {},
+-		...toolCalls.length > 0 ? { tool_calls: toolCalls } : {}
++		...toolCalls.length > 0 ? {
++			reasoning_content: reasoning,
++			tool_calls: toolCalls
++		} : {}
+ 	};
+ }
+ /**
+@@ -318,8 +320,8 @@ async function* translate(payloads) {
+ 						blockType: "tool-call"
+ 					};
+ 				}
 -				if (call.id !== void 0) block.callId = call.id;
 -				if (call.function?.name !== void 0) block.name = call.function.name;
 +				if (call.id) block.callId = call.id;
 +				if (call.function?.name) block.name = call.function.name;
+ 				const fragment = call.function?.arguments ?? "";
+ 				block.text += fragment;
+ 				yield {

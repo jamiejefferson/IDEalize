@@ -38,6 +38,8 @@ import {
   ElectronStderrLogger,
   installDesktopChildProcessLogging,
   installDesktopUncaughtExceptionLogging,
+  installDesktopUncaughtExceptionSurvival,
+  survivedFailureLine,
   type DesktopLogger,
 } from './desktop-logger.ts'
 import {
@@ -72,8 +74,13 @@ import {
 } from './profile-manager.ts'
 import { DesktopProfileService } from './profile-service.ts'
 import { DesktopActionsService } from './desktop-actions.ts'
+import { PROOF_BUILD_MARKER, refusedDebugSwitch } from './debug-switches.ts'
+import { hardeningApplies } from './platform-hardening.ts'
+import { installPermissionPolicy } from './permission-policy.ts'
 import { IDEALIZE_SCHEME, parseIdealizeUrl, requestFromArgv, type OpenProjectRequest } from './idealize-url.ts'
-import { importKeysFile, isKeysFilePath, keysFileFromArgv, keysFileNotification } from './keys-file.ts'
+import { confirmAndImportKeysFile, importKeysFile, isKeysFilePath, keysFileFromArgv, keysFileNotification } from './keys-file.ts'
+import { openGuarded } from './open-guard.ts'
+import { oneQuestionAtATime, projectLinkQuestion, type AskConfirmation } from './open-confirmation.ts'
 import { isMarkdownFilePath, markdownFileFromArgv, openFileEvent, projectFolderFor } from './opened-file.ts'
 import { installFinderQuickAction, QUICK_ACTION_NAME } from './finder-quick-action.ts'
 import { DesktopTerminalsService } from './embedded-terminal.ts'
@@ -476,6 +483,12 @@ async function start(): Promise<void> {
     // Before the Host boots or any window loads: the token the Host's launch
     // gate demands, held only by this process and its windows.
     launchKey = await installLaunchGate(session.defaultSession)
+    if (hardeningApplies(process.platform)) {
+      installPermissionPolicy(session.defaultSession as never, () => {
+        const webServer = current?.get('webServer') as { port: number } | undefined
+        return webServer === undefined ? undefined : `http://127.0.0.1:${String(webServer.port)}`
+      })
+    }
     // The ident plays until the first real window shows, which it notices
     // itself; a failure below closes it explicitly.
     startupIdent = openStartupIdent(desktopProductVersion())
@@ -699,7 +712,9 @@ async function start(): Promise<void> {
           requestRestart: () => runtime.requestRestart(),
           trashItem: path => shell.trashItem(path),
           showItemInFolder: (path) => { shell.showItemInFolder(path) },
-          openPath: path => shell.openPath(path),
+          openPath: path => hardeningApplies(process.platform)
+            ? openGuarded(path, { openPath: target => shell.openPath(target), openExternal: url => shell.openExternal(url) })
+            : shell.openPath(path),
           collapseToBar: () => { runtime.collapseToBar() },
           expandFromBar: () => { runtime.expandFromBar() },
           setBarWidth: (width) => { runtime.setBarWidth(width) },
@@ -801,14 +816,38 @@ async function start(): Promise<void> {
     // one that arrived before this point goes now: the window scans the feed's
     // retained tail on attach, so a cold start started by the Quick Action
     // still lands.
-    deliverProject = (request) => {
-      const bridge = current?.get('idealizeBridge') as { buffer: { push(event: Record<string, unknown>): void } } | undefined
-      if (bridge === undefined) {
-        electronLogger.error(`${BIN_NAME}: no bridge to open ${request.path} on`)
-        return
+    // A proof build answers yes and says so, because a native dialog on a
+    // hidden test instance would either wait for ever or take JJ's screen.
+    const askPerson: AskConfirmation = oneQuestionAtATime(async (question) => {
+      if (proofBuild) {
+        process.stderr.write(`${BIN_NAME}: proof build, answering yes to: ${question.message}\n`)
+        return true
       }
-      bridge.buffer.push({ kind: 'open-folder', title: 'Idealize this', body: request.path, folder: request.path })
-      runtime.show()
+      const answer = await dialog.showMessageBox({
+        type: 'warning',
+        title: question.title,
+        message: question.message,
+        detail: question.detail,
+        buttons: [question.confirm, 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      })
+      return answer.response === 0
+    })
+    deliverProject = (request) => {
+      void (async () => {
+        if (hardeningApplies(process.platform) && !await askPerson(projectLinkQuestion(request.path))) return
+        const bridge = current?.get('idealizeBridge') as { buffer: { push(event: Record<string, unknown>): void } } | undefined
+        if (bridge === undefined) {
+          electronLogger.error(`${BIN_NAME}: no bridge to open ${request.path} on`)
+          return
+        }
+        bridge.buffer.push({ kind: 'open-folder', title: 'Idealize this', body: request.path, folder: request.path })
+        runtime.show()
+      })().catch((cause: unknown) => {
+        electronLogger.error(`${BIN_NAME}: could not open ${request.path}: ${cause instanceof Error ? cause.message : String(cause)}`)
+      })
     }
     if (pendingProject !== undefined) {
       deliverProject(pendingProject)
@@ -841,13 +880,18 @@ async function start(): Promise<void> {
         runtime.updates.notify(keysFileNotification({ ok: false, reason: 'the app is still starting; open the file again in a moment' }))
         return
       }
-      void importKeysFile({
+      const keysImport = {
         path,
         port: webServer.port,
-        readFile: target => readFile(target, 'utf8'),
+        readFile: (target: string) => readFile(target, 'utf8'),
         ...launchKey === undefined ? {} : { launchKey },
-        request: (url, init) => net.fetch(url, init),
-      }).then((outcome) => {
+        request: (url: string, init: RequestInit) => net.fetch(url, init),
+      }
+      void (hardeningApplies(process.platform)
+        ? confirmAndImportKeysFile({ ...keysImport, ask: askPerson })
+        : importKeysFile(keysImport)
+      ).then((outcome) => {
+        if (outcome === undefined) return
         if (!outcome.ok) electronLogger.error(`${BIN_NAME}: keys file ${path} not applied: ${outcome.reason}`)
         runtime.updates.notify(keysFileNotification(outcome))
       })
@@ -873,8 +917,14 @@ async function start(): Promise<void> {
       // terminal mid-reply (robustness audit, 9 Oct 2026). Logged instead.
       uninstallFailLoud()
       process.on('unhandledRejection', (reason: unknown) => {
-        electronLogger.error(`${BIN_NAME}: unhandled rejection after start-up, kept running: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`)
+        electronLogger.error(survivedFailureLine('unhandled rejection', reason))
       })
+      if (hardeningApplies(process.platform)) {
+        // The same for a thrown exception. The start-up handler's quit goes
+        // with start-up; a quit the person asks for still runs its own path.
+        removeUncaughtExceptionLogging?.()
+        removeUncaughtExceptionLogging = installDesktopUncaughtExceptionSurvival(process, electronLogger)
+      }
       if (verifiedInstallToClear !== undefined && installRecovery !== undefined) {
         try {
           await installRecovery.clear(verifiedInstallToClear.transactionId)
@@ -1067,4 +1117,21 @@ async function handleFatalLauncherFailure(cause: unknown): Promise<void> {
   }
 }
 
-void run().catch(async (cause: unknown) => { await handleFatalLauncherFailure(cause) })
+// A proof build is the only packaged build allowed these switches. Node's own
+// handling of `--inspect` is already off through its fuse; this also stops
+// Chromium's remote debugging, which has no fuse.
+const proofBuild = app.isPackaged && existsSync(join(process.resourcesPath, PROOF_BUILD_MARKER))
+const refusedSwitch = hardeningApplies(process.platform)
+  ? refusedDebugSwitch({
+      isPackaged: app.isPackaged,
+      proofBuild,
+      argv: process.argv,
+      hasSwitch: name => app.commandLine.hasSwitch(name),
+    })
+  : undefined
+if (refusedSwitch !== undefined) {
+  process.stderr.write(`${BIN_NAME}: refusing to start with --${refusedSwitch}, which this build does not allow\n`)
+  app.exit(1)
+} else {
+  void run().catch(async (cause: unknown) => { await handleFatalLauncherFailure(cause) })
+}

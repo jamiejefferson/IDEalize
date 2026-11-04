@@ -54,6 +54,7 @@ import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-d
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MEDIA_PRESETS, type GenerationAvailability } from '@idealize/generate'
 import { installBrainPrompt } from './brain-prompt.ts'
+import { installHousekeeping } from './housekeeping.ts'
 import { brainProjectionDefinition, foldBrain, foldSpace, spaceProjectionDefinition } from './projection.ts'
 import { RETIRED_ROLE_PRESETS, isSpaceId, SPACE_IDS, type SpaceId } from './space-table.ts'
 import { SPACE_ICON_PATH } from './space-icons.ts'
@@ -252,6 +253,9 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
  * @param ctx - the host plugin context.
  */
 export function apply(ctx: Context): void {
+  // Both move or remove files, so both are Mac only until JJ decides for Windows.
+  if (process.platform === 'darwin') ctx.inject(['sessionPersistence', 'sessions'], housekeepingCtx => installHousekeeping(housekeepingCtx))
+
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(spaceProjectionDefinition)
     projectionCtx.sessionProjections.register(brainProjectionDefinition)

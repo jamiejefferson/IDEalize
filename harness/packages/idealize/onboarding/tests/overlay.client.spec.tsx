@@ -33,10 +33,6 @@ function stubApi(): OnboardingApi {
   return {
     loadAgents: vi.fn(async () => ({ claudeCode: { installed: true, path: '/usr/local/bin/claude' }, openrouter: { connected: false } })),
     connectOpenRouter: vi.fn(async () => ({ ok: true }) as const),
-    loadTools: vi.fn(async () => ({ providers: [], activities: [], media: [], freeRoute: false, terminal: null })),
-    saveActivityModel: vi.fn(async () => ({ ok: true }) as const),
-    saveMediaModel: vi.fn(async () => ({ ok: true }) as const),
-    saveTerminalDefault: vi.fn(async () => ({ ok: true }) as const),
     probeFolder: vi.fn(async () => ({ ok: true }) as const),
     orient: vi.fn(async () => ({ ok: true }) as const),
   }
@@ -61,7 +57,6 @@ function mount(seed: OnboardingSeedLike | undefined, reduced = false) {
     skipStep: flow.skipStep,
     quitAll: flow.quitAll,
     back: flow.back,
-    setToolDrafts: flow.setToolDrafts,
     finish: flow.finish,
     celebrationDone: flow.celebrationDone,
     prefersReducedMotion: () => reduced,
@@ -82,7 +77,7 @@ describe('OnboardingOverlay', () => {
     expect(releaseHold).not.toHaveBeenCalled()
   })
 
-  it('opens on the agents step for a fresh seed, with owl, sub and six dots', async () => {
+  it('opens on the agents step for a fresh seed, with owl, sub and five dots', async () => {
     mount(undefined)
     await flush()
     const dialog = screen.getByRole('dialog')
@@ -98,14 +93,14 @@ describe('OnboardingOverlay', () => {
     expect(owl?.hasAttribute('playsinline')).toBe(true)
     expect((owl as HTMLVideoElement).muted).toBe(true)
     expect(screen.getByText(en['step.agents.sub'])).toBeDefined()
-    expect(document.querySelector('[data-onboarding-dots]')?.childElementCount).toBe(6)
+    expect(document.querySelector('[data-onboarding-dots]')?.childElementCount).toBe(5)
   })
 
   it('Continue marks the step done, fires the burst with its toast, and advances', async () => {
     const { writes } = mount(undefined)
     await flush()
     // The welcome card under the overlay reloads its brains on this event;
-    // the agents and tools steps raise it, the folder steps do not.
+    // the agents step raises it, the folder steps do not.
     const changes: string[] = []
     const onChange = (): void => { changes.push(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step') ?? '') }
     document.addEventListener('idealize:brains-changed', onChange)
@@ -114,7 +109,7 @@ describe('OnboardingOverlay', () => {
     expect(changes).toEqual(['agents'])
     document.removeEventListener('idealize:brains-changed', onChange)
     expect(writes.steps).toEqual({ agents: 'done' })
-    expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('tools')
+    expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('projects-folder')
     const burst = document.querySelector('[data-rainbow-burst]')
     expect(burst?.getAttribute('data-burst-step')).toBe('agents')
     expect(burst?.getAttribute('data-motion')).toBe('full')
@@ -131,7 +126,7 @@ describe('OnboardingOverlay', () => {
     expect(document.querySelector('[data-rainbow-burst]')).not.toBeNull()
     act(() => { vi.advanceTimersByTime(900) })
     expect(document.querySelector('[data-rainbow-burst]')).toBeNull()
-    expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('tools')
+    expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('projects-folder')
   })
 
   it('Skip this step records the skip without a burst', () => {
@@ -139,7 +134,7 @@ describe('OnboardingOverlay', () => {
     fireEvent.click(screen.getByText(en['skip.step']))
     expect(writes.steps).toEqual({ agents: 'skipped' })
     expect(document.querySelector('[data-rainbow-burst]')).toBeNull()
-    expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('tools')
+    expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('projects-folder')
   })
 
   it('Back retraces to the previous step without writing anything', async () => {
@@ -163,7 +158,7 @@ describe('OnboardingOverlay', () => {
   it('finish persists steps + done + completedAt and closes after the final burst', async () => {
     vi.useFakeTimers()
     // Walk the two folder steps (the finish commit needs the captured folders).
-    const seed: OnboardingSeedLike = { steps: { agents: 'done', tools: 'done' } }
+    const seed: OnboardingSeedLike = { steps: { agents: 'done' } }
     const { writes, releaseHold } = mount(seed)
     await flush()
     for (const path of ['/Users/jj/Projects', '/Users/jj/Notes', '/Users/jj/Skills']) {
@@ -184,7 +179,7 @@ describe('OnboardingOverlay', () => {
     expect(writes.done).toBe(true)
     expect(typeof writes.completedAt).toBe('string')
     expect(writes.steps).toEqual({
-      agents: 'done', tools: 'done', 'projects-folder': 'done', 'documentation-folder': 'done', 'skills-folder': 'done', finish: 'done',
+      agents: 'done', 'projects-folder': 'done', 'documentation-folder': 'done', 'skills-folder': 'done', finish: 'done',
     })
     // The final burst celebrates over the finish step, which stays on stage.
     expect(screen.getByRole('status').textContent).toBe(en['celebrate.finish'])

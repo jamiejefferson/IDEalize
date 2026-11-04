@@ -47,8 +47,8 @@ import { COMM_COMMANDS, COMM_TURNS, COMMANDS_SECTION } from './wire.ts'
 import type { CommCommand, CommRequest, CommTurn } from './wire.ts'
 import { foldSpace } from '@idealize/spaces'
 
-export { IdealizeComm, foldExchanges, MAIL_NOTICE, STUDIO_MAIL_NOTICE, WAKE_NOTICE } from './service.ts'
-export type { RosterEntry } from './service.ts'
+export { chatBriefMessage, IdealizeComm, foldExchanges, MAIL_NOTICE, STUDIO_MAIL_NOTICE, WAKE_NOTICE } from './service.ts'
+export type { ChatBriefSource, RosterEntry } from './service.ts'
 export { carryOnLine, fallbackNotesFolder, parsePauseDocument, PauseController, PauseFile, pauseDocumentPath, pauseNotePath, saveNotesLine, wrapUpLine } from './pause.ts'
 export type {
   OwedLine, PausedChat, PausedChatKind, PausedChatState, PauseDocument, PausePhase, PauseSnapshot, PauseStore, PauseWorld,
@@ -56,6 +56,10 @@ export type {
 } from './pause.ts'
 export { HostPauseWorld, IdealizePause } from './pause-service.ts'
 export type { IdealizePauseOptions } from './pause-service.ts'
+export { NoteLog, noteLogPath } from './note-log.ts'
+export type { NoteLogEntry } from './note-log.ts'
+export { ATTENTION_RATE, MEDIA_SPAWNS_PER_LAUNCH, NOTE_RATE, SenderLimiter } from './rate-limit.ts'
+export type { RateVerdict, RateWindow } from './rate-limit.ts'
 export { CommStore, commStorePath, parseCommState } from './store.ts'
 export type { CommRole, CommState } from './store.ts'
 export { resolveTarget } from './resolve.ts'
@@ -68,7 +72,7 @@ export type { RoleConfig } from './roles.ts'
 export { DEFAULT_COMM_CONFIG } from './config.ts'
 export type { CommConfig } from './config.ts'
 export type { Resolution, SessionRecord } from './resolve.ts'
-export { chatNameFromTask, clockTime, COMM_COMMANDS, COMM_TURNS, COMMANDS_SECTION, TRUNCATION_WARNING, Wire } from './wire.ts'
+export { chatNameFromTask, clockTime, COMM_COMMANDS, COMM_TURNS, COMMANDS_SECTION, NOTE_AUTHORITY_RULE, TRUNCATION_WARNING, Wire } from './wire.ts'
 export type { CommCommand, CommExchange, CommMessage, CommRequest, CommResponse, CommRung, CommSessionInfo, CommTurn, StudioTaskRow } from './wire.ts'
 
 export const name = 'idealize-comm'
@@ -85,6 +89,9 @@ export const Config: z<CommConfig> = z.object({
   backgroundPostDelayMs: z.number().min(0).default(DEFAULT_COMM_CONFIG.backgroundPostDelayMs),
 })
 
+
+/** The route the app reads the note log through. */
+export const NOTES_PATH = '/idealize/comm/notes'
 
 /** The route the sidebar's Pause control reads and presses. */
 export const PAUSE_PATH = '/idealize/pause'
@@ -330,14 +337,37 @@ export function apply(ctx: Context, config: CommConfig = DEFAULT_COMM_CONFIG): v
           // post as another chat or as the person.
           const caller = requestCaller(req)
           const request = caller.kind === 'session' ? { ...parsed, from: caller.sessionId } : parsed
+          const proven = caller.kind === 'session'
           try {
-            sendJson(res, 200, await comm.handle(request, { shell: caller.kind === 'session' }))
+            sendJson(res, 200, await comm.handle(request, {
+              shell: proven,
+              ...proven && parsed.from !== undefined ? { claimedFrom: parsed.from } : {},
+            }))
           } catch (error) {
             sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
           }
         },
       }),
       'idealize-comm: POST /idealize/comm',
+    )
+
+    // The whole note log, for the app alone: the launch gate keeps a chat's key
+    // on the route above, where `idealize notes` answers its own lines only.
+    webCtx.effect(
+      () => webCtx.webServer.register({
+        kind: 'exact',
+        path: NOTES_PATH,
+        handler: async (req, res) => {
+          if (req.method !== 'GET') {
+            res.writeHead(405, { 'content-type': 'text/plain', allow: 'GET' }).end('GET only')
+            return
+          }
+          if (refuse(req, res, 'list')) return
+          const limit = Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('limit') ?? 200)
+          sendJson(res, 200, { notes: await comm.noteHistory(Number.isSafeInteger(limit) ? limit : 200) })
+        },
+      }),
+      'idealize-comm: GET /idealize/comm/notes',
     )
 
     webCtx.inject(['settings', 'agentPresets'], (rolesCtx) => {

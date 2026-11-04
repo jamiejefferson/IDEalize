@@ -19,11 +19,12 @@ type Translate = (key: ActivityKey, params?: Record<string, string | number>) =>
  */
 export function routerNoteText(data: RouterEventData, t: Translate): { headline: string; reason?: string } {
   const params = { from: data.from.label, to: data.to.label }
+  if (data.via === 'offer') return { headline: t('router.note.accepted', params) }
   if (data.outcome === 'switched') {
     return { headline: t('router.note.switched', params), ...data.rationale === undefined ? {} : { reason: data.rationale } }
   }
   if (data.outcome === 'offer') {
-    return { headline: t(data.reason === 'loses-context' ? 'router.offer.loses-context' : 'router.offer.needs-payment', params) }
+    return { headline: t(`router.offer.${data.reason ?? 'needs-payment'}`, params) }
   }
   return { headline: t('router.note.back', params) }
 }

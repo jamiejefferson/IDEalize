@@ -117,6 +117,16 @@ function resultErrorText(event: SessionEvent<'tool/result'>): string {
 }
 
 /**
+ * A task's move to another model, when the event is one that names its call.
+ * Read by shape: the vocabulary belongs to the generation tools, which this view does not load.
+ */
+function reroutedOf(event: { type: string; data?: unknown }): { callId: string; reason: string } | undefined {
+  if (event.type !== 'generation/rerouted') return undefined
+  const data = event.data as { callId?: unknown; reason?: unknown }
+  return typeof data.callId === 'string' && typeof data.reason === 'string' ? { callId: data.callId, reason: data.reason } : undefined
+}
+
+/**
  * The Gallery Definition: one Context per generation call, publishing one
  * {@link GalleryRow} into the `gallery` target.
  */
@@ -135,6 +145,8 @@ export const galleryDefinition: ConversationNodeDefinition<GalleryRow> = {
       const task = event.data.sourceTask
       return task.toolName in GENERATION_TOOLS ? { id: String(task.callId), role: 'update' } : null
     }
+    const moved = reroutedOf(event)
+    if (moved !== undefined) return { id: moved.callId, role: 'update' }
     if (event.type === 'tool/result' && resultFailed(event)) {
       // Only failures: a successful result adds nothing an artefact event does
       // not already carry, and matching every result would open a Context for
@@ -165,6 +177,8 @@ export const galleryDefinition: ConversationNodeDefinition<GalleryRow> = {
   update: (context, match): GalleryRow => {
     const state = context.state
     const event = match.event
+    const moved = reroutedOf(event)
+    if (moved !== undefined) return { ...state, note: moved.reason }
     if (event.type === 'artefact/created') {
       const record = event.data.record
       const artefact: GalleryArtefact = {
@@ -275,7 +289,20 @@ export const galleryTurnDefinition: ConversationNodeDefinition<GalleryTurn> = {
 }
 
 /** The text blocks of one user message, joined; empty when the person sent only attachments. */
+/** The source of a brief another chat wrote, read by shape: comm owns the kind. */
+function briefSource(event: SessionEvent<'user/message'>): { brief: string } | undefined {
+  const source = event.data.source as { kind: string; brief?: unknown }
+  return source.kind === 'chat-brief' && typeof source.brief === 'string' ? { brief: source.brief } : undefined
+}
+
+/** What the person typed, or the brief another chat started this chat with. */
+function isPrompt(event: SessionEvent<'user/message'>): boolean {
+  return event.data.source.kind === 'user' || briefSource(event) !== undefined
+}
+
 function userText(event: SessionEvent<'user/message'>): string {
+  const brief = briefSource(event)
+  if (brief !== undefined) return brief.brief.trim()
   const parts: string[] = []
   for (const block of event.data.content) {
     if (block.type === 'text') parts.push(block.text)
@@ -292,7 +319,7 @@ export const galleryPromptDefinition: ConversationNodeDefinition<GalleryPrompt> 
   kind: GALLERY_PROMPT_KIND,
   target: GALLERY_TARGET,
   match: (event): ConversationMatchResult | null => {
-    if (event.type !== 'user/message' || event.data.source.kind !== 'user') return null
+    if (event.type !== 'user/message' || !isPrompt(event)) return null
     return { id: String(event.data.id), role: 'start' }
   },
   start: (_context, match): GalleryPrompt => {

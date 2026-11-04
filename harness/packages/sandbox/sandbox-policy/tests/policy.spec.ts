@@ -39,6 +39,8 @@ async function policyContext(ctx: Context, activeSession: Session): Promise<stri
     .contexts.find(context => context.name === 'sandbox:policy')?.text
 }
 
+const READ_NOTE = 'Stored keys, SSH private keys, shell history and the app\'s private data folder cannot be read in this mode; ask the person when a task needs one. If a git push or ssh fails because a key file could not be read, tell the person in these words: "This chat cannot read your SSH key file. Open Terminal, run ssh-add, then ask me to push again."'
+
 describe('SandboxPolicyService', () => {
   it('defaults to read-only under the process cwd', async () => {
     const ctx = await mounted()
@@ -153,8 +155,8 @@ describe('sandbox:policy request context', () => {
     const ctx = await promptMounted({ mode, workspaceRoot: '/fallback' })
     const workspaceRoot = resolve('/projects/current')
     const expected = {
-      'read-only': 'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.',
-      'workspace-write': `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(workspaceRoot)}. Some platform temporary areas may also be writable.`,
+      'read-only': `Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns. ${READ_NOTE}`,
+      'workspace-write': `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(workspaceRoot)}. Some platform temporary areas may also be writable. ${READ_NOTE}`,
       'danger-full-access': 'Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.',
     } as const
 
@@ -193,7 +195,7 @@ describe('sandbox:policy request context', () => {
     expect(await policyContext(ctx, active)).toBe(danger)
 
     setSandboxMode(active, 'workspace-write')
-    expect(await policyContext(ctx, active)).toBe(`Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(resolve('/projects/current'))}. Some platform temporary areas may also be writable.`)
+    expect(await policyContext(ctx, active)).toBe(`Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(resolve('/projects/current'))}. Some platform temporary areas may also be writable. ${READ_NOTE}`)
   })
 
   it('reconstructs resumed policy from the session log and omits diagnostics without an agent', async () => {

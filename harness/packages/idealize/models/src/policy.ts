@@ -34,6 +34,8 @@ export interface PolicyFacts {
   signedIn: string[]
   /** Live model ids per provider, from the directory. */
   models: Record<string, string[]>
+  /** The best model on a route the person has connected some other way, such as a stored key. */
+  connected?: { provider: string; model: string }
 }
 
 /** The policy's answer: a model to select, or none, with the reason the models page shows. */
@@ -140,7 +142,26 @@ export function choose(weights: PolicyWeights, facts: PolicyFacts): PolicyDecisi
     if (subModel !== undefined) return subChoice(freeBlocker(facts.freetokens))
   }
 
+  if (facts.connected !== undefined) {
+    return {
+      choice: facts.connected,
+      reason: `${freeBlocker(facts.freetokens)} and no subscription is signed in; your ${facts.connected.provider} connection serves ${facts.connected.model}`,
+    }
+  }
+
   return {
     reason: `no route is usable: ${freeBlocker(facts.freetokens)} and no subscription is signed in`,
   }
+}
+
+/**
+ * Whether the install's default model sits on a route nothing serves. A fresh install defaults to OpenRouter, and a
+ * person who connected another company's key would otherwise see every brain ask for an account they already have.
+ * A route with no adapter has never answered anyone here, so moving the default takes no chat's history anywhere.
+ * @param standing - the default model.
+ * @param served - the routes with an adapter.
+ * @returns true when the default cannot answer until something else connects.
+ */
+export function defaultIsStranded(standing: { provider: string } | undefined, served: readonly string[]): boolean {
+  return standing !== undefined && !served.includes(standing.provider)
 }

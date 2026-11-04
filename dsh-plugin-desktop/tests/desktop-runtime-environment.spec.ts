@@ -43,7 +43,7 @@ function options(
     idealizeCliPath: platform === 'win32'
       ? 'C:\\Program Files\\DSH Desktop\\resources\\app.asar.unpacked\\node_modules\\@idealize\\comm\\lib\\cli.js'
       : "/Applications/DSH O'Brien.app/Contents/Resources/app.asar.unpacked/node_modules/@idealize/comm/lib/cli.js",
-    electronVersion: '43.4.0',
+    electronVersion: '43.8.7',
     stateDir,
     environment,
   }
@@ -85,7 +85,7 @@ describe('desktop Host pnpm runtime', () => {
     expect(pnpm).toContain(`PATH='${installation.nodeBinDir}':"\${PATH:-}"`)
     expect(pnpm).toContain(`NODE='${installation.nodeShimPath}'`)
     expect(pnpm).toContain('ELECTRON_RUN_AS_NODE=1 npm_config_runtime=electron')
-    expect(pnpm).toContain("npm_config_target='43.4.0'")
+    expect(pnpm).toContain("npm_config_target='43.8.7'")
     expect(pnpm).toContain("npm_config_disturl='https://electronjs.org/headers'")
     expect(pnpm).toContain(`--import '${clearEnvironmentUrl}'`)
     expect(pnpm.indexOf(`--import '${clearEnvironmentUrl}'`)).toBeLessThan(pnpm.indexOf('pnpm/bin/pnpm.mjs'))
@@ -200,7 +200,7 @@ describe('desktop Host pnpm runtime', () => {
     expect(JSON.parse(readFileSync(captureOutput, 'utf8'))).toEqual({
       runAsNode: [],
       runtime: 'electron',
-      target: '43.4.0',
+      target: '43.8.7',
       disturl: 'https://electronjs.org/headers',
       node: installation.nodeShimPath,
       path: `${installation.nodeBinDir}${pathDelimiter}${environment.PATH ?? ''}`,
@@ -232,7 +232,7 @@ describe('desktop Host pnpm runtime', () => {
     expect(pnpm).toContain(`set "NODE=${installation.nodeShimPath}"`)
     expect(pnpm).toContain('set "ELECTRON_RUN_AS_NODE=1"')
     expect(pnpm).toContain('set "npm_config_runtime=electron"')
-    expect(pnpm).toContain('set "npm_config_target=43.4.0"')
+    expect(pnpm).toContain('set "npm_config_target=43.8.7"')
     expect(pnpm).toContain(`--import "${escapedClearEnvironmentUrl}"`)
     expect(pnpm.indexOf(`--import "${escapedClearEnvironmentUrl}"`)).toBeLessThan(pnpm.indexOf('pnpm\\bin\\pnpm.mjs'))
     const node = readFileSync(installation.nodeShimPath, 'utf8')
@@ -346,7 +346,7 @@ describe('desktop Host pnpm runtime', () => {
       .toThrow('unsupported on aix')
     expect(() => installDesktopPnpmRuntime({
       ...options(join(root, 'newline-runtime'), 'linux', { PATH: '/usr/bin' }),
-      electronVersion: '43.4.0\nmalicious',
+      electronVersion: '43.8.7\nmalicious',
     })).toThrow('must not contain NUL or newlines')
   })
 })

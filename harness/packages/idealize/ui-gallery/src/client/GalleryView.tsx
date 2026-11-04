@@ -211,6 +211,7 @@ function DoneTile({ shown, open, setDisposition, t }: {
         <RevealButton artefact={artefact} t={t} className={css.tileAction} />
         <VerdictButton artefact={artefact} setDisposition={setDisposition} t={t} className={css.tileAction} />
       </div>
+      {row.note !== undefined && <figcaption className={css.routerNote} data-gallery-router-note="">{row.note}</figcaption>}
     </figure>
   )
 }
@@ -245,6 +246,7 @@ function RunningRow({ row, t }: { row: GalleryRow; t: GalleryViewProps['t'] }) {
   return (
     <ChatRow prompt={row.prompt} seq={row.startSeq} attributes={{ 'data-gallery-tile': 'running' }}>
       <Working label={t('gallery.status.running')} phase="generating" />
+      {row.note !== undefined && <span className={css.routerNote} data-gallery-router-note="">{row.note}</span>}
     </ChatRow>
   )
 }
@@ -311,6 +313,7 @@ function FailedTile({ row, t, retry }: { row: GalleryRow; t: GalleryViewProps['t
       <div className={`${css.well} ${css.errorWell}`} role="alert">
         <span className={css.errorTitle}>{t('gallery.status.failed')}</span>
         <span className={css.errorCause} data-gallery-cause="">{row.error}</span>
+        {row.note !== undefined && <span className={css.routerNote} data-gallery-router-note="">{row.note}</span>}
       </div>
       <div className={css.body}>
         <span className={css.prompt} title={row.prompt}>{row.prompt}</span>

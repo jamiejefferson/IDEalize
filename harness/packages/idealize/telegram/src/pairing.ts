@@ -1,6 +1,7 @@
 /**
  * One-time pairing codes. The app shows a code; the person sends `/pair <code>`
- * to the bot; the chat that sent a live code becomes the only chat the bot
+ * to the bot from a private chat; the app window names who sent it and asks the
+ * person to allow them; that person in that chat becomes the only one the bot
  * obeys. Codes are single-use, expire, and die after too many wrong guesses,
  * because anyone who learns the bot's username can message it.
  * @module @idealize/telegram/pairing
@@ -16,7 +17,34 @@ export interface PairingCode {
 }
 
 /** The outcome of one `/pair` attempt. */
-export type PairingClaim = 'paired' | 'no-code' | 'expired' | 'wrong'
+export type PairingClaim = 'confirm' | 'not-private' | 'no-code' | 'expired' | 'wrong'
+
+/** Who sent a code, held until the person allows or declines them in the app window. */
+export interface PairingClaimant {
+  /** The private chat, as decimal text. */
+  chatId: string
+  /** The Telegram user, as decimal text. */
+  userId: string
+  /** Their name as Telegram gives it: untrusted text, shown so the person can recognise it. */
+  name: string
+}
+
+/**
+ * Who a stored pairing obeys. The bot obeys one person in one private chat.
+ * A pairing stored before the user id was kept has only a chat id. In a private
+ * chat Telegram uses the person's id as the chat id, so a positive chat id names
+ * its user and keeps working. A negative id is a group, where anyone in the group
+ * could direct the app, so that pairing stops working until the person pairs again.
+ * @param stored - the stored pairing.
+ * @param stored.chatId - the paired chat id; empty when unpaired.
+ * @param stored.userId - the paired user id; empty on an older pairing.
+ * @returns the chat and user to obey; undefined when none is valid.
+ */
+export function pairedIdentity(stored: { chatId: string; userId: string }): { chatId: string; userId: string } | undefined {
+  if (stored.chatId === '') return undefined
+  if (stored.userId !== '') return { chatId: stored.chatId, userId: stored.userId }
+  return /^[1-9]\d*$/.test(stored.chatId) ? { chatId: stored.chatId, userId: stored.chatId } : undefined
+}
 
 /** Issues and checks pairing codes. At most one code is live. */
 export class Pairing {
@@ -61,7 +89,7 @@ export class Pairing {
   /**
    * Try a code. A match consumes it.
    * @param code - what the person sent.
-   * @returns whether it paired, or why not.
+   * @returns `confirm` when the code matched, or why it did not.
    */
   claim(code: string): PairingClaim {
     if (this.live === undefined) return 'no-code'
@@ -75,6 +103,6 @@ export class Pairing {
       return 'wrong'
     }
     this.live = undefined
-    return 'paired'
+    return 'confirm'
   }
 }

@@ -6,7 +6,7 @@ import { advance, deriveStep, ONBOARDING_STEP_IDS, skipAll, stepBefore } from '.
 
 describe('onboarding step machine', () => {
   it('orders the six steps agents through finish', () => {
-    expect(ONBOARDING_STEP_IDS).toEqual(['agents', 'tools', 'projects-folder', 'documentation-folder', 'skills-folder', 'finish'])
+    expect(ONBOARDING_STEP_IDS).toEqual(['agents', 'projects-folder', 'documentation-folder', 'skills-folder', 'finish'])
   })
 
   it('opens on the first step for a fresh or missing seed', () => {
@@ -20,14 +20,13 @@ describe('onboarding step machine', () => {
   })
 
   it('walks to the first unresolved step, done and skipped alike', () => {
-    expect(deriveStep({ steps: { agents: 'done' } })).toBe('tools')
-    expect(deriveStep({ steps: { agents: 'skipped', tools: 'done' } })).toBe('projects-folder')
+    expect(deriveStep({ steps: { agents: 'done' } })).toBe('projects-folder')
+    expect(deriveStep({ steps: { agents: 'skipped', 'projects-folder': 'done' } })).toBe('documentation-folder')
   })
 
   it('treats a fully resolved seed as closed even without done', () => {
     const steps = {
       agents: 'done',
-      tools: 'skipped',
       'projects-folder': 'done',
       'documentation-folder': 'skipped',
       'skills-folder': 'skipped',
@@ -37,14 +36,14 @@ describe('onboarding step machine', () => {
   })
 
   it('advance records one outcome and preserves its siblings', () => {
-    const seed = advance({ steps: { agents: 'done' } }, 'tools', 'skipped')
-    expect(seed.steps).toEqual({ agents: 'done', tools: 'skipped' })
+    const seed = advance({ steps: { agents: 'done' } }, 'projects-folder', 'skipped')
+    expect(seed.steps).toEqual({ agents: 'done', 'projects-folder': 'skipped' })
     expect(seed.done).toBeUndefined()
   })
 
   it('advance does not mutate the input seed', () => {
     const before = { steps: { agents: 'done' as const } }
-    advance(before, 'tools', 'done')
+    advance(before, 'projects-folder', 'done')
     expect(before.steps).toEqual({ agents: 'done' })
   })
 

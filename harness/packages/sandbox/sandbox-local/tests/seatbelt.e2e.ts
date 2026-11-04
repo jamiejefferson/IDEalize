@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -79,6 +79,22 @@ describe.skipIf(!seatbeltUsable)('sandbox-local: real Seatbelt confinement throu
     const { result } = runConfined(sandbox, `echo hi > ${target}`, { mode: 'read-only', workspaceRoot: await tempDir(homedir()) })
     expect(result.status).not.toBe(0)
     expect(existsSync(target)).toBe(false)
+  })
+
+  it('closes a key file to reads and keeps the SSH config open, on a throwaway home', async () => {
+    const home = await tempDir(tmpdir())
+    const workdir = join(home, 'project')
+    mkdirSync(workdir)
+    mkdirSync(join(home, '.ssh'))
+    writeFileSync(join(home, '.ssh', 'id_ed25519'), 'made-up-key')
+    writeFileSync(join(home, '.ssh', 'config'), 'Host a\n')
+    const profile = seatbeltProfileArgs({ mode: 'workspace-write', workspaceRoot: workdir }, { home, dataHome: join(home, 'data') })
+    const run = (path: string) => spawnSync('sandbox-exec', [...profile, '--', 'cat', path], { encoding: 'utf8', timeout: 30_000 })
+    const key = run(join(home, '.ssh', 'id_ed25519'))
+    expect(key.status).not.toBe(0)
+    expect(key.stdout).not.toContain('made-up-key')
+    expect(key.stderr.toLowerCase()).toContain('operation not permitted')
+    expect(run(join(home, '.ssh', 'config')).stdout).toBe('Host a\n')
   })
 
   it('workspace-write lands a write inside the workspace root and still denies one beside it', async () => {

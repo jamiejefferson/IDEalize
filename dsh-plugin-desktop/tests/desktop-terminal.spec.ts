@@ -53,7 +53,7 @@ function macOptions(stateDir: string, spawn: DesktopTerminalSpawn): DesktopTermi
     appExecutable: "/Applications/DSH O'Brien.app/Contents/MacOS/DSH Desktop",
     dshBootstrapPath: "/Applications/DSH O'Brien.app/Contents/Resources/app.asar/lib/dsh-terminal-bootstrap.js",
     pnpmBinPath: "/Applications/DSH O'Brien.app/Contents/Resources/app.asar/node_modules/pnpm/bin/pnpm.mjs",
-    electronVersion: '43.4.0',
+    electronVersion: '43.8.7',
     profileName: 'desktop',
     productVersion: '2.0.0',
     profileDir: "/Users/example/Library/Application Support/DSH O'Brien/profiles/desktop",
@@ -76,7 +76,7 @@ function windowsOptions(stateDir: string, spawn: DesktopTerminalSpawn): DesktopT
     appExecutable: 'C:\\Program Files\\DSH 100% Desktop\\DSH Desktop.exe',
     dshBootstrapPath: 'C:\\Program Files\\DSH Desktop\\resources\\app.asar\\lib\\dsh-terminal-bootstrap.js',
     pnpmBinPath: 'C:\\Program Files\\DSH Desktop\\resources\\app.asar\\node_modules\\pnpm\\bin\\pnpm.mjs',
-    electronVersion: '43.4.0',
+    electronVersion: '43.8.7',
     profileName: 'desktop',
     productVersion: '2.0.0',
     profileDir: "C:\\Users\\Example\\DSH O'Brien\\profiles\\desktop",
@@ -147,7 +147,7 @@ describe('desktop terminal environment', () => {
     expect(dshShim).not.toContain('npm_config_')
     const pnpmShim = readFileSync(launch.pnpmShimPath, 'utf8')
     expect(pnpmShim).toContain('ELECTRON_RUN_AS_NODE=1 npm_config_runtime=electron')
-    expect(pnpmShim).toContain("npm_config_target='43.4.0'")
+    expect(pnpmShim).toContain("npm_config_target='43.8.7'")
     expect(pnpmShim).toContain("npm_config_disturl='https://electronjs.org/headers'")
     const nodeShim = readFileSync(launch.nodeShimPath, 'utf8')
     expect(nodeShim).toBe([
@@ -452,7 +452,7 @@ describe('desktop terminal environment', () => {
       DSH_DESKTOP_DEFAULT_PROFILE: '工作 profile',
       DSH_DESKTOP_APP_EXECUTABLE: 'C:\\程序\\DSH Desktop.exe',
       DSH_DESKTOP_DSH_BOOTSTRAP: 'C:\\程序\\resources\\app.asar\\lib\\desktop-cli.js',
-      DSH_DESKTOP_ELECTRON_VERSION: '43.4.0',
+      DSH_DESKTOP_ELECTRON_VERSION: '43.8.7',
       DSH_DESKTOP_PNPM_ENTRY: 'C:\\程序\\resources\\app.asar.unpacked\\node_modules\\pnpm\\bin\\pnpm.mjs',
       DSH_DESKTOP_PROFILE_DIRECTORY: 'C:\\用户\\工作 profile',
       DSH_DESKTOP_POWERSHELL_WELCOME: join(stateDir, 'welcome.ps1'),

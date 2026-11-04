@@ -24,7 +24,7 @@ interface Block { type: string; text?: string; name?: string }
 export interface TranscriptMessage {
   role: 'user' | 'assistant'
   content: readonly Block[]
-  source: { kind: string; provider?: string; model?: string }
+  source: { kind: string; provider?: string; model?: string; brief?: unknown; senderLabel?: unknown }
 }
 
 export interface TranscriptInput {
@@ -37,6 +37,13 @@ export interface TranscriptInput {
   messages: readonly TranscriptMessage[]
 }
 
+/** A brief another chat wrote to start this one, read by shape: comm owns the kind. */
+function briefOf(message: TranscriptMessage): { from: string; text: string } | undefined {
+  const { kind, brief, senderLabel } = message.source
+  if (kind !== 'chat-brief' || typeof brief !== 'string') return undefined
+  return { from: typeof senderLabel === 'string' ? senderLabel : 'another chat', text: brief.trim() }
+}
+
 const textOf = (content: readonly Block[]): string =>
   content.map(block => (block.type === 'text' ? block.text ?? '' : '')).join('\n').trim()
 
@@ -46,13 +53,20 @@ const textOf = (content: readonly Block[]): string =>
  * @returns the file's text, or undefined while the person has said nothing.
  */
 export function transcriptOf(input: TranscriptInput): string | undefined {
-  const spoken = input.messages.filter(message => message.role === 'user' && message.source.kind === 'user' && textOf(message.content) !== '')
+  const spoken = input.messages.filter(message => message.role === 'user' && (message.source.kind === 'user' || briefOf(message) !== undefined) && textOf(message.content) !== '')
   if (spoken.length === 0) return undefined
   const models: string[] = []
   const body: string[] = []
   let answering: string | undefined
   for (const message of input.messages) {
     if (message.role === 'user') {
+      // A brief another chat wrote is on the record under its sender's name.
+      const brief = briefOf(message)
+      if (brief !== undefined) {
+        body.push(`## Brief from ${brief.from}\n\n${brief.text}\n`)
+        answering = undefined
+        continue
+      }
       // Context a plugin injected and tool results are not the person's words.
       if (message.source.kind !== 'user') continue
       const said = textOf(message.content)

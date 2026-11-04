@@ -1,13 +1,9 @@
 /**
  * The composer's overflow control: a three-dot button on the tool row that
- * holds the two settings which belong to the chat rather than to the work in
- * front of the user — the project's access mode and this chat's brain.
- *
- * Both used to sit on the row as chips, at opposite ends, beside whatever
- * settings the active space added (aspect, resolution, duration, count). On a
- * media space the row read as one undifferentiated line of controls (JJ, 9 Sep
- * 2026: "the main ask bar settings is a mess"). The row now carries the
- * space's own settings, and the two standing choices live one click away.
+ * holds the project's access mode, the one setting that belongs to the project
+ * rather than to the work in front of the user (JJ, 9 Sep 2026: "the main ask
+ * bar settings is a mess"). The brain, the model and auto-switch live on the
+ * brain chip since 4 Nov 2026 ({@link BrainChip}).
  *
  * The access control is not this package's to render: the composer passes it
  * in as `control` on the {@link 'conversation.input.access'} seat, already
@@ -19,59 +15,21 @@
  * axis to `auto` with it, so a panel opening upward out of the row was
  * clipped away: it mounted, measured and reported itself visible while
  * painting nothing (JJ, 11 Sep 2026: "3-dot menu in the askbar not working").
- *
- * UNDER A COMPOSER BLOCK THIS CONTROL STAYS LIVE. The composer refuses text
- * when the chat's model has no route, and its placeholder asks for another
- * one. It keeps its model seat live for that, and locks every other seat,
- * this one included. The brain decides the model here and the brain switcher
- * sits in this panel, so the lock disabled the one control that clears the
- * block and the placeholder asked for a choice nothing offered (PC test drive,
- * 18 Sep 2026). While the chat is blocked the trigger names the way out, the
- * Brain row ignores the lock, and a third row opens the Brains pane for the
- * chat whose space offers no other brain.
  * @module @idealize/activity-pills/client/ComposerOverflow
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { createPortal } from 'react-dom'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the ui-conversation SlotMap merge (the composer's access seat).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-// Type-only: the `router` projection merge the badge reads off the session summary.
-import type {} from '@idealize/router/client'
-import { BrainSwitcher, type BrainSwitcherInjected } from './BrainSwitcher.tsx'
-import { RouterBadge, RouterRow, type RouterActions } from './RouterRow.tsx'
 import css from './ComposerOverflow.module.css'
 
-/** One chat's composer block, as far as this control reads it: raised or not. */
-export interface ComposerBlockSource {
-  subscribe(listener: () => void): () => void
-  getSnapshot(): unknown
-}
-
-/** Registration-side face: the brain switcher's, and the block that unlocks it. */
-export interface ComposerOverflowInjected extends BrainSwitcherInjected {
-  /**
-   * The store holding one chat's composer block (`ctx.conversation.blocks`).
-   * Undefined where no conversation service is composed.
-   */
-  composerBlock?: (sessionId: SessionId) => ComposerBlockSource | undefined
-  /** Open the Brains pane. Absent wherever the tool rail is not composed, and the row goes with it. */
-  openBrains?: () => void
-  /** The model router's routes and the chat's model write. */
-  router?: RouterActions
-}
-
-/** Full slot component props: the access seat's share, the locale seat, and the brain face the panel's second row needs. */
+/** Full slot component props: the access seat's share and the locale seat. */
 export type ComposerOverflowProps =
   PropsRuntime<'conversation.input.access'>
   & PropsLocale<'idealize-activity'>
-  & InjectFace<ComposerOverflowInjected>
-
-/** What a chat with no block store reads: never blocked. */
-const NO_BLOCK: ComposerBlockSource = { subscribe: () => () => {}, getSnapshot: () => undefined }
 
 function Dots(): ReactElement {
   return (
@@ -89,19 +47,7 @@ function Dots(): ReactElement {
  * @returns the trigger, and the panel while it is open.
  */
 export function ComposerOverflow(props: ComposerOverflowProps) {
-  const { control, locked: seatLocked, sessionId, useSessions, composerBlock, openBrains, router: routerActions, t } = props
-  // The router routes the Chat space alone, so its row and chip appear there alone.
-  const routed = useSessions(list => list.byId[sessionId]?.projectionValues?.router)
-  const inChat = useSessions(list => (list.byId[sessionId]?.projectionValues?.space?.space ?? 'chat') === 'chat')
-  const blockSource = composerBlock?.(sessionId) ?? NO_BLOCK
-  // The registry hands back one store per chat, so the subscription is as
-  // stable as the chat is.
-  const subscribeBlock = useCallback((listener: () => void) => blockSource.subscribe(listener), [blockSource])
-  const block = useSyncExternalStore(subscribeBlock, () => blockSource.getSnapshot())
-  // A removed chat has no summary, and no brain to choose: its lock stands.
-  const listed = useSessions(list => list.byId[sessionId] !== undefined)
-  const blocked = block !== undefined && listed
-  const locked = seatLocked && !blocked
+  const { control, locked, t } = props
   const [open, setOpen] = useState(false)
   const [at, setAt] = useState<{ left: number; bottom: number } | null>(null)
   const wrap = useRef<HTMLSpanElement | null>(null)
@@ -164,26 +110,6 @@ export function ComposerOverflow(props: ComposerOverflowProps) {
         <span className={css.label}>{t('overflow.access')}</span>
         {control}
       </span>
-      <span className={css.item}>
-        <span className={css.label}>{t('overflow.brain')}</span>
-        <BrainSwitcher {...props} locked={locked} />
-      </span>
-      {inChat && routerActions !== undefined && (
-        <RouterRow sessionId={sessionId} router={routed} actions={routerActions} t={t} />
-      )}
-      {blocked && openBrains !== undefined && (
-        <button
-          type="button"
-          className={css.action}
-          data-composer-overflow-brains=""
-          onClick={() => {
-            setOpen(false)
-            openBrains()
-          }}
-        >
-          {t('overflow.openBrains')}
-        </button>
-      )}
     </span>
   )
 
@@ -191,19 +117,16 @@ export function ComposerOverflow(props: ComposerOverflowProps) {
     <span className={css.wrap} ref={wrap} data-composer-overflow="">
       <button
         type="button"
-        className={blocked ? css.triggerBlocked : css.trigger}
+        className={css.trigger}
         data-composer-overflow-trigger=""
-        data-composer-overflow-blocked={blocked ? '' : undefined}
-        aria-label={blocked ? undefined : t('overflow.trigger')}
+        aria-label={t('overflow.trigger')}
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={locked}
         onClick={() => { setOpen(value => !value) }}
       >
         <Dots />
-        {blocked && <span>{t('overflow.blocked')}</span>}
       </button>
-      {inChat && routerActions !== undefined && !locked && <RouterBadge router={routed} onOpen={() => { setOpen(true) }} t={t} />}
       {open && body !== null && createPortal(body, document.body)}
     </span>
   )

@@ -44,6 +44,15 @@ describe('serializeMessages', () => {
     expect(wire).toEqual([{ role: 'assistant', content: 'answer' }])
   })
 
+  it('sends an empty reasoning_content on a tool call another model made, which thinking mode requires', () => {
+    const [wire] = serializeMessages([{
+      role: 'assistant',
+      source: { kind: 'model', provider: 'openai-codex', model: 'gpt-6-astra' },
+      content: [{ type: 'tool-call', id: 'call_1', name: 'bash', arguments: '{}' }],
+    }] as never)
+    expect(wire).toMatchObject({ role: 'assistant', reasoning_content: '', tool_calls: [{ id: 'call_1' }] })
+  })
+
   it('passes reasoning_content back on tool-call turns (official passback rule)', () => {
     const wire = serializeMessages([
       createMessage({

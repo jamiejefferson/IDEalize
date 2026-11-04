@@ -15,7 +15,7 @@ export type ConversationRootProps = ConversationSlotProps
 
 export function ConversationRoot({
   sessionId, useSession, useSessions, useWorkspaces, useInput, useComposerBlock,
-  renderSlot, renderSlotChain, selectWorkspace, t,
+  renderSlot, renderSlotChain, selectWorkspace, setDraft, t,
 }: ConversationRootProps) {
   const openState = useSession(s => s.openState)
   const composerPhase = useSession(s => s.composerPhase)
@@ -203,6 +203,11 @@ export function ConversationRoot({
       {hero && <HeroShell t={t} />}
       {zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
+      {hero && renderSlot('conversation.hero.below', {
+        projectOpen: chipTitle !== undefined,
+        draft: inputState?.draft ?? '',
+        ...setDraft === undefined ? {} : { setDraft },
+      })}
     </div>
   )
 

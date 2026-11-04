@@ -178,7 +178,9 @@ describe('the composed plugin', () => {
     expect(await call(origin, 'POST', Telegram.TOKEN_PATH, { token: '999:wrong' })).toEqual({
       status: 400, body: JSON.stringify({ error: 'Telegram did not accept this token.' }),
     })
-    const stored = await call(origin, 'POST', Telegram.TOKEN_PATH, { token: TOKEN })
+    const waiting = await call(origin, 'POST', Telegram.TOKEN_PATH, { token: TOKEN })
+    expect(JSON.parse(waiting.body)).toMatchObject({ configured: false, confirmToken: { botUsername: 'idealize_test_bot' } })
+    const stored = await call(origin, 'POST', Telegram.CONFIRM_PATH, { what: 'token', allow: true })
     expect(stored.status).toBe(200)
     expect(JSON.parse(stored.body)).toMatchObject({ configured: true, shadowed: false, botUsername: 'idealize_test_bot' })
     expect((await ctx.credentials.resolve(credentialRef(Telegram.TOKEN_ENV)))?.value).toBe(TOKEN)
@@ -189,8 +191,11 @@ describe('the composed plugin', () => {
     await until(() => telegram.state.polls > 0)
     telegram.state.updates.push({
       update_id: 1,
-      message: { message_id: 1, date: Math.floor(Date.now() / 1000), chat: { id: 555, type: 'private' }, text: `/pair ${code}` },
+      message: { message_id: 1, date: Math.floor(Date.now() / 1000), chat: { id: 555, type: 'private' }, from: { id: 555 }, text: `/pair ${code}` },
     })
+    await until(() => telegram.state.sent.some(sent => sent.chat_id === '555' && sent.text === PAIR_REPLIES.confirm))
+    expect(await status(origin)).toMatchObject({ paired: false, confirmPairing: { name: '555' } })
+    await call(origin, 'POST', Telegram.CONFIRM_PATH, { what: 'pairing', allow: true })
     await until(() => telegram.state.sent.some(sent => sent.chat_id === '555' && sent.text === PAIR_REPLIES.paired))
     const afterPairing = await status(origin)
     expect(afterPairing.paired).toBe(true)
@@ -213,6 +218,7 @@ describe('the composed plugin', () => {
     telegram.state.conflict = true
     const { ctx, origin } = await boot(telegram.origin)
     await call(origin, 'POST', Telegram.TOKEN_PATH, { token: TOKEN })
+    await call(origin, 'POST', Telegram.CONFIRM_PATH, { what: 'token', allow: true })
     await until(async () => (await status(origin)).problem === 'Another copy of IDEalize is using this bot, so this one is not receiving messages.')
 
     await ctx.fiber.dispose()

@@ -21,13 +21,16 @@ export interface RouterEventData {
   from: RoutedModel
   to: RoutedModel
   /** Why an offer was not taken by the router itself. */
-  reason?: Extract<StayReason, 'needs-payment' | 'loses-context'> | undefined
+  reason?: Extract<StayReason, 'needs-payment' | 'loses-context' | 'other-company'> | undefined
   task?: TaskType | undefined
   rationale?: string | undefined
   /** Gain in weighted score, 0 to 1. */
   improvement?: number | undefined
-  /** `dislike`: the person kept another model's answer, and the comparison card already says so. */
-  via?: 'dislike' | undefined
+  /**
+   * `dislike`: the person kept another model's answer, and the comparison card already says so.
+   * `offer`: the person took the model offered.
+   */
+  via?: 'dislike' | 'offer' | undefined
 }
 
 /** The kinds of model a comparison can ask (restated from ratings.ts, which reads files). */

@@ -66,6 +66,11 @@ function stubFetch(tasks: TaskView[]) {
     }
     if (url.startsWith('/idealize/cron/tasks')) return json(tasks)
     if (url.startsWith('/idealize/cron/delete')) return json({ deleted: true })
+    if (url.startsWith('/idealize/cron/approve')) {
+      return url.includes('late')
+        ? Promise.resolve(new Response(JSON.stringify({ error: 'This entry\'s time has passed. Change the time, then approve it.' }), { status: 500 }))
+        : json({ enabled: true })
+    }
     if (url.startsWith('/idealize/models/state')) {
       return json({ mode: 'auto', default: { provider: 'openai', model: 'codex' }, preferences: {}, providers: [] })
     }
@@ -649,6 +654,49 @@ describe('one-off entries in the calendar', () => {
     expect(reads()).toBe(2)
     view.unmount()
     expect(stream?.closed).toBe(true)
+  })
+})
+
+describe('entries a chat added', () => {
+  const pending: TaskView = {
+    ...brief, id: 'pending', name: 'Push the build', prompt: 'Push to main.', cwd: '/Users/jj/idealize', enabled: false, awaitingApproval: true,
+  }
+
+  it('shows what would run, and approves through the host once the person presses Approve', async () => {
+    const calls = stubFetch([pending, brief])
+    const { view } = mount()
+    await waitFor(() => { expect(view.container.querySelector('[data-schedule-waiting="pending"]')).not.toBeNull() })
+    const row = view.container.querySelector('[data-schedule-waiting="pending"]')
+    expect(row?.textContent).toContain('Push the build')
+    expect(row?.textContent).toContain('An agent will follow these instructions in /Users/jj/idealize: Push to main.')
+    // Nothing is approved by showing it, and the person's own task is not listed.
+    expect(calls.some(call => call.url.includes('/approve'))).toBe(false)
+    expect(view.container.querySelector('[data-schedule-waiting="brief"]')).toBeNull()
+    fireEvent.click(view.container.querySelector('[data-schedule-approve="pending"]') as Element)
+    await waitFor(() => { expect(calls.some(call => call.url === '/idealize/cron/approve?id=pending' && call.init?.method === 'POST')).toBe(true) })
+  })
+
+  it('says a reminder only notifies, removes on Remove, and shows the host\'s reason for a refusal', async () => {
+    const late: TaskView = { ...pending, id: 'late', name: 'Dentist', prompt: '', schedule: { kind: 'at', at: '2000-01-01T00:00:00.000Z' } }
+    const calls = stubFetch([late])
+    const { view } = mount()
+    await waitFor(() => { expect(view.container.querySelector('[data-schedule-waiting="late"]')).not.toBeNull() })
+    expect(view.container.querySelector('[data-schedule-waiting="late"]')?.textContent).toContain('This sends you a notification and runs nothing else.')
+    fireEvent.click(view.container.querySelector('[data-schedule-approve="late"]') as Element)
+    await waitFor(() => { expect(view.container.querySelector('[role="alert"]')?.textContent).toContain('time has passed') })
+    fireEvent.click(view.container.querySelector('[data-schedule-remove="late"]') as Element)
+    await waitFor(() => { expect(calls.some(call => call.url === '/idealize/cron/delete?id=late')).toBe(true) })
+  })
+
+  it('shows no section when nothing is waiting, and badges the entry on its day', async () => {
+    stubFetch([brief])
+    const first = mount()
+    await waitFor(() => { expect(first.view.container.querySelector('[data-schedule-loading]')).toBeNull() })
+    expect(first.view.container.querySelector('[data-schedule-approvals]')).toBeNull()
+    cleanup()
+    stubFetch([{ ...pending, schedule: { kind: 'every', seconds: 1800 } }])
+    const second = mount()
+    await waitFor(() => { expect(second.view.container.querySelector('[data-schedule-allday]')?.textContent).toContain('NEEDS APPROVAL') })
   })
 })
 

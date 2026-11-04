@@ -11,6 +11,7 @@
  * @module @idealize/activity-pills/client
  */
 
+import type { ReactNode } from 'react'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -25,22 +26,26 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SpaceId, SpaceRosterEntry } from '@idealize/spaces/client'
 import type {} from '@idealize/spaces/client'
 import { ActivityPillsController, type ActivityAvailabilityMap, type ActivityPillsFace, type PillSessionSummary } from './pills-store.ts'
+import { BrainChip } from './BrainChip.tsx'
+import type { BrainChipInjected, ChipBrowserRequest, ChipDirectorySource, ComposerBlockSource, MediaBrainModel, ModelChoice, RouterAvailability } from './BrainChip.tsx'
+import { BrainNotice } from './BrainNotice.tsx'
 import { ComposerOverflow } from './ComposerOverflow.tsx'
-import type { ComposerBlockSource, ComposerOverflowInjected } from './ComposerOverflow.tsx'
 import {
   BrainSwitcherController,
   type BrainAgent, type BrainSessionSummary, type TerminalLaunchTable,
 } from './brain-switcher.ts'
 import { en, zh, type ActivityKey } from './locales.ts'
+import type { RouterActions } from './BrainChip.tsx'
 import { routerNoteDefinition } from './router-node.ts'
 import { routerNoteView } from './RouterNote.tsx'
 
-export { BrainSwitcher, brainMeta } from './BrainSwitcher.tsx'
+export { BrainChip, brainLabel, brainPurpose, costKey, readableModel } from './BrainChip.tsx'
+export { BrainNotice } from './BrainNotice.tsx'
 export { ComposerOverflow } from './ComposerOverflow.tsx'
 export { routerNoteDefinition } from './router-node.ts'
 export { routerNoteText, routerNoteView } from './RouterNote.tsx'
-export type { ComposerBlockSource, ComposerOverflowInjected, ComposerOverflowProps } from './ComposerOverflow.tsx'
-export type { BrainSwitcherInjected, BrainSwitcherProps } from './BrainSwitcher.tsx'
+export type { ComposerOverflowProps } from './ComposerOverflow.tsx'
+export type { BrainChipInjected, BrainChipProps, ChipBrowserRequest, ComposerBlockSource, RouterActions, RouterAvailability } from './BrainChip.tsx'
 export { BrainSwitcherController, composeBrains, launchOf } from './brain-switcher.ts'
 export type {
   BrainAgent, BrainOption, BrainSessionSummary, BrainSwitcherReads, BrainSwitcherState,
@@ -101,11 +106,40 @@ interface TerminalModeLike {
 interface IdealizeBarLike {
   addBrain(space: SpaceId): void
   show(panel: 'models'): void
+  addKey(provider?: string): void
+  editBrain(brainId: string): void
+  renderChatModelBrowser(request: ChipBrowserRequest): ReactNode
 }
+
+/** The session's model directory registry (restated; ui-model-selection owns it). */
+interface ModelDirectoriesLike {
+  directoryFor(sessionId: SessionId): {
+    store: ChipDirectorySource
+    load(): Promise<unknown>
+    select(selection: ModelChoice): Promise<unknown>
+  }
+}
+
+/** The workspace service's share a new chat needs (restated; the client runtime owns it). */
+interface WorkspacesLike {
+  list: { getSnapshot(): { items: readonly { workspaceId: string; sessionIds: readonly string[] }[] } }
+  connectWorkspace(workspaceId: string): Promise<SessionId>
+  noteSessionConfigured(sessionId: SessionId): () => void
+}
+
+/** The media settings table a space's generation model is read from. */
+const MEDIA_PRESET: Partial<Record<SpaceId, string>> = { gallery: 'images', soundstage: 'sound', motion: 'motion' }
 
 /** The conversation service's composer blocks (restated; ui-conversation owns it). */
 interface ConversationBlocksLike {
   blocks: { storeFor(sessionId: SessionId): ComposerBlockSource }
+}
+
+/** What a chip with no model directory reads; it renders nothing. */
+const EMPTY_MODELS = { current: null, groups: [], status: 'idle' }
+const EMPTY_DIRECTORY: ChipDirectorySource = {
+  subscribe: () => () => {},
+  getSnapshot: () => EMPTY_MODELS,
 }
 
 /** Required services. */
@@ -279,44 +313,156 @@ export function apply(ctx: ClientContext): void {
     await fetch(path, { method: 'POST', headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => undefined)
   }
 
-  const brainInjected = (): ComposerOverflowInjected => ({
-    hooks: { brainSwitcher: brains.store },
-    load: (session: BrainSessionSummary) => brains.load(session),
-    select: (brainId: string, session: BrainSessionSummary) => brains.select(brainId, session),
-    ...bar() === undefined
-      ? {}
-      : {
-        addBrain: (space: SpaceId) => { bar()?.addBrain(space) },
-        openBrains: () => { bar()?.show('models') },
-      },
-    router: {
-      lock: async (sessionId, locked) => { await routerPost('/idealize/router/lock', { sessionId, locked }) },
-      back: async (sessionId, to) => {
-        await api.sessions.selectModel({ sessionId: sessionId as never, provider: to.provider, model: to.model })
-        await routerPost('/idealize/router/reset', { sessionId })
-        await routerPost('/idealize/router/lock', { sessionId, locked: true })
-      },
-      accept: async (sessionId, to) => {
-        await api.sessions.selectModel({ sessionId: sessionId as never, provider: to.provider, model: to.model })
-        await routerPost('/idealize/router/reset', { sessionId })
-      },
-    },
-    // Read through ctx.get, as the probes above are: the block only unlocks
-    // the control, so a shell without the conversation service loses nothing.
-    composerBlock: (sessionId: SessionId) =>
-      ((ctx as unknown as { get(name: string): unknown }).get('conversation') as ConversationBlocksLike | undefined)
-        ?.blocks.storeFor(sessionId),
-  })
+  const models = (): ModelDirectoriesLike | undefined => probe<ModelDirectoriesLike>('modelDirectories', 'directoryFor')
 
-  // The access seat, not the model seat: the brain choice and the project's
-  // access mode are the two standing settings, and they share one three-dot
-  // control so the tool row is left to the active space's own settings (JJ,
-  // 9 Sep 2026). The composer hands its access chip in as `control`.
+  const routerActions: RouterActions = {
+    lock: async (sessionId, locked) => { await routerPost('/idealize/router/lock', { sessionId, locked }) },
+    back: async (sessionId, to) => {
+      await api.sessions.selectModel({ sessionId: sessionId as never, provider: to.provider, model: to.model })
+      await routerPost('/idealize/router/reset', { sessionId })
+      await routerPost('/idealize/router/lock', { sessionId, locked: true })
+    },
+    accept: async (sessionId, to) => {
+      await api.sessions.selectModel({ sessionId: sessionId as never, provider: to.provider, model: to.model })
+      await routerPost('/idealize/router/reset', { sessionId })
+    },
+  }
+
+  /** Whether auto-switch can run: on, with OpenRouter connected for the reading and a second model to move to. */
+  const routerState = async (): Promise<RouterAvailability | null> => {
+    const response = await fetch('/idealize/router/state').catch(() => undefined)
+    if (response === undefined || !response.ok) return null
+    const state = await response.json() as {
+      settings: { enabled: boolean; useJev: boolean; offBrains: readonly string[] }
+      jev: { keyed: boolean }
+      candidates: number
+    }
+    const off = !state.settings.enabled || !state.settings.useJev
+    const blockedBy = off ? 'off' : !state.jev.keyed ? 'account' : state.candidates < 2 ? 'model' : undefined
+    return {
+      canRun: blockedBy === undefined,
+      ...blockedBy === undefined ? {} : { blockedBy },
+      offBrains: state.settings.offBrains,
+    }
+  }
+
+  /** The routes a person's plan pays for: signed-in subscriptions. OpenRouter takes a sign-in too, and still bills by use. */
+  const planRoutes = async (): Promise<ReadonlySet<string>> => {
+    const response = await fetch('/idealize/models/state').catch(() => undefined)
+    if (response === undefined || !response.ok) return new Set()
+    const { providers } = await response.json() as { providers: readonly { provider: string; auth?: string; connected?: boolean }[] }
+    return new Set(providers.filter(row => row.auth === 'oauth' && row.connected === true && row.provider !== 'openrouter').map(row => row.provider))
+  }
+
+  /** A media space's generation model, named as the Brains pane names it. */
+  const mediaModel = async (space: SpaceId): Promise<MediaBrainModel | null> => {
+    const preset = MEDIA_PRESET[space]
+    if (preset === undefined) return null
+    const [mediaResponse, servicesResponse] = await Promise.all([
+      fetch('/idealize/brains/media').catch(() => undefined),
+      fetch('/idealize/brains/services').catch(() => undefined),
+    ])
+    if (mediaResponse === undefined || !mediaResponse.ok) return null
+    const { presets } = await mediaResponse.json() as {
+      presets: readonly {
+        id: string
+        model: { backend: string; model: string } | null
+        candidates: readonly { backend: string; model: { id?: string; name?: string } | string }[]
+      }[]
+    }
+    const row = presets.find(entry => entry.id === preset)
+    if (row === undefined) return null
+    const listed = servicesResponse?.ok === true
+      ? (await servicesResponse.json() as { services: readonly { id: string; name: string; connected?: boolean }[] }).services
+      : []
+    // With nothing chosen a generation falls to a compatible model, and only a
+    // connected service can run it: the catalogues of the others are public.
+    const open = row.candidates.find(entry => !listed.some(service => service.id === entry.backend && service.connected !== true))
+    const chosen = row.model ?? (open === undefined
+      ? undefined
+      : { backend: open.backend, model: typeof open.model === 'string' ? open.model : open.model.id ?? '' })
+    if (chosen === undefined) return null
+    const candidate = row.candidates.find(entry => entry.backend === chosen.backend
+      && (typeof entry.model === 'string' ? entry.model : entry.model.id) === chosen.model)
+    return {
+      name: (typeof candidate?.model === 'object' ? candidate.model.name : undefined) ?? chosen.model,
+      service: listed.find(entry => entry.id === chosen.backend)?.name ?? chosen.backend,
+    }
+  }
+
+  /** A new chat in the same project, on the chosen brain. */
+  const startChat = async (brainId: string, space: SpaceId, sessionId: string): Promise<void> => {
+    const workspaces = probe<WorkspacesLike>('workspaces', 'connectWorkspace')
+    const workspace = workspaces?.list.getSnapshot().items.find(item => item.sessionIds.includes(sessionId))
+    if (workspaces === undefined || workspace === undefined) return
+    const next = await workspaces.connectWorkspace(workspace.workspaceId)
+    workspaces.noteSessionConfigured(next)
+    sessions.open(next)
+    const session: BrainSessionSummary = { id: next, blank: true, space, brain: brainId }
+    await brains.load(session)
+    await brains.select(brainId, session)
+  }
+
+  const chipInjected = (sessionId: SessionId): BrainChipInjected => {
+    const directory = models()?.directoryFor(sessionId)
+    const available = directory !== undefined && sessions.subagentAddress(sessionId) === undefined
+    const shell = bar()
+    return {
+      hooks: { brainSwitcher: brains.store },
+      load: (session: BrainSessionSummary) => brains.load(session),
+      select: (brainId: string, session: BrainSessionSummary) => brains.select(brainId, session),
+      available,
+      directory: directory?.store ?? EMPTY_DIRECTORY,
+      loadModels: () => { if (available) directory.load().catch(() => { /* surfaced on the store */ }) },
+      selectModel: (choice: ModelChoice) => available
+        ? directory.select(choice).then(() => true, () => false)
+        : Promise.resolve(false),
+      // Read through ctx.get, as the probes above are: the block only unlocks
+      // the chip, so a shell without the conversation service loses nothing.
+      composerBlock: (id: string) =>
+        ((ctx as unknown as { get(name: string): unknown }).get('conversation') as ConversationBlocksLike | undefined)
+          ?.blocks.storeFor(id as SessionId),
+      ...shell === undefined
+        ? {}
+        : {
+          addBrain: (space: SpaceId) => { bar()?.addBrain(space) },
+          openBrains: () => { bar()?.show('models') },
+          addKey: (provider?: string) => { bar()?.addKey(provider) },
+          editBrain: (brainId: string) => { bar()?.editBrain(brainId) },
+          renderModelBrowser: (request: ChipBrowserRequest) => bar()?.renderChatModelBrowser(request),
+        },
+      // The sign-in surface is a page of its own, opened the way the Brains pane opens it.
+      signIn: () => { window.open('/idealize/signin', '_blank', 'noopener') },
+      startChat,
+      router: routerActions,
+      routerState,
+      planRoutes,
+      mediaModel,
+    }
+  }
+
+  // The brain decides the model, so the brain and the model share one chip on
+  // the model seat (JJ, 4 Nov 2026), shadowing ui-model-selection's dropdown.
+  // The /model command stays for the odd manual pick.
+  ctx.slots.inject('conversation.input.model', () => ctx.slots.register({
+    name: 'conversation.input.model',
+    priority: -1,
+    locale: NS,
+    inject: chipInjected,
+  }, BrainChip))
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock',
+    id: 'brain-notice',
+    locale: NS,
+    inject: chipInjected,
+  }, BrainNotice))
+
+  // The access seat holds the project's access mode alone since the chip took
+  // the brain. The composer hands its access chip in as `control`.
   ctx.slots.inject('conversation.input.access', () => ctx.slots.register({
     name: 'conversation.input.access',
     priority: -1,
     locale: NS,
-    inject: brainInjected,
   }, ComposerOverflow))
 
   ctx.provide('activityPills', { face } satisfies ActivityPillsHost)

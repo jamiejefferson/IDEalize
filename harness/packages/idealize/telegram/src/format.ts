@@ -19,8 +19,11 @@ export const HELP_TEXT = [
 ].join('\n\n')
 
 /** Replies to `/pair <code>`, by outcome. */
-export const PAIR_REPLIES: Readonly<Record<PairingClaim, string>> = {
+export const PAIR_REPLIES: Readonly<Record<PairingClaim | 'paired' | 'declined', string>> = {
+  confirm: 'Nearly there. Go back to IDEalize and press Allow to finish pairing.',
   paired: 'Paired. This chat now directs IDEalize while the app is open. Send /help to see what it can do.',
+  declined: 'IDEalize declined this pairing, so this chat cannot direct the app.',
+  'not-private': 'Pairing works only in a private chat with this bot. Open a private chat with it and send the code there.',
   'no-code': 'No pairing code is waiting. Open Settings in IDEalize and choose Pair to get one.',
   expired: 'That code has expired. Choose Pair in IDEalize Settings for a new one.',
   wrong: 'That code does not match the one IDEalize is showing.',

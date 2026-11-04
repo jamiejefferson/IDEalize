@@ -80,7 +80,9 @@ export function explainFailure(failure: FailureLike | undefined, provider?: stri
   const status = failure === undefined ? undefined : statusOf(failure, message)
 
   if (status === 402 || /billing_error|payment_required|insufficient[_ ]credit|more credits|in_flight_budget/i.test(message)) {
-    const url = name === undefined ? undefined : CREDIT_PAGES[name] ?? /https:\/\/[^\s"'\\]+credits?[^\s"'\\]*/i.exec(message)?.[0]
+    // Only a known provider's known page: the error text comes from the far
+    // end, so a link dug out of it could point anywhere.
+    const url = name === undefined ? undefined : CREDIT_PAGES[name]
     const link = url === undefined ? undefined : { label: 'Add credit', url }
     if (/in_flight_budget/i.test(message)) {
       return { text: `${name === undefined ? 'My model credit' : `${name} credit`} is nearly used up, and other chats are using the rest. Add credit, or try again in two minutes.`, ...link === undefined ? {} : { link } }

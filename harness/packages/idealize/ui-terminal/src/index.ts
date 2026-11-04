@@ -55,7 +55,7 @@ import { resolveSessionTitleLlmConfig, suggestSessionTitle } from '@deepseek-ai/
 
 export { LAUNCHES_PATH, launchBrainOf, launchCommandFor } from './launches.ts'
 export type { TerminalCliOption, TerminalLaunches } from './launches.ts'
-export { gatherKnowledge, KNOWLEDGE_PREAMBLE, KNOWLEDGE_SERVICES, PROMPT_CHANNELS, promptChannel, withKnowledge } from './knowledge.ts'
+export { gatherKnowledge, KNOWLEDGE_PREAMBLE, KNOWLEDGE_SERVICES, PROMPT_CHANNELS, promptChannel, withKnowledge, writeKnowledgeFile } from './knowledge.ts'
 export type { PromptChannel } from './knowledge.ts'
 export { claudeConversationExists, CONVERSATION_CHANNELS, conversationId, withConversation } from './conversation.ts'
 export type { ConversationChannel } from './conversation.ts'

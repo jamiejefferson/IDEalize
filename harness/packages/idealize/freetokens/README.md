@@ -9,6 +9,12 @@ The `freetokens` provider route over a FreeLLMAPI sidecar (the fork at `jamiejef
 
 Registration writes two places: the key goes into the credentials service under `FREETOKENS_API_KEY`, and the settings document's `llm-pi-ai` section gains a hand-declared `freetokens` route (openai-completions at the sidecar's `/v1`) listing the models the sidecar reported. `@idealize/models`' auto policy and the Free activity brain (`@idealize/activity-pills`) select from that route.
 
+## The engine's lifetime (Mac and Linux)
+
+The engine exits when the pipe from the app closes, so a crash or a forced quit cannot leave it running. It refuses any request whose Host header is not this machine. Both come from a small guard loaded ahead of the engine's own code.
+
+When something already holds the port at start-up, `engine.json` in the data directory and the system's process tools say what it is. The same version on the same data is adopted. Another version on this data, or an orphan from a build older than the record, is stopped and replaced. Anything else is left alone, and the plugin reports that the port is taken instead of logging in to it. Windows starts the engine as before; none of this has been proved there.
+
 ## Attribution
 
 `ctx.idealizeAttribution` maps a requesting session to an `x-idealize-project` header (`PROJECT_HEADER`): the session cwd's git toplevel basename, or the cwd basename outside a repository. The fork's `llm-pi-ai` adapter calls `headersFor` per request through its `annotateRequest` seam; the forked server writes the header into `requests.client_label`, which its analytics roll up by label. The header is HTTP metadata and never enters the model's context. `contribute(fn)` lets another plugin add headers to a session's requests: `@idealize/router` sends `x-idealize-routing` (`reliability,speed,intelligence`) this way, and the forked server orders that request's chain by it instead of the saved strategy, so the engine picks its provider on the priorities of the brain that asks. The Brains pane therefore carries no strategy select or sliders for the engine (JJ, 21 Sep 2026); the routing routes below remain for a request that carries no vector.

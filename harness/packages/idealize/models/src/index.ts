@@ -65,7 +65,7 @@ import { createEngineKeyReader } from './engine-keys.ts'
 import { emptyGenerationPeriods, FAL_PROVIDER, foldGenerations, generationRows, refreshFalUsage } from './generations.ts'
 import type { FalUsageCache } from './generations.ts'
 import { modelsPage } from './models-page.ts'
-import { choose, freeUsable } from './policy.ts'
+import { choose, defaultIsStranded, freeUsable } from './policy.ts'
 import type { FreetokensFacts, PolicyDecision } from './policy.ts'
 import { effectivePrices, OPENROUTER_PROVIDER, parsePriceBody, readOpenRouterPriceCache, refreshOpenRouterPrices } from './prices.ts'
 import { costBreakdown, modelRows } from './pricing.ts'
@@ -95,11 +95,44 @@ export type { CategoryFacts, ModelTokens, PeriodModels, UsageCategory, UsagePeri
 export { foldWorkSpans, foldWorkTime, mergeSpans, turnSpans, WORK_GAP_MS, workBounds, workTotals } from './worktime.ts'
 export type { WorkBounds, WorkSpan, WorkTotals } from './worktime.ts'
 
+/**
+ * Build a reader of the free-tokens route and engine facts, holding one admin
+ * session between reads. The auto policy and the router share it, so both agree
+ * on whether the route can answer.
+ * @param ctx - the settings and credentials the facts come from.
+ * @param ctx.settings - the shared settings.
+ * @param ctx.credentials - the stored credentials.
+ * @returns the reader.
+ */
+export function createFreetokensProbe(ctx: Pick<Context, 'settings' | 'credentials'>): () => Promise<FreetokensFacts> {
+  const engineKeys = createEngineKeyReader()
+  return async () => {
+    const section = ctx.settings.get(LLM_NS) as
+      { providers?: { freetokens?: { baseURL?: string; models?: unknown[] } } } | undefined
+    const route = section?.providers?.freetokens
+    const routeModels = Array.isArray(route?.models) ? route.models.length : 0
+    const origin = typeof route?.baseURL === 'string' ? route.baseURL.replace(/\/v1\/?$/, '') : undefined
+    if (origin === undefined) return { routeModels, engineUp: false, usableKeys: undefined }
+    let engineUp = false
+    try {
+      engineUp = (await fetch(origin, { signal: AbortSignal.timeout(3_000) })).status < 500
+    } catch {
+      // unreachable = not running
+    }
+    if (!engineUp) return { routeModels, engineUp, usableKeys: undefined }
+    // Key headroom is only knowable when this host provisioned the engine.
+    const password = await ctx.credentials.resolve(credentialRef(FREETOKENS_ADMIN_PASSWORD_ENV))
+    if (password === undefined) return { routeModels, engineUp, usableKeys: undefined }
+    return { routeModels, engineUp, usableKeys: await engineKeys.usableKeys(origin, password.value) }
+  }
+}
+
 const NS = settingsNamespace('idealize-models')
 const LLM_NS = settingsNamespace('llm-pi-ai')
 /** Written by @idealize/freetokens when it provisions the embedded engine. */
 const FREETOKENS_ADMIN_PASSWORD_ENV = 'FREETOKENS_ADMIN_PASSWORD'
 const EVALUATE_EVERY_MS = 180_000
+const REHOME_EVERY_MS = 15_000
 /** The free-tokens provider route id (written by @idealize/freetokens). */
 const FREE_PROVIDER = 'freetokens'
 
@@ -203,6 +236,9 @@ async function readBody(req: IncomingMessage): Promise<string> {
 export function apply(ctx: Context, config: ModelsConfig): void {
   let current: () => ModelsConfig = () => ({ ...config })
   let poke: () => void = () => {}
+  let reconsider: () => Promise<void> = () => Promise.resolve()
+  // Saving a key reads this through ctx.get(), so the brains are ready by the time the save answers.
+  ctx.provide('idealizeDefaultModel', { reconsider: () => reconsider() })
   installSettingsSection(ctx, NS, Config, config, {
     setSource: (source: () => ModelsConfig) => {
       current = source
@@ -215,28 +251,7 @@ export function apply(ctx: Context, config: ModelsConfig): void {
   ctx.inject(['webServer', 'llm', 'settings', 'credentials'], (webCtx) => {
     let lastAuto: AutoVerdict | undefined
     // One admin session on the engine, carried across policy passes.
-    const engineKeys = createEngineKeyReader()
-
-    /** The freetokens route + engine facts, read from the shared settings + engine API. */
-    const freetokensFacts = async (): Promise<FreetokensFacts> => {
-      const section = webCtx.settings.get(LLM_NS) as
-        { providers?: { freetokens?: { baseURL?: string; models?: unknown[] } } } | undefined
-      const route = section?.providers?.freetokens
-      const routeModels = Array.isArray(route?.models) ? route.models.length : 0
-      const origin = typeof route?.baseURL === 'string' ? route.baseURL.replace(/\/v1\/?$/, '') : undefined
-      if (origin === undefined) return { routeModels, engineUp: false, usableKeys: undefined }
-      let engineUp = false
-      try {
-        engineUp = (await fetch(origin, { signal: AbortSignal.timeout(3_000) })).status < 500
-      } catch {
-        // unreachable = not running
-      }
-      if (!engineUp) return { routeModels, engineUp, usableKeys: undefined }
-      // Key headroom is only knowable when this host provisioned the engine.
-      const password = await webCtx.credentials.resolve(credentialRef(FREETOKENS_ADMIN_PASSWORD_ENV))
-      if (password === undefined) return { routeModels, engineUp, usableKeys: undefined }
-      return { routeModels, engineUp, usableKeys: await engineKeys.usableKeys(origin, password.value) }
-    }
+    const freetokensFacts = createFreetokensProbe(webCtx)
 
     const decide = async (): Promise<PolicyDecision> => {
       const oauth = webCtx.get('idealizeOAuth') as OAuthFace | undefined
@@ -248,9 +263,12 @@ export function apply(ctx: Context, config: ModelsConfig): void {
         .then(models => models.map(model => model.id))
         .catch(() => [] as string[])
       const prefs = current()
+      // The router ranks the connected models; absent when the router is not composed.
+      const router = webCtx.get('idealizeRouter') as { bestConnected?: () => Promise<{ provider: string; model: string } | undefined> } | undefined
+      const connected = await router?.bestConnected?.().catch(() => undefined)
       return choose(
         { cost: prefs.cost ?? 34, speed: prefs.speed ?? 33, intelligence: prefs.intelligence ?? 33 },
-        { freetokens: await freetokensFacts(), signedIn, models: { 'openai-codex': codexModels } },
+        { freetokens: await freetokensFacts(), signedIn, models: { 'openai-codex': codexModels }, ...connected === undefined ? {} : { connected } },
       )
     }
 
@@ -274,14 +292,33 @@ export function apply(ctx: Context, config: ModelsConfig): void {
     }
     poke = evaluateSafely
 
+    /**
+     * Point the default at a connected model when its route has nothing behind it, in either mode, so a working key
+     * answers whichever company it belongs to. A brain the person pinned to a model keeps its pin.
+     */
+    const rehome = async (): Promise<void> => {
+      const standing = webCtx.settings.get(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE) as AgentDefaultModelSettings | undefined
+      if (!defaultIsStranded(standing, webCtx.llm.listProviders().map(provider => provider.id))) return
+      const router = webCtx.get('idealizeRouter') as { bestConnected?: () => Promise<{ provider: string; model: string } | undefined> } | undefined
+      const best = await router?.bestConnected?.().catch(() => undefined)
+      if (best !== undefined) await webCtx.settings.update(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, best)
+    }
+    reconsider = () => rehome().catch((error: unknown) => {
+      webCtx.logger.warn(`idealize-models: could not move the default model: ${String(error)}`)
+    })
+
     webCtx.effect(() => {
       // The first pass waits out the mount window (provider directory and
       // freetokens registration both fill asynchronously).
       const first = setTimeout(evaluateSafely, 15_000)
       const timer = setInterval(evaluateSafely, EVALUATE_EVERY_MS)
+      // Keys also arrive by import and sign-in, which the services route below does not see.
+      const homing = setInterval(() => { void reconsider() }, REHOME_EVERY_MS)
       return () => {
         clearTimeout(first)
         clearInterval(timer)
+        clearInterval(homing)
+        reconsider = () => Promise.resolve()
         poke = () => {}
       }
     }, 'idealize-models: auto policy')

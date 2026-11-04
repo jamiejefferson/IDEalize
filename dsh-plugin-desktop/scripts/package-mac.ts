@@ -151,8 +151,8 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
       // The public app carries a sealed ad-hoc signature. With no signature at
       // all macOS cannot tell which app a folder grant belongs to, so it asked
       // again on every access (JJ, 18 Sep 2026: "dozens of 'IDEalize would like
-      // to access files' modals"). Ad-hoc needs no certificate; the hardened
-      // runtime stays off, as it is in the locally signed build (package-dir.mjs).
+      // to access files' modals"). This ad-hoc pass runs without the hardened
+      // runtime; the afterSign hook re-signs with it (sign-with-certificate.ts).
       ...publicBuild ? ['--config.mac.identity=-', '--config.mac.hardenedRuntime=false'] : [],
     ],
     options.desktopRoot,

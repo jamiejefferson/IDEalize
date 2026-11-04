@@ -11,7 +11,7 @@ import { CallId } from '@deepseek-ai/dsh-llm/brand'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apply, CALENDAR_SECTION, createCalendarTools, describeSchedule, desktopNotifier, fireTimeLine, IdealizeCron } from '../src/index.ts'
+import { apply, CALENDAR_SECTION, createCalendarTools, describeSchedule, desktopNotifier, fireTimeLine, IdealizeCron, ONE_OFF_REMINDERS_WAIT_FOR_APPROVAL } from '../src/index.ts'
 import type { CronNotifier } from '../src/index.ts'
 import type { CronTask } from '../src/store.ts'
 
@@ -56,7 +56,8 @@ describe('the calendar tools', () => {
     const { cron, events } = await boot()
     const [add, list, remove] = createCalendarTools(cron, LONDON)
     const entry = await add!.execute({ title: 'Dentist', at: '2099-03-04T09:30:00Z' }, chatIn('/Users/jj/Life')) as { id: string; remind: boolean; schedule: string; nextFireAt?: string }
-    expect(entry).toMatchObject({ remind: true, schedule: 'once at 2099-03-04T09:30:00.000Z', nextFireAt: '2099-03-04T09:30:00.000Z' })
+    expect(entry).toMatchObject({ remind: true, schedule: 'once at 2099-03-04T09:30:00.000Z' })
+    expect(entry).not.toHaveProperty('awaitingApproval', true)
     const [stored] = await cron.store.tasks()
     // A reminder has no prompt, runs no agent, and notifies; it lives in the chat's folder.
     expect(stored).toMatchObject({ id: entry.id, name: 'Dentist', prompt: '', remind: true, cwd: '/Users/jj/Life', schedule: { kind: 'at' } })
@@ -64,7 +65,8 @@ describe('the calendar tools', () => {
 
     const listed = await list!.execute({}, chatIn()) as { id: string; title: string }[]
     expect(listed.map(item => item.title)).toEqual(['Dentist'])
-    // Once fired, the entry lists as done with no next fire, and include_done false hides it.
+    // Once approved and fired, the entry lists as done with no next fire, and include_done false hides it.
+    await cron.approveTask(entry.id)
     await cron.fire(entry.id)
     const [fired] = await list!.execute({}, chatIn()) as { done?: string; nextFireAt?: string }[]
     expect(typeof fired?.done).toBe('string')
@@ -88,6 +90,69 @@ describe('the calendar tools', () => {
     expect(tasks[0]).toMatchObject({ name: 'Brief', schedule: { kind: 'weekly', at: '09:00', timeZone: LONDON, days: [1, 2, 3, 4, 5] }, prompt: 'Write the brief.' })
     expect(tasks[0]?.remind).toBeUndefined()
     expect(tasks[1]).toMatchObject({ name: 'Standup', schedule: { kind: 'daily', at: '10:00', timeZone: 'Asia/Tokyo' }, remind: true })
+  })
+
+  it('keeps what an agent adds paused until the person approves it, and says so, except a one-off reminder', async () => {
+    const { cron } = await boot()
+    const [add, list] = createCalendarTools(cron, LONDON)
+    const entries = [
+      await add!.execute({ title: 'Nightly', daily_at: '02:00', prompt: 'Push the build.' }, chatIn('/Users/jj/Briefs')),
+      await add!.execute({ title: 'Every minute', every_seconds: 60 }, chatIn('/Users/jj/Briefs')),
+      await add!.execute({ title: 'Check the deploy', at: '2099-03-04T09:30:00Z', prompt: 'Check the deploy.' }, chatIn('/Users/jj/Briefs')),
+    ] as { id: string; enabled: boolean; awaitingApproval?: boolean; nextFireAt?: string }[]
+    const reminder = await add!.execute({ title: 'Dentist', at: '2099-03-04T09:30:00Z' }, chatIn('/Users/jj/Life')) as { enabled: boolean; nextFireAt?: string }
+    expect(reminder.enabled).toBe(true)
+    expect(reminder.nextFireAt).toBeDefined()
+    for (const entry of entries) {
+      expect(entry).toMatchObject({ enabled: false, awaitingApproval: true })
+      expect(entry.nextFireAt).toBeUndefined()
+      await expect(cron.fire(entry.id)).rejects.toThrow(/waiting for the person to approve/)
+    }
+    const nightly = entries[0]!
+    expect(JSON.stringify(await list!.execute({}, chatIn()))).toContain('awaitingApproval')
+    const armed = await cron.approveTask(nightly.id)
+    expect(armed).toMatchObject({ enabled: true })
+    expect(armed?.awaitingApproval).toBeUndefined()
+    expect((await cron.taskViews()).find(task => task.id === nightly.id)?.nextFireAt).toBeDefined()
+    // Approving twice changes nothing; an unknown id answers nothing.
+    expect(await cron.approveTask(nightly.id)).toMatchObject({ enabled: true })
+    expect(await cron.approveTask('ghost')).toBeUndefined()
+  })
+
+  it('tells the agent the entry is waiting, in the result and the listing', async () => {
+    const { cron } = await boot()
+    const [add, list] = createCalendarTools(cron, LONDON)
+    const entry = await add!.execute({ title: 'Nightly', daily_at: '02:00', prompt: 'x' }, chatIn('/Users/jj/Briefs'))
+    const told = JSON.stringify(add!.output?.render?.({}, entry as never))
+    expect(told).toContain('tell them it is waiting there')
+    const listed = await list!.execute({}, chatIn())
+    expect(JSON.stringify(list!.output?.render?.({}, listed as never))).toContain('waiting for the person to approve it')
+  })
+
+  it('leaves an entry waiting when the person only edits it, and arms the person\'s own entries at once', async () => {
+    const { cron } = await boot()
+    const [add] = createCalendarTools(cron, LONDON)
+    const entry = await add!.execute({ title: 'Nightly', daily_at: '02:00', prompt: 'x' }, chatIn('/Users/jj/Briefs')) as { id: string }
+    const stored = (await cron.store.tasks())[0]!
+    const edited = await cron.saveTask({ ...stored, name: 'Renamed', enabled: true })
+    expect(edited).toMatchObject({ id: entry.id, name: 'Renamed', enabled: false, awaitingApproval: true })
+    // A body claiming approval carries no weight; the flag is the service's own.
+    const claimed = await cron.saveTask({ ...stored, awaitingApproval: false, enabled: true })
+    expect(claimed.awaitingApproval).toBe(true)
+    const own = await cron.saveTask({ name: 'Mine', schedule: { kind: 'daily', at: '09:00', timeZone: LONDON }, prompt: 'x', cwd: '/Users/jj/Briefs' })
+    expect(own.enabled).toBe(true)
+    expect(own.awaitingApproval).toBeUndefined()
+  })
+
+  it('treats turning a waiting entry on as approving it, and refuses one whose time has passed', async () => {
+    const { cron } = await boot()
+    const [add] = createCalendarTools(cron, LONDON)
+    const toggled = await add!.execute({ title: 'A', daily_at: '02:00', prompt: 'x' }, chatIn('/Users/jj/Briefs')) as { id: string }
+    expect(await cron.toggleTask(toggled.id)).toMatchObject({ enabled: true })
+    const soon = await add!.execute({ title: 'B', at: new Date(Date.now() + 40).toISOString(), prompt: 'x' }, chatIn('/Users/jj/Briefs')) as { id: string }
+    await new Promise(resolve => setTimeout(resolve, 60))
+    await expect(cron.approveTask(soon.id)).rejects.toThrow(/time has passed/)
+    expect(ONE_OFF_REMINDERS_WAIT_FOR_APPROVAL).toBe(false)
   })
 
   it('refuses a past one-off, an ambiguous when, a chat without a folder, and weekly without days', async () => {

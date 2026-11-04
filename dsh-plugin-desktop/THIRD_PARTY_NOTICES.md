@@ -248,7 +248,9 @@ the package names, versions, and licenses for transparency.
 | @idealize/models | 1.0.0-dev.0 | MIT |
 | @idealize/notify | 1.0.0-dev.0 | MIT |
 | @idealize/onboarding | 1.0.0-dev.0 | MIT |
+| @idealize/powell | 1.0.0-dev.0 | MIT |
 | @idealize/provider-pack | 1.0.0-dev.0 | MIT |
+| @idealize/router | 1.0.0-dev.0 | MIT |
 | @idealize/services | 1.0.0-dev.0 | MIT |
 | @idealize/setup | 1.0.0-dev.0 | MIT |
 | @idealize/skills | 1.0.0-dev.0 | MIT |
@@ -268,10 +270,10 @@ the package names, versions, and licenses for transparency.
 | @idealize/vault | 1.0.0-dev.0 | MIT |
 | @idealize/web-search-openrouter | 1.0.0-dev.0 | MIT |
 | @img/colour | 1.1.0 | MIT |
-| @img/sharp-darwin-arm64 | 0.35.3 | Apache-2.0 |
-| @img/sharp-darwin-x64 | 0.35.3 | Apache-2.0 |
-| @img/sharp-libvips-darwin-arm64 | 1.3.2 | LGPL-3.0-or-later |
-| @img/sharp-libvips-darwin-x64 | 1.3.2 | LGPL-3.0-or-later |
+| @img/sharp-darwin-arm64 | 0.35.5 | Apache-2.0 |
+| @img/sharp-darwin-x64 | 0.35.5 | Apache-2.0 |
+| @img/sharp-libvips-darwin-arm64 | 1.3.4 | LGPL-3.0-or-later |
+| @img/sharp-libvips-darwin-x64 | 1.3.4 | LGPL-3.0-or-later |
 | @joplin/turndown-plugin-gfm | 1.0.67 | MIT |
 | @koromix/koffi-darwin-arm64 | 3.1.5 | MIT |
 | @koromix/koffi-darwin-x64 | 3.1.5 | MIT |
@@ -333,7 +335,7 @@ the package names, versions, and licenses for transparency.
 | @xterm/addon-fit | 0.11.0 | MIT |
 | @xterm/xterm | 6.0.0 | MIT |
 | accepts | 2.0.0 | MIT |
-| adm-zip | 0.6.0 | MIT |
+| adm-zip | 0.6.1 | MIT |
 | agent-base | 7.1.4 | MIT |
 | ajv | 8.20.0 | MIT |
 | ajv-formats | 3.0.1 | MIT |
@@ -389,7 +391,7 @@ the package names, versions, and licenses for transparency.
 | extend | 3.0.2 | MIT |
 | fast-deep-equal | 3.1.3 | MIT |
 | fast-sha256 | 1.3.0 | Unlicense |
-| fast-uri | 3.1.5 | BSD-3-Clause |
+| fast-uri | 3.1.9 | BSD-3-Clause |
 | fetch-blob | 3.2.0 | MIT |
 | fflate | 0.8.3 | MIT |
 | finalhandler | 2.1.1 | MIT |
@@ -423,7 +425,7 @@ the package names, versions, and licenses for transparency.
 | isexe | 2.0.0 | ISC |
 | jose | 6.2.8 | MIT |
 | js-tokens | 4.0.0 | MIT |
-| js-yaml | 4.3.1 | MIT |
+| js-yaml | 4.3.2 | MIT |
 | json-bigint | 1.0.0 | MIT |
 | json-schema-to-ts | 3.1.1 | MIT |
 | json-schema-traverse | 1.0.0 | MIT |
@@ -511,7 +513,7 @@ the package names, versions, and licenses for transparency.
 | pnpm | 11.7.0 | MIT |
 | property-information | 7.2.0 | MIT |
 | protobufjs | 7.6.5 | BSD-3-Clause |
-| proxy-addr | 2.0.7 | MIT |
+| proxy-addr | 2.0.8 | MIT |
 | qs | 6.15.3 | BSD-3-Clause |
 | range-parser | 1.3.0 | MIT |
 | raw-body | 3.0.2 | MIT |
@@ -531,7 +533,7 @@ the package names, versions, and licenses for transparency.
 | send | 1.2.1 | MIT |
 | serve-static | 2.2.1 | MIT |
 | setprototypeof | 1.2.0 | ISC |
-| sharp | 0.35.3 | Apache-2.0 |
+| sharp | 0.35.5 | Apache-2.0 |
 | shebang-command | 2.0.0 | MIT |
 | shebang-regex | 3.0.0 | MIT |
 | shiki | 4.4.3 | MIT |

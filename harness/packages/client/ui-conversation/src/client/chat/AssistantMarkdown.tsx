@@ -40,7 +40,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
-  const codeLabels = useMemo(() => ({ copyLabel: t('copy'), copiedLabel: t('copied') }), [t])
+  const codeLabels = useMemo(() => ({ copyLabel: t('copy'), copiedLabel: t('copied'), loadImageLabel: t('image.loadRemote') }), [t])
   const last = blocks.length - 1
   // Tool-call heads render as tool rows in the chat view's grouping pass, so
   // a node that is only those heads (or empty) would paint an empty root

@@ -22,7 +22,6 @@
     "src/client/OwlArt.tsx",
     "src/client/RainbowBurst.tsx",
     "src/client/steps.ts",
-    "src/client/ToolsStepBody.tsx"
   ],
   "references": [
     { "path": "../../../vendor/cordis" },

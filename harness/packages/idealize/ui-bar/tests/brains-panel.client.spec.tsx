@@ -1,14 +1,13 @@
 // @vitest-environment jsdom
-// The Brains pane: the three tabs over the /idealize routes — the brains
-// grouped by the space they work in (a brain in two spaces listed under both),
-// each row stating its model as text, each space's own generation-model row
-// and its unavailable state, the agent-role section, the edit sheet asking
-// spaces then the model those spaces narrow it to (the one place a model is
-// chosen) then the instructions and the brain's own routing criteria, and the
-// provider sections (the free-token engine has no controls of its own). The
-// budget tables moved to the Time & cost pane (work-panel.client.spec.tsx).
+// The Brains pane (Paper "Brains rethink", boards 10 to 12): the three tabs over
+// the /idealize routes, one row per brain with a mark for whether it can answer,
+// each row stating its model as text, a place's own generation-model row and its
+// unavailable state, Behind the scenes, the edit sheet with its detail behind
+// More options (the one place a model is chosen), and Accounts (the free-token
+// engine has no controls of its own). The budget tables moved to the Time & cost
+// pane (work-panel.client.spec.tsx).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { RenderResult } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
@@ -64,6 +63,7 @@ const SPACE_ROSTER = {
 }
 /** Whether Motion's refusal is one a key would clear; a test flips it. */
 let motionKeyMissing = true
+let soundBackend = 'mediahub'
 /** The media route's roster: Images chosen, Sound unchosen, Motion unavailable. */
 const MEDIA = () => ({
   presets: [
@@ -88,7 +88,7 @@ const MEDIA = () => ({
       id: 'sound',
       name: 'Sound',
       model: null,
-      candidates: [{ backend: 'mediahub', model: { id: 'tone-a', name: 'Tone A' } }],
+      candidates: [{ backend: soundBackend, model: { id: 'tone-a', name: 'Tone A' } }],
       availability: { state: 'available', backends: ['mediahub'], models: 1 },
     },
   ],
@@ -101,6 +101,9 @@ const WRITER = { id: 'writer', name: 'Writer', activity: false, modelPinned: fal
 
 /** The agents payload a test mounts over; `install` resets it to the shared fixture. */
 let agentsPayload: typeof AGENTS
+
+/** The router payload a test mounts over; `install` resets it to the shared fixture. */
+let routerPayload: object
 
 /** The models-state payload a test mounts over; `install` resets it to the shared fixture. */
 let statePayload: typeof STATE
@@ -142,9 +145,11 @@ function install(): void {
   calls = []
   followed.length = 0
   agentsPayload = AGENTS
+  routerPayload = ROUTER_STATE
   statePayload = STATE
   launchesPayload = LAUNCHES
   motionKeyMissing = true
+  soundBackend = 'mediahub'
   mediaKeys = [{ backend: 'fal', displayName: 'fal.ai', env: 'FAL_KEY', connected: false }]
   servicesList = [
     { id: 'deepseek', kind: 'chat', name: 'DeepSeek', makes: ['chat'], connected: true },
@@ -154,7 +159,7 @@ function install(): void {
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     calls.push({ url, ...init === undefined ? {} : { init } })
     if (url.startsWith('/idealize/models/state')) return Promise.resolve(json(statePayload))
-    if (url === '/idealize/router/state') return Promise.resolve(json(ROUTER_STATE))
+    if (url === '/idealize/router/state') return Promise.resolve(json(routerPayload))
     if (url.startsWith('/idealize/activity/agents')) return Promise.resolve(json(agentsPayload))
     if (url.startsWith('/idealize/terminal/launches')) return Promise.resolve(json(launchesPayload))
     if (url === '/idealize/brains/media' && init?.method !== 'POST') return Promise.resolve(json(MEDIA()))
@@ -205,8 +210,25 @@ const host: BrainsPanelHost = {
 
 async function mount() {
   const view = render(<BrainsPanel host={host} t={t} />)
-  await waitFor(() => { expect(view.getByRole('table', { name: 'Agent roles' })).toBeTruthy() })
+  await waitFor(() => { expect(view.container.querySelector('[data-brains-group="conversation"] [data-brain]')).not.toBeNull() })
   return view
+}
+
+/** The Brains pane with its add sheet open on one place, as the welcome card opens it. */
+async function mountAdding(space: string) {
+  const view = render(<BrainsPanel host={host} t={t} request={{ kind: 'add-brain', space }} />)
+  await waitFor(() => { expect(view.getByRole('form', { name: 'Edit brain' })).toBeTruthy() })
+  return view
+}
+
+/** Open the sheet's More options. */
+const more = (view: RenderResult): void => {
+  fireEvent.click(view.getByRole('button', { name: 'More options' }))
+}
+
+/** Open a brain's sheet from its row. */
+const edit = (view: RenderResult, brain: string): void => {
+  fireEvent.click(within(view.container.querySelector<HTMLElement>(`[data-brain="${brain}"]`)!).getByRole('button', { name: 'Edit' }))
 }
 
 const posts = (path: string): Call[] => calls.filter(call => call.url === path && call.init?.method === 'POST')
@@ -244,26 +266,27 @@ afterEach(() => {
 })
 
 describe('BrainsPanel', () => {
-  /** One space group, by the id its section carries. */
+  /** The group a place's rows sit in: conversation for Chat and Terminal, making for the rest. */
   const group = (view: RenderResult, space: string): HTMLElement => {
-    const found = view.container.querySelector(`[data-brains-space="${space}"]`)
-    if (found === null) throw new Error(`no ${space} group`)
+    const name = space === 'chat' || space === 'terminal' ? 'conversation' : 'making'
+    const found = view.container.querySelector(`[data-brains-group="${name}"]`)
+    if (found === null) throw new Error(`no ${name} group`)
     return found as HTMLElement
   }
 
-  it('opens on Usage with brain rows stating their model as text, and no second picker for the coordinator role', async () => {
+  it('opens on Brains with brain rows stating their model as text, and no second picker for the coordinator role', async () => {
     // JJ, 7 Sep 2026: "drop down not needed in brains - just choose model in edit".
     const view = await mount()
-    expect(view.getByRole('tab', { name: 'Usage', selected: true })).toBeTruthy()
+    expect(view.getByRole('tab', { name: 'Brains', selected: true })).toBeTruthy()
     const chat = group(view, 'chat')
-    // Coding follows the default, marked as such; Design states its override.
     const modelText = (id: string): string | null | undefined =>
       chat.querySelector(`[data-brain="${id}"] [data-brain-model]`)?.getAttribute('data-brain-model')
-    expect(modelText('coding')).toBe('Default · auto')
-    expect(modelText('design')).toBe('gpt-5.5')
-    expect(chat.querySelector('[data-brain="design"] [data-brain-model]')?.textContent).toBe('gpt-5.5')
-    // No row carries a model select; the Edit sheet is where a model is chosen.
-    expect(chat.querySelectorAll('select')).toHaveLength(0)
+    // The row names the model and how it is paid for, never a raw route id.
+    expect(modelText('coding')).toBe('Best free model')
+    expect(modelText('design')).toBe('GPT 5.5 · On your plan')
+    expect(chat.querySelector('[data-brain="design"] [data-brain-model]')?.textContent).toBe('GPT 5.5 · On your plan')
+    // No row carries a per-brain select; the Edit sheet is where a model is chosen.
+    expect(chat.querySelectorAll('[data-brain] select')).toHaveLength(0)
     expect(group(view, 'gallery').querySelectorAll('select')).toHaveLength(0)
     // JJ, 7 Sep 2026: the Project Coordinator row under Agent roles is the
     // role; a "Project leadership" picker beneath it read as the same role twice.
@@ -284,7 +307,7 @@ describe('BrainsPanel', () => {
     const view = await mount()
     fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
     // The sheet names the choice (none yet, so the default) and Change opens the browser.
-    expect(within(modelRow(view)).getByText('Default (follows the default model)')).toBeTruthy()
+    expect(within(modelRow(view)).getByText('Default: Best free model')).toBeTruthy()
     const browser = await openBrowser(view)
     expect(listed(browser)).toEqual(['auto', 'claude', 'Gpt-4', 'gpt-5.5', 'gpt-5.10', 'k3'])
     // Each row names who serves it; Anthropic's carries its terminal-CLI mark.
@@ -298,6 +321,7 @@ describe('BrainsPanel', () => {
     expect(images.getAttribute('data-model-browser')).toBe('image')
     expect(listed(images)).toEqual(['Still A', 'Still B'])
     fireEvent.click(within(images).getByRole('button', { name: 'Cancel' }))
+    more(view)
     expect(listed(await openBrowser(view, 'chatModel'))).toEqual(['auto', 'claude', 'Gpt-4', 'gpt-5.5', 'gpt-5.10', 'k3'])
   })
 
@@ -316,10 +340,70 @@ describe('BrainsPanel', () => {
     const view = await mount()
     const note = group(view, 'gallery').querySelector('[data-brain-access]')
     expect(note?.getAttribute('data-brain-access')).toBe('no-sign-in')
-    expect(note?.textContent).toContain('Not signed in to OpenAI (ChatGPT)')
-    expect(within(note as HTMLElement).queryByRole('button', { name: 'Add key' })).toBeNull()
+    expect(note?.textContent).toContain('Needs a sign-in to OpenAI (ChatGPT).')
+    expect(within(note as HTMLElement).queryByRole('button', { name: 'Connect' })).toBeNull()
     const link = within(note as HTMLElement).getByRole('link', { name: 'Sign in' })
     expect(link.getAttribute('href')).toBe('/idealize/signin')
+  })
+
+  it('offers a key and a sign-in on a route that takes either', async () => {
+    // JJ, 4 Nov 2026: someone holding an OpenRouter key was told to sign in.
+    agentsPayload = {
+      ...AGENTS,
+      agents: AGENTS.agents.map(row => row.id !== 'gallery' ? row : {
+        ...row,
+        model: { provider: 'openrouter', model: 'some/model' },
+        providerName: 'OpenRouter',
+        access: { state: 'unavailable', reason: 'no-access', signInOffered: true, model: { provider: 'openrouter', model: 'some/model' } },
+      }),
+    }
+    const view = await mount()
+    const note = group(view, 'gallery').querySelector('[data-brain-access]') as HTMLElement
+    expect(note.textContent).toContain('Needs an account on OpenRouter.')
+    expect(within(note).getByRole('button', { name: 'Connect' })).toBeTruthy()
+    expect(within(note).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/idealize/signin')
+    expect(view.container.querySelector('[data-service="openrouter"]')).toBeNull()
+  })
+
+  it('asks a brain for a chat key when it works in Chat, but not when it only runs in a terminal with its own login', async () => {
+    const needsKey = { state: 'unavailable', reason: 'no-access', signInOffered: true, model: { provider: 'openrouter', model: 'some/model' } }
+    const base = { activity: false, modelPinned: false, model: { provider: 'openrouter', model: 'some/model' }, providerName: 'OpenRouter', overridden: false, instructions: '', access: needsKey }
+    agentsPayload = {
+      ...AGENTS,
+      agents: [
+        ...AGENTS.agents,
+        { ...base, id: 'both', name: 'Both', spaces: ['chat', 'terminal'] },
+        { ...base, id: 'pilot', name: 'Pilot', spaces: ['terminal'] },
+      ],
+    }
+    const view = await mount()
+    const row = (id: string): Element => group(view, 'chat').querySelector(`[data-brain="${id}"]`)!
+    expect(row('both').querySelector('[data-brain-access]')).not.toBeNull()
+    expect(row('both').querySelector('[data-brain-mark]')?.getAttribute('data-brain-mark')).toBe('needs')
+    expect(row('pilot').querySelector('[data-brain-access]')).toBeNull()
+    expect(row('pilot').querySelector('[data-brain-mark]')?.getAttribute('data-brain-mark')).toBe('ready')
+  })
+
+  it('opens the route\'s own key field from Add key', async () => {
+    // The editor sheet never listed OpenRouter, so the button led nowhere.
+    agentsPayload = {
+      ...AGENTS,
+      agents: AGENTS.agents.map(row => row.id !== 'gallery' ? row : {
+        ...row,
+        model: { provider: 'fal', model: 'some/model' },
+        access: { state: 'unavailable', reason: 'no-access', model: { provider: 'fal', model: 'some/model' } },
+      }),
+    }
+    const view = await mount()
+    const note = group(view, 'gallery').querySelector('[data-brain-access]') as HTMLElement
+    fireEvent.click(within(note).getByRole('button', { name: 'Connect' }))
+    const row = await waitFor(() => {
+      const found = view.container.querySelector('[data-service="fal"]')
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(row.querySelector('input[type="password"]')).not.toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('asks a generating brain for its chat model too, and saves it as the brain\'s own override', async () => {
@@ -332,9 +416,12 @@ describe('BrainsPanel', () => {
     const view = await mount()
     fireEvent.click(within(group(view, 'gallery')).getByRole('button', { name: 'Edit' }))
     const sheet = view.getByRole('form', { name: 'Edit brain' })
-    expect([...sheet.querySelectorAll('[data-brains-field]')].map(node => node.getAttribute('data-brains-field')))
-      .toEqual(['spaces', 'name', 'model', 'chat-model', 'instructions'])
-    expect(within(sheet).getByRole('group', { name: 'Generation model' })).toBeTruthy()
+    // The plain questions come first; the detail waits behind More options.
+    const fields = (): (string | null)[] => [...sheet.querySelectorAll('[data-brains-field]')].map(node => node.getAttribute('data-brains-field'))
+    expect(fields()).toEqual(['name', 'what', 'model'])
+    more(view)
+    expect(fields()).toEqual(['name', 'what', 'model', 'spaces', 'chat-model'])
+    expect(within(sheet).getByRole('group', { name: 'Runs on' })).toBeTruthy()
     // No override yet, so the field follows the default.
     expect(within(sheet).getByRole('group', { name: 'Chat model' }).getAttribute('data-value')).toBe('')
     await choose(view, 'anthropic claude', 'chatModel')
@@ -354,58 +441,102 @@ describe('BrainsPanel', () => {
     document.removeEventListener('idealize:brains-changed', changed)
     // A Chat brain's sheet has the one model field, as before.
     fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
+    more(view)
     expect(within(view.getByRole('form', { name: 'Edit brain' })).queryByRole('group', { name: 'Chat model' })).toBeNull()
   })
 
-  it('groups the brains under the five space headings in the roster order', async () => {
+  it('lists each brain once, conversation first, then making, then one way to add a brain', async () => {
     const view = await mount()
-    expect([...view.container.querySelectorAll('[data-brains-space]')]
-      .map(node => node.getAttribute('data-brains-space')))
-      .toEqual(['chat', 'terminal', 'gallery', 'soundstage', 'motion'])
-    // Each group's rows, in order: its brains, then the space's own
-    // generation-model row where the space generates.
-    const rows = (space: string): (string | null)[] =>
-      [...group(view, space).querySelectorAll('[role="row"] > span:first-child')].map(cell => cell.textContent)
-    expect(rows('chat')).toEqual(['Coding', 'Design', 'Free'])
-    // The Terminal group closes with the Default CLI row (the launch every brain without its own choice types).
-    expect(rows('terminal')).toEqual(['Coding', 'Design', 'Default CLI'])
-    // The Gallery brain states the space's model, so no Images row repeats it.
-    expect(rows('gallery')).toEqual(['Gallery agent'])
-    expect(rows('soundstage')).toEqual(['Sounds'])
-    expect(rows('motion')).toEqual(['Video'])
-    // Every group offers its own add row, and the headings name the spaces.
-    expect(view.getAllByRole('button', { name: 'Add a brain' })).toHaveLength(5)
-    for (const label of ['Chat', 'Terminal', 'Images', 'Sounds', 'Video']) {
-      expect(view.getByRole('table', { name: label })).toBeTruthy()
-    }
+    const brains = (name: string): (string | null)[] =>
+      [...view.container.querySelectorAll(`[data-brains-group="${name}"] [data-brain]`)].map(row => row.getAttribute('data-brain'))
+    expect(brains('conversation')).toEqual(['coding', 'design', 'free'])
+    expect(brains('making')).toEqual(['gallery'])
+    // Where a brain works reads on its one row.
+    expect(group(view, 'chat').querySelector('[data-brain="coding"] [data-brain-places]')?.textContent).toBe('Chat · Terminal')
+    expect(group(view, 'chat').querySelector('[data-brain="free"] [data-brain-places]')?.textContent).toBe('Chat')
+    // A brain's purpose is stated in words.
+    expect(group(view, 'chat').querySelector('[data-brain="coding"] [data-brain-purpose]')?.textContent).toBe('Builds and changes software')
+    // The Gallery brain states the place's model, so no Images row repeats it;
+    // a place with no brain keeps its own row.
+    expect([...group(view, 'gallery').querySelectorAll('[data-media-preset]')].map(row => row.getAttribute('data-media-preset')))
+      .toEqual(['sound', 'motion'])
+    expect(view.getAllByRole('button', { name: 'Add a brain' })).toHaveLength(1)
+    expect(group(view, 'chat').querySelector('[data-terminal-default-cli]')).not.toBeNull()
   })
 
-  it('lists Free under Chat alone, its pinned model stated, and the Terminal group lists the others', async () => {
+  it('marks whether each brain can answer, and the strip agrees with the rows', async () => {
+    // JJ, 4 Nov 2026: "i also like the stronger indicator to say whether or not
+    // something is actually working".
+    const view = await mount()
+    const mark = (id: string): string | null | undefined =>
+      view.container.querySelector(`[data-brain="${id}"] [data-brain-mark]`)?.getAttribute('data-brain-mark')
+    expect(mark('coding')).toBe('ready')
+    // Its generation model is there, but the chat route driving it has no key.
+    expect(mark('gallery')).toBe('needs')
+    const strip = (id: string): string | null | undefined =>
+      [...view.container.querySelectorAll('[data-space-status]')].find(node => node.textContent?.includes(id))?.getAttribute('data-space-status')
+    await waitFor(() => { expect(strip('Chat')).toBe('ready') })
+    expect(strip('Images')).toBe('needs')
+    expect(strip('Sounds')).toBe('ready')
+    expect(strip('Video')).toBe('needs')
+    // Chat works, so the setup line stays away.
+    expect(view.container.querySelector('[data-brains-readiness]')).toBeNull()
+    // A place that needs attention leads to Accounts.
+    fireEvent.click([...view.container.querySelectorAll('[data-space-status="needs"]')][0]!)
+    expect(view.getByRole('tab', { name: 'Accounts', selected: true })).toBeTruthy()
+  })
+
+  it('asks for an account only while no chat brain can answer', async () => {
+    const blocked = { state: 'unavailable', reason: 'no-access', model: { provider: 'openrouter', model: 'some/model' } }
+    agentsPayload = {
+      ...AGENTS,
+      agents: AGENTS.agents.map(row => (row.spaces as readonly string[]).includes('chat') ? { ...row, access: blocked } as unknown as typeof row : row),
+    }
+    const view = await mount()
+    const line = await waitFor(() => {
+      const found = view.container.querySelector<HTMLElement>('[data-brains-readiness]')
+      expect(found).not.toBeNull()
+      return found!
+    })
+    expect(line.textContent).toContain('Connect an account so these brains can answer.')
+    fireEvent.click(within(line).getByRole('button', { name: 'Connect' }))
+    expect(view.getByRole('tab', { name: 'Accounts', selected: true })).toBeTruthy()
+  })
+
+  it('lists Free with its pinned model stated and Edit beside it', async () => {
     const view = await mount()
     const chatRow = group(view, 'chat').querySelector('[data-brain="free"]')
     if (chatRow === null) throw new Error('Free is missing from chat')
     const pinned = chatRow.querySelector('[data-brain-pinned]')
-    expect(pinned?.textContent).toBe('auto')
-    expect(pinned?.getAttribute('data-brain-model')).toBe('auto')
+    expect(pinned?.textContent).toBe('Best free model')
+    expect(pinned?.getAttribute('data-brain-model')).toBe('Best free model')
     expect(within(chatRow as HTMLElement).getByRole('button', { name: 'Edit' })).toBeTruthy()
-    // Free's `spaces` names Chat only, so the Terminal group does not list it.
-    expect(group(view, 'terminal').querySelector('[data-brain="free"]')).toBeNull()
-    expect([...group(view, 'terminal').querySelectorAll('[data-brain]')].map(row => row.getAttribute('data-brain')))
-      .toEqual(['coding', 'design'])
   })
 
-  it('lists only the spaceless brains under Agent roles', async () => {
+  it('says Free models are not set up, and leads to their page, when Free has no model', async () => {
+    agentsPayload = {
+      ...AGENTS,
+      agents: AGENTS.agents.map(row => row.id !== 'free' ? row : { ...row, model: null, access: { state: 'unavailable', reason: 'no-model' } } as unknown as typeof row),
+    }
     const view = await mount()
-    const others = view.getByRole('table', { name: 'Agent roles' })
-    expect([...others.querySelectorAll('[role="row"] > span:first-child')].map(cell => cell.textContent))
-      .toEqual(['Lead Agent'])
-    expect(within(others).getByRole('button', { name: 'Add agent role' })).toBeTruthy()
+    const row = group(view, 'chat').querySelector<HTMLElement>('[data-brain="free"]')!
+    expect(row.querySelector('[data-brain-access]')?.textContent).toContain('Free models aren\'t set up yet.')
+    expect(within(row).getByRole('link', { name: 'Set up' }).getAttribute('href')).toBe('/idealize/freetokens')
+  })
+
+  it('keeps only the spaceless brains behind the scenes', async () => {
+    const view = await mount()
+    expect(view.container.querySelector('[data-brains-behind] summary')?.textContent).toBe('Behind the scenes (1)')
+    const others = view.container.querySelector<HTMLElement>('[data-brains-behind]')!
+    expect([...others.querySelectorAll('[data-brain]')].map(row => row.getAttribute('data-brain'))).toEqual(['lead-agent'])
+    expect(others.querySelector('[data-brain="lead-agent"] [data-brain-places]')).toBeNull()
+    expect(within(others).getByRole('button', { name: 'Add agent role', hidden: true })).toBeTruthy()
   })
 
   it('states a chat brain\'s model on its row and saves a new choice through the sheet alone', async () => {
     const view = await mount()
     const row = group(view, 'chat').querySelector<HTMLElement>('[data-brain="coding"]')!
-    expect(row.querySelector('[data-brain-model]')?.getAttribute('data-brain-model')).toBe('Default · auto')
+    expect(row.querySelector('[data-brain-model]')?.getAttribute('data-brain-model')).toBe('Best free model')
     expect(row.querySelector('select')).toBeNull()
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }))
     // The sheet opens on the row's current choice: none, so the default.
@@ -447,8 +578,21 @@ describe('BrainsPanel', () => {
     // generate call falls to while nothing is chosen, as text; adding a brain
     // for the space is where that model gets chosen.
     const sound = group(view, 'soundstage').querySelector<HTMLElement>('[data-media-preset="sound"]')!
-    expect(sound.querySelector('[data-brain-model]')?.getAttribute('data-brain-model')).toBe('Default · Tone A')
+    expect(sound.querySelector('[data-brain-model]')?.getAttribute('data-brain-model')).toBe('Tone A')
     expect(sound.querySelector('select')).toBeNull()
+  })
+
+  it('does not tick a generating brain whose only models sit on a service with no key', async () => {
+    // The route says available from a public catalogue, which nobody can run without the key.
+    soundBackend = 'fal'
+    const view = await mount()
+    const row = await waitFor(() => {
+      const found = view.container.querySelector('[data-media-preset="sound"]')
+      expect(found).not.toBeNull()
+      return found!
+    })
+    await waitFor(() => { expect(row.querySelector('[data-media-reason]')?.textContent).toBe('Needs a fal.ai account.') })
+    expect(row.querySelector('[data-brain-mark]')?.getAttribute('data-brain-mark')).toBe('needs')
   })
 
   it("states Motion's live reason in its own group, with the add-key recovery only while a key is what is missing", async () => {
@@ -457,14 +601,14 @@ describe('BrainsPanel', () => {
     expect(within(motion).queryByRole('combobox')).toBeNull()
     expect(motion.querySelector('[data-media-reason]')?.getAttribute('data-media-reason')).toBe('no-compatible-model')
     expect(within(motion).getByText(MOTION_RECOVERY)).toBeTruthy()
-    fireEvent.click(within(motion).getByRole('button', { name: 'Add OpenRouter key' }))
+    fireEvent.click(within(motion).getByRole('button', { name: 'Connect OpenRouter' }))
     expect(view.getByTestId('provider-editor')).toBeTruthy()
     cleanup()
     // With the key stored and the catalogue empty, a key action would mislead.
     motionKeyMissing = false
     const connected = await mount()
     expect(within(group(connected, 'motion')).getByText(MOTION_RECOVERY)).toBeTruthy()
-    expect(within(group(connected, 'motion')).queryByRole('button', { name: 'Add OpenRouter key' })).toBeNull()
+    expect(within(group(connected, 'motion')).queryByRole('button', { name: 'Connect OpenRouter' })).toBeNull()
   })
 
   it('marks a brain whose route runs as a CLI in the terminal, in its row, its picker groups and under Subscriptions', async () => {
@@ -473,21 +617,21 @@ describe('BrainsPanel', () => {
     const row = (await view.findAllByText('Writer'))[0]!.closest('[data-brain]') as HTMLElement
     const note = row.querySelector('[data-brain-access]')
     expect(note?.getAttribute('data-brain-access')).toBe('terminal-only')
-    expect(note?.textContent).toContain('Runs as the claude CLI in the terminal, on its subscription. Chat needs an API key.')
-    // JJ's 31 Aug decision: the terminal keeps the subscription, chat gets the API option — so Add key stays.
-    expect(within(note as HTMLElement).getByRole('button', { name: 'Add key' })).toBeTruthy()
+    expect(note?.textContent).toContain('Runs as claude in a terminal, on its own login. Chat needs an account.')
+    // JJ's 31 Aug decision: the terminal keeps the subscription, chat gets the API option, so the key action stays.
+    expect(within(note as HTMLElement).getByRole('button', { name: 'Connect' })).toBeTruthy()
     // The row states the model; the browser carries the mark on the route's models.
-    expect(row.querySelector('[data-brain-model]')?.getAttribute('data-brain-model')).toBe('claude-opus-5')
+    expect(row.querySelector('[data-brain-model]')?.getAttribute('data-brain-model')).toBe('Claude Opus 5 · Pay as you go')
     fireEvent.click(within(row).getByRole('button', { name: 'Edit' }))
     const browser = await openBrowser(view)
     expect(browser.querySelector('[data-browser-row="anthropic claude"] [data-browser-byline]')?.textContent)
       .toBe('Anthropic · claude CLI in the terminal')
     fireEvent.click(within(browser).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
     const cli = view.container.querySelector('[data-terminal-cli="claude"]') as HTMLElement
     expect(cli.textContent).toContain('Anthropic')
-    expect(cli.textContent).toContain('Runs as the claude CLI in the terminal, on its subscription')
+    expect(cli.textContent).toContain('Runs in a terminal as claude, on your plan')
     expect(cli.textContent).toContain('Installed')
     // The chat-side option: the CLI row opens the provider editor for a key.
     fireEvent.click(within(cli).getByRole('button', { name: 'Add key for chat' }))
@@ -508,7 +652,7 @@ describe('BrainsPanel', () => {
     expect(browser.querySelector('[data-browser-row="anthropic claude"] [data-browser-byline]')?.textContent).toBe('Anthropic')
     fireEvent.click(within(browser).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
     const cli = view.container.querySelector('[data-terminal-cli="claude"]') as HTMLElement
     expect(within(cli).getByRole('button', { name: 'Manage' })).toBeTruthy()
     // With the key stored the route also reads as a connected service.
@@ -521,21 +665,19 @@ describe('BrainsPanel', () => {
     const view = await mount()
     const row = group(view, 'gallery').querySelector('[data-brain="gallery"]')!
     expect(row.querySelector('[data-brain-access]')?.getAttribute('data-brain-access')).toBe('no-access')
-    expect(row.textContent).toContain('No key for Deepseek-official')
+    expect(row.textContent).toContain('Needs an account on Deepseek-official.')
     // Ready brains carry no mark.
     expect(group(view, 'chat').querySelector('[data-brain-access]')).toBeNull()
-    fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'Add key' }))
+    fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'Connect' }))
     expect(view.getByTestId('provider-editor')).toBeTruthy()
   })
 
-  it('asks a space group\'s add row for spaces, then the model, then the instructions', async () => {
-    const view = await mount()
-    fireEvent.click(within(group(view, 'gallery')).getByRole('button', { name: 'Add a brain' }))
+  it('asks a new brain everything at once, with the model narrowed to the place it was added for', async () => {
+    const view = await mountAdding('gallery')
     const sheet = view.getByRole('form', { name: 'Edit brain' })
-    // The fields in the order the flow asks them: spaces first, then the
-    // model those spaces narrow, then the instructions.
+    // A new brain has no answers to tuck away, so nothing waits behind More options.
     expect([...sheet.querySelectorAll('[data-brains-field]')].map(node => node.getAttribute('data-brains-field')))
-      .toEqual(['spaces', 'name', 'model', 'chat-model', 'instructions'])
+      .toEqual(['name', 'what', 'instructions', 'model', 'spaces', 'chat-model'])
     // Gallery is checked, and nothing else is.
     const checked = [...sheet.querySelectorAll('input[type="checkbox"]')]
       .filter(box => (box as HTMLInputElement).checked)
@@ -550,7 +692,7 @@ describe('BrainsPanel', () => {
     expect(listed(gallery)).toEqual(['Still A', 'Still B'])
     fireEvent.click(within(gallery).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
-    fireEvent.click(within(group(view, 'chat')).getByRole('button', { name: 'Add a brain' }))
+    fireEvent.click(view.getByRole('button', { name: 'Add a brain' }))
     expect(listed(await openBrowser(view)).length).toBeGreaterThan(2)
   })
 
@@ -559,7 +701,7 @@ describe('BrainsPanel', () => {
   // body, and the actions sit outside it, as the sheet's last child.
   it('keeps the sheet\'s actions outside the region that scrolls', async () => {
     const view = await mount()
-    fireEvent.click(within(group(view, 'chat')).getByRole('button', { name: 'Add a brain' }))
+    fireEvent.click(view.getByRole('button', { name: 'Add a brain' }))
     const sheet = view.getByRole('form', { name: 'Edit brain' })
     const body = sheet.querySelector('[data-brains-sheet-body]') as HTMLElement
     expect([...sheet.querySelectorAll('[data-brains-field]')].every(field => body.contains(field))).toBe(true)
@@ -570,8 +712,7 @@ describe('BrainsPanel', () => {
   })
 
   it('persists the chosen space, and the space model, when a new brain is saved', async () => {
-    const view = await mount()
-    fireEvent.click(within(group(view, 'gallery')).getByRole('button', { name: 'Add a brain' }))
+    const view = await mountAdding('gallery')
     const sheet = view.getByRole('form', { name: 'Edit brain' })
     fireEvent.change(sheet.querySelector('input[type="text"], input:not([type])')!, { target: { value: 'Poster' } })
     await choose(view, 'mediahub still-b')
@@ -596,6 +737,11 @@ describe('BrainsPanel', () => {
     const sheet = view.getByRole('form', { name: 'Edit brain' })
     const name = sheet.querySelector('input[type="text"], input:not([type])') as HTMLInputElement
     expect(name.value).toBe('Coding')
+    // Its purpose reads first; the full instructions wait one click down.
+    expect(sheet.querySelector('[data-brains-purpose]')?.textContent).toBe('Builds and changes software')
+    expect(sheet.querySelector('textarea')).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: 'See its full instructions' }))
+    more(view)
     // An edited brain arrives with its own spaces checked, so saving cannot
     // silently drop it out of a group.
     expect([...sheet.querySelectorAll('[data-brains-field="spaces"] input[type="checkbox"]')]
@@ -621,7 +767,7 @@ describe('BrainsPanel', () => {
 
   it('adds an agent role through the same sheet, in no space and without an id', async () => {
     const view = await mount()
-    fireEvent.click(view.getByRole('button', { name: 'Add agent role' }))
+    fireEvent.click(view.getByRole('button', { name: 'Add agent role', hidden: true }))
     const sheet = view.getByRole('form', { name: 'Edit brain' })
     expect(view.getByText('New brain')).toBeTruthy()
     expect(sheet.querySelectorAll('input[type="checkbox"]:checked')).toHaveLength(0)
@@ -636,7 +782,7 @@ describe('BrainsPanel', () => {
 
   it('drops a chosen model when the spaces move it to the other catalogue', async () => {
     const view = await mount()
-    fireEvent.click(within(group(view, 'chat')).getByRole('button', { name: 'Add a brain' }))
+    fireEvent.click(view.getByRole('button', { name: 'Add a brain' }))
     const sheet = view.getByRole('form', { name: 'Edit brain' })
     await choose(view, 'anthropic claude')
     expect(modelRow(view).getAttribute('data-value')).toBe('anthropic claude')
@@ -667,86 +813,88 @@ describe('BrainsPanel', () => {
       .map(box => (box.parentElement?.textContent ?? '').trim())).toEqual(['Sounds'])
   })
 
-  it('states each Terminal brain\'s CLI on its row and chooses it in the sheet, beside the model', async () => {
+  it('states a terminal-only brain\'s tool on its row and chooses it in the sheet, beside the model', async () => {
+    // JJ, 10 Sep 2026: the row states the launch, the sheet asks it: one place
+    // chooses what a brain runs, and it is the same place as the model.
+    agentsPayload = {
+      ...AGENTS,
+      agents: [...AGENTS.agents, { ...AGENTS.agents[1]!, id: 'pilot', name: 'Pilot', spaces: ['terminal'] } as unknown as typeof AGENTS.agents[number]],
+    }
+    launchesPayload = { ...LAUNCHES, byActivity: { design: 'codex', pilot: 'codex' } }
     const view = await mount()
-    const terminal = group(view, 'terminal')
-    // JJ, 10 Sep 2026: the row states the launch, the sheet asks it — one
-    // place chooses what a brain runs, and it is the same place as the model.
-    expect(terminal.querySelector('[data-brain="design"] [data-brain-model]')?.textContent).toBe('Codex CLI · gpt-5.5')
-    expect(within(terminal).queryByRole('combobox', { name: 'Design CLI' })).toBeNull()
-    const designRow = terminal.querySelector('[data-brain="design"]') as HTMLElement
-    fireEvent.click(within(designRow).getByRole('button', { name: 'Edit' }))
+    const list = group(view, 'terminal')
+    await waitFor(() => { expect(list.querySelector('[data-brain="pilot"] [data-brain-model]')?.textContent).toBe('Codex CLI') })
+    // A brain that also works in Chat reads its chat model.
+    expect(list.querySelector('[data-brain="design"] [data-brain-model]')?.textContent).toBe('GPT 5.5 · On your plan')
+    edit(view, 'design')
+    more(view)
     const sheet = view.getByRole('form', { name: 'Edit brain' })
-    const cli = within(sheet).getByRole('combobox', { name: 'Terminal CLI' }) as HTMLSelectElement
+    const cli = within(sheet).getByRole('combobox', { name: 'In a terminal, runs with' }) as HTMLSelectElement
     expect(cli.value).toBe('codex')
-    // A CLI the login shell cannot find is not offered to a brain not on it.
+    // A tool the login shell cannot find is not offered to a brain not on it.
     expect([...cli.options].map(option => option.textContent))
       .toEqual(['Default (Claude Code)', 'Claude Code', 'Codex CLI', 'Plain shell'])
-    // The sheet asks the model too: a CLI brings its own, which this app cannot enumerate.
+    // The sheet asks the model too: a tool brings its own, which this app cannot enumerate.
     expect(sheet.querySelector('[data-brains-model-row="model"]')).not.toBeNull()
     fireEvent.change(cli, { target: { value: '' } })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Save brain' }))
     await waitFor(() => { expect(posts('/idealize/terminal/launch')).toHaveLength(1) })
     expect(sent(posts('/idealize/terminal/launch')[0]!)).toEqual({ activity: 'design', command: '' })
-    // Which CLI a shell types by default stays a Terminal-group row: it belongs to no brain.
-    const fallback = within(group(view, 'terminal')).getByRole('combobox', { name: 'Default CLI' }) as HTMLSelectElement
+    // Which tool a shell types by default stays its own row: it belongs to no brain.
+    const fallback = within(group(view, 'terminal')).getByRole('combobox', { name: 'In a terminal, brains run with' }) as HTMLSelectElement
     expect(fallback.value).toBe('cli:claude-code')
     fireEvent.change(fallback, { target: { value: 'cli:codex' } })
     await waitFor(() => { expect(posts('/idealize/terminal/launch')).toHaveLength(2) })
     expect(sent(posts('/idealize/terminal/launch')[1]!)).toEqual({ command: 'codex' })
-    // The Chat group states the model alone; no row carries a per-brain select.
-    const chat = group(view, 'chat')
-    expect(chat.querySelector('[data-brain="design"] [data-brain-model]')?.getAttribute('data-brain-model')).toBe('gpt-5.5')
-    expect(chat.querySelectorAll('select')).toHaveLength(0)
-    // A chat route's key state stays off the Terminal rows: the shell launches a CLI.
-    expect(terminal.querySelector('[data-brain-access]')).toBeNull()
-    expect(chat.querySelector('[data-brain-access]')).toBeNull()
   })
 
-  it('keeps a stored choice of a missing CLI visible, marked, rather than silently rereading it', async () => {
-    launchesPayload = { ...LAUNCHES, byActivity: { design: 'gemini' } }
+  it('keeps a stored choice of a missing tool visible, marked, rather than silently rereading it', async () => {
+    agentsPayload = {
+      ...AGENTS,
+      agents: [...AGENTS.agents, { ...AGENTS.agents[1]!, id: 'pilot', name: 'Pilot', spaces: ['terminal'] } as unknown as typeof AGENTS.agents[number]],
+    }
+    launchesPayload = { ...LAUNCHES, byActivity: { pilot: 'gemini' } }
     const view = await mount()
-    const terminal = group(view, 'terminal')
-    await waitFor(() => {
-      expect(terminal.querySelector('[data-brain="design"] [data-brain-model]')?.textContent)
-        .toBe('Gemini CLI · gpt-5.5')
-    })
-    fireEvent.click(within(terminal.querySelector('[data-brain="design"]') as HTMLElement)
-      .getByRole('button', { name: 'Edit' }))
+    const list = group(view, 'terminal')
+    await waitFor(() => { expect(list.querySelector('[data-brain="pilot"] [data-brain-model]')?.textContent).toBe('Gemini CLI') })
+    expect(list.querySelector('[data-brain="pilot"] [data-brain-mark]')?.getAttribute('data-brain-mark')).toBe('needs')
+    edit(view, 'pilot')
+    more(view)
     const cli = within(view.getByRole('form', { name: 'Edit brain' }))
-      .getByRole('combobox', { name: 'Terminal CLI' }) as HTMLSelectElement
+      .getByRole('combobox', { name: 'In a terminal, runs with' }) as HTMLSelectElement
     expect(cli.value).toBe('gemini')
     expect([...cli.options].map(option => option.textContent))
       .toEqual(['Default (Claude Code)', 'Claude Code', 'Codex CLI', 'Gemini CLI · not found on this Mac', 'Plain shell'])
   })
 
-  it('states the model on Terminal rows, like any other row, where the launches route serves no catalogue (plain browser)', async () => {
+  it('offers no tool choice where the launches route serves no catalogue (plain browser)', async () => {
     launchesPayload = { default: '', byActivity: {} }
     const view = await mount()
-    const terminal = group(view, 'terminal')
-    expect(within(terminal).queryByRole('combobox', { name: 'Design CLI' })).toBeNull()
-    expect(terminal.querySelectorAll('select')).toHaveLength(0)
-    expect(terminal.querySelector('[data-brain="design"] [data-brain-model]')?.getAttribute('data-brain-model')).toBe('gpt-5.5')
-    expect(terminal.querySelector('[data-terminal-default-cli]')).toBeNull()
+    const list = group(view, 'terminal')
+    expect(list.querySelectorAll('select')).toHaveLength(0)
+    expect(list.querySelector('[data-terminal-default-cli]')).toBeNull()
+    // No catalogue is no verdict, so the strip does not call Terminal broken.
+    await waitFor(() => {
+      expect([...view.container.querySelectorAll('[data-space-status]')].find(node => node.textContent?.includes('Terminal'))?.getAttribute('data-space-status')).toBe('ready')
+    })
   })
 
   it('lists subscriptions, and gives the free-token engine no controls of its own', async () => {
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
     expect(view.getByText('OpenAI (ChatGPT)')).toBeTruthy()
     // Anthropic has no key and a terminal CLI serves its route, so it lists once, under Subscriptions as that CLI.
     expect(view.getAllByText('Anthropic')).toHaveLength(1)
-    expect(view.getByText('Runs as the claude CLI in the terminal, on its subscription')).toBeTruthy()
-    // Every chat provider holds a key, so no row reports one missing.
-    expect(view.queryAllByText('Key missing')).toHaveLength(0)
+    expect(view.getByText('Runs in a terminal as claude, on your plan')).toBeTruthy()
     // The engine follows the asking brain's priorities, so the tab carries no strategy select and no sliders for it.
-    expect(view.getByText('Picks a provider on the priorities of the brain that asks · 2 models')).toBeTruthy()
+    expect(view.getByText('Free. Suits light questions. 2 models ready.')).toBeTruthy()
+    expect(view.container.querySelector('[data-accounts-free] a')?.getAttribute('href')).toBe('/idealize/freetokens')
     expect(view.queryByRole('combobox', { name: 'Routing strategy' })).toBeNull()
     expect(view.queryAllByRole('slider')).toHaveLength(0)
     expect(calls.some(call => call.url.startsWith('/idealize/freetokens/routing'))).toBe(false)
     // The re-hosted provider editor is now the marked advanced route, reached
     // from the add list rather than from a "+" that led straight to a URL field.
-    fireEvent.click(view.getByRole('button', { name: 'Add a service' }))
+    fireEvent.click(view.getByRole('button', { name: 'Search all 3 services' }))
     fireEvent.click(await view.findByText('Something else\u2026'))
     expect(view.getByTestId('provider-editor')).toBeTruthy()
   })
@@ -755,13 +903,14 @@ describe('BrainsPanel', () => {
     const view = await mount()
     fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
     const sheet = view.getByRole('form', { name: 'Edit brain' })
+    more(view)
     // Coding opens on its shipped row over the app-wide level.
     await waitFor(() => { expect(within(sheet).getByRole<HTMLInputElement>('slider', { name: 'Intelligence' }).value).toBe('80') })
     expect(within(sheet).getAllByRole('slider').map(slider => slider.getAttribute('aria-label')))
-      .toEqual(['Model flexibility', 'Low cost', 'Speed', 'Intelligence'])
+      .toEqual(['How readily it moves', 'Low cost', 'Speed', 'Intelligence'])
     expect(within(sheet).getByRole<HTMLInputElement>('slider', { name: 'Low cost' }).value).toBe('10')
-    expect(within(sheet).getByRole<HTMLInputElement>('slider', { name: 'Model flexibility' }).value).toBe('1')
-    fireEvent.change(within(sheet).getByRole('slider', { name: 'Model flexibility' }), { target: { value: '2' } })
+    expect(within(sheet).getByRole<HTMLInputElement>('slider', { name: 'How readily it moves' }).value).toBe('1')
+    fireEvent.change(within(sheet).getByRole('slider', { name: 'How readily it moves' }), { target: { value: '2' } })
     fireEvent.change(within(sheet).getByRole('slider', { name: 'Speed' }), { target: { value: '40' } })
     fireEvent.click(view.getByRole('button', { name: 'Save brain' }))
     await waitFor(() => { expect(posts('/idealize/router/brain')).toHaveLength(1) })
@@ -770,31 +919,53 @@ describe('BrainsPanel', () => {
     })
   })
 
-  it('leaves a brain\u2019s criteria alone when no slider moved, and hides them once routing is off for it', async () => {
+  it('leaves a brain\u2019s criteria alone when nothing moved, and hides them once auto-switch is off for it', async () => {
     const view = await mount()
     fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
     const sheet = view.getByRole('form', { name: 'Edit brain' })
+    more(view)
     await waitFor(() => { expect(within(sheet).getAllByRole('slider')).toHaveLength(4) })
+    expect(sheet.querySelector('[data-brains-field="matters"]')).not.toBeNull()
     fireEvent.click(sheet.querySelector('[data-brains-field="routed"] input')!)
     expect(within(sheet).queryAllByRole('slider')).toHaveLength(0)
+    expect(sheet.querySelector('[data-brains-field="matters"]')).toBeNull()
     fireEvent.click(view.getByRole('button', { name: 'Save brain' }))
     await waitFor(() => { expect(view.queryByRole('form', { name: 'Edit brain' })).toBeNull() })
     expect(posts('/idealize/router/brain')).toHaveLength(0)
   })
 
-  it('leaves the router controls out of a sheet opened from the Terminal group, and captions them in Chat', async () => {
+  it('asks what matters most in three plain choices, which write the same three weights', async () => {
     const view = await mount()
-    // Coding works in Chat and Terminal; from the Terminal group its sheet
-    // asks nothing the router cannot honour there.
-    fireEvent.click(within(group(view, 'terminal')).getAllByRole('button', { name: 'Edit' })[0]!)
+    edit(view, 'coding')
+    const sheet = view.getByRole('form', { name: 'Edit brain' })
+    const pressed = (): string | null | undefined => sheet.querySelector('[data-brains-matter][aria-pressed="true"]')?.getAttribute('data-brains-matter')
+    // Coding ships leaning on intelligence, so it reads as Best answers.
+    await waitFor(() => { expect(pressed()).toBe('best') })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Low cost' }))
+    expect(pressed()).toBe('cost')
+    fireEvent.click(view.getByRole('button', { name: 'Save brain' }))
+    await waitFor(() => { expect(posts('/idealize/router/brain')).toHaveLength(1) })
+    expect(sent(posts('/idealize/router/brain')[0]!)).toEqual({
+      brain: 'coding', aggressiveness: 'balanced', cost: 90, speed: 50, intelligence: 20,
+    })
+  })
+
+  it('leaves the auto-switch controls out of a terminal-only brain\'s sheet, and captions them for a brain in both', async () => {
+    agentsPayload = {
+      ...AGENTS,
+      agents: [...AGENTS.agents, { ...AGENTS.agents[1]!, id: 'pilot', name: 'Pilot', spaces: ['terminal'] } as unknown as typeof AGENTS.agents[number]],
+    }
+    const view = await mount()
+    edit(view, 'pilot')
+    more(view)
     let sheet = view.getByRole('form', { name: 'Edit brain' })
-    expect((sheet.querySelector('input[type="text"], input:not([type])') as HTMLInputElement).value).toBe('Coding')
     expect(sheet.querySelector('[data-brains-field="routed"]')).toBeNull()
+    expect(sheet.querySelector('[data-brains-field="matters"]')).toBeNull()
     expect(within(sheet).queryAllByRole('slider')).toHaveLength(0)
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
     await waitFor(() => { expect(view.queryByRole('form', { name: 'Edit brain' })).toBeNull() })
-    // The same brain from the Chat group carries them, with the line that scopes them.
-    fireEvent.click(within(group(view, 'chat')).getAllByRole('button', { name: 'Edit' })[0]!)
+    edit(view, 'coding')
+    more(view)
     sheet = view.getByRole('form', { name: 'Edit brain' })
     expect(sheet.querySelector('[data-brains-field="routed"]')).not.toBeNull()
     expect(sheet.querySelector('[data-brains-routed-terminal]')?.textContent).toBe('Applies in Chat. A Terminal chat runs its own agent, which picks its own model.')
@@ -824,7 +995,7 @@ describe('BrainsPanel', () => {
       .toBe(`4 models from 4 services, read ${when(STATE.readAt)}. A model a service has not published yet is not listed.`)
     fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
     // The Models tab's Subscriptions rows read the same names.
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
     expect(view.getByText('Kimi-coding')).toBeTruthy()
   })
 
@@ -857,35 +1028,32 @@ describe('BrainsPanel', () => {
     expect(((await openBrowser(view)).querySelector('[data-browser-search]') as HTMLInputElement).value).toBe('')
   })
 
-  it('lists every service in one place, saying what each one makes', async () => {
+  it('lists connected accounts, then good next steps, then every other service behind a search', async () => {
+    servicesList = [...servicesList, { id: 'runway', kind: 'media', name: 'Runway', makes: ['video'], connected: false }]
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
-    const list = await waitFor(() => {
-      const found = view.container.querySelector<HTMLElement>('[data-services]')
-      expect(found).not.toBeNull()
-      return found!
-    })
-    // Connected services read first; the rest wait behind "Add a service".
-    expect(Array.from(list.querySelectorAll('[data-service]')).map(row => row.getAttribute('data-service')))
-      .toEqual(['deepseek'])
-    fireEvent.click(view.getByRole('button', { name: 'Add a service' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
+    const ids = (selector: string): (string | null)[] =>
+      Array.from(view.container.querySelectorAll(`${selector} [data-service]`)).map(row => row.getAttribute('data-service'))
+    await waitFor(() => { expect(ids('[data-accounts-connected]')).toEqual(['deepseek']) })
+    expect(ids('[data-accounts-next]')).toEqual(['fal'])
+    expect(view.container.querySelector('[data-services-all]')).toBeNull()
+    // A next step says what the account is good for, in the person's words.
+    const fal = view.container.querySelector<HTMLElement>('[data-service="fal"]')!
+    expect(within(fal).getByText('Pay as you go. One key for all your media.')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: 'Search all 4 services' }))
     // Media leads under its own label: unlabelled, the services that make
     // images and video are buried among the chat routes.
-    await waitFor(() => {
-      expect(Array.from(list.querySelectorAll('[data-service]')).map(row => row.getAttribute('data-service')))
-        .toEqual(['fal', 'acme'])
-    })
-    expect(Array.from(list.querySelectorAll('[data-service-group]')).map(node => node.textContent))
+    await waitFor(() => { expect(ids('[data-services-all]')).toEqual(['runway', 'acme']) })
+    expect(Array.from(view.container.querySelectorAll('[data-service-group]')).map(node => node.textContent))
       .toEqual(['Images, video and sound', 'Chat'])
-    // A service is described by what it makes, in the person's words.
-    const fal = list.querySelector<HTMLElement>('[data-service="fal"]')!
-    expect(within(fal).getByText('Images · Video · Sounds')).toBeTruthy()
+    expect(within(view.container.querySelector<HTMLElement>('[data-service="runway"]')!).getByText('Video')).toBeTruthy()
+    fireEvent.change(view.container.querySelector('[data-services-search]')!, { target: { value: 'ACME' } })
+    expect(ids('[data-services-all]')).toEqual(['acme'])
   })
 
   it('connects a service with a key and nothing else, and never asks for a web address', async () => {
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
-    fireEvent.click(await view.findByRole('button', { name: 'Add a service' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
     const row = await waitFor(() => {
       const found = view.container.querySelector<HTMLElement>('[data-service="fal"]')
       expect(found).not.toBeNull()
@@ -911,8 +1079,8 @@ describe('BrainsPanel', () => {
 
   it('shows why a Connect failed inside the form that was pressed', async () => {
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
-    fireEvent.click(await view.findByRole('button', { name: 'Add a service' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
+    fireEvent.click(await view.findByRole('button', { name: 'Search all 3 services' }))
     const row = await waitFor(() => {
       const found = view.container.querySelector<HTMLElement>('[data-service="acme"]')
       expect(found).not.toBeNull()
@@ -938,8 +1106,8 @@ describe('BrainsPanel', () => {
 
   it('offers a key page only for a service whose page is known', async () => {
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
-    fireEvent.click(await view.findByRole('button', { name: 'Add a service' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
+    fireEvent.click(await view.findByRole('button', { name: 'Search all 3 services' }))
     const row = await waitFor(() => {
       const found = view.container.querySelector<HTMLElement>('[data-service="acme"]')
       expect(found).not.toBeNull()
@@ -952,9 +1120,9 @@ describe('BrainsPanel', () => {
 
   it('keeps the web-address route reachable, and marked as the other thing it is', async () => {
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
     expect(view.container.querySelector('[data-services-advanced]')).toBeNull()
-    fireEvent.click(await view.findByRole('button', { name: 'Add a service' }))
+    fireEvent.click(await view.findByRole('button', { name: 'Search all 3 services' }))
     const advanced = await waitFor(() => {
       const found = view.container.querySelector<HTMLElement>('[data-services-advanced]')
       expect(found).not.toBeNull()
@@ -965,8 +1133,8 @@ describe('BrainsPanel', () => {
 
   it('imports a keys file as it was read and names what it connected', async () => {
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
-    fireEvent.click(await view.findByRole('button', { name: 'Add a service' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
+    fireEvent.click(await view.findByRole('button', { name: 'Search all 3 services' }))
     const field = await waitFor(() => {
       const found = view.container.querySelector<HTMLInputElement>('[data-services-keys-file]')
       expect(found).not.toBeNull()
@@ -991,8 +1159,8 @@ describe('BrainsPanel', () => {
 
   it('shows the host’s reason when a keys file is refused', async () => {
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
-    fireEvent.click(await view.findByRole('button', { name: 'Add a service' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
+    fireEvent.click(await view.findByRole('button', { name: 'Search all 3 services' }))
     const field = await waitFor(() => {
       const found = view.container.querySelector<HTMLInputElement>('[data-services-keys-file]')
       expect(found).not.toBeNull()
@@ -1004,11 +1172,70 @@ describe('BrainsPanel', () => {
     expect(await view.findByText('NOBODY_API_KEY is not a credential any service this app can connect takes')).toBeTruthy()
   })
 
+  describe('Auto-switch', () => {
+    const ROUTER = {
+      settings: { enabled: true, useJev: true, preferFree: true, showRationale: false },
+      jev: { keyed: true },
+      candidates: 3,
+    }
+    const switches = (view: RenderResult): Record<string, boolean> => {
+      const found: Record<string, boolean> = {}
+      for (const box of view.container.querySelectorAll<HTMLInputElement>('[data-router-flag]')) {
+        found[box.getAttribute('data-router-flag') ?? ''] = box.checked
+      }
+      return found
+    }
+
+    it('offers three plain switches and keeps how it decides one click down', async () => {
+      routerPayload = ROUTER
+      const view = await mount()
+      fireEvent.click(view.getByRole('tab', { name: 'Auto-switch' }))
+      await waitFor(() => { expect(switches(view)).toEqual({ enabled: true, preferFree: true, showRationale: false }) })
+      expect(view.container.querySelector('[data-router-reads]')?.textContent)
+        .toBe('OpenRouter reads each message to choose a model. Chats on a model running on your computer skip this.')
+      expect(view.getByText('Move chats to a better model')).toBeTruthy()
+      expect(view.getByText('Never spend extra without asking')).toBeTruthy()
+      expect(view.getByText('Tell me why in the chat')).toBeTruthy()
+      expect(view.container.querySelector('[data-router-how]')?.hasAttribute('open')).toBe(false)
+      expect(view.container.querySelector('[data-router-how] summary')?.textContent).toBe('How it decides')
+      fireEvent.click(view.container.querySelector('[data-router-flag="showRationale"]')!)
+      await waitFor(() => { expect(posts('/idealize/router/settings')).toHaveLength(1) })
+      expect(sent(posts('/idealize/router/settings')[0]!)).toEqual({ showRationale: true })
+    })
+
+    it('says what it needs and leaves no switch ticked until OpenRouter is connected', async () => {
+      routerPayload = { ...ROUTER, jev: { keyed: false } }
+      servicesList = [...servicesList, { id: 'openrouter', kind: 'chat', name: 'OpenRouter', makes: ['chat'], connected: false }]
+      const view = await mount()
+      fireEvent.click(view.getByRole('tab', { name: 'Auto-switch' }))
+      const line = await waitFor(() => {
+        const found = view.container.querySelector<HTMLElement>('[data-router-no-key]')
+        expect(found).not.toBeNull()
+        return found!
+      })
+      expect(line.textContent).toContain('Auto-switch needs an OpenRouter account. Until then, each chat stays on its model.')
+      expect(switches(view)).toEqual({ enabled: false, preferFree: false, showRationale: false })
+      // Reading the state wrote nothing: the person's settings wait in the file.
+      expect(posts('/idealize/router/settings')).toHaveLength(0)
+      fireEvent.click(within(line).getByRole('button', { name: 'Connect OpenRouter' }))
+      await waitFor(() => { expect(view.getByRole('tab', { name: 'Accounts', selected: true })).toBeTruthy() })
+      expect(view.container.querySelector('[data-service="openrouter"] input[type="password"]')).not.toBeNull()
+    })
+
+    it('says there is nothing to switch to with one model connected', async () => {
+      routerPayload = { ...ROUTER, candidates: 1 }
+      const view = await mount()
+      fireEvent.click(view.getByRole('tab', { name: 'Auto-switch' }))
+      await waitFor(() => { expect(view.container.querySelector('[data-router-one-model]')).not.toBeNull() })
+      expect(switches(view)).toEqual({ enabled: false, preferFree: false, showRationale: false })
+    })
+  })
+
   it('says so plainly when there is nothing left to add', async () => {
     servicesList = servicesList.map(row => ({ ...row, connected: true }))
     const view = await mount()
-    fireEvent.click(view.getByRole('tab', { name: 'Models' }))
-    fireEvent.click(await view.findByRole('button', { name: 'Add a service' }))
+    fireEvent.click(view.getByRole('tab', { name: 'Accounts' }))
+    fireEvent.click(await view.findByRole('button', { name: 'Search all 3 services' }))
     expect(await view.findByText('Every service this app knows is already connected.')).toBeTruthy()
   })
 })

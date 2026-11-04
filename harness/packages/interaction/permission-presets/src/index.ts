@@ -64,6 +64,28 @@ export interface PresetSpec {
 }
 
 /**
+ * Whether chats no person started are held inside their project. On a Mac with
+ * Full access ticked, an agent-started or scheduled chat used to take Full
+ * access by default, so a chat that read hostile text could start another that
+ * rewrites anything the person owns. JJ ruled on 4 Nov 2026 that those chats run
+ * in `workspace-write` unless the chat that started them already has Full
+ * access. Chats the person starts keep Full access. Set this to false to go back.
+ */
+export const CONFINE_STARTED_CHATS: boolean = true
+
+/** What {@link PermissionPresetService.confineStartedChat} needs to know about a started chat. */
+export interface ConfineOptions {
+  /** The events of the chat that started this one; absent when no chat did, as with a schedule. */
+  starterEvents?: readonly SessionEvent[] | undefined
+  /** Nobody is watching this chat, so it cannot wait on an approval. */
+  unattended?: boolean | undefined
+  /** Overrides {@link CONFINE_STARTED_CHATS}. */
+  confine?: boolean | undefined
+  /** Overrides the platform: Windows behaviour stays as it is until JJ decides otherwise. */
+  platform?: NodeJS.Platform | undefined
+}
+
+/**
  * Returned when effective knob values match no table entry. Clients may show
  * it as the current value, but it is never a switch target or event payload.
  */
@@ -374,6 +396,30 @@ export class PermissionPresetService extends Service {
    */
   set(session: Session, name: string): void {
     this.apply(session, name, (policy) =>{  setApprovalPolicy(session, policy) })
+  }
+
+  /**
+   * Hold a chat no person started inside its project. It never widens a chat:
+   * this only moves a chat off Full access, and leaves it there when the chat
+   * that started it already holds Full access. A chat nobody is watching also
+   * stops waiting on approvals, because an approval no one answers would hang
+   * it for good; a blocked action is refused at once and the chat can say so.
+   * @param session - the started chat, before its first turn.
+   * @param options - who started it and whether anyone is watching.
+   * @returns true when the chat runs confined from here on.
+   */
+  confineStartedChat(session: Session, options: ConfineOptions = {}): boolean {
+    const { confine = CONFINE_STARTED_CHATS, platform = process.platform, starterEvents, unattended = false } = options
+    if (!confine || platform === 'win32') return false
+    const modeOf = (events: readonly SessionEvent[]) => effectiveSandboxMode(events) ?? this.ctx.shell.sandboxMode
+    if (starterEvents !== undefined && modeOf(starterEvents) === 'danger-full-access') return false
+    if (modeOf(session.events) === 'danger-full-access') {
+      const inside = Object.entries(this.presets).find(([, spec]) => spec.sandbox === 'workspace-write')
+      if (inside === undefined) return false
+      this.set(session, inside[0])
+    }
+    if (unattended && effectiveApprovalPolicy(session.events) !== 'never') setApprovalPolicy(session, 'never')
+    return true
   }
 
   /** Apply one preset with the caller-selected live or initialization policy writer. */

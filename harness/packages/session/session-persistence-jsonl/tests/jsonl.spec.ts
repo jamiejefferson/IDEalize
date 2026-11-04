@@ -1240,7 +1240,7 @@ describe('JsonlSessionPersistence: edge cases', () => {
     expect((await ctx.sessionPersistence.load(m.id)).events).toEqual(oneTurnLog())
   })
 
-  it('rejects the obsolete flat-file layout instead of ignoring stored sessions', async () => {
+  it('sets the obsolete flat-file layout aside instead of failing every session', async () => {
     const m = meta('legacy-flat', '/legacy')
     const project = projectDir(root, m.cwd)
     const path = join(project, `${encodeSegment(m.id)}.jsonl`)
@@ -1250,9 +1250,14 @@ describe('JsonlSessionPersistence: edge cases', () => {
       ...oneTurnLog().map(event => JSON.stringify(event)),
       '',
     ].join('\n'))
+    const healthy = meta('beside-legacy-flat', '/legacy')
+    await ctx.sessionPersistence.create(healthy)
+    await ctx.sessionPersistence.append(healthy.id, oneTurnLog())
 
-    await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported flat-file layout/)
-    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/unsupported flat-file layout/)
+    expect((await ctx.sessionPersistence.list()).map(header => header.id)).toEqual([healthy.id])
+    const aside = (ctx.sessionPersistence as JsonlSessionPersistence).quarantined
+    expect(aside.map(entry => entry.reason).join('\n')).toMatch(/unsupported flat-file layout/)
+    expect((await stat(aside[0]!.to)).isFile()).toBe(true)
   })
 
   it('rejects a compressed obsolete flat-file artifact during targeted lookup', async () => {

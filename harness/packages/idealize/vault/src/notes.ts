@@ -45,6 +45,18 @@ export async function commitsSince(repo: string, sinceDate: string | undefined):
 }
 
 /**
+ * A commit subject as quoted text. Anyone who can commit to a repository writes
+ * these, and the note they land in reaches every chat in that project, so a
+ * subject has to read as a record of what someone wrote and cannot open a new
+ * line or a heading of its own.
+ * @param subject - the subject as git reports it.
+ * @returns the subject in double quotes, on one line.
+ */
+export function quotedSubject(subject: string): string {
+  return JSON.stringify(subject.replaceAll(/\s+/g, ' ').trim())
+}
+
+/**
  * Append commit evidence to one note's session log and advance
  * `last_touched`. Returns the commits actually appended: commits whose hash
  * already appears anywhere in the note are skipped, and with nothing new the
@@ -62,7 +74,7 @@ export async function appendSessionLog(
   const markdown = await readFile(note.path, 'utf8')
   const fresh = commits.filter(commit => !markdown.includes(commit.hash))
   if (fresh.length === 0) return []
-  const lines = fresh.map(commit => `- ${commit.date} \`${commit.hash}\` ${commit.subject}`).join('\n')
+  const lines = fresh.map(commit => `- ${commit.date} \`${commit.hash}\` ${quotedSubject(commit.subject)}`).join('\n')
   const heading = '## Session log'
   let next = markdown.includes(heading)
     ? markdown.replace(heading, `${heading}\n${lines}`)

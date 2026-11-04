@@ -5,7 +5,7 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir, homedir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -30,6 +30,7 @@ import {
   TURN_HOOKS,
   TURN_HOOKS_FILE,
   withKnowledge,
+  writeKnowledgeFile,
   withTurnHooks,
 } from '../src/index.ts'
 
@@ -476,9 +477,11 @@ describe('standing rules for a terminal agent', () => {
     const shell = terminals.terminals[0]!
     const file = join(home!, 'idealize', 'terminal-knowledge', `${shell.id}.md`)
     expect(await readFile(file, 'utf8')).toBe(`${KNOWLEDGE_PREAMBLE}\n\nWrite every piece of project documentation in /vault.\n`)
+    // The rules hold the person's folder names and stay private to them.
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600)
     shell.emit({ kind: 'data', data: '$ ' })
     await vi.waitFor(() => { expect(shell.written).toHaveLength(1) }, { timeout: 2_000 })
-    expect(shell.written[0]).toBe(`\u0015claude --dangerously-skip-permissions ${started('s1', 'claude')} --settings '${hooksFile(home!)}' --append-system-prompt "$(cat '${file}')"\r`)
+    expect(shell.written[0]).toBe(`\u0015claude --dangerously-skip-permissions ${started('s1', 'claude')} --settings '${hooksFile(home!)}' --append-system-prompt-file '${file}'\r`)
     shell.emit({ kind: 'exit', exitCode: 0 })
     await vi.waitFor(async () => { await expect(readFile(file, 'utf8')).rejects.toThrow() })
   })
@@ -534,9 +537,25 @@ describe('standing rules for a terminal agent', () => {
     expect(promptChannel('')).toBeUndefined()
   })
 
+  it('keeps Claude Code\'s standing rules off the command line, and leaves Pi and Codex as they were', () => {
+    const claude = withKnowledge('claude --verbose', '/data/k.md', 'darwin')
+    expect(claude).toBe('claude --verbose --append-system-prompt-file \'/data/k.md\'')
+    expect(claude).not.toContain('$(cat')
+    expect(withKnowledge('pi', '/data/k.md', 'darwin')).toBe('pi --append-system-prompt "$(cat \'/data/k.md\')"')
+    expect(withKnowledge('codex', '/data/k.md', 'darwin')).toBe('codex -c developer_instructions="$(cat \'/data/k.md\')"')
+  })
+
+  it('tightens the mode of a knowledge file that already exists', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'knowledge-mode-'))
+    await writeFile(join(dir, 'shell.md'), 'old', { mode: 0o644 })
+    const file = await writeKnowledgeFile(dir, 'shell', 'new')
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600)
+    await rm(dir, { recursive: true, force: true })
+  })
+
   it('quotes a harness home holding a space and an apostrophe, and gives another CLI nothing', () => {
     expect(withKnowledge('claude', '/Users/j/Application Support/JJ\'s app/k.md'))
-      .toBe('claude --append-system-prompt "$(cat \'/Users/j/Application Support/JJ\'\\\'\'s app/k.md\')"')
+      .toBe('claude --append-system-prompt-file \'/Users/j/Application Support/JJ\'\\\'\'s app/k.md\'')
     expect(withKnowledge('kimi', '/k.md')).toBeUndefined()
   })
 

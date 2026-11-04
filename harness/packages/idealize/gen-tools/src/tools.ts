@@ -36,7 +36,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { ArtefactId } from '@idealize/artefacts'
 import type { ArtefactRecord } from '@idealize/artefacts'
-import { GENERATION_SCHEMA_VERSION, MEDIA_PRESETS, storedMediaModel } from '@idealize/generate'
+import { GENERATION_SCHEMA_VERSION, isGenerationError, MEDIA_PRESETS, storedMediaModel } from '@idealize/generate'
 import type {
   ActivityModelsSectionFace,
   GenArtefact,
@@ -47,8 +47,11 @@ import type {
   MediaPresetDefinition,
 } from '@idealize/generate'
 import type { GenerationChoice, GenerationReroutedData } from './types.ts'
+import { assertWithinCaps, confirmPaidGeneration } from './paid.ts'
+import type { ApprovalFace } from './paid.ts'
 import { createTalkTools, TALK_SECTION } from './talk.ts'
 
+export { ASK_WHEN_PERSON_TYPED, forgetPaidConfirmation, MAX_COUNT, MAX_SECONDS } from './paid.ts'
 export type { GenerationChoice, GenerationReroutedData } from './types.ts'
 export { createTalkTools, TALK_SECTION } from './talk.ts'
 
@@ -76,6 +79,56 @@ export const Config: z<Config> = z.object({
 
 /** The activity preset settings section (that plugin owns the schema; the media choices share its `models` map). */
 const ACTIVITY_NS = settingsNamespace('idealize-activity-pills')
+
+/** The most models one task tries, so a broken network is not walked through the whole catalogue. */
+const MAX_GENERATION_TRIES = 3
+
+/** Failures that belong to the account, so every model on that service would fail the same way. */
+const ACCOUNT_FAILURES: ReadonlySet<string> = new Set(['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA'])
+
+/**
+ * Why a failed model hands its task on, in words for the person. A timeout stays,
+ * because the provider may have finished and charged for the work.
+ * @param error - what the generation threw.
+ * @returns the clause; undefined when another model would not cure it.
+ */
+function whyMoved(error: unknown): string | undefined {
+  if (!isGenerationError(error)) return undefined
+  switch (error.code) {
+    case 'MISSING_CREDENTIAL':
+    case 'INVALID_CREDENTIAL':
+    case 'AUTH': return 'has no working key.'
+    case 'QUOTA': return 'has run out of credit.'
+    case 'RATE_LIMIT': return 'is busy.'
+    case 'INVALID_REQUEST': return 'cannot take this request.'
+    case 'NO_MODEL':
+    case 'NO_ADAPTER':
+    case 'INCOMPATIBLE_MODEL': return 'is not available for this.'
+    case 'PROVIDER_ERROR': return 'could not finish this.'
+    default: return undefined
+  }
+}
+
+/**
+ * The model nearest the one that cannot serve: the longest shared id, so a
+ * picture-only model lands on its own family's prompt model. Catalogue order breaks ties.
+ * @param failed - the model that cannot serve.
+ * @param pool - the models that could; never empty.
+ * @returns the nearest.
+ */
+export function closestModel(failed: GenCatalogEntry, pool: readonly GenCatalogEntry[]): GenCatalogEntry | undefined {
+  const shared = (one: GenCatalogEntry): number => {
+    if (one.backend !== failed.backend) return -1
+    const a = failed.model.id.split('/')
+    const b = one.model.id.split('/')
+    let count = 0
+    while (count < a.length && count < b.length && a[count] === b[count]) count++
+    return count
+  }
+  let best = pool[0]
+  for (const one of pool) if (best === undefined || shared(one) > shared(best)) best = one
+  return best
+}
 
 /** One tool's identity and the prompt-adjacent settings it accepts. */
 interface GenerationToolSpec {
@@ -126,7 +179,7 @@ const TOOL_SPECS: readonly GenerationToolSpec[] = [
       + TAG_GUIDE + ' A `[N images]` tag maps to `count`.',
     extraParameters: {
       aspect: { type: 'string', description: 'Optional aspect ratio or size hint (for example "1:1", "16:9", "1024x1024"); passed to the provider as a generation setting.' },
-      count: { type: 'integer', description: 'Optional number of images to make in one call; passed to the provider as a generation setting.' },
+      count: { type: 'integer', description: 'Optional number of images to make in one call, at most 8; passed to the provider as a generation setting.' },
       reference_image: REFERENCE_IMAGE_PARAMETER,
       options: OPTIONS_PARAMETER,
     },
@@ -138,7 +191,7 @@ const TOOL_SPECS: readonly GenerationToolSpec[] = [
       + '(its id stays valid across chats and modes) and the call returns the artefact id, media type, and file path.'
       + TAG_GUIDE,
     extraParameters: {
-      duration_s: { type: 'number', description: 'Optional target duration in seconds; passed to the provider as a generation setting.' },
+      duration_s: { type: 'number', description: 'Optional target duration in seconds, at most 60; passed to the provider as a generation setting.' },
       reference_image: REFERENCE_IMAGE_PARAMETER,
       options: OPTIONS_PARAMETER,
     },
@@ -150,7 +203,7 @@ const TOOL_SPECS: readonly GenerationToolSpec[] = [
       + '(its id stays valid across chats and modes) and the call returns the artefact id, media type, and file path.'
       + TAG_GUIDE,
     extraParameters: {
-      duration_s: { type: 'number', description: 'Optional target duration in seconds; passed to the provider as a generation setting.' },
+      duration_s: { type: 'number', description: 'Optional target duration in seconds, at most 300; passed to the provider as a generation setting.' },
       lyrics: { type: 'string', description: 'Lyrics to sing, for music models that take them; structure tags such as [verse] and [chorus] are allowed. Leave it out for instrumental audio.' },
       options: OPTIONS_PARAMETER,
     },
@@ -349,6 +402,8 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
           throw new Error(`${spec.toolName}: the session has no working directory to store artefacts in`)
         }
 
+        assertWithinCaps(spec.toolName, spec.artefact, args)
+
         const workspace = await ctx.workspaceRegistry.resolveByPath(cwd) ?? await ctx.workspaceRegistry.create(cwd)
         // The model's own inputs first, so a named parameter wins over an
         // `options` entry of the same name.
@@ -388,11 +443,32 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
         const storedEntry = stored === null
           ? undefined
           : candidates.find(entry => entry.backend === stored.backend && entry.model.id === stored.model)
-        if (storedEntry !== undefined && !runnable(storedEntry)) {
-          throw new Error(`${spec.toolName}: ${storedEntry.model.name} starts from a picture; pass reference_image, `
+        // Named to the person when the task runs on a model they did not choose.
+        const notes: string[] = []
+        const moved = (from: GenCatalogEntry, to: GenCatalogEntry, reason: string): void => {
+          const data: GenerationReroutedData = {
+            presetId: preset.id,
+            artefact: spec.artefact,
+            stored: { backend: from.backend, model: from.model.id },
+            used: { backend: to.backend, model: to.model.id },
+            reason,
+            callId: exec.callId,
+          }
+          session.append('generation/rerouted', data, { ignorable: true })
+          notes.push(reason)
+        }
+        const replacement = async (failed: GenCatalogEntry, pool: readonly GenCatalogEntry[]): Promise<GenCatalogEntry | undefined> => {
+          if (pool.length === 0) return undefined
+          return await ctx.waterfall('generation/replace-model', { session, presetId: preset.id, failed, candidates: pool }, () => Promise.resolve(closestModel(failed, pool)))
+        }
+        // A model that needs a picture the call does not carry is swapped before anything is sent.
+        const needsPicture = storedEntry !== undefined && !runnable(storedEntry) ? storedEntry : undefined
+        const instead = needsPicture === undefined ? undefined : await replacement(needsPicture, candidates.filter(runnable))
+        if (needsPicture !== undefined && instead === undefined) {
+          throw new Error(`${spec.toolName}: ${needsPicture.model.name} starts from a picture; pass reference_image, `
             + 'or ask the person to choose a model that starts from a prompt under Brains')
         }
-        const fallback = storedEntry ?? first
+        const fallback = instead ?? storedEntry ?? first
         // The router may move this one call to a model the person rated for the work the prompt asks for.
         const choice: GenerationChoice = {
           session, presetId: preset.id, artefact: spec.artefact, prompt: args.prompt,
@@ -406,6 +482,12 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
           ctx.logger.warn(`${spec.toolName}: choosing a model failed, the stored choice runs: ${String(error)}`)
         }
         const entry = choice.candidates.find(one => one.backend === offered.backend && one.model.id === offered.model.id) ?? fallback
+        if (needsPicture !== undefined) {
+          // A family's picture and prompt models can share one name, so "changed to X" alone would read as no change.
+          moved(needsPicture, entry, needsPicture.model.name === entry.model.name
+            ? `The picture version of ${entry.model.name} needs a starting picture, and this has none. Changed to its prompt version.`
+            : `${needsPicture.model.name} needs a starting picture, and this has none. Changed to ${entry.model.name}, which starts from a prompt.`)
+        }
         let notice: string | undefined
         if (stored !== null && storedEntry === undefined) {
           notice = `the stored ${preset.id} model ${stored.backend}/${stored.model} is unavailable; `
@@ -420,6 +502,9 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
           session.append('generation/rerouted', rerouted, { ignorable: true })
         }
 
+        const approval = (ctx as unknown as { get(service: string): unknown }).get('approval') as ApprovalFace | undefined
+        await confirmPaidGeneration(approval, { agent, toolName: spec.toolName, callId: exec.callId, signal: exec.signal }, entry)
+
         const request: GenerationRequest = {
           schemaVersion: GENERATION_SCHEMA_VERSION,
           taskIntent: preset.taskIntent,
@@ -431,17 +516,39 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
           projectPath: workspace.path,
         }
 
+        let used = entry
         const run = async (signal: AbortSignal): Promise<ArtefactRecord[]> => {
           let result
+          const tried = [entry]
           try {
-            result = await ctx.generation.generate(request, undefined, signal)
+            for (;;) {
+              try {
+                const attempt: GenerationRequest = { ...request, model: { backend: used.backend, model: used.model.id } }
+                result = await ctx.generation.generate(attempt, undefined, signal)
+                break
+              } catch (error) {
+                // A refused or failing model hands the task on, so the person gets the piece and not the error.
+                const why = signal.aborted || tried.length >= MAX_GENERATION_TRIES ? undefined : whyMoved(error)
+                if (why === undefined) throw error
+                const accountWide = isGenerationError(error) && ACCOUNT_FAILURES.has(error.code)
+                const failed = used
+                const pool = choice.candidates
+                  .filter(one => !tried.some(model => model.backend === one.backend && model.model.id === one.model.id))
+                  .filter(one => !(accountWide && one.backend === failed.backend))
+                const next = await replacement(failed, pool)
+                if (next === undefined) throw error
+                moved(failed, next, `${failed.model.name} ${why} Changed to ${next.model.name}.`)
+                used = next
+                tried.push(next)
+              }
+            }
           } catch (error) {
             // MOD-05: the failure joins the session log with the adapter's cause;
             // the artefact store cannot log it because no bytes ever reached it.
             try {
               session.append('artefact/failed', {
                 artefactId: ArtefactId(randomUUID()),
-                mediaType: entry.model.outputMediaTypes[0] ?? `${spec.artefact}/*`,
+                mediaType: used.model.outputMediaTypes[0] ?? `${spec.artefact}/*`,
                 workspaceId: workspace.id,
                 // `ctx.artefacts.create` stamps the session id itself; a
                 // failure never reaches the store, so the event carries it.
@@ -506,8 +613,8 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
         const records = await run(exec.signal)
         return {
           kind: 'foreground' as const,
-          provider: entry.backend,
-          model: entry.model.id,
+          provider: used.backend,
+          model: used.model.id,
           artefacts: records.map(record => ({
             id: String(record.id),
             mediaType: record.mediaType,
@@ -516,7 +623,7 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
             bytes: record.storage.bytes,
             sha256: record.storage.sha256,
           })),
-          ...notice === undefined ? {} : { notice },
+          ...notice === undefined && notes.length === 0 ? {} : { notice: [notice, ...notes].filter(line => line !== undefined).join(' ') },
         }
       },
     })

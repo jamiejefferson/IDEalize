@@ -231,6 +231,25 @@
   font-style: italic;
 }
 
+.remoteImage {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.remoteImage:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
 .image {
   display: block;
   width: auto;

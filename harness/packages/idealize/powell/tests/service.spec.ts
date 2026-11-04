@@ -124,6 +124,16 @@ function feed(powell: PowellService, type: string, data: Record<string, unknown>
 }
 
 describe('Powell', () => {
+  it('refuses to open a script a reply named, and tells the person', async () => {
+    const { ctx, powell } = await mount()
+    const openPath = vi.fn(async () => '')
+    ctx.provide('desktopActions', { openPath })
+    await powell.open(join(home, 'x.command'))
+    await powell.open('vscode://file/x')
+    expect(openPath).not.toHaveBeenCalled()
+    expect(powell.snapshot()).toMatchObject({ mood: 'problem', bubble: { kind: 'problem' } })
+  })
+
   it('wakes its own session and speaks the reply sentence by sentence', async () => {
     const { powell, events, agents } = await mount()
     await powell.say('Put the voice notes in the Idealize docs', 'text')
@@ -155,7 +165,7 @@ describe('Powell', () => {
     expect(powell.snapshot()).toMatchObject({
       mood: 'done',
       busy: false,
-      bubble: { text: "Done. It's in Paper with notes.", kind: 'reply', choices: [{ label: 'Open', action: 'open', target: '/work/notes.md', primary: true }] },
+      bubble: { text: "Done. It's in Paper with notes.", kind: 'reply', choices: [{ label: 'Open notes.md', action: 'open', target: '/work/notes.md', primary: true }] },
     })
   })
 

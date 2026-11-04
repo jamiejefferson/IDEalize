@@ -131,7 +131,9 @@
    stating a model twice and one of them was not the one making the picture
    (JJ, 13 Sep 2026). The seat's own wrapper carries an inline
    `display: contents` from the slot framework, which no stylesheet rule can
-   outrank, so this hides what the seat renders rather than the seat. */
-:global([data-composer-card]):has(:global([data-gen-settings-space])) :global([data-slot='conversation.input.model']) > * {
+   outrank, so this hides what the seat renders rather than the seat. The brain
+   chip stays: it names the brain and no model here (Paper "Brains rethink",
+   board 09, 4 Nov 2026). */
+:global([data-composer-card]):has(:global([data-gen-settings-space])) :global([data-slot='conversation.input.model']) > *:not(:global([data-brain-chip])) {
   display: none;
 }

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- V8 compiles JavaScript at run time in the app, its helpers and every Node-mode child. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- A self-signed certificate has no team id, so the app could not load its own native modules (terminals, images) with library validation on. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- Powell's voice, and voice tools an agent runs in a terminal. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <!-- Tools an agent runs in a terminal use osascript; without this macOS refuses them without asking the person. -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>

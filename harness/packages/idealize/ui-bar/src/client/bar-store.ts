@@ -22,7 +22,10 @@ export type HatchTab = 'service' | 'composition'
  */
 export type BrainsRequest =
   | { kind: 'add-brain'; space: string }
-  | { kind: 'add-key' }
+  /** `provider`: the route waiting on the key, so the pane can open that route's own field. */
+  | { kind: 'add-key'; provider?: string }
+  /** Open one brain's sheet, from the composer's chip. */
+  | { kind: 'edit-brain'; id: string }
 
 /**
  * A chat's pending "inspect this call" handoff. The chat view's Inspect button

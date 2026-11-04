@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { choose, dominantWeight, freeUsable, subscriptionModel } from '../src/policy.ts'
+import { choose, defaultIsStranded, dominantWeight, freeUsable, subscriptionModel } from '../src/policy.ts'
 import type { PolicyFacts } from '../src/policy.ts'
 
 const CODEX = ['gpt-5.5', 'gpt-5.5-mini', 'gpt-5.5-codex']
@@ -165,5 +165,34 @@ describe('freeUsable', () => {
     expect(freeUsable({ routeModels: 0, engineUp: true, usableKeys: 2 })).toBe(false)
     // An engine this host did not provision cannot be asked; it is given the benefit of the doubt.
     expect(freeUsable({ routeModels: 237, engineUp: true, usableKeys: undefined })).toBe(true)
+  })
+
+  it('falls to a connected model when the free tier and the subscription cannot answer', () => {
+    const decision = choose({ cost: 60, speed: 10, intelligence: 30 }, {
+      freetokens: { routeModels: 1, engineUp: true, usableKeys: 0 },
+      signedIn: [],
+      models: {},
+      connected: { provider: 'openrouter', model: 'moonshotai/kimi-k3' },
+    })
+    expect(decision.choice).toEqual({ provider: 'openrouter', model: 'moonshotai/kimi-k3' })
+    expect(decision.reason).toContain('openrouter')
+  })
+
+  it('keeps the free tier ahead of a connected model while the engine holds a key', () => {
+    const decision = choose({ cost: 60, speed: 10, intelligence: 30 }, {
+      freetokens: { routeModels: 1, engineUp: true, usableKeys: 1 },
+      signedIn: [],
+      models: {},
+      connected: { provider: 'openrouter', model: 'moonshotai/kimi-k3' },
+    })
+    expect(decision.choice).toEqual({ provider: 'freetokens', model: 'auto' })
+  })
+})
+
+describe('a default model on a route nothing serves', () => {
+  it('counts as stranded only when no adapter serves its route', () => {
+    expect(defaultIsStranded({ provider: 'openrouter' }, ['anthropic'])).toBe(true)
+    expect(defaultIsStranded({ provider: 'openrouter' }, ['openrouter', 'anthropic'])).toBe(false)
+    expect(defaultIsStranded(undefined, ['anthropic'])).toBe(false)
   })
 })

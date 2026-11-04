@@ -13,9 +13,17 @@ import type { Schedule } from './schedule.ts'
 import type { CronTask } from './store.ts'
 import type { TaskView } from './index.ts'
 
+/**
+ * Whether an agent's one-off reminder also waits for the person's approval. It
+ * only shows a notification and fires once, so a chat's "remind me at three"
+ * arms at once (JJ, 4 Nov 2026). Repeating reminders and anything that runs an
+ * agent wait either way.
+ */
+export const ONE_OFF_REMINDERS_WAIT_FOR_APPROVAL: boolean = false
+
 /** The slice of the scheduler the tools use; the service implements it. */
 export interface CalendarWriter {
-  saveTask(input: Partial<CronTask>): Promise<CronTask>
+  saveTask(input: Partial<CronTask>, origin?: 'person' | 'agent'): Promise<CronTask>
   taskViews(): Promise<TaskView[]>
   deleteTask(id: string): Promise<boolean>
 }
@@ -28,7 +36,8 @@ export const CALENDAR_SECTION = {
   name: 'idealize:calendar',
   order: 122,
   text: 'The calendar tools (calendar_add, calendar_list, calendar_remove) are the person\'s calendar, shown in the Schedule pane; '
-    + 'a reminder or scheduled task set any other way does not reach it and will not fire once this chat closes.',
+    + 'a reminder or scheduled task set any other way does not reach it and will not fire once this chat closes. '
+    + 'A one-off reminder is set at once. Anything else you add stays paused until the person approves it in the Schedule pane, so tell them it is waiting there.',
 } as const
 
 /**
@@ -95,6 +104,7 @@ const ENTRY_SCHEMA = {
     nextFireAt: { type: 'string', description: 'ISO-8601 instant of the next fire; absent when the entry is done or paused.' },
     done: { type: 'string', description: 'ISO-8601 instant a one-off entry fired.' },
     enabled: { type: 'boolean', required: true },
+    awaitingApproval: { type: 'boolean', description: 'The entry is paused until the person approves it in the Schedule pane.' },
     remind: { type: 'boolean', required: true, description: 'Whether a desktop notification is raised at each fire.' },
     prompt: { type: 'string', required: true, description: 'What the agent does at each fire; empty for a reminder only.' },
     cwd: { type: 'string', required: true, description: 'The project folder the entry belongs to and runs in.' },
@@ -102,7 +112,8 @@ const ENTRY_SCHEMA = {
 } as const
 
 /** The trailing status of one listed entry: fired, next, paused, or nothing. */
-function statusOf(entry: { done?: string; nextFireAt?: string; enabled: boolean }): string {
+function statusOf(entry: { done?: string; nextFireAt?: string; enabled: boolean; awaitingApproval?: boolean }): string {
+  if (entry.awaitingApproval === true) return '; waiting for the person to approve it in the Schedule pane'
   if (entry.done !== undefined) return `; fired ${entry.done}`
   if (entry.nextFireAt !== undefined) return `; next ${entry.nextFireAt}`
   return entry.enabled ? '' : '; paused'
@@ -116,6 +127,7 @@ function entryOf(task: TaskView): {
   nextFireAt?: string
   done?: string
   enabled: boolean
+  awaitingApproval?: boolean
   remind: boolean
   prompt: string
   cwd: string
@@ -127,6 +139,7 @@ function entryOf(task: TaskView): {
     ...task.nextFireAt === undefined ? {} : { nextFireAt: task.nextFireAt },
     ...task.done === undefined ? {} : { done: task.done },
     enabled: task.enabled,
+    ...task.awaitingApproval === true ? { awaitingApproval: true } : {},
     remind: task.remind === true || task.prompt === '',
     prompt: task.prompt,
     cwd: task.cwd,
@@ -146,7 +159,7 @@ export function createCalendarTools(cron: CalendarWriter, zone: string): ToolDef
       + 'Give exactly one of: at (ISO-8601 datetime, fires once), every_seconds (at least 60), daily_at (HH:mm), or weekly_at (HH:mm) with weekly_days. '
       + 'Without a prompt the entry is a reminder: at the time, the person gets a desktop notification carrying the title. '
       + 'With a prompt an agent runs it in this project at the time; set remind to also notify the person. '
-      + 'The entry appears in the Schedule pane at once and fires whether or not this chat is open. A past "at" is refused.',
+      + 'The entry appears in the Schedule pane at once. A one-off reminder with no prompt is set straight away. Anything else stays paused until the person approves it there, then fires whether or not this chat is open, so tell them it is waiting. A past "at" is refused.',
     parameters: {
       title: { type: 'string', required: true, description: 'What the person will see: the entry title and the notification title.' },
       at: { type: 'string', description: 'ISO-8601 datetime for a one-off entry, e.g. 2026-09-08T14:00:00+01:00.' },
@@ -165,6 +178,7 @@ export function createCalendarTools(cron: CalendarWriter, zone: string): ToolDef
         text: `Added "${value.title}" to the calendar (${value.id}): ${value.schedule}`
           + (value.nextFireAt === undefined ? '' : `; next ${value.nextFireAt}`)
           + (value.remind ? '; the person will be notified' : '')
+          + (value.awaitingApproval === true ? '; it stays paused until the person approves it in the Schedule pane, so tell them it is waiting there' : '')
           + '.',
       }],
     },
@@ -179,7 +193,7 @@ export function createCalendarTools(cron: CalendarWriter, zone: string): ToolDef
         prompt,
         cwd,
         remind: args.remind === true || prompt === '',
-      })
+      }, 'agent')
       const view = (await cron.taskViews()).find(candidate => candidate.id === task.id)
       return entryOf(view ?? { ...task, running: false })
     },

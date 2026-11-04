@@ -206,6 +206,13 @@ describe('coerceLiteral', () => {
     expect(coerceLiteral(5, durations)).toBe('5')
     expect(coerceLiteral(' 5 ', durations)).toBe('5')
     expect(coerceLiteral(7.5, durations)).toBe('8')
+    // JJ, 4 Nov 2026: the composer's `1080p` was refused where the endpoint wanted `1080P`.
+    expect(coerceLiteral('1080p', ['480P', '768P', '1080P'])).toBe('1080P')
+    expect(coerceLiteral('720p', ['480P', '768P', '1080P'])).toBe('768P')
+    expect(coerceLiteral('4k', ['720p', '1080p', '4K'])).toBe('4K')
+    expect(coerceLiteral('5s', ['5', '10'])).toBe('5')
+    expect(coerceLiteral('16:9', ['16:9', '9:16'])).toBe('16:9')
+    expect(coerceLiteral('cinematic', ['16:9', '9:16'])).toBeUndefined()
     expect(coerceLiteral(7.4, durations)).toBe('7')
     expect(coerceLiteral(30, durations)).toBe('12')
     expect(coerceLiteral('1', durations)).toBe('4')

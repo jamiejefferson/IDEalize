@@ -284,6 +284,9 @@ describe('the prompt Definition', () => {
     expect(foldWith(galleryPromptDefinition, [userMessage('u1', 3, 'a paper boat')])).toEqual({ messageId: 'u1', seq: 3, text: 'a paper boat' })
     expect(galleryPromptDefinition.match(userMessage('u2', 4, 'AGENTS.md says…', { kind: 'plugin', plugin: 'agents-md' }))).toBeNull()
     expect(galleryPromptDefinition.match(event('assistant/message', 5, {}))).toBeNull()
+    // A brief another chat wrote shows what was asked, without the line naming the sender.
+    expect(foldWith(galleryPromptDefinition, [userMessage('u4', 7, 'Another chat (Kit) started this chat…\n\na paper boat', { kind: 'chat-brief', brief: 'a paper boat' })]))
+      .toEqual({ messageId: 'u4', seq: 7, text: 'a paper boat' })
     // Attachments only: an empty text, still a prompt.
     expect(foldWith(galleryPromptDefinition, [event('user/message', 6, { id: 'u3', role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'x' }], source: { kind: 'user' } })]))
       .toEqual({ messageId: 'u3', seq: 6, text: '' })

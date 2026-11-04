@@ -10,6 +10,13 @@
  * Whoever holds the file holds the keys. It is neither encrypted nor kept.
  */
 
+import { basename } from 'node:path'
+import {
+  keysFileCredentials,
+  keysFileQuestion,
+  type AskConfirmation,
+  type ServiceSummary,
+} from './open-confirmation.ts'
 import { fileFromArgv } from './opened-file.ts'
 
 /** The extension Launch Services and the argument scan recognise. */
@@ -56,7 +63,7 @@ export interface KeysFileImport {
   /** This launch's token, which the Host's launch gate requires of the main process. */
   launchKey?: string
   /** Perform the request; Electron's `net.fetch` in the app, a stub in tests. */
-  request: (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<{
+  request: (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{
     ok: boolean
     status: number
     json: () => Promise<unknown>
@@ -108,6 +115,56 @@ export async function importKeysFile(options: KeysFileImport): Promise<KeysFileO
     ? (body.connected as { name?: unknown }[]).map(row => typeof row.name === 'string' ? row.name : '').filter(name => name !== '')
     : []
   return { ok: true, connected }
+}
+
+/** The Host route that lists services, which names what a keys file would change. */
+const SERVICES_ROUTE = '/idealize/brains/services'
+
+/** What asking first adds to one import. */
+export interface ConfirmedKeysFileImport extends KeysFileImport {
+  /** Put the question to the person. */
+  ask: AskConfirmation
+  /** Read the Host's list of services; replaced in tests. */
+  listServices?: () => Promise<readonly ServiceSummary[] | undefined>
+}
+
+async function hostServices(options: KeysFileImport): Promise<readonly ServiceSummary[] | undefined> {
+  try {
+    const response = await options.request(`http://127.0.0.1:${String(options.port)}${SERVICES_ROUTE}`, {
+      method: 'GET',
+      headers: {
+        'x-idealize-auth': '1',
+        ...options.launchKey === undefined ? {} : { 'x-idealize-key': options.launchKey },
+      },
+    })
+    if (!response.ok) return undefined
+    const body = await response.json() as { services?: readonly ServiceSummary[] }
+    return Array.isArray(body.services) ? body.services : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Show what a keys file would change, then import exactly the text the person
+ * was shown. Text that is no keys file goes straight on, because the route
+ * refuses it and nothing changes.
+ * @param options - the import, and how to ask.
+ * @returns the outcome, or undefined when the person cancelled.
+ */
+export async function confirmAndImportKeysFile(options: ConfirmedKeysFileImport): Promise<KeysFileOutcome | undefined> {
+  let text: string
+  try {
+    text = await options.readFile(options.path)
+  } catch (cause) {
+    return { ok: false, reason: `could not read the file: ${cause instanceof Error ? cause.message : String(cause)}` }
+  }
+  const credentials = Buffer.byteLength(text, 'utf8') > KEYS_FILE_MAX_BYTES ? undefined : keysFileCredentials(text)
+  if (credentials !== undefined) {
+    const services = await (options.listServices ?? (() => hostServices(options)))()
+    if (!await options.ask(keysFileQuestion(basename(options.path), credentials, services))) return undefined
+  }
+  return await importKeysFile({ ...options, readFile: async () => text })
 }
 
 /**

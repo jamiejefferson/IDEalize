@@ -109,21 +109,22 @@ USAGE:
   idealize <command> [args]
 
 COMMANDS:
-  notify <text> [--title T] [--sound]   show a system notification
+  notify <text>                         put a line in front of the person, under this chat's name, for a decision only they can make
   send <session> <text>                 message another chat's inbox
   rung <piece> <rung> [--blocker B] [--note T]  record where a piece has got to; the status line also posts to the project's group chat. Rungs: ${Wire.rungs.join('|')}. Blockers: ${Wire.blockers.join('|')}
   board [--path DIR] [--json]           where every piece in the project stands (from what chats reported)
   inbox [--wait] [--json] [--timeout S]  read & clear my messages
   peek [--json]                         read my messages without clearing
+  notes [--last N] [--json]             read back the notes I sent and received, including ones already read
   list [--json]                         list chats
   spawn <task> [--name LABEL] [--path DIR] [--model M]  start a new chat (in DIR, else my project) with an opening task; prints its id. --name labels it (else one is read off the task)
   spawn <task> --space images|sounds|video  start an image, sound or video chat on that task (it generates; it has no shell)
   spawn --coordinator [--path DIR]      start (or surface) DIR's Project Coordinator; prints its id
-  spawn --studio                        start (or surface) the one Studio Coordinator; prints its id
-  transcript <session> [--last N] [--json]  read a chat's recent Q&A
-  reveal <path> [--open]                show a file in the app's file panel
+  spawn --studio                        print the running Studio Coordinator's id; a chat can't start it or brief it (use send)
+  transcript <session> [--last N] [--json]  read a recent Q&A from a chat in this project
+  reveal <path> [--open]                show a file in the app's file panel; --open asks the person to open it
   status <text>                         set this chat's status label
-  focus <session>                       bring a chat to the front
+  focus <session>                       ask the person to look at a chat
   post <text>                           post to the project's group chat on the Studio timeline (everyone sees it; nobody is invoked)
   chat [--last N]                       read the project's recent group-chat messages
   task <goal> --to <session>            assign a Studio task to a chat; prints its id
@@ -184,6 +185,7 @@ async function main(): Promise<void> {
       const flags = new Flags(rest, ['sound'])
       const text = flags.positionals[0]
       if (text === undefined) fail('notify needs a message')
+      // The host ignores a title and a sound from a chat's shell.
       const resp = await send({ command: 'notify', body: text, title: flags.values.get('title') ?? 'IDEalize', sound: flags.bools.has('sound') })
       if (!resp.ok) fail(resp.error ?? 'notify failed')
       return
@@ -275,6 +277,29 @@ async function main(): Promise<void> {
         }
         return
       }
+    }
+
+    case 'notes': {
+      const flags = new Flags(rest, ['json'])
+      const last = flags.values.get('last')
+      const limit = last === undefined ? undefined : Number(last)
+      if (limit !== undefined && (!Number.isSafeInteger(limit) || limit <= 0)) fail(`invalid --last '${String(last)}' (expected a positive number)`)
+      const resp = await send({ command: 'notes', ...limit === undefined ? {} : { limit } })
+      if (!resp.ok) fail(resp.error ?? 'notes failed')
+      const notes = resp.notes ?? []
+      if (flags.bools.has('json')) {
+        printJson(notes)
+      } else if (notes.length === 0) {
+        out('(no notes yet)')
+      } else {
+        for (const note of notes) {
+          const who = `${note.fromLabel ?? note.from} → ${note.toLabel ?? note.to ?? '?'}`
+          out(note.kind === 'refused'
+            ? `[${clockTime(note.at)}] refused ${note.command ?? ''}: ${note.reason ?? ''}`
+            : `[${clockTime(note.at)}] ${who}: ${note.body ?? ''}`)
+        }
+      }
+      return
     }
 
     case 'reveal': {
@@ -375,6 +400,7 @@ async function main(): Promise<void> {
       if (target === undefined) fail('usage: idealize focus <session>')
       const resp = await send({ command: 'focus', target })
       if (!resp.ok) fail(resp.error ?? 'focus failed')
+      if (resp.info !== undefined) out(resp.info)
       return
     }
 

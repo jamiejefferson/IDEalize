@@ -34,13 +34,16 @@ function resolveWorkspaceRoot(path: string): string {
   return resolvePath(canonicalPath(path))
 }
 
+/** What the kernel and the read tools refuse, so a chat does not spend turns finding out. */
+const READ_DENIAL_NOTE = 'Stored keys, SSH private keys, shell history and the app\'s private data folder cannot be read in this mode; ask the person when a task needs one. If a git push or ssh fails because a key file could not be read, tell the person in these words: "This chat cannot read your SSH key file. Open Terminal, run ssh-add, then ask me to push again."'
+
 /** Render the policy without claiming which capabilities are mounted. */
 function renderPolicyContext(policy: SandboxExecutionPolicy): string {
   switch (policy.mode) {
     case 'read-only':
-      return 'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.'
+      return `Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns. ${READ_DENIAL_NOTE}`
     case 'workspace-write':
-      return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.`
+      return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable. ${READ_DENIAL_NOTE}`
     case 'danger-full-access':
       return 'Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.'
     /* v8 ignore next 4 -- SandboxMode is a typed same-process closed union; this branch is only the static exhaustiveness guard. */
@@ -72,6 +75,17 @@ export interface Config {
    * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
+  /**
+   * Paths the owner reopens to confined chats, for example `~/.config/gh` so
+   * `gh` works in a chat. Empty by default. A `~` prefix means the home folder.
+   */
+  readAllowed?: string[]
+  /**
+   * Stop confined commands from launching other apps (`open`, Apple Events).
+   * Off by default, because chats use `open` to show the person a file. Turning
+   * it on closes the route around the read denial; see `SandboxExecutionPolicy`.
+   */
+  blockAppLaunch?: boolean
 }
 
 /** Inputs that select the sandbox policy for one capability call. */
@@ -95,12 +109,18 @@ export class SandboxPolicyService extends Service {
     // No schema default: process.cwd() is resolved in the constructor so the
     // stored root is always absolute regardless of how it was supplied.
     workspaceRoot: z.string(),
+    readAllowed: z.array(z.string()),
+    blockAppLaunch: z.boolean(),
   })
 
   /** The deployment default mode — the fallback beneath a session override. */
   readonly defaultMode: SandboxMode
   /** The absolute `workspace-write` fallback root for calls without a session cwd. */
   readonly workspaceRoot: string
+  /** Paths the owner reopened to confined chats. */
+  private readonly readAllowed: readonly string[]
+  /** Whether confined commands may launch other apps. */
+  private readonly blockAppLaunch: boolean
   constructor(ctx: Context, config: Config) {
     super(ctx, 'sandboxPolicy')
     // schemastery (static Config) already filled `mode`; the cast records that
@@ -108,6 +128,8 @@ export class SandboxPolicyService extends Service {
     // the process cwd is real branching, resolved absolute either way.
     this.defaultMode = config.mode as SandboxMode
     this.workspaceRoot = resolveWorkspaceRoot(config.workspaceRoot ?? process.cwd())
+    this.readAllowed = config.readAllowed ?? []
+    this.blockAppLaunch = config.blockAppLaunch ?? false
 
     ctx.inject(['systemPrompt'], (scope: Context) => {
       scope.systemPrompt.context({
@@ -138,6 +160,8 @@ export class SandboxPolicyService extends Service {
       mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
       ...session === undefined ? {} : { sessionId: session.id },
+      ...this.readAllowed.length === 0 ? {} : { readAllowed: this.readAllowed },
+      ...this.blockAppLaunch ? { blockAppLaunch: true } : {},
     }
   }
 

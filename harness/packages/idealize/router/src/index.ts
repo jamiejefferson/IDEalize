@@ -21,6 +21,11 @@
  * and `enabled: false`. Terminal chats run a command-line agent the router
  * cannot reach, and the generating spaces choose their own models.
  *
+ * When a chat's own model cannot answer (its sign-in or key went, its credit ran
+ * out, or it stayed busy through the retries), the router hands the turn to the
+ * best other connected model instead of letting it fail. It needs no reading from
+ * Jev to do so: Jev's limit protects a chat that works, and this turn has already failed.
+ *
  * HTTP surface (loopback-fenced; mutations demand the header):
  * - GET  /idealize/router/state — settings, the weights it reads, whether Jev is reachable, the last Jev failure, and the capability table.
  * - POST /idealize/router/settings — any of {enabled, aggressiveness, preferFree, showRationale, useJev, offBrains}.
@@ -58,7 +63,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { effectivePrices, readOpenRouterPriceCache } from '@idealize/models'
+import { createFreetokensProbe, effectivePrices, readOpenRouterPriceCache } from '@idealize/models'
 import type { TokenPriceTable } from '@idealize/models'
 import { recordedKeyEnv, shippedTokenPrices } from '@idealize/services'
 import { foldBrainRecord, resolveSessionSpace } from '@idealize/spaces'
@@ -69,14 +74,14 @@ import type { GenCatalogEntry, GenerationRequest, GenerationResult } from '@idea
 import type {} from '@idealize/gen-tools'
 
 import { alternativesFor } from './alternatives.ts'
-import { ANSWER_IN_TEXT, askBefore, compareCost, foldCompare, foldMediaKept, keptNote, lastReply } from './compare.ts'
+import { ANSWER_IN_TEXT, askBefore, askOf, compareCost, foldCompare, foldMediaKept, keptNote, lastReply } from './compare.ts'
 
 import { candidatesFrom, FREE_PROVIDER } from './candidates.ts'
 import { criteriaFor, engineWeights, ROUTING_HEADER, routingHeaderValue, SHIPPED_CRITERIA } from './criteria.ts'
 import type { BrainCriteria, Criteria } from './criteria.ts'
 import type { ConnectedRoute, RouteAuth } from './candidates.ts'
 import type { Aggressiveness, Candidate, Weights } from './decide.ts'
-import { askJev, JEV_TIMEOUT_MS, JEV_URL, requestFor } from './jev.ts'
+import { askJev, isLocalModelRoute, jevAddress, JEV_TIMEOUT_MS, JEV_URL, requestFor } from './jev.ts'
 import type { JevFailure } from './jev.ts'
 import { appendLog, entryFor, readLog } from './log.ts'
 import { foldLocked, foldRouted, routerProjectionDefinition } from './projection.ts'
@@ -91,6 +96,7 @@ import type { RatingKind, RatingsFile } from './ratings.ts'
 import { noteRefusal, readRefusals, routeKey } from './refused.ts'
 import type { Refusals } from './refused.ts'
 import { routeTurn } from './route.ts'
+import { canStepIn, chooseStandIn, FREE_LABEL, MAX_STAND_INS, stepInRationale } from './step-in.ts'
 import { SHIPPED_SCORES } from './score-table.ts'
 import type { ScoreRow } from './score-table.ts'
 import { readLocally } from './tasks.ts'
@@ -105,6 +111,7 @@ export { askJev, requestFor } from './jev.ts'
 export { currentModel, foldLocked, foldRouted, routerProjectionDefinition } from './projection.ts'
 export type { RoutedModel, RouterEventData, RouterLockEventData, RouterProjection } from './projection-types.ts'
 export { routeTurn } from './route.ts'
+export { canStepIn, chooseStandIn, stepInRationale } from './step-in.ts'
 export { SHIPPED_SCORES } from './score-table.ts'
 export type { ScoreRow } from './score-table.ts'
 export { alternativesFor } from './alternatives.ts'
@@ -121,6 +128,7 @@ export const name = 'idealize-router'
 const NS = settingsNamespace('idealize-router')
 const MODELS_NS = settingsNamespace('idealize-models')
 const OPENROUTER_KEY_ENV = 'OPENROUTER_API_KEY'
+const LLM_SECTION = settingsNamespace('llm-pi-ai')
 /** The user's own capability rows, read over the shipped table. */
 const USER_SCORES_FILE = 'router-scores.json'
 /** Routes and their model lists change rarely; a turn does not wait on them twice a minute. */
@@ -149,7 +157,7 @@ export interface RouterConfig {
   offBrains?: string[]
   /** Each brain's own criteria, by brain id; a brain without an entry starts from its shipped row, then the app-wide values. */
   brains?: Record<string, BrainCriteria>
-  /** OpenRouter marks the Decisions endpoint alpha, so its address is config. */
+  /** OpenRouter marks the Decisions endpoint alpha, so its address is config. An installed app ignores it (see {@link jevAddress}). */
   jevUrl?: string
   /** The longest a turn waits on Jev, in milliseconds. */
   jevTimeoutMs?: number
@@ -186,6 +194,10 @@ interface RoutedTurn {
   use: { provider: string; model: string }
   resolved: { provider: string; model: string }
   fellBack: boolean
+  /** The models this turn has already failed on. */
+  tried?: ReadonlyArray<{ provider: string; model: string }>
+  /** How many models have stood in for the chat's own this turn. */
+  standIns?: number
 }
 
 function refuse(req: IncomingMessage, res: ServerResponse, mutating: boolean): boolean {
@@ -292,6 +304,10 @@ async function scoreTable(home: string, onUnreadable?: () => void): Promise<read
 
 export function apply(ctx: Context, config: RouterConfig = {}): void {
   let current: () => RouterConfig = () => ({ ...config })
+  let bestConnected: () => Promise<{ provider: string; model: string } | undefined> = () => Promise.resolve(undefined)
+  let freeEmptyNow: () => Promise<boolean> = () => Promise.resolve(false)
+  // The auto policy reads this through ctx.get(), since the models package sits below the router.
+  ctx.provide('idealizeRouter', { bestConnected: () => bestConnected(), freeEmpty: () => freeEmptyNow() })
   installSettingsSection(ctx, NS, Config, config, {
     setSource: (source: () => RouterConfig) => {
       current = source
@@ -309,6 +325,10 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
     const routedTurns = new WeakMap<Agent, RoutedTurn>()
     let lastJevFailure: { failure: JevFailure; at: string } | undefined
     let cached: { at: number; candidates: Candidate[] } | undefined
+    const freetokensFacts = createFreetokensProbe(routeCtx)
+    /** Whether the free-tokens engine held no usable key at the last read of the routes. */
+    let freeEmpty = false
+    const isFreeEmpty = (): boolean => freeEmpty
     let refusals: Refusals | undefined
     /** The ratings as last read or written; every write goes through {@link rate}. */
     let ratings: RatingsFile | undefined
@@ -366,7 +386,11 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         const models = await routeCtx.llm.listModels(entry.provider).catch(() => [])
         return { provider: entry.provider, auth, models }
       }))
-      return routes.filter((route): route is ConnectedRoute => route !== undefined && route.models.length > 0)
+      const connected = routes.filter((route): route is ConnectedRoute => route !== undefined && route.models.length > 0)
+      if (!connected.some(route => route.provider === FREE_PROVIDER)) return connected
+      // The engine counts as connected with no key to send upstream, and then refuses every call.
+      freeEmpty = (await freetokensFacts().catch(() => undefined))?.usableKeys === 0
+      return freeEmpty ? connected.filter(route => route.provider !== FREE_PROVIDER) : connected
     }
 
     const candidates = async (): Promise<Candidate[]> => {
@@ -392,6 +416,11 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
     }
 
     /** Whether this chat is one the router routes this turn. */
+    const localRoute = (provider: string): boolean => {
+      const section = routeCtx.settings.get(LLM_SECTION) as { providers?: Record<string, { baseURL?: unknown } | undefined> } | undefined
+      return isLocalModelRoute(provider, section?.providers?.[provider]?.baseURL)
+    }
+
     const routable = (agent: Agent): boolean => {
       const settings = current()
       if (settings.enabled === false) return false
@@ -401,11 +430,126 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       return brain === undefined || !(settings.offBrains ?? []).includes(brain)
     }
 
+    /** The name the person knows a model by: the router's own list, then the route's model list, then its id. */
+    const labelOf = async (model: { provider: string; model: string }): Promise<string> => {
+      // The route leaves the list when its engine is empty, and its model id means nothing to the person.
+      if (model.provider === FREE_PROVIDER) return FREE_LABEL
+      const known = (await candidates()).find(candidate => sameModel(candidate, model))?.label
+      if (known !== undefined) return known
+      const listed = (await routeCtx.llm.listModels(model.provider).catch(() => [])).find(one => one.id === model.model)
+      return listed?.name ?? model.model
+    }
+
+    /**
+     * Hand a failed turn to another model, or offer one when the choice is the person's.
+     * @returns true when another model takes the turn.
+     */
+    const stepIn = async (agent: Agent, routed: RoutedTurn, failure: { code: string; message: string }): Promise<boolean> => {
+      const standIns = routed.standIns ?? 0
+      if (standIns >= MAX_STAND_INS) return false
+      const failed = routed.use
+      const tried = [...routed.tried ?? [], failed]
+      // A stand-in that failed sits out like a routed model that failed, unless it only refused this chat's history.
+      if (standIns > 0 && failure.code !== 'INVALID_REQUEST') {
+        refusals ??= await readRefusals(home)
+        await noteRefusal(home, refusals, failed, failure.code === 'RATE_LIMIT' ? 'rate-limited' : 'refused')
+      }
+      // A sign-in or key that went is a change the cached route list has not seen.
+      cached = undefined
+      const settings = current()
+      const events = agent.session.events
+      const session = String(agent.session.header.id)
+      const record = foldBrainRecord(events)
+      const read = readings.get(session)
+      const reading = read?.turn === routed.turn ? read.reading : readLocally('', record?.brain)
+      const file = await currentRatings()
+      const choice = await chooseStandIn({
+        failed,
+        code: failure.code,
+        tried,
+        candidates: await usable(),
+        reading,
+        weights: criteria(record?.brain).weights,
+        preferFree: settings.preferFree ?? true,
+        contextTokens: contextTokensOf(events),
+        hasImages: events.some(event => event.type === 'user/message' && event.data.content.some(block => block.type === 'image')),
+        nothingSent: !events.some(event => event.type === 'assistant/message'),
+        table: await scoreTable(home),
+        standingOf: candidate => standing(file, { kind: 'chat', model: candidate.model }, TASK_TAG[reading.task]),
+      }, async candidate => (await routeCtx.llm.resolveModelInfo(candidate.provider, candidate.model)).context?.contextWindow)
+      if (choice.kind === 'none') {
+        routeCtx.logger.warn(`idealize-router: ${routeKey(failed)} failed (${failure.code}) and no other connected model can take the turn`)
+        return false
+      }
+      const at = new Date().toISOString()
+      const to = { provider: choice.to.provider, model: choice.to.model, label: choice.to.label }
+      const rationale = stepInRationale(await labelOf(failed), failure.code, choice)
+      agent.session.append('idealize/router', {
+        outcome: choice.kind === 'use' ? 'switched' : 'offer',
+        at,
+        // Named from the chat's own model, whichever stand-in just failed: a switch holds only while its `from` is what the host resolves.
+        from: { ...routed.resolved, label: await labelOf(routed.resolved) },
+        to,
+        task: reading.task,
+        ...choice.kind === 'offer' ? { reason: choice.reason } : {},
+        ...settings.showRationale === false ? {} : { rationale },
+      }, { ignorable: true })
+      void appendLog(home, {
+        at, session, brain: record?.brain, reading,
+        from: routeKey(failed), to: routeKey(choice.kind === 'use' ? choice.to : failed),
+        switched: choice.kind === 'use',
+        ...choice.kind === 'offer' ? { stayed: choice.reason, recommended: routeKey(choice.to) } : {},
+        improvement: 0, switchConfidence: Number(reading.confidence.toFixed(3)), rationale,
+      })
+      routeCtx.logger.warn(`idealize-router: ${routeKey(failed)} failed (${failure.code}: ${failure.message}); ${choice.kind === 'use' ? `${routeKey(choice.to)} takes the turn` : `${routeKey(choice.to)} is offered (${choice.reason})`}`)
+      if (choice.kind !== 'use') return false
+      routedTurns.set(agent, { ...routed, use: { provider: to.provider, model: to.model }, fellBack: true, tried, standIns: standIns + 1 })
+      return true
+    }
+
+    freeEmptyNow = async () => {
+      await candidates()
+      return isFreeEmpty()
+    }
+
+    /** The model Auto falls to when the free tier and the subscription cannot answer. */
+    bestConnected = async () => {
+      // A key saved a moment ago is why this is being asked.
+      cached = undefined
+      const choice = await chooseStandIn({
+        failed: { provider: FREE_PROVIDER, model: 'auto' },
+        code: 'MISSING_CREDENTIAL',
+        tried: [],
+        candidates: await usable(),
+        reading: readLocally(''),
+        weights: weights(),
+        preferFree: current().preferFree ?? true,
+        hasImages: false,
+        table: await scoreTable(home),
+      }, () => Promise.resolve(undefined))
+      return choice.kind === 'use' ? { provider: choice.to.provider, model: choice.to.model } : undefined
+    }
+
+    /**
+     * Whether the router may rescue this chat's turn when its model cannot answer. An image, sound or video chat is
+     * left alone by ordinary routing, yet its own conversation still runs on a model and fails the same way. A
+     * terminal runs a command-line agent the router cannot reach.
+     */
+    const rescuable = (agent: Agent): boolean => {
+      const settings = current()
+      if (settings.enabled === false) return false
+      const events = agent.session.events
+      if (resolveSessionSpace(agent.session) === 'terminal' || foldLocked(events)) return false
+      const brain = foldBrainRecord(events)?.brain
+      return brain === undefined || !(settings.offBrains ?? []).includes(brain)
+    }
+
     routeCtx.on('agent/pre-step', async ({ agent, turn }, next) => {
       const decision = await next()
       if (decision.kind !== 'enter') return decision
-      const mine = decision.messages.filter(message => message.source.kind === 'user')
-      const message = mine.flatMap(item => item.content).map(block => (block.type === 'text' ? block.text : '')).join('\n').trim()
+      // A brief another chat wrote is what this turn was asked, so it is routed as the
+      // person's words would be, on the brief alone.
+      const { mine, message } = askOf(decision.messages)
       if (message !== '') {
         const hasImages = agent.session.events.some(event => event.type === 'user/message' && event.data.content.some(block => block.type === 'image'))
           || mine.some(item => item.content.some(block => block.type === 'image'))
@@ -426,7 +570,36 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       try {
         const earlier = routedTurns.get(agent)
         if (earlier !== undefined && earlier.turn === turn) return on(earlier.use)
+        // A person who picked a model on their own computer did not ask for
+        // their message to leave it, so the router neither reads nor moves it.
+        if (localRoute(resolved.provider)) {
+          pending.delete(agent)
+          routedTurns.set(agent, { turn, use: resolved, resolved, fellBack: false })
+          return resolved
+        }
         const { routed, lastSwitchAt } = foldRouted(agent.session.events)
+        // Two chats cannot reach their model at all and move before the request, so the person never sees the failure:
+        // one on Free tokens with no key in the engine, and one whose route nothing serves, as OpenRouter on an install
+        // that connected another company's key (a route with no adapter throws past the request-error listener).
+        if (rescuable(agent) && !(routed !== undefined && sameModel(resolved, routed.from))) {
+          let cause: { code: string; message: string } | undefined
+          if (resolved.provider === FREE_PROVIDER) {
+            await candidates()
+            // Read after the await above, which is what can change it.
+            if (isFreeEmpty()) cause = { code: 'MISSING_CREDENTIAL', message: 'the free-tokens engine holds no usable key' }
+          } else if (!routeCtx.llm.listProviders().some(provider => provider.id === resolved.provider)) {
+            cause = { code: 'NO_ADAPTER', message: `nothing serves the route ${resolved.provider}` }
+          }
+          if (cause !== undefined) {
+            const start: RoutedTurn = { turn, use: resolved, resolved, fellBack: false }
+            routedTurns.set(agent, start)
+            if (await stepIn(agent, start, cause)) {
+              pending.delete(agent)
+              return on((routedTurns.get(agent) ?? start).use)
+            }
+            routedTurns.delete(agent)
+          }
+        }
         const asked = pending.get(agent)
         pending.delete(agent)
         if (asked === undefined || asked.turn !== turn || !routable(agent)) {
@@ -455,7 +628,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
             ? undefined
             : (message, brain) => askJev(
               requestFor(message, brain === undefined ? undefined : { name: brain.id, instructions: brain.instructions }),
-              { key, url: settings.jevUrl ?? JEV_URL, timeoutMs: settings.jevTimeoutMs ?? JEV_TIMEOUT_MS },
+              { key, url: jevAddress(settings.jevUrl), timeoutMs: settings.jevTimeoutMs ?? JEV_TIMEOUT_MS },
             ),
           contextWindow: async candidate =>
             (await routeCtx.llm.resolveModelInfo(candidate.provider, candidate.model)).context?.contextWindow,
@@ -475,6 +648,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       } catch (error) {
         // The router never fails a turn: whatever went wrong, the chat runs on the model it had.
         routeCtx.logger.warn(`idealize-router: routing failed, the chat keeps its model: ${String(error)}`)
+        routedTurns.set(agent, { turn, use: resolved, resolved, fellBack: false })
         return resolved
       }
     }, { prepend: true })
@@ -484,18 +658,33 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
     // retried on the person's time (each retry showed as a "Retry delay" notice); the chat's own model takes the turn at once.
     routeCtx.on('agent/request-error', async ({ agent, turn, failure, signal }, next) => {
       const routed = routedTurns.get(agent)
-      const mine = routed !== undefined && routed.turn === turn && !routed.fellBack && !sameModel(routed.use, routed.resolved)
-      if (signal.aborted || routed === undefined || !mine) return next()
-      const label = (model: { provider: string; model: string }) => ({ ...model, label: model.model })
-      agent.session.append('idealize/router', {
-        outcome: 'reset', at: new Date().toISOString(), from: label(routed.use), to: label(routed.resolved),
-      }, { ignorable: true })
-      routedTurns.set(agent, { ...routed, use: routed.resolved, fellBack: true })
-      refusals ??= await readRefusals(home)
-      const cause = failure.code === 'RATE_LIMIT' ? 'rate-limited' : 'refused'
-      await noteRefusal(home, refusals, routed.use, cause)
-      routeCtx.logger.warn(`idealize-router: ${routeKey(routed.use)} failed (${failure.code}: ${failure.message}); the turn returns to ${routeKey(routed.resolved)} and the router leaves that model alone for ${cause === 'rate-limited' ? 'an hour' : 'a week'}`)
-      return { kind: 'retry' }
+      if (signal.aborted || routed === undefined || routed.turn !== turn) return next()
+      if (!routed.fellBack && !sameModel(routed.use, routed.resolved)) {
+        const label = (model: { provider: string; model: string }) => ({ ...model, label: model.model })
+        agent.session.append('idealize/router', {
+          outcome: 'reset', at: new Date().toISOString(), from: label(routed.use), to: label(routed.resolved),
+        }, { ignorable: true })
+        routedTurns.set(agent, { ...routed, use: routed.resolved, fellBack: true, tried: [...routed.tried ?? [], routed.use] })
+        refusals ??= await readRefusals(home)
+        const cause = failure.code === 'RATE_LIMIT' ? 'rate-limited' : 'refused'
+        await noteRefusal(home, refusals, routed.use, cause)
+        routeCtx.logger.warn(`idealize-router: ${routeKey(routed.use)} failed (${failure.code}: ${failure.message}); the turn returns to ${routeKey(routed.resolved)} and the router leaves that model alone for ${cause === 'rate-limited' ? 'an hour' : 'a week'}`)
+        return { kind: 'retry' }
+      }
+      // The chat's own model failed, or a stand-in did. The retry policy and compaction answer first, so the router
+      // steps in only when the turn would otherwise end on the failure.
+      const action = await next()
+      // A stand-in is the router's own choice, so any failure of one moves on to the next (a provider can refuse a
+      // history another model wrote); the chat's own model gets a stand-in only for a failure another model could cure.
+      const onStandIn = (routed.standIns ?? 0) > 0
+      // The person can stop the turn during `await next()`, which the compiler cannot see.
+      if (action?.kind === 'retry' || signal.aborted || !(onStandIn || canStepIn(failure.code)) || !rescuable(agent)) return action
+      try {
+        return await stepIn(agent, routed, failure) ? { kind: 'retry' } : action
+      } catch (error) {
+        routeCtx.logger.warn(`idealize-router: stepping in failed, the turn ends on its failure: ${String(error)}`)
+        return action
+      }
     }, { prepend: true })
 
     // The generating spaces: a generation moves to the model the person rated highest for the work its prompt asks
@@ -520,7 +709,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         if (!hasStarsFor(file, kind) || settings.useJev === false) return stored
         const tags = readableTags(kind, choice.hasReference)
         const read = await readPrompt(choice.prompt, kind, tags, {
-          key: await openRouterKey(), url: settings.jevUrl ?? JEV_URL, timeoutMs: settings.jevTimeoutMs ?? JEV_TIMEOUT_MS,
+          key: await openRouterKey(), url: jevAddress(settings.jevUrl), timeoutMs: settings.jevTimeoutMs ?? JEV_TIMEOUT_MS,
         })
         if (read.failure !== undefined) lastJevFailure = { failure: read.failure, at: new Date().toISOString() }
         if (read.reading === undefined || read.reading.confidence < MEDIA_CONFIDENCE) return stored
@@ -543,6 +732,15 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         routeCtx.logger.warn(`idealize-router: choosing a media model failed, the stored choice runs: ${String(error)}`)
         return stored
       }
+    })
+
+    // A generation that cannot run on its model moves on, except where the person told the router to leave the chat alone.
+    routeCtx.on('generation/replace-model', async (replacement, next) => {
+      const settings = current()
+      const record = foldBrainRecord(replacement.session.events)
+      if (settings.enabled === false || foldLocked(replacement.session.events)) return undefined
+      if (record !== undefined && (settings.offBrains ?? []).includes(record.brain)) return undefined
+      return await next()
     })
 
     // The free-token engine picks its provider on the brain's priorities: every request of a chat carries them.
@@ -666,10 +864,14 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         const session = sessionOf(await readBody(req), res)
         if (session === undefined) return
         // Whatever the chat last showed, a switch or an offer, is answered: the badge clears and the throttle counts from now.
+        // A taken offer is recorded as a switch, because a chat another chat started keeps its own model and only the router moves it.
         const last = session.events.findLast(event => event.type === 'idealize/router')
         const open = last?.type === 'idealize/router' && last.data.outcome !== 'reset' ? last.data : undefined
         if (open !== undefined) {
-          session.append('idealize/router', { outcome: 'reset', at: new Date().toISOString(), from: open.to, to: open.from }, { ignorable: true })
+          const at = new Date().toISOString()
+          session.append('idealize/router', open.outcome === 'offer'
+            ? { outcome: 'switched', at, from: open.from, to: open.to, via: 'offer' }
+            : { outcome: 'reset', at, from: open.to, to: open.from }, { ignorable: true })
         }
         sendJson(res, 200, { ok: true, reset: open !== undefined })
       })
@@ -710,13 +912,6 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       }
       const generation = (): GenerationFace | undefined => routeCtx.get('generation')
       const presetOf = (kind: Exclude<RatingKind, 'chat'>) => MEDIA_PRESETS.find(preset => preset.id === KIND_PRESET[kind])
-      /** The name the person knows a model by: the router's own list, then the route's model list, then its id. */
-      const labelOf = async (model: { provider: string; model: string }): Promise<string> => {
-        const known = (await candidates()).find(candidate => sameModel(candidate, model))?.label
-        if (known !== undefined) return known
-        const listed = (await routeCtx.llm.listModels(model.provider).catch(() => [])).find(one => one.id === model.model)
-        return listed?.name ?? model.model
-      }
       const starsOf = (file: RatingsFile, kind: RatingKind, model: string): Record<string, number> =>
         Object.fromEntries(Object.entries(ratingsOf(file, { kind, model }))
           .flatMap(([tag, rating]) => rating.stars === undefined ? [] : [[tag, rating.stars]]))

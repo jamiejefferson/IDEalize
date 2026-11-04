@@ -45,6 +45,11 @@ export interface CronTask {
   model?: string
   /** A disabled task keeps its record but arms no timer. */
   enabled: boolean
+  /**
+   * An agent added this task and the person has not approved it yet. It stays
+   * disabled and cannot fire until they do, once, in the Schedule pane.
+   */
+  awaitingApproval?: boolean
   createdAt: string
 }
 

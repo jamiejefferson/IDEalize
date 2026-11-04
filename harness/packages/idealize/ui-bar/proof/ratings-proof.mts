@@ -189,7 +189,7 @@ function expect(ok: boolean, what: string): void {
 }
 
 async function launch(page: Page): Promise<void> {
-  const step = page.locator('[data-launcher-step="space"]')
+  const step = page.locator('[data-hero-below]')
   if (!(await step.count() > 0 && await step.first().isVisible())) {
     const newChat = page.getByRole('button', { name: 'New chat', exact: true })
     if (await newChat.count() > 0) await newChat.first().click()
@@ -199,11 +199,7 @@ async function launch(page: Page): Promise<void> {
     await step.waitFor({ timeout: 30_000 })
     await page.waitForTimeout(300)
   }
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await page.locator('[data-launcher-step="space"] [data-space="chat"]').click()
-    if (await page.locator('[data-launcher-step="brain"]').waitFor({ timeout: 5_000 }).then(() => true, () => false)) break
-  }
-  await page.locator(`[data-launcher-step="brain"] [data-brain="${brain!.id}"]`).first().click()
+  await page.locator(`[data-brain-card="${brain!.id}"] [aria-pressed]`).first().click()
   await page.waitForTimeout(2_500)
 }
 

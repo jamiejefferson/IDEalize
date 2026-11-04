@@ -11,7 +11,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PAIR_REPLIES } from '../src/format.ts'
-import { apply, Config, PAIR_PATH, problemText, STATUS_PATH, TOKEN_ENV, TOKEN_PATH } from '../src/index.ts'
+import type { TelegramStatus } from '../src/settings.ts'
+import { apply, Config, CONFIRM_PATH, PAIR_PATH, problemText, STATUS_PATH, TOKEN_ENV, TOKEN_PATH } from '../src/index.ts'
 import { TELEGRAM_DEFAULTS, type TelegramSettings } from '../src/settings.ts'
 
 type Handler = (req: FakeRequest, res: FakeResponse) => Promise<void>
@@ -220,7 +221,7 @@ async function until(check: () => boolean): Promise<void> {
 
 const update = (id: number, text: string) => ({
   update_id: id,
-  message: { message_id: id, date: Math.floor(Date.now() / 1000), chat: { id: 42, type: 'private' }, text },
+  message: { message_id: id, date: Math.floor(Date.now() / 1000), chat: { id: 42, type: 'private' }, from: { id: 42 }, text },
 })
 
 describe('problemText', () => {
@@ -256,7 +257,8 @@ describe('the token and pairing routes', () => {
       status: 502, body: { error: 'Telegram could not be reached to check the token. Try again.' },
     })
     telegram.flags.getMeDown = false
-    expect(await refusing.call('POST', TOKEN_PATH, { token: TOKEN })).toEqual({
+    expect((await refusing.call('POST', TOKEN_PATH, { token: TOKEN })).status).toBe(200)
+    expect(await refusing.call('POST', CONFIRM_PATH, { what: 'token', allow: true })).toEqual({
       status: 409, body: { error: 'the environment sets IDEALIZE_TELEGRAM_BOT_TOKEN' },
     })
   })
@@ -275,8 +277,106 @@ describe('the token and pairing routes', () => {
     const { ctx } = await mount({ credentials: { token: TOKEN }, settings: false })
     ctx.emit('credentials/updated', credentialRef('SOME_OTHER_KEY'))
     ctx.emit('credentials/updated', credentialRef(TOKEN_ENV))
-    telegram.updates.push({ ...update(1, '/pair 123456'), message: { ...update(1, '').message, chat: { id: 99, type: 'private' }, text: '/pair 123456' } })
+    telegram.updates.push({ ...update(1, '/pair 123456'), message: { ...update(1, '').message, chat: { id: 99, type: 'private' }, from: { id: 99 }, text: '/pair 123456' } })
     await until(() => telegram.sent.some(sent => sent.chat_id === '99' && sent.text === PAIR_REPLIES['no-code']))
+  })
+})
+
+describe('confirmation in the app window', () => {
+  it('does not store a token until the person allows it, and never shows the token', async () => {
+    stubTelegram()
+    const { call, ctx } = await mount({ credentials: {}, settings: {} })
+    const waiting = await call('POST', TOKEN_PATH, { token: TOKEN })
+    expect(waiting.body).toMatchObject({ configured: false, confirmToken: { botUsername: 'idealize_bot' } })
+    expect(JSON.stringify(waiting.body)).not.toContain(TOKEN)
+    expect(await ctx.get('credentials')?.resolve(credentialRef(TOKEN_ENV))).toBeUndefined()
+
+    const allowed = await call('POST', CONFIRM_PATH, { what: 'token', allow: true })
+    expect(allowed.body).toMatchObject({ configured: true })
+    expect((allowed.body as { confirmToken?: unknown }).confirmToken).toBeUndefined()
+    expect((await ctx.get('credentials')?.resolve(credentialRef(TOKEN_ENV)))?.value).toBe(TOKEN)
+  })
+
+  it('drops a declined token', async () => {
+    stubTelegram()
+    const { call, ctx } = await mount({ credentials: {}, settings: {} })
+    await call('POST', TOKEN_PATH, { token: TOKEN })
+    expect((await call('POST', CONFIRM_PATH, { what: 'token', allow: false })).body).toMatchObject({ configured: false })
+    expect(await ctx.get('credentials')?.resolve(credentialRef(TOKEN_ENV))).toBeUndefined()
+    expect((await call('POST', CONFIRM_PATH, { what: 'token', allow: true })).status).toBe(409)
+  })
+
+  it('ends the pairing when the token changes to a different bot, and keeps it for the same bot', async () => {
+    stubTelegram()
+    const run = await mount({ credentials: { token: TOKEN }, settings: { chatId: '42', userId: '42' } })
+    await run.call('POST', TOKEN_PATH, { token: '123456:rotated-token' })
+    await run.call('POST', CONFIRM_PATH, { what: 'token', allow: true })
+    expect(run.settings().chatId).toBe('42')
+    await run.call('POST', TOKEN_PATH, { token: '777777:another-bot' })
+    await run.call('POST', CONFIRM_PATH, { what: 'token', allow: true })
+    expect(run.settings()).toMatchObject({ chatId: '', userId: '' })
+  })
+
+  it('binds nobody until the person allows who sent the code, then stores the user id', async () => {
+    const telegram = stubTelegram()
+    const run = await mount({ credentials: { token: TOKEN }, settings: {} })
+    const code = ((await run.call('POST', PAIR_PATH)).body as unknown as TelegramStatus).pairing?.code as string
+    telegram.updates.push({
+      update_id: 1,
+      message: { message_id: 1, date: Math.floor(Date.now() / 1000), chat: { id: 42, type: 'private' }, from: { id: 42, username: 'jj' }, text: `/pair ${code}` },
+    })
+    await until(() => telegram.sent.some(sent => sent.chat_id === '42' && sent.text === PAIR_REPLIES.confirm))
+    expect(run.settings().chatId).toBe('')
+    expect((await run.call('GET', STATUS_PATH)).body).toMatchObject({ paired: false, confirmPairing: { name: '@jj' } })
+
+    expect((await run.call('POST', CONFIRM_PATH, { what: 'pairing', allow: true })).body).toMatchObject({ paired: true })
+    expect(run.settings()).toMatchObject({ chatId: '42', userId: '42' })
+    expect(telegram.sent.some(sent => sent.chat_id === '42' && sent.text === PAIR_REPLIES.paired)).toBe(true)
+  })
+
+  it('tells someone declined, and binds nobody', async () => {
+    const telegram = stubTelegram()
+    const run = await mount({ credentials: { token: TOKEN }, settings: {} })
+    const code = ((await run.call('POST', PAIR_PATH)).body as unknown as TelegramStatus).pairing?.code as string
+    telegram.updates.push({
+      update_id: 1,
+      message: { message_id: 1, date: Math.floor(Date.now() / 1000), chat: { id: 66, type: 'private' }, from: { id: 66 }, text: `/pair ${code}` },
+    })
+    await until(() => telegram.sent.some(sent => sent.chat_id === '66' && sent.text === PAIR_REPLIES.confirm))
+    await run.call('POST', CONFIRM_PATH, { what: 'pairing', allow: false })
+    expect(run.settings().chatId).toBe('')
+    expect(telegram.sent.some(sent => sent.chat_id === '66' && sent.text === PAIR_REPLIES.declined)).toBe(true)
+  })
+
+  it('refuses a malformed confirmation', async () => {
+    stubTelegram()
+    const { call } = await mount({ credentials: {}, settings: {} })
+    expect((await call('POST', CONFIRM_PATH, { what: 'other', allow: true })).status).toBe(400)
+    expect((await call('POST', CONFIRM_PATH, { what: 'token', allow: 'yes' })).status).toBe(400)
+  })
+})
+
+describe('a pairing stored before the user id was kept', () => {
+  it('keeps working from a private chat with no change for the person', async () => {
+    const telegram = stubTelegram()
+    const run = await mount({ credentials: { token: TOKEN }, settings: { chatId: '42' }, comm: true, studio: {}, agents: true })
+    expect((await run.call('GET', STATUS_PATH)).body).toMatchObject({ paired: true, problem: '' })
+    telegram.updates.push(update(1, '/help'))
+    await until(() => telegram.sent.some(sent => sent.chat_id === '42'))
+  })
+
+  it('stops listening to and sending to a group, and says how to fix it', async () => {
+    const telegram = stubTelegram()
+    const run = await mount({ credentials: { token: TOKEN }, settings: { chatId: '-100' }, comm: true, studio: {}, agents: true })
+    const body = (await run.call('GET', STATUS_PATH)).body as unknown as TelegramStatus
+    expect(body.paired).toBe(false)
+    expect(body.problem).toContain('private chat')
+    telegram.updates.push({
+      update_id: 1,
+      message: { message_id: 1, date: Math.floor(Date.now() / 1000), chat: { id: -100, type: 'group' }, from: { id: 5 }, text: '/help' },
+    })
+    await settle(100)
+    expect(telegram.sent).toEqual([])
   })
 })
 

@@ -82,11 +82,32 @@ describe('the dislike', () => {
     const view = line('s1')
     await openOffer('s1', reason => reason)
     await waitFor(() => { expect(view.container.textContent).toContain('Try GPT-5.5 and Gemini 3.6 Flash on the same ask?') })
+    // What one click sends, and to whom, is on the line before the click.
+    expect(view.container.querySelector('[data-rating-sends]')?.textContent)
+      .toBe('This sends your whole conversation to the companies behind GPT-5.5 and Gemini 3.6 Flash.')
     const button = view.container.querySelector('[data-rating-try]') as HTMLButtonElement
     expect(button.textContent).toBe('Try both · about $0.04')
     fireEvent.click(button)
     await waitFor(() => { expect(view.container.querySelector('[data-rating-line]')).toBeNull() })
     expect(calls.find(call => call.url === '/idealize/router/compare')?.body).toMatchObject({ sessionId: 's1' })
+  })
+
+  it('says a picture sends its prompt and settings, and names one company for one model', async () => {
+    stub({
+      '/idealize/router/offer': {
+        body: {
+          kind: 'image', tag: 'illustration', first: { provider: 'gen', model: 'a', label: 'First' },
+          alternatives: [{ provider: 'gen', model: 'b', label: 'Second' }],
+          price: { unknown: true },
+        },
+      },
+    })
+    const view = line('s9')
+    await openOffer('s9', reason => reason)
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-rating-sends]')?.textContent)
+        .toBe('This sends your prompt and its settings to the company behind Second.')
+    })
   })
 
   it('words the price', () => {

@@ -19,7 +19,9 @@
  */
 
 import { app, BrowserWindow, ipcMain, nativeImage, screen, type IpcMainEvent } from 'electron'
-import type { AskbarPosition, DockDisplay, DockRectangle } from './askbar-window.ts'
+import type { AskbarPosition, DockDisplay, DockRectangle } from './dock-geometry.ts'
+import { hardeningApplies } from './platform-hardening.ts'
+import { guardNavigation } from './window-guard.ts'
 
 /** The window box: wide enough for a two-line bubble, tall enough for the bubble above the owl. */
 export const POWELL_WIDTH = 380
@@ -221,6 +223,14 @@ export class PowellWindow {
         void this.place().then(() => { window.showInactive() })
       }
     })
+    if (hardeningApplies(process.platform)) {
+      // A link in a reply must leave for the browser. Powell sits on top of
+      // everything with the microphone a tap away, so a remote page in this
+      // window would be the worst place for one.
+      const releaseGuard = guardNavigation(window, new URL(this.options.url).origin, { logError: this.options.logError })
+      // A destroyed window's webContents throws when touched.
+      this.disposers.push(() => { if (!window.isDestroyed()) releaseGuard() })
+    }
     this.listen()
     window.loadURL(this.options.url).catch((cause: unknown) => {
       this.options.logError(`dsh-plugin-desktop: the Powell window failed to load: ${cause instanceof Error ? cause.message : String(cause)}`)
@@ -445,7 +455,7 @@ export class PowellWindow {
 
   /**
    * Hand activation to the app behind and keep Powell on screen (see
-   * AskbarWindow.yieldActivation). Hiding the app takes every window with it,
+   * the old Askbar window's yieldActivation). Hiding the app takes every window with it,
    * the panel included, and a panel shown again while the app is hidden stays
    * off screen until the app is next activated (JJ, 2 Oct 2026: the owl
    * "appeared and then disappeared ... reappeared when the main idealize

@@ -19,7 +19,7 @@ const eventSchema = z.object({
   at: z.string(),
   from: modelSchema,
   to: modelSchema,
-  reason: z.enum(['needs-payment', 'loses-context']).optional(),
+  reason: z.enum(['needs-payment', 'loses-context', 'other-company']).optional(),
   task: z.enum(['code', 'reasoning', 'math', 'writing', 'summarise', 'translate', 'quick']).optional(),
   rationale: z.string().optional(),
   improvement: z.number().optional(),

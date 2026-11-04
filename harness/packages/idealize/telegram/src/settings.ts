@@ -9,6 +9,8 @@ export const TELEGRAM_SETTINGS_NAMESPACE = 'idealize-telegram'
 export interface TelegramSettings {
   /** The paired Telegram chat id, as decimal text; empty until a chat pairs. The bot obeys this chat alone. */
   chatId: string
+  /** The paired Telegram user id, as decimal text; empty on a pairing stored before it was kept. */
+  userId: string
   /** Send the Studio coordinator's posts to the paired chat. */
   forwardStudioReplies: boolean
   /** Send one line when a task on any timeline ends. */
@@ -22,6 +24,7 @@ export interface TelegramSettings {
 /** Durable schema; also the wire envelope the browser scope validates against. */
 export const TelegramSettingsSchema: z<TelegramSettings> = z.object({
   chatId: z.string().default(''),
+  userId: z.string().default(''),
   forwardStudioReplies: z.boolean().default(true),
   forwardTaskEndings: z.boolean().default(true),
   forwardAttention: z.boolean().default(true),
@@ -49,6 +52,10 @@ export interface TelegramStatus {
   paired: boolean
   /** The pairing code waiting to be sent, and when it stops working (epoch ms). */
   pairing?: { code: string; expiresAt: number } | undefined
+  /** A bot token that passed its check and waits for the person to allow it. The token itself never leaves the host. */
+  confirmToken?: { botUsername: string } | undefined
+  /** Someone who sent the live code and waits for the person to allow them. */
+  confirmPairing?: { name: string } | undefined
   /** The most recent problem in plain words; empty when the bot is working. */
   problem: string
 }

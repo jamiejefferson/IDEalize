@@ -116,6 +116,18 @@ async function deleteTask(id: string): Promise<void> {
   await fetch(`/idealize/cron/delete?id=${encodeURIComponent(id)}`, { method: 'POST', headers: HEADERS })
 }
 
+/**
+ * The person approves a task a chat added, which arms it.
+ * @param id - the waiting task.
+ * @returns the host's reason when it refused, or undefined when the task armed.
+ */
+async function approveTask(id: string): Promise<string | undefined> {
+  const response = await fetch(`/idealize/cron/approve?id=${encodeURIComponent(id)}`, { method: 'POST', headers: HEADERS })
+  if (response.ok) return undefined
+  const body = await response.json() as { error?: string }
+  return body.error ?? `approve ${String(response.status)}`
+}
+
 function toDraft(task: TaskView): TaskDraft {
   return {
     id: task.id,
@@ -131,8 +143,9 @@ function toDraft(task: TaskView): TaskDraft {
   }
 }
 
-/** The badge on a task item: DONE for a fired one-off, else its repeat rule. */
+/** The badge on a task item: NEEDS APPROVAL for a chat's task, DONE for a fired one-off, else its repeat rule. */
 function badgeOf(task: TaskView, t: ScheduleViewProps['t']): string {
+  if (task.awaitingApproval === true) return t('sched.badge.waiting')
   return task.done === undefined ? repeatBadge(task.schedule, t) : t('sched.badge.done')
 }
 
@@ -150,6 +163,7 @@ export function ScheduleView(props: ScheduleViewProps) {
   const [load, setLoad] = useState<Load>({ status: 'loading' })
   const [drag, setDrag] = useState<Drag | null>(null)
   const [moved, setMoved] = useState<string | undefined>(undefined)
+  const [approvalError, setApprovalError] = useState<string | undefined>(undefined)
   // Set when a press travelled past the slop, so the click that follows the release does not open the editor.
   const dragged = useRef(false)
   const lane = useRef<HTMLDivElement>(null)
@@ -332,6 +346,9 @@ export function ScheduleView(props: ScheduleViewProps) {
     </button>
   )
 
+  const waiting = tasks.filter(task => task.awaitingApproval === true)
+  const badgeLine = (task: TaskView): string => detailLine(task, t)
+
   const toneOf = (task: TaskView): 'done' | 'paused' | 'next' | 'plain' =>
     task.done !== undefined ? 'done' : !task.enabled ? 'paused' : task.id === nextId ? 'next' : 'plain'
 
@@ -460,6 +477,53 @@ export function ScheduleView(props: ScheduleViewProps) {
       )}
 
       {moved !== undefined && <p className={css.moved} role="status">{moved}</p>}
+
+      {/* Above every grain, because a chat's task may sit on another day. The
+          person reads what would run before it can run. */}
+      {waiting.length > 0 && (
+        <section className={css.approvals} aria-label={t('sched.approval.title')} data-schedule-approvals="">
+          <h3 className={css.approvalsTitle}>{t('sched.approval.title')}</h3>
+          <p className={css.approvalsNote}>{t('sched.approval.note')}</p>
+          {waiting.map(task => (
+            <div key={task.id} className={css.approvalRow} data-schedule-waiting={task.id}>
+              <span className={css.approvalName}>{task.name}</span>
+              <span className={css.approvalRule}>{badgeLine(task)}</span>
+              <p className={css.approvalWhat}>
+                {task.prompt === '' ? t('sched.approval.reminds') : t('sched.approval.runs', { folder: task.cwd, prompt: task.prompt })}
+              </p>
+              <div className={css.approvalActions}>
+                <button
+                  type="button"
+                  className={css.approvalButton}
+                  data-schedule-approve={task.id}
+                  onClick={() => {
+                    void approveTask(task.id).then(async (refused) => {
+                      setApprovalError(refused)
+                      await refresh()
+                    })
+                  }}
+                >
+                  {t('sched.approval.approve')}
+                </button>
+                <button
+                  type="button"
+                  className={css.approvalButton}
+                  data-schedule-remove={task.id}
+                  onClick={() => {
+                    void deleteTask(task.id).then(async () => {
+                      setApprovalError(undefined)
+                      await refresh()
+                    })
+                  }}
+                >
+                  {t('sched.approval.remove')}
+                </button>
+              </div>
+            </div>
+          ))}
+          {approvalError !== undefined && <p className={css.approvalError} role="alert">{approvalError}</p>}
+        </section>
+      )}
 
       {grain === 'day' && (
         <>

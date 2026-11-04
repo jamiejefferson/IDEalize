@@ -157,6 +157,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * exists yet; the filler stages choices for the next one.
      */
     'conversation.hero.launcher': { kind: 'single'; scope: 'root'; owner: HeroLauncherOwnerProps }
+    /**
+     * The band under the hero composer card, for what a person can start from
+     * besides typing. Root scope, as the launcher is, and empty by default: the
+     * shipped hero has nothing below its card. The owner share carries the
+     * draft, because a starting point may fill the composer.
+     */
+    'conversation.hero.below': { kind: 'single'; scope: 'root'; owner: HeroBelowOwnerProps }
     // 'conversation.input.overlay' merges in ui-input-trigger (the dependency
     // direction is the hard constraint — ui-input-trigger cannot import
     // this package, while this package's input contract already imports
@@ -270,6 +277,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  * occupant renders the row over the recents; a lower-priority registration
  * shadows it.
  */
+/** Owner share of the band under the hero composer card. */
+export interface HeroBelowOwnerProps {
+  /** Whether the blank session already sits in a project. */
+  projectOpen: boolean
+  /** The composer's text. */
+  draft: string
+  /** Replace the composer's text; absent until a session exists. */
+  setDraft?: (text: string) => void
+}
+
 export interface HeroLauncherOwnerProps {
   /** The project chip, its picker menu, and the agent-preset chip (switchable until the first message). */
   projectRow: ReactNode
@@ -484,6 +501,8 @@ export interface ConversationInjected {
    * When a blank session is already current, carry its draft to the target.
    */
   selectWorkspace: (workspaceId: WorkspaceId) => Promise<void>
+  /** Replace this session's composer text; absent with no session. */
+  setDraft?: (text: string) => void
   /**
    * Framework-bound sources. `composerBlock` is this session's block when a
    * plugin raised one; the reason is the blocker's own localized copy, which
@@ -673,6 +692,7 @@ export type ConversationSlotProps =
     | 'conversation.hero.workspace'
     | 'conversation.hero.agentPreset'
     | 'conversation.hero.launcher'
+    | 'conversation.hero.below'
   >
   & InjectFace<ConversationInjected>
   & PropsLocale<'conversation'>

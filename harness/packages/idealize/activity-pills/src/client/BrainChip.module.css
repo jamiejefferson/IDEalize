@@ -1,0 +1,404 @@
+/* The composer's brain chip and its panel (Paper "Brains rethink", board 09).
+   Colours are alias tokens with literal fallbacks, so both themes follow the
+   app and a theme that omits a token still paints. */
+
+.wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-width: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 300px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary, #0969da) 10%, transparent);
+  color: var(--dsw-alias-brand-primary, #0969da);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary, #0969da) 16%, transparent);
+}
+
+.chip[aria-expanded="true"] {
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-brand-primary, #0969da);
+}
+
+.chip:disabled,
+.chipBlocked:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.chipBlocked {
+  composes: chip;
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-label, #a15c07) 12%, transparent);
+  color: var(--dsw-alias-state-warn-label, #a15c07);
+}
+
+.chipBlocked:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-label, #a15c07) 18%, transparent);
+}
+
+.chipBlocked .model {
+  color: inherit;
+}
+
+.brain {
+  flex: none;
+  font-weight: 600;
+}
+
+.model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dsw-alias-label-secondary, #56595d);
+}
+
+.chevron {
+  flex: none;
+}
+
+.panel {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 16px));
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  /* Elevated surface: the thumb pair takes the l2 tokens (ui-theme styles/scrollbar.css). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+  border: 1px solid var(--dsw-alias-border-l3, rgba(31, 35, 40, 0.16));
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-2, #fff);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 14%);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary, #1b1f24);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 8px;
+}
+
+.section + .section {
+  border-top: 1px solid var(--dsw-alias-border-l1, rgba(31, 35, 40, 0.09));
+}
+
+.label {
+  padding: 0 10px 4px;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary, #8b8e91);
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+}
+
+.rowSelected {
+  composes: row;
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary, #0969da) 6%, transparent);
+}
+
+.rowButton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rowButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(31, 35, 40, 0.05));
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.rowName {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+.rowPurpose {
+  color: var(--dsw-alias-label-secondary, #56595d);
+}
+
+.rowAmber {
+  color: var(--dsw-alias-state-warn-label, #a15c07);
+}
+
+.tick {
+  flex: none;
+  color: var(--dsw-alias-brand-primary, #0969da);
+}
+
+.freeTag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 9px;
+  background: color-mix(in srgb, #1a7f37 12%, transparent);
+  color: #1a7f37;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 700;
+}
+
+.rowOpen {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 10px 10px;
+  color: var(--dsw-alias-label-secondary, #56595d);
+}
+
+.rowActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.modelRow,
+.settingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 10px;
+}
+
+.settingRow .rowName {
+  font-weight: 400;
+}
+
+.hint {
+  padding: 0 10px 4px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-tertiary, #8b8e91);
+}
+
+.outlineButton {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l3, rgba(31, 35, 40, 0.16));
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary, #1b1f24);
+  cursor: pointer;
+}
+
+.outlineButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(31, 35, 40, 0.05));
+}
+
+.linkButton {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary, #0969da);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}
+
+.textChoice {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #56595d);
+  font: inherit;
+  cursor: pointer;
+}
+
+.textChoice:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(31, 35, 40, 0.05));
+}
+
+.toggle {
+  flex: none;
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--dsw-alias-border-l3, rgba(31, 35, 40, 0.24));
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 120ms ease;
+}
+
+.toggle:checked {
+  background: var(--dsw-alias-brand-primary, #0969da);
+}
+
+.toggle:checked::after {
+  transform: translateX(14px);
+}
+
+.toggle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary, #0969da);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle,
+  .toggle::after {
+    transition: none;
+  }
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--dsw-alias-border-l1, rgba(31, 35, 40, 0.09));
+}
+
+.confirmLine {
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--dsw-alias-label-secondary, #56595d);
+}
+
+/* The full-width line above the composer: what the app just did, or what the
+   brain is missing, with the one action that answers it. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(31, 35, 40, 0.12));
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary, #56595d);
+}
+
+.noticeLine {
+  flex: 1;
+  min-width: 0;
+}
+
+.noticeBlocked {
+  composes: notice;
+  color: var(--dsw-alias-label-primary, #1b1f24);
+}
+
+.solidButton {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--dsw-alias-button-primary-fill, #1b1f24);
+  color: var(--dsw-alias-brand-primary-invert, #fff);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.solidButton:hover {
+  background: var(--dsw-alias-button-primary-hover, #32383f);
+}
+
+.tintButton {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary, #0969da) 10%, transparent);
+  color: var(--dsw-alias-brand-primary, #0969da);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dismiss {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary, #8b8e91);
+  cursor: pointer;
+}
+
+.dismiss:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(31, 35, 40, 0.05));
+}

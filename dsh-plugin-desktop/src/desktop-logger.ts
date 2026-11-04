@@ -71,6 +71,84 @@ export function installDesktopUncaughtExceptionLogging(
   return () => { proc.off('uncaughtException', handler) }
 }
 
+/**
+ * The package the failing code belongs to, read from the deepest stack frame
+ * under `node_modules`. A plugin is a package here, so this names the plugin
+ * without any plugin having to cooperate.
+ * @param stack - an error's stack, or undefined when there is none.
+ * @returns the package name, or undefined when no frame names one.
+ */
+export function failingPackage(stack: string | undefined): string | undefined {
+  if (stack === undefined) return undefined
+  for (const line of stack.split('\n')) {
+    if (!/^\s*at\s/u.test(line)) continue
+    const matches = [...line.matchAll(/node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/gu)]
+    const name = matches.at(-1)?.[1]
+    if (name !== undefined) return name.replace('\\', '/')
+  }
+  return undefined
+}
+
+/**
+ * One line for a failure the app survived, naming the plugin when the stack shows one.
+ * @param kind - what kind of failure this was.
+ * @param cause - what was thrown.
+ * @returns the line to log.
+ */
+export function survivedFailureLine(kind: string, cause: unknown): string {
+  const stack = cause instanceof Error ? cause.stack ?? cause.message : String(cause)
+  const owner = failingPackage(cause instanceof Error ? cause.stack : undefined)
+  return `dsh-plugin-desktop: ${kind} after start-up${owner === undefined ? '' : ` in ${owner}`}, kept running: ${stack}`
+}
+
+/** Failures logged per minute before the rest are counted and dropped. */
+const SURVIVED_LOG_LIMIT = 20
+
+/**
+ * After start-up an uncaught exception is logged and the app carries on: one
+ * plugin's slip, hours in, must not close every chat and terminal mid-reply.
+ * A limit stops a failure that repeats, such as a broken stderr pipe whose own
+ * write errors arrive here, from filling the disk or looping.
+ * @param proc - the process events.
+ * @param logger - where the line goes.
+ * @param now - the clock; replaced in tests.
+ * @returns the removal for this listener.
+ */
+export function installDesktopUncaughtExceptionSurvival(
+  proc: Pick<DesktopUncaughtExceptionProcess, 'off'> & { on(event: 'uncaughtException', listener: (error: Error) => void): unknown },
+  logger: DesktopLogger,
+  now: () => number = Date.now,
+): () => void {
+  let windowStart = now()
+  let logged = 0
+  let dropped = 0
+  let logging = false
+  const handler = (error: Error): void => {
+    if (logging) return
+    logging = true
+    try {
+      if (now() - windowStart >= 60_000) {
+        if (dropped > 0) logger.error(`dsh-plugin-desktop: ${String(dropped)} more uncaught exceptions were not logged`)
+        windowStart = now()
+        logged = 0
+        dropped = 0
+      }
+      if (logged >= SURVIVED_LOG_LIMIT) {
+        dropped += 1
+        return
+      }
+      logged += 1
+      logger.error(survivedFailureLine('uncaught exception', error))
+    } catch {
+      // The log is best-effort; losing a line must not become the next failure.
+    } finally {
+      logging = false
+    }
+  }
+  proc.on('uncaughtException', handler)
+  return () => { proc.off('uncaughtException', handler) }
+}
+
 /** DesktopLogger that writes to the shared sink and mirrors to process.stderr. */
 export class ElectronStderrLogger implements DesktopLogger {
   constructor(private readonly sink: LogFileSink | undefined) {}

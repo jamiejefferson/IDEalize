@@ -13,7 +13,7 @@ import type { CompareNodeData } from './compare-node.ts'
 import { HeartIcon } from './HeartButton.tsx'
 import { tagKey } from './model-browser.ts'
 import { acceptOffer, priceKey, rateOnLine, setLine, useLine } from './rating-line.ts'
-import type { LineState } from './rating-line.ts'
+import type { LineState, Offer } from './rating-line.ts'
 import css from './RatingLine.module.css'
 
 export type RatingLineProps = PropsRuntime<'conversation.input.dock'> & PropsLocale<'idealize-bar'>
@@ -102,6 +102,12 @@ function Rate({ sessionId, line, t }: { sessionId: string; line: Extract<LineSta
   )
 }
 
+/** What one click sends and to whom, said before the click: a chat sends all of its history, a picture its prompt. */
+function sendsKey(kind: Offer['kind'], two: boolean) {
+  if (kind === 'chat') return two ? 'line.offer.sends.two' : 'line.offer.sends.one'
+  return two ? 'line.offer.sends.media.two' : 'line.offer.sends.media.one'
+}
+
 function OfferRow({ sessionId, line, t }: { sessionId: string; line: Extract<LineState, { kind: 'offer' }>; t: Translate }) {
   const [a, b] = line.offer.alternatives
   const price = priceKey(line.offer.price)
@@ -109,8 +115,11 @@ function OfferRow({ sessionId, line, t }: { sessionId: string; line: Extract<Lin
   return (
     <div className={css.line} data-rating-line="offer">
       <span className={css.dislike}><HeartIcon broken /></span>
-      <span className={css.text}>
-        {b === undefined ? t('line.offer.one', { a: a?.label ?? '' }) : t('line.offer.two', { a: a?.label ?? '', b: b.label })}
+      <span className={css.offer}>
+        <span className={css.text}>
+          {b === undefined ? t('line.offer.one', { a: a?.label ?? '' }) : t('line.offer.two', { a: a?.label ?? '', b: b.label })}
+        </span>
+        <span className={css.sends} data-rating-sends="">{t(sendsKey(line.offer.kind, b !== undefined), { a: a?.label ?? '', b: b?.label ?? '' })}</span>
       </span>
       <button type="button" className={css.secondary} onClick={() => { setLine(sessionId, undefined) }}>{t('line.offer.no')}</button>
       <button

@@ -24,7 +24,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -180,6 +180,15 @@ async function connect(
 }
 
 describe('the services route on a real composition', () => {
+  // The connection check asks the service itself; these tests never leave the machine.
+  beforeEach(() => {
+    const real = globalThis.fetch
+    vi.stubGlobal('fetch', vi.fn((url: string | URL, init?: RequestInit) => String(url).includes('127.0.0.1') || String(url).includes('localhost')
+      ? real(url, init)
+      : Promise.resolve(new Response('{}', { status: 200 }))))
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
   it('serves one list carrying both kinds, each saying what it makes', async () => {
     const fal = await fakeFal()
     const { port } = await boot(await makeRoot(), fal)

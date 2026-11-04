@@ -1,11 +1,14 @@
 /**
- * The Brains drawer pane (Paper "models wires", frames 7A-0 / NX-0 / D5-0 /
- * 9D-0): three tabs under one header (Usage, Models, Router).
+ * The Brains drawer pane (Paper "Brains rethink", boards 10, 11 and 12, approved
+ * by JJ on 4 Nov 2026): three tabs under one header (Brains, Accounts,
+ * Auto-switch), with one row per brain and a plain mark for whether it can
+ * answer (JJ: "i also like the stronger indicator to say whether or not
+ * something is actually working"). The stored tab ids stay usage, models and
+ * router; only the words changed.
  *
- * - Usage — the brains, grouped by the space they work in: one section per
- *   declared space (Chat, Terminal, Gallery, Sound Stage, Motion, in the
- *   order `GET /idealize/spaces` serves them), each listing the brains whose
- *   `spaces` list names it. A row states the brain's model as text and
+ * - Brains — one row per brain, because a brain is one record whose `spaces`
+ *   list names where it works: For conversation, For making, then Behind the
+ *   scenes for the brains that work in no space. A row states the brain's model as text and
  *   carries an Edit; the edit sheet is the one place a model is chosen (JJ,
  *   7 Sep 2026: "drop down not needed in brains - just choose model in
  *   edit"). The sheet's selects list providers and models in alphabetical
@@ -15,8 +18,7 @@
  *   and a note under the select states how many models the catalogues hold
  *   and when they were read, so a model no service has published yet is
  *   explained rather than silently absent (JJ, 8 Sep 2026: "gpt 6 is not
- *   available"). A brain
- *   that works in more than one space appears under each; Free's model is
+ *   available"). Free's model is
  *   stated because the free-tokens route resolves it. A generating space
  *   also states its generation model from `/idealize/brains/media` on the
  *   row of the brain confined to it, or on the space's own row while no such
@@ -98,6 +100,10 @@ export interface BrainsPanelHost {
 }
 
 type Tab = 'usage' | 'models' | 'router'
+/** When the pane reads a newly connected service's models again. */
+const CATALOGUE_REREADS_MS = [10_000, 60_000, 180_000]
+/** What the host's connection check found. */
+type ServiceCheck = 'working' | 'refused' | 'no-credit' | 'no-keys' | 'failed' | 'untested'
 const TABS: readonly Tab[] = ['usage', 'models', 'router']
 
 /** One provider route of the state payload. */
@@ -136,14 +142,20 @@ const listed = (row: AgentRow): boolean => row.id !== POWELL_ID && !RETIRED.has(
 interface AgentRow {
   id: string
   name: string
+  /** What the brain is for, in the words of whoever wrote it. */
+  description?: string
   activity: boolean
   /** The free-tokens route resolves this brain's model, so the row states it rather than offering a picker. */
   modelPinned: boolean
   /** The spaces this brain works in, in the declared table's order; empty for an agent role. */
   spaces: SpaceId[]
   model: { provider: string; model: string } | null
-  /** Whether a chat on this brain can open its first request now; `no-access` means its route has no key, `no-sign-in` no sign-in. */
-  access?: { state: 'ready' | 'confirm' | 'unavailable'; reason?: string }
+  /**
+   * Whether a chat on this brain can open its first request now. `no-access`
+   * means its route has no key (`signInOffered`: a sign-in would do too), and
+   * `no-sign-in` that only a sign-in clears it.
+   */
+  access?: { state: 'ready' | 'confirm' | 'unavailable'; reason?: string; signInOffered?: true }
   /** The route's display name, when the sign-in surface offers the route. */
   providerName?: string
   overridden: boolean
@@ -288,7 +300,6 @@ interface Draft {
    * out (JJ, 22 Sep 2026): a Terminal chat runs a command-line agent that
    * picks its own model, and the controls read as a promise it cannot keep.
    */
-  openedIn?: string
   /** Whether the model router may move this brain's chats off its model; absent reads as yes. */
   routed?: boolean
   /** The brain's own routing criteria, once a slider has moved; absent leaves what the router holds. */
@@ -298,6 +309,93 @@ interface Draft {
 const ROUTER_LEVELS = ['conservative', 'balanced', 'aggressive'] as const
 type RouterLevel = typeof ROUTER_LEVELS[number]
 const ROUTER_PRIORITIES = ['cost', 'speed', 'intelligence'] as const
+
+/**
+ * "What matters most" (Paper "Brains rethink", board 11): three plain choices
+ * that write the same three weights the fine-tune sliders do, so a stored brain
+ * stays valid. The values are this pane's, chosen on 4 Nov 2026.
+ */
+const MATTERS = {
+  cost: { cost: 90, speed: 50, intelligence: 20 },
+  balanced: { cost: 50, speed: 50, intelligence: 50 },
+  best: { cost: 10, speed: 50, intelligence: 90 },
+} as const
+type Matter = keyof typeof MATTERS
+const MATTER_ORDER: readonly Matter[] = ['cost', 'balanced', 'best']
+
+/**
+ * Which plain choice a brain's weights read as. A brain's shipped row and a
+ * fine-tuned one rarely match a choice exactly, so this reads the lean.
+ * @param criteria - the brain's weights.
+ * @param criteria.cost - how much low cost counts.
+ * @param criteria.intelligence - how much intelligence counts.
+ * @returns the choice to mark.
+ */
+export function matterOf(criteria: { cost: number; intelligence: number }): Matter {
+  const lean = criteria.intelligence - criteria.cost
+  if (lean >= 40) return 'best'
+  return lean <= -40 ? 'cost' : 'balanced'
+}
+
+/** What each seeded brain is for. A brain somebody wrote reads its own description. */
+const BRAIN_PURPOSES: Readonly<Record<string, BarKey>> = {
+  coding: 'launcher.purpose.coding',
+  design: 'launcher.purpose.design',
+  writing: 'launcher.purpose.writing',
+  admin: 'launcher.purpose.admin',
+  free: 'launcher.purpose.free',
+  gallery: 'launcher.purpose.gallery',
+  soundstage: 'launcher.purpose.soundstage',
+  motion: 'launcher.purpose.motion',
+  video: 'launcher.purpose.motion',
+}
+
+/**
+ * The names the app seeds its media brains with. They predate the words the
+ * rethink settled on, so a row reads the new word until somebody renames the
+ * brain. The stored name stays what it was.
+ */
+const SEEDED_NAMES: Readonly<Record<string, { name: string; label: SpaceId }>> = {
+  gallery: { name: 'Gallery', label: 'gallery' },
+  soundstage: { name: 'Sound Stage', label: 'soundstage' },
+  video: { name: 'Video', label: 'motion' },
+}
+
+/** How a route's id reads where no catalogue names it, by the words a plain capital gets wrong. */
+const ID_WORDS: Readonly<Record<string, string>> = { deepseek: 'DeepSeek', gpt: 'GPT', glm: 'GLM', openai: 'OpenAI', ai: 'AI' }
+
+/**
+ * A model's readable name from its route id, for when no catalogue has been read
+ * yet: `deepseek/deepseek-v4-flash` reads DeepSeek V4 Flash.
+ * @param id - the model id.
+ * @returns the name to show.
+ */
+export function readableModelId(id: string): string {
+  const last = id.slice(id.lastIndexOf('/') + 1).replace(/^~/, '').replace(/-latest$/, '').replace(/:[a-z]+$/, '')
+  return last.split('-').filter(word => word !== '').map((word) => {
+    const known = ID_WORDS[word.toLowerCase()]
+    if (known !== undefined) return known
+    return /^v?\d/.test(word) ? word.toUpperCase() : `${word.charAt(0).toUpperCase()}${word.slice(1)}`
+  }).join(' ')
+}
+
+/** A catalogue name without the maker it opens with: `Google: Lyria 3` reads Lyria 3. */
+const withoutMaker = (name: string): string => /^[^:]{2,40}:\s+(.+)$/.exec(name)?.[1] ?? name
+
+/** The plans offered as a next step, by route. */
+const PLAN_NAMES: Readonly<Record<string, BarKey>> = {
+  anthropic: 'brains.accounts.planClaude',
+  'openai-codex': 'brains.accounts.planChatGpt',
+}
+
+/** The keyed services offered as a next step, with why each is worth having. */
+const NEXT_SERVICES: Readonly<Record<string, BarKey>> = {
+  openrouter: 'brains.accounts.openrouter',
+  fal: 'brains.accounts.fal',
+}
+
+/** The spaces whose work is a made thing, not a conversation. */
+const MAKING_SPACES: ReadonlySet<SpaceId> = new Set<SpaceId>(['gallery', 'soundstage', 'motion'])
 /** How readily a brain's chats move, and what a better model weighs for it, on the sliders' 0 to 100 scale. */
 interface RouterCriteria { aggressiveness: RouterLevel; cost: number; speed: number; intelligence: number }
 /** The /idealize/router/state payload, as far as the sheet reads it. */
@@ -398,11 +496,21 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   // halfway down the list, so a refused key looked like a dead button (JJ,
   // 30 Oct 2026: "nothing happens when i click").
   const [serviceError, setServiceError] = useState<{ id: string; kind: 'chat' | 'media'; message: string } | null>(null)
+  /** What each service's last connection check found, by `kind:id`. */
+  const [checks, setChecks] = useState<Record<string, ServiceCheck | 'checking'>>({})
   /** True while the "Add a service" picker is open over the connected list. */
   const [adding, setAdding] = useState(false)
+  /** The route an "Add key" asked for, until the services list can place it. */
+  const [keyFor, setKeyFor] = useState<string | null>(null)
   const [spaces, setSpaces] = useState<SpaceRosterEntry[] | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [providerEditor, setProviderEditor] = useState(false)
+  /** The sheet's More options, and its full instructions: both one click down. */
+  const [serviceQuery, setServiceQuery] = useState('')
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [instructionsOpen, setInstructionsOpen] = useState(false)
+  /** The brain the chip asked to edit, held until the agents have loaded. */
+  const [editing, setEditing] = useState<string | null>(null)
   /** The sheet field whose model browser is open, or null. */
   const [browsing, setBrowsing] = useState<'model' | 'chatModel' | null>(null)
   // The person's ratings, read each time the browser opens so a rating given from a chat shows on the card.
@@ -471,17 +579,25 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     void refreshSpaces()
     void refreshRouterOff()
   }, [refreshState, refreshAgents, refreshMedia, refreshSpaces, refreshRouterOff])
-  useEffect(() => { if (draft === null) setBrowsing(null) }, [draft])
-  // The chat details are read once per pane, when a sheet first shows a chat
-  // model: the row names its price, and the browser describes every model.
+  // A new brain has no answers to keep out of the way, so its sheet asks where
+  // it works and how it should work from the start.
+  const sheetOpen = draft !== null
+  const addingBrain = draft !== null && draft.id === undefined
+  useEffect(() => {
+    if (!sheetOpen) setBrowsing(null)
+    setMoreOpen(addingBrain)
+    setInstructionsOpen(addingBrain)
+  }, [sheetOpen, addingBrain])
+  // The chat details are read once per pane: a row names its model by them,
+  // the sheet its price, and the browser describes every model.
   const chatDetailsAsked = useRef(false)
   useEffect(() => {
-    if (draft === null || chatDetailsAsked.current) return
+    if (chatDetailsAsked.current) return
     chatDetailsAsked.current = true
     void getJson<{ providers: ChatDetailsProvider[] }>('/idealize/models/details').then((details) => {
       setChatDetails(details?.providers ?? [])
     })
-  }, [draft])
+  }, [])
 
   // The welcome card's brain step hands this pane the space with no brains, or
   // the provider key a refused space is waiting on. Acting on it once and
@@ -491,20 +607,63 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     setTab('usage')
     if (request.kind === 'add-brain') {
       setDraft({ name: '', model: '', chatModel: '', cli: '', instructions: '', spaces: [request.space as SpaceId] })
+    } else if (request.kind === 'edit-brain') {
+      setEditing(request.id)
+    } else if (request.provider !== undefined) {
+      setKeyFor(request.provider)
     } else {
       setProviderEditor(true)
     }
     onRequestHandled?.()
   }, [request, onRequestHandled])
 
+  // "Add key" names a route, so it opens that route's own key field. The editor
+  // sheet lists only routes already configured: OpenRouter was never on it, so
+  // the button led nowhere (JJ, 4 Nov 2026). A route the list cannot place,
+  // such as a custom provider, still goes to the sheet.
+  useEffect(() => {
+    if (keyFor === null || services === null) return
+    setKeyFor(null)
+    const row = services.find(entry => entry.id === keyFor && entry.signIn !== true)
+    if (row === undefined) {
+      setProviderEditor(true)
+      return
+    }
+    setTab('models')
+    setAdding(!row.connected)
+    setServiceError(null)
+    setServiceDraft({ id: row.id, kind: row.kind, value: '' })
+  }, [keyFor, services])
+
   // ── Usage tab ──────────────────────────────────────────────────────────
   /**
    * A row's chat model as text: its own override, else the resolved default
    * marked as such, else "Default" while no model resolves at all.
    */
+  /** A chat model by its readable name, without the maker the catalogue repeats. */
+  const modelName = (model: { provider: string; model: string }): string => {
+    const name = chatDetails?.find(row => row.provider === model.provider)?.models.find(row => row.id === model.model)?.name
+    return name === undefined ? readableModelId(model.model) : withoutMaker(name)
+  }
+  /** How a model is paid for, in the three words the rethink settled on. */
+  const costLabel = (model: { provider: string; model: string }): string => {
+    const route = state?.providers.find(row => row.provider === model.provider)
+    if (route?.auth === 'free' || model.provider === 'free-tokens' || model.model.endsWith(':free')) return t('brains.cost.free')
+    return route?.auth === 'oauth' && route.connected && model.provider !== 'openrouter' ? t('brains.cost.plan') : t('brains.cost.payg')
+  }
+  /**
+   * What a brain's row says it runs on: the model and how it is paid for. A
+   * brain with no model of its own names the default it follows, so nobody has
+   * to know what "default" means to read the row.
+   * @param row - the brain.
+   * @returns the text.
+   */
   const chatModelText = (row: AgentRow): string => {
-    if (row.model === null) return t('brains.agent.default')
-    return row.overridden ? row.model.model : `${t('brains.agent.default')} · ${row.model.model}`
+    const model = row.model ?? state?.default ?? null
+    if (model === null) return t('brains.agent.followsDefault')
+    const route = state?.providers.find(entry => entry.provider === model.provider)
+    if (route?.auth === 'free' && model.model === 'auto') return t('brains.agent.freeAuto')
+    return `${modelName(model)} · ${costLabel(model)}`
   }
   /**
    * Persist a launch choice: which CLI a fresh Terminal shell types for this
@@ -524,6 +683,17 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
    * the route knows where a chat route's key belongs and where a generation
    * backend's does, so this surface never has to.
    */
+  const checkService = async (row: Pick<ServiceRow, 'id' | 'kind'>): Promise<void> => {
+    const key = `${row.kind}:${row.id}`
+    setChecks(now => ({ ...now, [key]: 'checking' }))
+    try {
+      const response = await fetch('/idealize/brains/services/check', { method: 'POST', headers: HEADERS, body: JSON.stringify({ id: row.id, kind: row.kind }) })
+      const body = await response.json() as { check?: ServiceCheck }
+      setChecks(now => ({ ...now, [key]: body.check ?? 'failed' }))
+    } catch {
+      setChecks(now => ({ ...now, [key]: 'failed' }))
+    }
+  }
   const connectService = async (row: ServiceRow, value: string): Promise<void> => {
     setStatus('')
     setServiceError(null)
@@ -537,11 +707,30 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     setStatus(t('brains.services.saved'))
     setServiceDraft(null)
     setAdding(false)
+    void checkService(row)
     notifyBrainsChanged()
     // The models a newly connected service offers must be selectable at once:
     // a person who pastes a key and sees nothing change reads it as failure.
     await Promise.all([refreshMedia(), refreshState(), refreshAgents()])
+    // A large catalogue is still arriving after the reply, so its models are picked up as they land.
+    for (const delay of CATALOGUE_REREADS_MS) setTimeout(() => { void refreshMedia() }, delay)
   }
+
+  // Every connected service is tried once when the list arrives, so a key that stopped working shows here first.
+  const checkedOnce = useRef(new Set<string>())
+  useEffect(() => {
+    for (const row of services ?? []) {
+      const key = `${row.kind}:${row.id}`
+      if (!row.connected || row.signIn === true || checkedOnce.current.has(key)) continue
+      checkedOnce.current.add(key)
+      void checkService(row)
+    }
+    // The free route's row asks too: its engine can hold no keys while the route still lists models.
+    if (!checkedOnce.current.has('chat:freetokens') && state?.providers.some(provider => provider.provider === 'freetokens' && provider.connected) === true) {
+      checkedOnce.current.add('chat:freetokens')
+      void checkService({ id: 'freetokens', kind: 'chat' })
+    }
+  }, [services, state])
 
   /** The hidden file field the "Import a keys file" link opens. */
   const keysFileField = useRef<HTMLInputElement>(null)
@@ -569,9 +758,34 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
    * The rows on screen: what is connected, or — while adding — what is not,
    * media first so the services that make images, video and sound lead.
    */
+  const generates = (row: ServiceRow): boolean => row.kind === 'media' || row.makes.some(kind => kind !== 'chat')
+  // The free route keeps its own row: its key only opens the local engine, so "change key" means nothing there.
+  const connectedServices = (services ?? []).filter(row => row.connected && row.id !== 'freetokens')
+  /** Whether a service can run a model: one this list names as unconnected cannot. */
+  /** Whether the service itself said this account cannot run: a refused key or no credit, never a check that got no answer. */
+  const confirmedDown = (kind: ServiceRow['kind'], id: string): boolean => {
+    const check = checks[`${kind}:${id}`]
+    return check === 'refused' || check === 'no-credit'
+  }
+  const backendRuns = (backend: string): boolean => !(services ?? []).some(service => service.id === backend && !service.connected)
+  /**
+   * Whether a generating route can run. The route reports `available` from public
+   * catalogues, so a service with no key still lists its models.
+   * @param row - the media preset.
+   * @returns whether a generation would reach a service with a key.
+   */
+  const mediaRuns = (row: MediaPresetRow): boolean => row.availability.state === 'available'
+    && row.candidates.some(candidate => backendRuns(candidate.backend) && !confirmedDown('media', candidate.backend))
+  // The next steps name services by id, so a route with two rows offers one.
+  const nextServices = Object.keys(NEXT_SERVICES).flatMap((id) => {
+    if ((services ?? []).some(row => row.id === id && row.connected)) return []
+    const row = (services ?? []).find(entry => entry.id === id && entry.signIn !== true)
+    return row === undefined ? [] : [row]
+  })
+  const matchesQuery = (name: string): boolean => name.toLowerCase().includes(serviceQuery.trim().toLowerCase())
   const visibleServices = (services ?? [])
-    .filter(row => adding ? !row.connected : row.connected)
-    .sort((left, right) => left.kind === right.kind ? 0 : left.kind === 'media' ? -1 : 1)
+    .filter(row => !row.connected && !nextServices.includes(row) && matchesQuery(row.name))
+    .sort((left, right) => generates(left) === generates(right) ? 0 : generates(left) ? -1 : 1)
 
   /** What a service makes, in the person's words; a service with an empty catalogue says so. */
   const makesLabel = (row: ServiceRow): string =>
@@ -606,8 +820,12 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     }
   }
   /** Whether the sheet shows the router's switch and sliders: a chat brain, opened from any group but Terminal. */
-  const routerShown = draft !== null && draft.spaces.includes('chat') && draft.openedIn !== 'terminal'
-  const beginEdit = (row: AgentRow, openedIn: string): void => {
+  const routerShown = draft !== null && draft.spaces.includes('chat')
+  const draftPurposeKey = draft?.id === undefined ? undefined : BRAIN_PURPOSES[draft.id]
+  const draftPurpose = draftPurposeKey === undefined
+    ? (agents ?? []).find(row => row.id === draft?.id)?.description ?? ''
+    : t(draftPurposeKey)
+  const beginEdit = (row: AgentRow): void => {
     const generation = mediaForSpaces(row.spaces)
     const chatModel = row.overridden && row.model !== null ? `${row.model.provider} ${row.model.model}` : ''
     setDraft({
@@ -620,10 +838,16 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
       cli: launches?.byActivity[row.id] ?? '',
       instructions: row.instructions,
       spaces: row.spaces,
-      openedIn,
       routed: !routerOff.includes(row.id),
     })
   }
+  useEffect(() => {
+    if (editing === null || agents === null) return
+    const row = agents.find(agent => agent.id === editing)
+    setEditing(null)
+    if (row !== undefined) beginEdit(row)
+    // beginEdit closes over the media table, which the same pane read loads.
+  }, [editing, agents])
   const saveDraft = async (): Promise<void> => {
     if (draft === null) return
     const generation = mediaForSpaces(draft.spaces)
@@ -708,6 +932,10 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     return t('brains.model.cli', { provider: name, cli: cli.cli })
   }
   const free = state?.providers.find(p => p.auth === 'free')
+  const connectedPlans = subscriptions.filter(provider => provider.connected)
+  const nextPlans = subscriptions.filter(provider => !provider.connected && PLAN_NAMES[provider.provider] !== undefined)
+  // A plan nobody here is likely to reach for stays one search away, not gone.
+  const otherPlans = subscriptions.filter(provider => !provider.connected && PLAN_NAMES[provider.provider] === undefined)
   // Sorted by the name as shown, which is the resolved one, not the raw payload field.
   const modelOptions = sortedProviders(
     (state?.providers.filter(p => p.models.length > 0) ?? [])
@@ -728,7 +956,12 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     const provider = row.providerName ?? (row.model === null ? '' : providerName(row.model.provider))
     return (
       <span className={css.rowAccess} data-brain-access={terminalOnly ? 'terminal-only' : row.access.reason}>
-        {row.access.reason === 'no-model' && t('brains.agent.unassigned')}
+        {row.access.reason === 'no-model' && t(row.id === 'free' ? 'brains.agent.freeNotSetUp' : 'brains.agent.unassigned')}
+        {row.access.reason === 'no-model' && row.id === 'free' && (
+          <a className={css.chip} href="/idealize/freetokens" target="_blank" rel="noreferrer" data-brain-free-setup="">
+            {t('brains.agent.setUp')}
+          </a>
+        )}
         {row.access.reason !== 'no-model' && terminalOnly && t('brains.agent.terminalOnly', { cli: cli?.cli ?? '' })}
         {signIn && t('brains.agent.noSignIn', { provider })}
         {row.access.reason !== 'no-model' && !terminalOnly && !signIn && t('brains.agent.noKey', { provider })}
@@ -739,10 +972,15 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
             </a>
           )
           : row.access.reason !== 'no-model' && (
-            <button type="button" className={css.chip} onClick={() => { setProviderEditor(true) }}>
+            <button type="button" className={css.chip} onClick={() => { if (row.model === null) setProviderEditor(true); else setKeyFor(row.model.provider) }}>
               {t('brains.agent.addKey')}
             </button>
           )}
+        {row.access.signInOffered === true && !terminalOnly && (
+          <a className={css.chip} href="/idealize/signin" target="_blank" rel="noreferrer">
+            {t('brains.agent.signIn')}
+          </a>
+        )}
       </span>
     )
   }
@@ -754,6 +992,11 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   const brainsIn = (space: SpaceId): AgentRow[] => (agents ?? []).filter(row => listed(row) && row.spaces.includes(space))
   const roleAgents = (agents ?? []).filter(row => listed(row) && row.spaces.length === 0)
   const powellAgent = (agents ?? []).find(row => row.id === POWELL_ID)
+  // One row per brain: a brain confined to one generating space makes things,
+  // and every other brain with a place to work holds a conversation.
+  const placedBrains = (agents ?? []).filter(row => listed(row) && row.spaces.length > 0)
+  const makingBrains = placedBrains.filter(row => row.spaces.every(id => MAKING_SPACES.has(id)))
+  const conversationBrains = placedBrains.filter(row => !makingBrains.includes(row))
   /** What the open sheet's model field is picking: a space's generation model, or a chat model. */
   const sheetGeneration = draft === null ? undefined : mediaForSpaces(draft.spaces)
   /** The chat catalogue as a sheet field lists it: the default first, then every provider's models the filter leaves. */
@@ -805,7 +1048,15 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
         {chosen?.thumbnailUrl !== undefined && <img className={css.modelThumb} src={chosen.thumbnailUrl} alt="" />}
         <span className={css.modelText}>
           <span className={css.modelName} data-brains-model-name="">
-            {name ?? t(kind === 'chat' ? 'browser.default' : 'browser.none')}
+            {name ?? (kind !== 'chat'
+              ? t('browser.none')
+              : state?.default === undefined || state.default === null
+                ? t('browser.default')
+                : t('browser.defaultIs', {
+                  model: state.providers.find(entry => entry.provider === state.default?.provider)?.auth === 'free' && state.default.model === 'auto'
+                    ? t('brains.agent.freeAuto')
+                    : modelName(state.default),
+                }))}
           </span>
           {chosen?.price.headline !== undefined && (
             <span className={css.modelPrice}>
@@ -905,10 +1156,12 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
     if (row.model !== null) {
       const stored = row.model
       const listed = row.candidates.find(candidate => candidate.backend === stored.backend && candidate.model.id === stored.model)
-      return listed === undefined ? stored.model : listed.model.name
+      return listed === undefined ? stored.model : withoutMaker(listed.model.name)
     }
-    const first = row.candidates[0]
-    return first === undefined ? t('brains.media.choose') : `${t('brains.agent.default')} · ${first.model.name}`
+    // A generation falls to a compatible model, and only a connected service can
+    // run it: the catalogues of the others are public.
+    const first = row.candidates.find(candidate => backendRuns(candidate.backend)) ?? row.candidates[0]
+    return first === undefined ? t('brains.media.choose') : withoutMaker(first.model.name)
   }
 
   /**
@@ -927,9 +1180,25 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
           </span>
           {row.availability.reason === 'no-compatible-model' && row.availability.keyMissing === true && (
             <span className={css.cellAction}>
-              <button type="button" className={css.chip} onClick={() => { setProviderEditor(true) }}>
+              <button type="button" className={css.chip} onClick={() => { setKeyFor('openrouter') }}>
                 {t('brains.media.addKey')}
               </button>
+            </span>
+          )}
+        </>
+      )
+    }
+    if (!mediaRuns(row)) {
+      const backend = row.candidates[0]?.backend
+      const service = (services ?? []).find(entry => entry.id === backend)?.name
+      return (
+        <>
+          <span className={css.rowNote} data-media-reason="no-connected-service">
+            {service === undefined ? t('brains.media.needsAccountAny') : t('brains.media.needsAccount', { service })}
+          </span>
+          {backend !== undefined && (
+            <span className={css.cellAction}>
+              <button type="button" className={css.chip} onClick={() => { setKeyFor(backend) }}>{t('brains.agent.addKey')}</button>
             </span>
           )}
         </>
@@ -953,30 +1222,80 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
    */
   const agentRow = (row: AgentRow, prefix: string): ReactNode => {
     const generation = mediaForSpaces(row.spaces)
-    const pinnedText = row.model === null ? t('brains.agent.unassigned') : row.model.model
-    // A Terminal row reads the CLI it launches beside its model: the choice
-    // itself lives in the sheet, where the model is chosen with it.
-    const cli = prefix !== 'terminal' ? undefined : cliLabel(launches?.byActivity[row.id])
+    const pinnedText = row.model === null ? t('brains.agent.unassigned') : chatModelText(row)
+    const terminalOnly = row.spaces.includes('terminal') && !row.spaces.includes('chat')
+    // A Terminal row reads the CLI it launches: the choice itself lives in the
+    // sheet, where the model is chosen with it.
+    const cli = terminalOnly ? cliLabel(launches?.byActivity[row.id]) : undefined
+    const purposeKey = BRAIN_PURPOSES[row.id]
+    const purpose = purposeKey === undefined ? row.description ?? '' : t(purposeKey)
+    const places = row.spaces.filter(id => id !== 'studio').map(id => t(SPACE_LABELS[id])).join(' · ')
+    const ready = brainReady(row)
+    const seeded = SEEDED_NAMES[row.id]
+    const shownName = seeded !== undefined && seeded.name === row.name ? t(SPACE_LABELS[seeded.label]) : row.name
     return (
-      <div key={`${prefix}:${row.id}`} className={css.row} role="row" data-brain={row.id}>
-        <span className={css.cellKey}>{row.name}</span>
-        {row.modelPinned
-          ? <span className={css.rowNote} data-brain-pinned="" data-brain-model={pinnedText}>{pinnedText}</span>
-          : generation !== undefined
-            ? generationCell(generation)
-            : (
-              <span className={css.rowNote} data-brain-model={chatModelText(row)}>
-                {cli === undefined ? chatModelText(row) : `${cli} · ${chatModelText(row)}`}
-              </span>
-            )}
+      <div key={`${prefix}:${row.id}`} className={css.brainRow} role="row" data-brain={row.id} data-brain-ready={ready ? '' : undefined}>
+        {brainMark(ready)}
+        <span className={css.brainText}>
+          <span className={css.brainHead}>
+            <span className={css.cellKey}>{shownName}</span>
+            {places !== '' && places !== shownName && <span className={css.brainPlaces} data-brain-places="">{places}</span>}
+          </span>
+          {purpose !== '' && <span className={css.brainPurpose} data-brain-purpose="">{purpose}</span>}
+          {row.modelPinned
+            // A pinned brain has no model to choose, so a missing one is left to the access note.
+            ? row.access?.reason === 'no-model' ? null : <span className={css.rowNote} data-brain-pinned="" data-brain-model={pinnedText}>{pinnedText}</span>
+            : generation !== undefined
+              ? generationCell(generation)
+              : (
+                <span className={css.rowNote} data-brain-model={chatModelText(row)}>
+                  {cli === undefined ? chatModelText(row) : cli}
+                </span>
+              )}
+          {/* A terminal runs its own CLI, which brings its own login, so the chat
+              route's key is not what it waits on (JJ, 4 Nov 2026). */}
+          {/* A generation row that cannot run has already said what it needs. */}
+          {terminalOnly || (generation !== undefined && !mediaRuns(generation)) ? null : accessNote(row)}
+        </span>
         <span className={css.cellAction}>
-          <button type="button" className={css.chip} onClick={() => { beginEdit(row, prefix) }}>
+          <button type="button" className={css.chip} onClick={() => { beginEdit(row) }}>
             {t('brains.agent.edit')}
           </button>
         </span>
-        {accessNote(row)}
       </div>
     )
+  }
+
+  /**
+   * The tick or the amber mark at a row's start, spelled out for a screen reader.
+   * @param ready - whether the row can answer now.
+   * @returns the mark.
+   */
+  const brainMark = (ready: boolean): ReactNode => (
+    <span className={ready ? css.markReady : css.markNeeds} data-brain-mark={ready ? 'ready' : 'needs'}>
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <path d={ready ? 'm3.5 8.5 3 3 6-7' : 'M8 3.5v5.5M8 12h.01'} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span className={css.visuallyHidden}>{t(ready ? 'brains.mark.ready' : 'brains.mark.needs')}</span>
+    </span>
+  )
+
+  /**
+   * Whether a brain can answer now: the one place the row's mark is decided. A
+   * media brain needs its generation model and the chat route that drives it, a
+   * Terminal brain its CLI, and every other brain its chat route.
+   * @param row - the brain.
+   * @returns true when a chat on it would answer.
+   */
+  function brainReady(row: AgentRow): boolean {
+    const generation = mediaForSpaces(row.spaces)
+    if (generation !== undefined && !mediaRuns(generation)) return false
+    if (generation === undefined && row.model !== null && confirmedDown('chat', row.model.provider)) return false
+    if (row.spaces.includes('terminal') && !row.spaces.includes('chat')) {
+      const command = launches?.byActivity[row.id] ?? launches?.default
+      return (launches?.catalog ?? []).find(entry => entry.command === command)?.installed !== false
+    }
+    return row.access?.state !== 'unavailable'
   }
 
   /**
@@ -1004,13 +1323,182 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   const mediaRow = (row: MediaPresetRow): ReactNode => {
     const labelKey = MEDIA_LABEL_KEYS[row.id]
     const name = labelKey === undefined ? row.name : t(labelKey)
+    const ready = mediaRuns(row)
     return (
-      <div key={row.id} className={css.row} role="row" data-media-preset={row.id}>
-        <span className={css.cellKey}>{name}</span>
-        {generationCell(row)}
+      <div key={row.id} className={css.brainRow} role="row" data-media-preset={row.id}>
+        {brainMark(ready)}
+        <span className={css.brainText}>
+          <span className={css.cellKey}>{name}</span>
+          {generationCell(row)}
+        </span>
       </div>
     )
   }
+
+  /**
+   * One service: its name, what it makes, and a key field or the way to one.
+   * Written once because a service can sit under Connected, Good next steps or
+   * the full list.
+   * @param row - the service.
+   * @returns the row element.
+   */
+  const serviceRow = (row: ServiceRow): ReactNode => {
+    const open = serviceDraft?.id === row.id && serviceDraft.kind === row.kind
+    return (
+      <div
+        className={css.providerRow}
+        data-service={row.id}
+        data-service-kind={row.kind}
+        data-service-connected={row.connected ? '' : undefined}
+      >
+        <span className={css.providerName}>
+          <strong>{row.name}</strong>
+          <small>{NEXT_SERVICES[row.id] === undefined || row.connected ? makesLabel(row) : t(NEXT_SERVICES[row.id] as BarKey)}</small>
+        </span>
+        {open
+          ? (
+          // A line of its own: the field is where a secret gets
+          // typed, and the key page belongs directly under it,
+          // where someone without a key is already looking.
+            <span className={css.keyPanel}>
+              <span className={css.keyRow}>
+                <input
+                  className={css.budgetInput}
+                  type="password"
+                  autoComplete="off"
+                  autoFocus
+                  aria-label={t('brains.services.field', { service: row.name })}
+                  placeholder={t('brains.services.placeholder')}
+                  value={serviceDraft.value}
+                  onChange={(event) => { setServiceDraft({ id: row.id, kind: row.kind, value: event.target.value }) }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void connectService(row, serviceDraft.value)
+                    if (event.key === 'Escape') setServiceDraft(null)
+                  }}
+                />
+                <span className={css.keyActions}>
+                  <button type="button" className={css.secondary} onClick={() => { setServiceDraft(null); setServiceError(null) }}>
+                    {t('brains.cancel')}
+                  </button>
+                  <button type="button" className={css.primary} onClick={() => { void connectService(row, serviceDraft.value) }}>
+                    {t('brains.services.connect')}
+                  </button>
+                </span>
+              </span>
+              {serviceError?.id === row.id && serviceError.kind === row.kind && (
+                <span className={css.keyError} role="alert" data-service-error={row.id}>{serviceError.message}</span>
+              )}
+              {row.keyUrl !== undefined && (
+                <a className={css.rowHint} href={row.keyUrl} target="_blank" rel="noreferrer" data-service-key-link={row.id}>
+                  {t('brains.services.keyLink', { service: row.name })}
+                </a>
+              )}
+            </span>
+          )
+          : row.signIn === true
+            ? <span className={css.badge}>{t('brains.services.signIn')}</span>
+            : (
+              <>
+                {row.connected && (
+                  <button
+                    type="button"
+                    className={`${css.badge} ${css.badgeButton}`}
+                    data-service-check={checks[`${row.kind}:${row.id}`] ?? 'connected'}
+                    title={`${t(`brains.services.check.${checks[`${row.kind}:${row.id}`] ?? 'connected'}.detail`, { service: row.name })} ${t('brains.services.check.again')}`}
+                    onClick={() => { void checkService(row) }}
+                  >
+                    {t(`brains.services.check.${checks[`${row.kind}:${row.id}`] ?? 'connected'}`)}
+                  </button>
+                )}
+                {row.connected && row.kind === 'chat' && (
+                  <button
+                    type="button"
+                    className={css.rowLink}
+                    data-service-manage={row.id}
+                    onClick={() => { setProviderEditor(true) }}
+                  >
+                    {t('brains.provider.manage')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={css.rowLink}
+                  onClick={() => { setServiceDraft({ id: row.id, kind: row.kind, value: '' }) }}
+                >
+                  {t(row.connected ? 'brains.services.change' : 'brains.services.connect')}
+                </button>
+              </>
+            )}
+      </div>
+    )
+  }
+
+  // A CLI's login is its own, so it counts as an account once the Mac can find it.
+  const readyClis = terminalClis.filter(row => row.installed !== false)
+  const missingClis = terminalClis.filter(row => row.installed === false)
+  /**
+   * One terminal tool. Its login pays for it in the terminal, and a key is what
+   * lets a chat reach the same route (JJ, 31 Aug 2026).
+   * @param row - the tool's route.
+   * @returns the row element.
+   */
+  const cliRow = (row: TerminalCliRow): ReactNode => (
+    <div key={`cli:${row.provider}`} className={css.providerRow} data-terminal-cli={row.cli}>
+      <span className={css.providerName}>
+        <strong>{providerName(row.provider)}</strong>
+        <small>{t('brains.terminal.kind', { cli: row.cli })}</small>
+      </span>
+      <span className={css.badge}>
+        {row.installed === null ? t('brains.terminal.unknown') : t(row.installed ? 'brains.terminal.installed' : 'brains.terminal.missing')}
+      </span>
+      <button type="button" className={css.rowLink} onClick={() => { setProviderEditor(true) }}>
+        {t(connectedFor(row.provider) ? 'brains.provider.manage' : 'brains.terminal.chatKey')}
+      </button>
+    </div>
+  )
+  /**
+   * The free route. Its keys live on its own page, so the row only leads there.
+   * @param models - how many models the route can reach now.
+   * @returns the row element.
+   */
+  const freeRow = (models: number): ReactNode => (
+    <div className={css.providerRow} data-accounts-free="">
+      <span className={css.providerName}>
+        <strong>{t('brains.free.title')}</strong>
+        <small>
+          {checks['chat:freetokens'] === 'no-keys'
+            ? t('brains.accounts.freeEmpty')
+            : models > 0 ? t('brains.accounts.freeCount', { count: models }) : t('brains.accounts.free')}
+        </small>
+      </span>
+      {checks['chat:freetokens'] === 'no-keys' && (
+        <span className={css.badge} data-service-check="no-keys">{t('brains.services.check.no-keys')}</span>
+      )}
+      <a className={css.rowLink} href="/idealize/freetokens" target="_blank" rel="noreferrer">
+        {t(models > 0 && checks['chat:freetokens'] !== 'no-keys' ? 'brains.provider.manage' : 'brains.agent.setUp')}
+      </a>
+    </div>
+  )
+
+  /**
+   * Whether a place can work now, read from the same marks its brains carry so
+   * the strip and the rows never disagree. A plain browser serves no CLI
+   * catalogue, and a place with no brain falls to its generation route.
+   * @param id - the place.
+   * @returns true when something in it can answer.
+   */
+  const placeReady = (id: SpaceId): boolean => {
+    if (id === 'terminal') {
+      const catalog = launches?.catalog
+      return catalog === undefined || catalog.some(entry => entry.installed !== false)
+    }
+    const brains = brainsIn(id)
+    if (brains.length > 0) return brains.some(brainReady)
+    const media = mediaOf(id)
+    return media !== undefined && mediaRuns(media)
+  }
+  const spaceStatus = (spaces ?? []).filter(entry => entry.id !== 'studio').map(entry => ({ id: entry.id, ok: placeReady(entry.id) }))
+  const chatBlocked = agents !== null && brainsIn('chat').length > 0 && brainsIn('chat').every(row => row.access?.state === 'unavailable')
 
   return (
     <div className={css.root} data-tab={tab}>
@@ -1036,251 +1524,183 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
       <div className={css.body}>
         {tab === 'usage' && (
           <>
-            <SectionHead title={t('brains.agents.title')} detail={t('brains.agents.detail')} />
-            {(spaces ?? []).map((entry) => {
-              const label = t(SPACE_LABELS[entry.id])
-              const generation = mediaOf(entry.id)
-              return (
-                <div key={entry.id} data-brains-space={entry.id}>
-                  <SectionHead title={label} />
-                  <div className={css.list} role="table" aria-label={label}>
-                    {brainsIn(entry.id).map(row => agentRow(row, entry.id))}
-                    {entry.id === 'terminal' && defaultCliRow()}
-                    {/* A brain confined to this space states the space's
-                        generation model on its own row; the space row repeats
-                        it only while no such brain exists. */}
-                    {generation !== undefined
-                      && !brainsIn(entry.id).some(row => !row.modelPinned && mediaForSpaces(row.spaces)?.id === generation.id)
-                      && mediaRow(generation)}
-                    <button
-                      type="button"
-                      className={css.addRow}
-                      data-brains-space-add={entry.id}
-                      onClick={() => { setDraft({ name: '', model: '', chatModel: '', cli: '', instructions: '', spaces: [entry.id] }) }}
-                    >
-                      <span className={css.plusBox} aria-hidden="true">+</span>
-                      {t('brains.space.addBrain')}
+            {spaceStatus.length > 0 && (
+              <div className={css.statusStrip} data-brains-status="">
+                {spaceStatus.map(({ id, ok }) => ok
+                  ? <span key={id} className={css.statusOk} data-space-status="ready">{t('brains.status.ready', { space: t(SPACE_LABELS[id]) })}</span>
+                  : (
+                    <button key={id} type="button" className={css.statusNeeds} data-space-status="needs" onClick={() => { setTab('models') }}>
+                      {t('brains.status.needs', { space: t(SPACE_LABELS[id]) })}
                     </button>
-                  </div>
-                </div>
-              )
-            })}
-
-            {powellAgent !== undefined && (
-              <div data-brains-powell="">
-                <SectionHead title={t('brains.powell.title')} detail={t('brains.powell.detail')} />
-                <div className={css.list} role="table" aria-label={t('brains.powell.title')}>
-                  {agentRow(powellAgent, 'powell')}
-                </div>
+                  ))}
               </div>
             )}
-
-            <SectionHead title={t('brains.otherAgents.title')} detail={t('brains.otherAgents.detail')} />
-            <div className={css.list} role="table" aria-label={t('brains.otherAgents.title')}>
-              {roleAgents.map(row => agentRow(row, 'roles'))}
+            {chatBlocked && (
+              <div className={css.readiness} data-brains-readiness="">
+                <span>{t('brains.readiness')}</span>
+                <button type="button" className={css.primary} onClick={() => { setTab('models') }}>{t('brains.readiness.connect')}</button>
+              </div>
+            )}
+            <SectionHead title={t('brains.group.conversation')} />
+            <div className={css.list} role="table" aria-label={t('brains.group.conversation')} data-brains-group="conversation">
+              {conversationBrains.map(row => agentRow(row, 'conversation'))}
+              {defaultCliRow()}
+            </div>
+            <SectionHead title={t('brains.group.making')} />
+            <div className={css.list} role="table" aria-label={t('brains.group.making')} data-brains-group="making">
+              {makingBrains.map(row => agentRow(row, 'making'))}
+              {/* A brain confined to a space states its generation model on its
+                  own row; the space's row stands in only while no such brain exists. */}
+              {(spaces ?? []).filter(entry => MAKING_SPACES.has(entry.id)).flatMap((entry) => {
+                const generation = mediaOf(entry.id)
+                if (generation === undefined || makingBrains.some(row => mediaForSpaces(row.spaces)?.id === generation.id)) return []
+                return [mediaRow(generation)]
+              })}
+            </div>
+            <div className={css.addBrainRow}>
               <button
                 type="button"
                 className={css.addRow}
-                onClick={() => { setDraft({ name: '', model: '', chatModel: '', cli: '', instructions: '', spaces: [] }) }}
+                data-brains-add=""
+                onClick={() => { setDraft({ name: '', model: '', chatModel: '', cli: '', instructions: '', spaces: ['chat'] }) }}
               >
                 <span className={css.plusBox} aria-hidden="true">+</span>
-                {t('brains.agent.add')}
+                {t('brains.space.addBrain')}
               </button>
             </div>
-
+            <details className={css.behindScenes} data-brains-behind="">
+              <summary className={css.behindSummary}>{t('brains.behind.title', { count: roleAgents.length + (powellAgent === undefined ? 0 : 1) })}</summary>
+              <p className={css.behindDetail}>{t('brains.otherAgents.detail')}</p>
+              <div className={css.list} role="table" aria-label={t('brains.otherAgents.title')}>
+                {powellAgent !== undefined && <div data-brains-powell="">{agentRow(powellAgent, 'powell')}</div>}
+                {roleAgents.map(row => agentRow(row, 'roles'))}
+                <button
+                  type="button"
+                  className={css.addRow}
+                  onClick={() => { setDraft({ name: '', model: '', chatModel: '', cli: '', instructions: '', spaces: [] }) }}
+                >
+                  <span className={css.plusBox} aria-hidden="true">+</span>
+                  {t('brains.agent.add')}
+                </button>
+              </div>
+            </details>
           </>
         )}
 
         {tab === 'models' && (
           <>
-            <SectionHead
-              title={t('brains.subs.title')}
-              detail={t('brains.subs.detail')}
-              action={(
-                <a className={css.plusButton} href="/idealize/signin" target="_blank" rel="noreferrer" aria-label={t('brains.subs.add')}>+</a>
+            <SectionHead title={t('brains.accounts.connected')} />
+            <div className={css.list} data-accounts-connected="" data-services="">
+              {connectedPlans.length === 0 && readyClis.length === 0 && connectedServices.length === 0 && free?.connected !== true && (
+                <div className={css.emptyRow}>{t('brains.accounts.none')}</div>
               )}
-            />
-            <div className={css.list}>
-              {subscriptions.length === 0 && terminalClis.length === 0 && <div className={css.emptyRow}>{t('brains.subs.empty')}</div>}
-              {terminalClis.map(row => (
-                <div key={`cli:${row.provider}`} className={css.providerRow} data-terminal-cli={row.cli}>
-                  <span className={css.providerName}>
-                    <strong>{providerName(row.provider)}</strong>
-                    <small>{t('brains.terminal.kind', { cli: row.cli })}</small>
-                  </span>
-                  <span className={css.badge}>
-                    {row.installed === null ? t('brains.terminal.unknown') : t(row.installed ? 'brains.terminal.installed' : 'brains.terminal.missing')}
-                  </span>
-                  <button type="button" className={css.rowLink} onClick={() => { setProviderEditor(true) }}>
-                    {t(connectedFor(row.provider) ? 'brains.provider.manage' : 'brains.terminal.chatKey')}
-                  </button>
-                </div>
-              ))}
-              {subscriptions.map(provider => (
-                <div key={provider.provider} className={css.providerRow}>
+              {connectedPlans.map(provider => (
+                <div key={provider.provider} className={css.providerRow} data-provider={provider.provider}>
                   <span className={css.providerName}>
                     <strong>{providerName(provider.provider)}</strong>
-                    <small>{t('brains.subs.kind')}</small>
+                    <small>{t('brains.cost.plan')}</small>
                   </span>
-                  <span className={css.badge}>{t(provider.connected ? 'brains.provider.connected' : 'brains.provider.signedOut')}</span>
-                  <a className={css.rowLink} href="/idealize/signin" target="_blank" rel="noreferrer">
-                    {t(provider.connected ? 'brains.provider.manage' : 'brains.provider.connect')}
-                  </a>
+                  <span className={css.badge}>{t('brains.provider.connected')}</span>
+                  <a className={css.rowLink} href="/idealize/signin" target="_blank" rel="noreferrer">{t('brains.provider.manage')}</a>
                 </div>
               ))}
+              {readyClis.map(cliRow)}
+              {connectedServices.map(row => <Fragment key={`${row.kind}:${row.id}`}>{serviceRow(row)}</Fragment>)}
+              {free?.connected === true && freeRow(free.models.length)}
             </div>
 
-            {/* One list for every service the person can connect. Chat routes
-                and generation backends sit together, because a person has an
-                account with a company and what that company sells is the
-                company's business to state, not a category to navigate. */}
-            <SectionHead
-              title={t('brains.services.title')}
-              detail={t('brains.services.detail')}
-              action={(
-                <button
-                  type="button"
-                  className={css.plusButton}
-                  aria-label={t('brains.services.add')}
-                  data-services-add=""
-                  onClick={() => { setAdding(value => !value); setServiceDraft(null) }}
-                >
-                  +
-                </button>
-              )}
-            />
-            <div className={css.list} data-services="">
-              {(services ?? []).filter(row => row.connected).length === 0 && !adding && (
-                <div className={css.emptyRow}>{t('brains.services.empty')}</div>
-              )}
-              {/* While adding, the media services lead under their own label.
-                  Unlabelled, thirty chat routes bury the handful that make
-                  images, video or sound, which is what a person opening this
-                  list to make a video came for. */}
-              {visibleServices
-                .map((row, index) => {
-                  const heading = !adding || row.kind === visibleServices[index - 1]?.kind
+            {(nextPlans.length > 0 || missingClis.length > 0 || nextServices.length > 0 || (free !== undefined && !free.connected)) && (
+              <>
+                <SectionHead title={t('brains.accounts.next')} />
+                <div className={css.list} data-accounts-next="">
+                  {nextPlans.map(provider => (
+                    <div key={provider.provider} className={css.providerRow} data-provider={provider.provider}>
+                      <span className={css.providerName}>
+                        <strong>{t(PLAN_NAMES[provider.provider] as BarKey)}</strong>
+                        <small>{t('brains.accounts.plan')}</small>
+                      </span>
+                      <a className={css.rowLink} href="/idealize/signin" target="_blank" rel="noreferrer">{t('brains.agent.signIn')}</a>
+                    </div>
+                  ))}
+                  {nextServices.map(row => <Fragment key={`${row.kind}:${row.id}`}>{serviceRow(row)}</Fragment>)}
+                  {missingClis.map(cliRow)}
+                  {free !== undefined && !free.connected && freeRow(free.models.length)}
+                </div>
+              </>
+            )}
+
+            <div className={css.accountsSearch}>
+              <button
+                type="button"
+                className={css.rowLink}
+                aria-expanded={adding}
+                data-services-add=""
+                onClick={() => { setAdding(value => !value); setServiceDraft(null) }}
+              >
+                {t('brains.accounts.searchAll', { count: (services ?? []).length })}
+              </button>
+            </div>
+            {adding && (
+              <div className={css.list} data-services-all="">
+                {visibleServices.length === 0 && otherPlans.length === 0 && serviceQuery === '' && nextServices.length === 0 && (
+                  <div className={css.emptyRow}>{t('brains.services.none')}</div>
+                )}
+                <label className={css.serviceSearch}>
+                  <span className={css.visuallyHidden}>{t('brains.accounts.searchLabel')}</span>
+                  <input
+                    type="search"
+                    className={css.textInput}
+                    placeholder={t('brains.accounts.searchLabel')}
+                    value={serviceQuery}
+                    data-services-search=""
+                    onChange={(event) => { setServiceQuery(event.target.value) }}
+                  />
+                </label>
+                {otherPlans.filter(provider => matchesQuery(providerName(provider.provider))).map(provider => (
+                  <div key={provider.provider} className={css.providerRow} data-provider={provider.provider}>
+                    <span className={css.providerName}>
+                      <strong>{providerName(provider.provider)}</strong>
+                      <small>{t('brains.accounts.plan')}</small>
+                    </span>
+                    <a className={css.rowLink} href="/idealize/signin" target="_blank" rel="noreferrer">{t('brains.agent.signIn')}</a>
+                  </div>
+                ))}
+                {/* The media services lead under their own label. Unlabelled,
+                    thirty chat routes bury the handful that make images, video
+                    or sound, which is what a person opening this list came for. */}
+                {visibleServices.map((row, index) => {
+                  const previous = visibleServices[index - 1]
+                  const heading = previous !== undefined && generates(row) === generates(previous)
                     ? undefined
-                    : t(row.kind === 'media' ? 'brains.services.groupMedia' : 'brains.services.groupChat')
-                  return { row, heading }
-                })
-                .map(({ row, heading }) => {
-                  const open = serviceDraft?.id === row.id && serviceDraft.kind === row.kind
+                    : t(generates(row) ? 'brains.services.groupMedia' : 'brains.services.groupChat')
                   return (
                     <Fragment key={`${row.kind}:${row.id}`}>
-                      {heading !== undefined && <div className={css.groupRow} data-service-group={row.kind}>{heading}</div>}
-                      <div
-                        className={css.providerRow}
-                        data-service={row.id}
-                        data-service-kind={row.kind}
-                        data-service-connected={row.connected ? '' : undefined}
-                      >
-                        <span className={css.providerName}>
-                          <strong>{row.name}</strong>
-                          <small>{makesLabel(row)}</small>
-                        </span>
-                        {open
-                          ? (
-                          // A line of its own: the field is where a secret gets
-                          // typed, and the key page belongs directly under it,
-                          // where someone without a key is already looking.
-                            <span className={css.keyPanel}>
-                              <span className={css.keyRow}>
-                                <input
-                                  className={css.budgetInput}
-                                  type="password"
-                                  autoComplete="off"
-                                  autoFocus
-                                  aria-label={t('brains.services.field', { service: row.name })}
-                                  placeholder={t('brains.services.placeholder')}
-                                  value={serviceDraft.value}
-                                  onChange={(event) => { setServiceDraft({ id: row.id, kind: row.kind, value: event.target.value }) }}
-                                  onKeyDown={(event) => {
-                                    if (event.key === 'Enter') void connectService(row, serviceDraft.value)
-                                    if (event.key === 'Escape') setServiceDraft(null)
-                                  }}
-                                />
-                                <span className={css.keyActions}>
-                                  <button type="button" className={css.secondary} onClick={() => { setServiceDraft(null); setServiceError(null) }}>
-                                    {t('brains.cancel')}
-                                  </button>
-                                  <button type="button" className={css.primary} onClick={() => { void connectService(row, serviceDraft.value) }}>
-                                    {t('brains.services.connect')}
-                                  </button>
-                                </span>
-                              </span>
-                              {serviceError?.id === row.id && serviceError.kind === row.kind && (
-                                <span className={css.keyError} role="alert" data-service-error={row.id}>{serviceError.message}</span>
-                              )}
-                              {row.keyUrl !== undefined && (
-                                <a className={css.rowHint} href={row.keyUrl} target="_blank" rel="noreferrer" data-service-key-link={row.id}>
-                                  {t('brains.services.keyLink', { service: row.name })}
-                                </a>
-                              )}
-                            </span>
-                          )
-                          : row.signIn === true
-                            ? <span className={css.badge}>{t('brains.services.signIn')}</span>
-                            : (
-                              <>
-                                {row.connected && <span className={css.badge}>{t('brains.provider.connected')}</span>}
-                                {row.connected && row.kind === 'chat' && (
-                                  <button
-                                    type="button"
-                                    className={css.rowLink}
-                                    data-service-manage={row.id}
-                                    onClick={() => { setProviderEditor(true) }}
-                                  >
-                                    {t('brains.provider.manage')}
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  className={css.rowLink}
-                                  onClick={() => { setServiceDraft({ id: row.id, kind: row.kind, value: '' }) }}
-                                >
-                                  {t(row.connected ? 'brains.services.change' : 'brains.services.connect')}
-                                </button>
-                              </>
-                            )}
-                      </div>
+                      {heading !== undefined && <div className={css.groupRow} data-service-group={generates(row) ? 'media' : 'chat'}>{heading}</div>}
+                      {serviceRow(row)}
                     </Fragment>
                   )
                 })}
-              {adding && (services ?? []).filter(row => !row.connected).length === 0 && (
-                <div className={css.emptyRow}>{t('brains.services.none')}</div>
-              )}
-              {/* A keys file connects several services at once: the route an
-                  organisation's keys arrive by, for anyone who did not open
-                  the file itself. */}
-              {adding && (
-                <>
-                  <input
-                    ref={keysFileField}
-                    type="file"
-                    accept=".idealizekeys,application/json"
-                    hidden
-                    data-services-keys-file=""
-                    onChange={(event) => {
-                      const file = event.currentTarget.files?.[0]
-                      event.currentTarget.value = ''
-                      if (file !== undefined) void importKeysFile(file)
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className={css.rowLink}
-                    data-services-import=""
-                    onClick={() => keysFileField.current?.click()}
-                  >
-                    {t('brains.services.import')}
-                  </button>
-                </>
-              )}
-              {/* The advanced route stays reachable and stays marked: it is the
-                  only path that asks for a web address, and asking for one is
-                  what made adding a service hard. */}
-              {adding && (
+                {/* A keys file connects several services at once: the route an
+                    organisation's keys arrive by, for anyone who did not open
+                    the file itself. */}
+                <input
+                  ref={keysFileField}
+                  type="file"
+                  accept=".idealizekeys,application/json"
+                  hidden
+                  data-services-keys-file=""
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0]
+                    event.currentTarget.value = ''
+                    if (file !== undefined) void importKeysFile(file)
+                  }}
+                />
+                <button type="button" className={css.rowLink} data-services-import="" onClick={() => keysFileField.current?.click()}>
+                  {t('brains.services.import')}
+                </button>
+                {/* The advanced route stays reachable and stays marked: it is the
+                    only path that asks for a web address, and asking for one is
+                    what made adding a service hard. */}
                 <button
                   type="button"
                   className={css.rowLink}
@@ -1289,17 +1709,12 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                 >
                   {t('brains.services.advanced')}
                 </button>
-              )}
-            </div>
-
-            <SectionHead
-              title={t('brains.free.title')}
-              detail={free === undefined ? t('brains.free.none') : `${t('brains.free.detail')} · ${String(free.models.length)} ${t('brains.free.models')}`}
-            />
+              </div>
+            )}
           </>
         )}
 
-        {tab === 'router' && <RouterTab t={t} />}
+        {tab === 'router' && <RouterTab t={t} onConnect={() => { setKeyFor('openrouter') }} />}
         {status !== '' && <p className={css.status} role="status">{status}</p>}
       </div>
 
@@ -1318,35 +1733,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                 under them: on a short window Save brain sat below the fold,
                 which read as a broken dialog (PC test drive, 18 Sep 2026). */}
             <div className={css.sheetBody} data-brains-sheet-body="">
-              {spaces !== null && (
-                <div
-                  className={css.field}
-                  role="group"
-                  data-brains-field="spaces"
-                  aria-label={t('brains.edit.space')}
-                  {...draft.id === undefined && draft.spaces[0] !== undefined
-                    ? { 'data-brains-add-space': draft.spaces[0] }
-                    : {}}
-                >
-                  <span className={css.fieldLabel}>{t('brains.edit.space')}</span>
-                  <span className={css.fieldChoices}>
-                    {spaces.map(entry => (
-                      <label key={entry.id} className={css.choice}>
-                        <input
-                          type="checkbox"
-                          checked={draft.spaces.includes(entry.id)}
-                          onChange={(event) => { toggleSpace(entry.id, event.target.checked) }}
-                        />
-                        {t(SPACE_LABELS[entry.id])}
-                      </label>
-                    ))}
-                  </span>
-                  {/* The rule that separates the pane's two lists, where the
-                      choice is made: a brain in no space is an agent role
-                      (JJ, 1 Sep 2026: the wording was not clear). */}
-                  <span className={css.fieldHint} data-brains-space-hint="">{t('brains.edit.spaceHint')}</span>
-                </div>
-              )}
               <label className={css.field} data-brains-field="name">
                 <span className={css.fieldLabel}>{t('brains.edit.name')}</span>
                 <input
@@ -1356,32 +1742,32 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                   onChange={(event) => { setDraft({ ...draft, name: event.target.value }) }}
                 />
               </label>
-              {draft.spaces.includes('terminal') && launches !== null && (
-                <label className={css.field} data-brains-field="cli">
-                  <span className={css.fieldLabel}>{t('brains.edit.cli')}</span>
-                  {/* Which CLI a fresh Terminal shell types for this brain. The
-                      model below is the brain's own; a CLI brings its own models
-                      with it, which this app cannot enumerate, so the two are
-                      stated separately rather than one filtering the other. */}
-                  <select
-                    className={css.fieldSelect}
-                    data-brains-cli=""
-                    aria-label={t('brains.edit.cli')}
-                    value={draft.cli}
-                    onChange={(event) => { setDraft({ ...draft, cli: event.target.value }) }}
-                  >
-                    <option value="">{t('brains.edit.cliDefault', { label: cliLabel('') ?? '' })}</option>
-                    {(launches.catalog ?? [])
-                      .filter(entry => entry.installed !== false || entry.command === draft.cli)
-                      .map(entry => (
-                        <option key={entry.id} value={entry.command}>
-                          {entry.installed === false ? t('brains.cli.notFound', { label: entry.label }) : entry.label}
-                        </option>
-                      ))}
-                  </select>
-                  <span className={css.fieldHint}>{t('brains.edit.cliHint')}</span>
-                </label>
-              )}
+              <div className={css.field} data-brains-field="what">
+                <span className={css.fieldLabel}>{t('brains.edit.whatItDoes')}</span>
+                {instructionsOpen
+                  ? (
+                    <label className={css.field} data-brains-field="instructions">
+                      <span className={css.fieldLabel}>{t('brains.edit.instructions')}</span>
+                      <textarea
+                        className={css.fieldArea}
+                        rows={5}
+                        value={draft.instructions}
+                        onChange={(event) => { setDraft({ ...draft, instructions: event.target.value }) }}
+                      />
+                      <span className={css.fieldHint} data-brains-instructions-hint="">
+                        {t('brains.edit.instructionsHint')}
+                      </span>
+                    </label>
+                  )
+                  : (
+                    <>
+                      {draftPurpose !== '' && <span className={css.fieldText} data-brains-purpose="">{draftPurpose}</span>}
+                      <button type="button" className={css.rowLinkStart} data-brains-see-instructions="" onClick={() => { setInstructionsOpen(true) }}>
+                        {t('brains.edit.seeInstructions')}
+                      </button>
+                    </>
+                  )}
+              </div>
               <div className={css.field} data-brains-field="model">
                 <span className={css.fieldLabel}>{t(sheetGeneration === undefined ? 'brains.edit.model' : 'brains.edit.generationModel')}</span>
                 {/* Narrowed by the spaces above: a brain confined to one
@@ -1395,17 +1781,6 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                   )}
                 {sheetGeneration === undefined && chatCatalogueAids()}
               </div>
-              {sheetGeneration !== undefined && (
-                <div className={css.field} data-brains-field="chat-model">
-                  <span className={css.fieldLabel}>{t('brains.edit.chatModel')}</span>
-                  {/* The model that drives the generation tool. Its own field,
-                      so a generating brain can leave an unreachable default
-                      route without moving every other brain off it. */}
-                  {modelField('chatModel', t('brains.edit.chatModel'), 'chat', chatBrowserModels(), draft.chatModel)}
-                  {chatCatalogueAids()}
-                  <span className={css.fieldHint}>{t('brains.edit.chatModelHint')}</span>
-                </div>
-              )}
               {browsing !== null && (() => {
                 const generating = browsing === 'model' && sheetGeneration !== undefined
                 const kind: BrowserKind = generating ? PRESET_KIND[sheetGeneration.id] ?? 'image' : 'chat'
@@ -1430,87 +1805,181 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                   />
                 )
               })()}
-              <label className={css.field} data-brains-field="instructions">
-                <span className={css.fieldLabel}>{t('brains.edit.instructions')}</span>
-                <textarea
-                  className={css.fieldArea}
-                  rows={5}
-                  value={draft.instructions}
-                  onChange={(event) => { setDraft({ ...draft, instructions: event.target.value }) }}
-                />
-                <span className={css.fieldHint} data-brains-instructions-hint="">
-                  {t('brains.edit.instructionsHint')}
-                </span>
-              </label>
-              {routerShown && (
-                <div className={css.field} data-brains-field="routed">
-                  <label className={css.choice}>
-                    <input
-                      type="checkbox"
-                      checked={draft.routed ?? true}
-                      onChange={(event) => { setDraft({ ...draft, routed: event.target.checked }) }}
-                    />
-                    {t('brains.edit.routed')}
-                  </label>
-                  <span className={css.fieldHint}>{t('brains.edit.routedHint')}</span>
-                  {draft.spaces.includes('terminal') && (
-                    <span className={css.fieldHint} data-brains-routed-terminal="">{t('brains.edit.routedTerminalHint')}</span>
-                  )}
-                </div>
-              )}
               {routerShown && (draft.routed ?? true) && (() => {
-                // The sheet shows what the router would read now; the draft holds criteria only once a slider moves.
                 const criteria = draft.criteria ?? criteriaOf(draft.id)
                 if (criteria === undefined) return null
+                const marked = matterOf(criteria)
                 return (
-                  <>
-                    <div className={css.field} role="group" aria-label={t('brains.router.level')} data-brains-field="flexibility">
-                      <span className={css.fieldLabel}>{t('brains.router.level')}</span>
-                      <label className={css.weightRow}>
-                        <span className={css.weightLabel}>{t('brains.router.level.low')}</span>
-                        <input
-                          type="range"
-                          className={css.weightInput}
-                          data-router-level=""
-                          min={0}
-                          max={ROUTER_LEVELS.length - 1}
-                          step={1}
-                          aria-label={t('brains.router.level')}
-                          aria-valuetext={t(`brains.router.level.${criteria.aggressiveness}`)}
-                          value={ROUTER_LEVELS.indexOf(criteria.aggressiveness)}
-                          onChange={(event) => {
-                            setDraft({ ...draft, criteria: { ...criteria, aggressiveness: ROUTER_LEVELS[Number(event.target.value)] ?? 'balanced' } })
-                          }}
-                        />
-                        <span className={css.weightEnd}>{t('brains.router.level.high')}</span>
-                      </label>
-                      <span className={css.fieldHint} data-router-level-hint={criteria.aggressiveness}>
-                        {t(`brains.router.level.${criteria.aggressiveness}.hint`)}
-                      </span>
-                    </div>
-                    <div className={css.field} role="group" aria-label={t('brains.router.priorities')} data-brains-field="priorities">
-                      <span className={css.fieldLabel}>{t('brains.router.priorities')}</span>
-                      {ROUTER_PRIORITIES.map(key => (
-                        <label key={key} className={css.weightRow}>
-                          <span className={css.weightLabel}>{t(`brains.router.priority.${key}`)}</span>
-                          <input
-                            type="range"
-                            className={css.weightInput}
-                            data-router-priority={key}
-                            min={0}
-                            max={100}
-                            aria-label={t(`brains.router.priority.${key}`)}
-                            value={criteria[key]}
-                            onChange={(event) => { setDraft({ ...draft, criteria: { ...criteria, [key]: Number(event.target.value) } }) }}
-                          />
-                          <span className={css.weightValue}>{String(criteria[key])}</span>
-                        </label>
+                  <div className={css.field} role="group" aria-label={t('brains.matters.label')} data-brains-field="matters">
+                    <span className={css.fieldLabel}>{t('brains.matters.label')}</span>
+                    <span className={css.segments}>
+                      {MATTER_ORDER.map(key => (
+                        <button
+                          key={key}
+                          type="button"
+                          className={css.segment}
+                          aria-pressed={marked === key}
+                          data-brains-matter={key}
+                          onClick={() => { setDraft({ ...draft, criteria: { ...criteria, ...MATTERS[key] } }) }}
+                        >
+                          {t(`brains.matters.${key}`)}
+                        </button>
                       ))}
-                      <span className={css.fieldHint}>{t('brains.router.prioritiesHint')}</span>
-                    </div>
-                  </>
+                    </span>
+                    <span className={css.fieldHint}>{t('brains.matters.hint')}</span>
+                  </div>
                 )
               })()}
+              <button
+                type="button"
+                className={css.moreToggle}
+                aria-expanded={moreOpen}
+                data-brains-more=""
+                onClick={() => { setMoreOpen(value => !value) }}
+              >
+                {t('brains.edit.more')}
+              </button>
+              {moreOpen && (
+                <>
+                  {spaces !== null && (
+                    <div
+                      className={css.field}
+                      role="group"
+                      data-brains-field="spaces"
+                      aria-label={t('brains.edit.space')}
+                      {...draft.id === undefined && draft.spaces[0] !== undefined
+                        ? { 'data-brains-add-space': draft.spaces[0] }
+                        : {}}
+                    >
+                      <span className={css.fieldLabel}>{t('brains.edit.space')}</span>
+                      <span className={css.fieldChoices}>
+                        {spaces.map(entry => (
+                          <label key={entry.id} className={css.choice}>
+                            <input
+                              type="checkbox"
+                              checked={draft.spaces.includes(entry.id)}
+                              onChange={(event) => { toggleSpace(entry.id, event.target.checked) }}
+                            />
+                            {t(SPACE_LABELS[entry.id])}
+                          </label>
+                        ))}
+                      </span>
+                      {/* The rule that separates the pane's two lists, where the
+                          choice is made: a brain in no space is an agent role
+                          (JJ, 1 Sep 2026: the wording was not clear). */}
+                      <span className={css.fieldHint} data-brains-space-hint="">{t('brains.edit.spaceHint')}</span>
+                    </div>
+                  )}
+                  {draft.spaces.includes('terminal') && launches !== null && (
+                    <label className={css.field} data-brains-field="cli">
+                      <span className={css.fieldLabel}>{t('brains.edit.cli')}</span>
+                      {/* Which CLI a fresh Terminal shell types for this brain. The
+                          model below is the brain's own; a CLI brings its own models
+                          with it, which this app cannot enumerate, so the two are
+                          stated separately rather than one filtering the other. */}
+                      <select
+                        className={css.fieldSelect}
+                        data-brains-cli=""
+                        aria-label={t('brains.edit.cli')}
+                        value={draft.cli}
+                        onChange={(event) => { setDraft({ ...draft, cli: event.target.value }) }}
+                      >
+                        <option value="">{t('brains.edit.cliDefault', { label: cliLabel('') ?? '' })}</option>
+                        {(launches.catalog ?? [])
+                          .filter(entry => entry.installed !== false || entry.command === draft.cli)
+                          .map(entry => (
+                            <option key={entry.id} value={entry.command}>
+                              {entry.installed === false ? t('brains.cli.notFound', { label: entry.label }) : entry.label}
+                            </option>
+                          ))}
+                      </select>
+                      <span className={css.fieldHint}>{t('brains.edit.cliHint')}</span>
+                    </label>
+                  )}
+                  {sheetGeneration !== undefined && (
+                    <div className={css.field} data-brains-field="chat-model">
+                      <span className={css.fieldLabel}>{t('brains.edit.chatModel')}</span>
+                      {/* The model that drives the generation tool. Its own field,
+                          so a generating brain can leave an unreachable default
+                          route without moving every other brain off it. */}
+                      {modelField('chatModel', t('brains.edit.chatModel'), 'chat', chatBrowserModels(), draft.chatModel)}
+                      {chatCatalogueAids()}
+                      <span className={css.fieldHint}>{t('brains.edit.chatModelHint')}</span>
+                    </div>
+                  )}
+                  {routerShown && (
+                    <div className={css.field} data-brains-field="routed">
+                      <label className={css.choice}>
+                        <input
+                          type="checkbox"
+                          checked={draft.routed ?? true}
+                          onChange={(event) => { setDraft({ ...draft, routed: event.target.checked }) }}
+                        />
+                        {t('brains.edit.routed')}
+                      </label>
+                      <span className={css.fieldHint}>{t('brains.edit.routedHint')}</span>
+                      {draft.spaces.includes('terminal') && (
+                        <span className={css.fieldHint} data-brains-routed-terminal="">{t('brains.edit.routedTerminalHint')}</span>
+                      )}
+                    </div>
+                  )}
+                  {routerShown && (draft.routed ?? true) && (() => {
+                    // The sheet shows what the router would read now; the draft holds criteria only once a slider moves.
+                    const criteria = draft.criteria ?? criteriaOf(draft.id)
+                    if (criteria === undefined) return null
+                    return (
+                      <>
+                        <div className={css.field} role="group" aria-label={t('brains.router.level')} data-brains-field="flexibility">
+                          <span className={css.fieldLabel}>{t('brains.router.level')}</span>
+                          <label className={css.weightRow}>
+                            <span className={css.weightLabel}>{t('brains.router.level.low')}</span>
+                            <input
+                              type="range"
+                              className={css.weightInput}
+                              data-router-level=""
+                              min={0}
+                              max={ROUTER_LEVELS.length - 1}
+                              step={1}
+                              aria-label={t('brains.router.level')}
+                              aria-valuetext={t(`brains.router.level.${criteria.aggressiveness}`)}
+                              value={ROUTER_LEVELS.indexOf(criteria.aggressiveness)}
+                              onChange={(event) => {
+                                setDraft({ ...draft, criteria: { ...criteria, aggressiveness: ROUTER_LEVELS[Number(event.target.value)] ?? 'balanced' } })
+                              }}
+                            />
+                            <span className={css.weightEnd}>{t('brains.router.level.high')}</span>
+                          </label>
+                          <span className={css.fieldHint} data-router-level-hint={criteria.aggressiveness}>
+                            {t(`brains.router.level.${criteria.aggressiveness}.hint`)}
+                          </span>
+                        </div>
+                        <div className={css.field} role="group" aria-label={t('brains.router.priorities')} data-brains-field="priorities">
+                          <span className={css.fieldLabel}>{t('brains.router.priorities')}</span>
+                          {ROUTER_PRIORITIES.map(key => (
+                            <label key={key} className={css.weightRow}>
+                              <span className={css.weightLabel}>{t(`brains.router.priority.${key}`)}</span>
+                              <input
+                                type="range"
+                                className={css.weightInput}
+                                data-router-priority={key}
+                                min={0}
+                                max={100}
+                                aria-label={t(`brains.router.priority.${key}`)}
+                                value={criteria[key]}
+                                onChange={(event) => {
+                                  setDraft({ ...draft, criteria: { ...criteria, [key]: Number(event.target.value) } })
+                                }}
+                              />
+                              <span className={css.weightValue}>{String(criteria[key])}</span>
+                            </label>
+                          ))}
+                          <span className={css.fieldHint}>{t('brains.router.prioritiesHint')}</span>
+                        </div>
+                      </>
+                    )
+                  })()}
+                </>
+              )}
             </div>
             <div className={css.sheetActions}>
               <button type="button" className={css.secondary} onClick={() => { setDraft(null) }}>{t('brains.cancel')}</button>

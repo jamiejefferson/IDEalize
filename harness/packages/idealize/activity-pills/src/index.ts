@@ -637,11 +637,11 @@ export function apply(ctx: Context, config: Config): void {
      * its display name, and which of them hold a sign-in. Empty while the
      * provider pack is not composed.
      */
-    const subscriptions = async (): Promise<{ id: string; name: string; stored: boolean }[]> => {
+    const subscriptions = async (): Promise<{ id: string; name: string; stored: boolean; keyless?: boolean }[]> => {
       // ctx.get() is the sanctioned probe for a service this plugin does not
       // depend on: the OAuth surface ships in the app and not in every composition.
       const oauth = webCtx.get('idealizeOAuth') as
-        { status?: () => Promise<{ id: string; name: string; stored: boolean }[]> } | undefined
+        { status?: () => Promise<{ id: string; name: string; stored: boolean; keyless?: boolean }[]> } | undefined
       return oauth?.status === undefined ? [] : await oauth.status().catch(() => [])
     }
 
@@ -660,7 +660,11 @@ export function apply(ctx: Context, config: Config): void {
       ))
       return assessPills(models, {
         reachable: provider => reach.get(provider) ?? false,
-        subscription: provider => offered.some(row => row.id === provider),
+        signIn: (provider) => {
+          const offer = offered.find(row => row.id === provider)
+          if (offer === undefined) return undefined
+          return offer.keyless === true ? 'only' : 'offered'
+        },
         surface,
         terminalAvailable: terminalAvailable(),
         terminalOnlyProviders: config.terminalOnlyProviders ?? [],

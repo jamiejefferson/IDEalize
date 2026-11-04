@@ -77,6 +77,29 @@ afterEach(async () => {
 })
 
 describe('desktop update installer download', () => {
+  it('a refused download never reaches the destination and keeps what was there', async () => {
+    const directory = await temporaryDirectory()
+    const destination = destinationPath(directory, 'darwin', '2.1.0')
+    await writeFile(destination, 'earlier download')
+    const seen: string[] = []
+
+    await expectFailure(downloadDesktopUpdate({
+      platform: 'darwin',
+      version: '2.1.0',
+      destinationPath: destination,
+      request: async () => chunkedResponse([dmgArtifact()]),
+      verifyArtifact: async (temporaryPath) => {
+        seen.push(temporaryPath)
+        throw new UpdateDownloadError('untrusted-artifact', 'refused')
+      },
+    }), 'untrusted-artifact')
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).not.toBe(destination)
+    expect(await readFile(destination, 'utf8')).toBe('earlier download')
+    await expectNoPartialFiles(directory)
+  })
+
   it('streams a macOS DMG from only the fixed endpoint and atomically completes it', async () => {
     const directory = await temporaryDirectory()
     const artifact = dmgArtifact()

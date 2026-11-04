@@ -8,6 +8,7 @@ import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { signMacApp } from './sign-with-certificate.ts'
 
 const require = createRequire(import.meta.url)
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -35,18 +36,15 @@ if (result.status !== 0) {
 // An unsigned bundle has no identity macOS can recognise, so every launch asked
 // again for each protected folder (JJ, 17 Sep 2026: "maybe 20 times") and a
 // Screen Recording grant never took. The certificate is the same across builds,
-// so a grant given once survives restarts and later landings. No hardened
-// runtime: a self-signed certificate cannot satisfy library validation for the
-// prebuilt native modules.
+// so a grant given once survives restarts and later landings. The signing is
+// the release's own, with the hardened runtime and its entitlements, so a local
+// landing behaves as a release does.
 const SIGN_ID = 'IDEalize Local Signing'
 const app = join(packageRoot, 'dist', `mac-${process.arch}`, 'IDEalize V1.app')
 if (process.platform === 'darwin' && existsSync(app)) {
   const identities = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' }).stdout ?? ''
   if (identities.includes(`"${SIGN_ID}"`)) {
-    const sign = spawnSync('codesign', ['--force', '--deep', '--sign', SIGN_ID, app], { stdio: 'inherit' })
-    if (sign.status !== 0) throw new Error(`codesign exited with ${String(sign.status)}`)
-    const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' })
-    if (verify.status !== 0) throw new Error(`codesign --verify exited with ${String(verify.status)}`)
+    signMacApp(app, SIGN_ID)
     console.log(`Signed with "${SIGN_ID}".`)
   } else {
     console.log(`No "${SIGN_ID}" certificate in the keychain; the app stays unsigned and macOS will re-ask for folder access on every launch.`)

@@ -22,6 +22,13 @@ const input = (over: Partial<TurnInput>): TurnInput => ({
 const noWindow = { contextWindow: () => Promise.resolve(undefined) }
 const jevSays = (confidence: number) => () => Promise.resolve({ reading: { task: 'code', difficulty: 'hard', confidence, source: 'jev' } as const, ms: 200 })
 
+describe('the candidate list', () => {
+  it('leaves out batch-only variants, which refuse a chat call', () => {
+    const list = candidatesFrom([{ provider: 'openrouter', auth: 'apiKey', models: [{ id: 'openai/gpt-5-nano:batch' }, { id: 'openai/gpt-5-nano' }, { id: 'google/gemma:free' }] }], {})
+    expect(list.map(candidate => candidate.model)).toEqual(['openai/gpt-5-nano', 'google/gemma:free'])
+  })
+})
+
 describe('routing a turn', () => {
   it('switches on a confident Jev reading and records the switch', async () => {
     const result = await routeTurn(input({}), { ...noWindow, askJev: jevSays(0.93) })

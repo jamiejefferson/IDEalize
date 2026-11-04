@@ -32,6 +32,8 @@ export interface TaskView {
   /** The instant a one-off fired; a done task stays listed and never fires again. */
   done?: string
   enabled: boolean
+  /** A chat added this task and the person has not approved it yet; it stays paused until they do. */
+  awaitingApproval?: boolean
   createdAt: string
   nextFireAt?: string
   running: boolean

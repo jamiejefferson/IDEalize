@@ -8,7 +8,7 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { readdirSync } from 'node:fs'
+import { readdirSync, type Dirent } from 'node:fs'
 import { open, mkdir, readFile, readdir, realpath, link, rename, rm, stat, truncate } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -279,6 +279,54 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     // The logical artifact name is `session.jsonl` regardless of the physical
     // encoding suffix (`.jsonl.zstd` marks compression only).
     return { meta, filename: 'session.jsonl', content }
+  }
+
+  /** The folder every log lives under. */
+  get logsRoot(): string {
+    return this.root
+  }
+
+  /**
+   * The decoded text of every file under the root, including the folders chats
+   * are set aside in, which the listing skips. For a question that must see all
+   * of them, such as whether anything still refers to an attachment.
+   *
+   * Node's one-shot Zstandard call returns only a log's first frame and raises
+   * no error, so a caller reading these files itself would miss every event
+   * after the header. This decodes each frame, as the session reader does.
+   * @param signal - optional cancellation.
+   * @yields each file's path and text.
+   * @throws when any file cannot be read or decoded, so a caller can never mistake an unreadable log for one that says nothing.
+   */
+  async * readEveryFile(signal?: AbortSignal): AsyncGenerator<{ path: string; text: string }> {
+    const walk = async function * (dir: string): AsyncGenerator<string> {
+      let entries: Dirent[]
+      try {
+        entries = await readdir(dir, { withFileTypes: true })
+      } catch (error) {
+        if (isENOENT(error)) return
+        throw error
+      }
+      for (const entry of entries) {
+        const path = join(dir, entry.name)
+        if (entry.isDirectory()) yield * walk(path)
+        else if (entry.isFile()) yield path
+      }
+    }
+    for await (const path of walk(this.root)) {
+      signal?.throwIfAborted()
+      const { buffer } = await this.readStableFile(path, signal)
+      if (!/\.zstd(-\d+)?$/u.test(path)) {
+        yield { path, text: buffer.toString('utf8') }
+        continue
+      }
+      const decoder = createZstdFrameDecoder()
+      const plaintexts: Buffer[] = []
+      for (const plaintext of decoder.decode(buffer, scanZstdFrames(buffer).frames)) {
+        plaintexts.push(Buffer.from(plaintext))
+      }
+      yield { path, text: Buffer.concat(plaintexts).toString('utf8') }
+    }
   }
 
   /**
@@ -894,28 +942,52 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     }
   }
 
-  /** List session-owned directories and reject the obsolete flat-file layout. */
+  /**
+   * List session-owned directories. A log in the obsolete flat-file layout
+   * belongs to no session folder, so it is set aside like any other unreadable
+   * log; a project folder that cannot be read at all is skipped, because either
+   * would otherwise stop every other chat, and the app, from opening.
+   */
   private async listSessionDirs(project: string, signal?: AbortSignal): Promise<string[]> {
     signal?.throwIfAborted()
-    const entries = await readdir(project, { withFileTypes: true })
+    let entries: Dirent[]
+    try {
+      entries = await readdir(project, { withFileTypes: true })
+    } catch (error) {
+      signal?.throwIfAborted()
+      if (!isENOENT(error)) this.ctx.logger.warn(`session-persistence-jsonl: skipped unreadable project folder ${project}: ${String(error)}`)
+      return []
+    }
     signal?.throwIfAborted()
-    const legacy = entries.find(entry =>
-      entry.isFile() && (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.zstd')))
-    if (legacy !== undefined) throw this.legacyLayout(join(project, legacy.name))
+    for (const entry of entries) {
+      if (entry.isFile() && (entry.name.endsWith('.jsonl') || entry.name.endsWith('.jsonl.zstd'))) {
+        const path = join(project, entry.name)
+        await this.quarantine(path, this.legacyLayout(path))
+      }
+    }
     return entries.filter(entry => entry.isDirectory()).map(entry => join(project, entry.name))
   }
 
-  /** Reject a root that already belongs to the other physical encoding. */
+  /** Set aside any session that belongs to the other physical encoding, once per run. */
   private ensureRootEncoding(): Promise<void> {
     this.rootEncodingCheck ??= this.checkRootEncoding()
     return this.rootEncodingCheck
   }
 
+  /**
+   * Sweep for wrong-encoding logs before the first read or write. This runs
+   * outside every per-session catch, so a throw here took the whole listing,
+   * the workspace plugin and the app's start-up with it.
+   */
   private async checkRootEncoding(): Promise<void> {
     for (const project of await this.listProjectDirs()) {
       for (const dir of await this.listSessionDirs(project)) {
         const incompatible = join(dir, `session${logSuffix(this.oppositeCompression())}`)
-        if (await this.exists(incompatible)) throw this.encodingMismatch(incompatible)
+        try {
+          if (await this.exists(incompatible)) await this.quarantine(dir, this.encodingMismatch(incompatible))
+        } catch (error) {
+          await this.quarantine(dir, error)
+        }
       }
     }
   }

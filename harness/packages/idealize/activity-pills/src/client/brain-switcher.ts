@@ -45,6 +45,19 @@ export interface BrainAgent {
   model: ActivityModel | null
   /** The agent's standing instructions (its composition's persona text); `''` when it carries none. */
   instructions: string
+  /** The preset's own one-line description, when it has one. */
+  description?: string
+  /** Whether a chat on this brain can open its first request now. */
+  access?: BrainAccess
+  /** The route's display name, when the sign-in surface offers the route. */
+  providerName?: string
+}
+
+/** Whether a brain can answer now, as `GET /idealize/activity/agents` reports it. */
+export interface BrainAccess {
+  state: 'ready' | 'confirm' | 'unavailable'
+  /** Why the brain cannot answer: `no-model`, `no-access`, `no-sign-in` or `terminal-only`. */
+  reason?: string
 }
 
 /**
@@ -68,6 +81,12 @@ export interface BrainOption {
   model: ActivityModel | null
   /** The brain's standing instructions; `''` when it carries none. */
   instructions: string
+  /** The preset's one-line description; `''` when it has none. */
+  description: string
+  /** Whether the brain can answer now; undefined while unknown or for a brain the route does not list. */
+  access?: BrainAccess
+  /** The route's display name, for the sentence that says what is missing. */
+  providerName?: string
   /** Set on the brain the space starts with unless the user picks another. */
   isDefault: boolean
   /**
@@ -216,6 +235,9 @@ export function composeBrains(
       name: brain.name,
       model,
       instructions: agent?.instructions ?? '',
+      description: agent?.description ?? '',
+      ...agent?.access === undefined ? {} : { access: agent.access },
+      ...agent?.providerName === undefined ? {} : { providerName: agent.providerName },
       isDefault: brain.default === true,
       restarts: terminal !== undefined && brain.id !== currentId && terminalRestarts(
         terminal.current,

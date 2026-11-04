@@ -6,7 +6,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   ElectronStderrLogger,
   installDesktopChildProcessLogging,
+  failingPackage,
   installDesktopUncaughtExceptionLogging,
+  installDesktopUncaughtExceptionSurvival,
+  survivedFailureLine,
 } from '../src/desktop-logger.ts'
 import { LogFileSink } from '../src/log-files.ts'
 
@@ -131,5 +134,76 @@ describe('ElectronStderrLogger', () => {
     expect(() => { logger.error('failed with Bearer abc.def.secret') }).not.toThrow()
     expect(stderrSpy).toHaveBeenCalledWith('failed with Bearer ****\n')
     stderrSpy.mockRestore()
+  })
+})
+
+describe('uncaught exceptions after start-up', () => {
+  const pluginError = (): Error => {
+    const error = new Error('plugin slipped')
+    error.stack = [
+      'Error: plugin slipped',
+      '    at tick (node:internal/timers:1:1)',
+      '    at run (/App/Contents/Resources/app.asar.unpacked/node_modules/@idealize/router/node_modules/@idealize/models/lib/index.js:10:2)',
+      '    at other (/App/Contents/Resources/app.asar.unpacked/node_modules/@idealize/router/lib/index.js:1:1)',
+    ].join('\n')
+    return error
+  }
+
+  it('reads the plugin from the stack', () => {
+    expect(failingPackage(pluginError().stack)).toBe('@idealize/models')
+    expect(failingPackage('Error: x\n    at C:\\App\\node_modules\\plain-pkg\\lib\\a.js:1:1')).toBe('plain-pkg')
+    expect(failingPackage('Error: x\n    at /src/main.ts:1:1')).toBeUndefined()
+    expect(failingPackage(undefined)).toBeUndefined()
+  })
+
+  it('keeps the app running, logs each failure with its plugin and never quits', () => {
+    const proc = new EventEmitter()
+    const logger = { error: vi.fn(), errorCause: vi.fn() }
+    const exit = vi.fn()
+    const removeStartup = installDesktopUncaughtExceptionLogging(proc as never, logger, exit)
+    removeStartup()
+    const remove = installDesktopUncaughtExceptionSurvival(proc as never, logger)
+
+    proc.emit('uncaughtException', pluginError())
+    proc.emit('uncaughtException', new Error('second'))
+
+    expect(exit).not.toHaveBeenCalled()
+    expect(logger.error).toHaveBeenCalledTimes(2)
+    expect(logger.error.mock.calls[0]?.[0]).toContain('uncaught exception after start-up in @idealize/models, kept running: Error: plugin slipped')
+    remove()
+    expect(proc.listenerCount('uncaughtException')).toBe(0)
+  })
+
+  it('without the survival handler the start-up handler still quits, which is the bug this replaces', () => {
+    const proc = new EventEmitter()
+    const exit = vi.fn()
+    installDesktopUncaughtExceptionLogging(proc as never, { error: vi.fn(), errorCause: vi.fn() }, exit)
+    proc.emit('uncaughtException', new Error('during start-up'))
+    expect(exit).toHaveBeenCalledWith(1)
+  })
+
+  it('stops logging a failure that repeats, then reports how many it dropped', () => {
+    const proc = new EventEmitter()
+    const logger = { error: vi.fn(), errorCause: vi.fn() }
+    let clock = 0
+    installDesktopUncaughtExceptionSurvival(proc as never, logger, () => clock)
+    for (let index = 0; index < 500; index += 1) proc.emit('uncaughtException', new Error('EPIPE'))
+    expect(logger.error).toHaveBeenCalledTimes(20)
+    clock = 61_000
+    proc.emit('uncaughtException', new Error('later'))
+    expect(logger.error.mock.calls[20]?.[0]).toBe('dsh-plugin-desktop: 480 more uncaught exceptions were not logged')
+    expect(logger.error).toHaveBeenCalledTimes(22)
+  })
+
+  it('survives a logger that throws', () => {
+    const proc = new EventEmitter()
+    const logger = { error: vi.fn(() => { throw new Error('disk full') }), errorCause: vi.fn() }
+    installDesktopUncaughtExceptionSurvival(proc as never, logger)
+    expect(() => proc.emit('uncaughtException', new Error('x'))).not.toThrow()
+  })
+
+  it('names the plugin for a rejection too, and copes with a thrown string', () => {
+    expect(survivedFailureLine('unhandled rejection', pluginError())).toContain('unhandled rejection after start-up in @idealize/models')
+    expect(survivedFailureLine('unhandled rejection', 'plain')).toBe('dsh-plugin-desktop: unhandled rejection after start-up, kept running: plain')
   })
 })

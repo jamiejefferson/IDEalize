@@ -25,7 +25,7 @@
 
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -49,6 +49,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SPLASH_FRAMES } from '@idealize/skin'
 import { POWELL_PERSONA, powellContext, powellGuide } from './guide.ts'
+import { checkOpenTarget, openButtonLabel } from './open-target.ts'
 import { chatLines, openProjects, projectChat, type ChatRow, type ProjectChat } from './chats.ts'
 import { mergeProjects, readProjectSwitch, resolveProject, subfolders, type ProjectEntry } from './projects.ts'
 import { FalElevenTts, FalScribe, SpeechError, VoiceCache, type SpeechToTextProvider, type TextToSpeechProvider } from './speech.ts'
@@ -100,6 +101,9 @@ export const Config: z<Config> = z.object({
   doneMs: z.natural().default(6000).description('How long a reply stays up (ms).'),
 })
 
+/** Powell's working folder, under its own records in the app's data folder. */
+export const POWELL_FOLDER = 'workspace'
+
 /** The preset id Powell's chat runs on. */
 export const POWELL_PRESET = 'powell'
 
@@ -144,6 +148,26 @@ interface DesktopLike {
   expandFromBar?(): Promise<void> | void
   collapseToBar?(): Promise<void> | void
   openPath?(path: string): Promise<string>
+}
+
+/** Whether a session started outside Powell's own folder. */
+function inOldFolder(agent: Agent, cwd: string): boolean {
+  const started = agent.session.header.cwd
+  return started !== undefined && started !== cwd
+}
+
+/**
+ * Where a conversation's history can be cut cleanly: after its last finished
+ * turn and the standalone events that follow it, such as a title.
+ * @param events - the session's log.
+ * @returns the number of events to keep; undefined when no turn has finished.
+ */
+export function conversationEnd(events: readonly { type: string; seq: number }[]): number | undefined {
+  const boundary = events.findLast(event => event.type === 'turn/end')
+  if (boundary === undefined) return undefined
+  let cut = boundary.seq + 1
+  while (cut < events.length && events[cut]?.type !== 'turn/start') cut += 1
+  return cut
 }
 
 const IDLE_VIEW: PowellView = { mood: 'idle', status: '', project: null, bubble: null, busy: false, voiceConsent: false, muted: false }
@@ -231,6 +255,9 @@ export class PowellService extends Service {
   readonly voice: TextToSpeechProvider
   readonly clips: VoiceCache
   private readonly stateFile: string
+  /** Powell's working folder. Its sandbox root, so its files stay away from the person's home folder. */
+  private readonly folder: string
+  private loaded: Promise<void> | undefined
 
   constructor(ctx: Context, readonly config: Config) {
     super(ctx, 'idealizePowell')
@@ -243,9 +270,23 @@ export class PowellService extends Service {
     const home = join(resolveDshHome(), 'idealize', 'powell')
     this.clips = new VoiceCache(join(home, 'voice'), this.voice)
     this.stateFile = join(home, 'state.json')
+    // Windows keeps the home folder until JJ decides: its sandbox is a
+    // different mechanism, and this change was tested on macOS.
+    this.folder = process.platform === 'win32' ? homedir() : join(home, POWELL_FOLDER)
   }
 
-  async start(): Promise<void> {
+  /**
+   * Load what survives a restart. Anything that needs the stored conversation
+   * awaits this: starting an agent before the file is read would begin a new
+   * conversation and overwrite the record of the old one.
+   * @returns settled once the state is loaded.
+   */
+  start(): Promise<void> {
+    this.loaded ??= this.load()
+    return this.loaded
+  }
+
+  private async load(): Promise<void> {
     try {
       this.state = JSON.parse(await readFile(this.stateFile, 'utf8')) as PowellState
     } catch {
@@ -548,6 +589,7 @@ export class PowellService extends Service {
 
   /** Start, resume or return Powell's live agent. */
   async ensureAgent(): Promise<Agent> {
+    await this.start()
     const agents = this.ctx.get('agents')
     if (this.agent !== undefined && agents?.get(this.agent.id) === this.agent) return this.agent
     this.starting ??= this.launch().finally(() => { this.starting = undefined })
@@ -587,22 +629,36 @@ export class PowellService extends Service {
       if (presets !== undefined && presetId !== undefined) await presets.mount(agentCtx, presetId)
       this.scope(agentCtx)
     }
+    await mkdir(this.folder, { recursive: true, mode: 0o700 })
+    const cwd = await realpath(this.folder)
     const existing = this.state.sessionId
+    const createOptions = {
+      agentOptions: { provider: selection.provider, model: selection.model },
+      setup,
+    }
+    const meta = { cwd, ...presetId === undefined ? {} : { agentPreset: presetId } }
     if (existing !== undefined) {
       const live = agents.get(SessionId(existing))
-      if (live !== undefined) {
+      if (live !== undefined && !inOldFolder(live, cwd)) {
         this.agent = live
         return live
       }
       try {
-        const { agent } = await agents.resume({
-          resumeSessionId: SessionId(existing),
-          agentOptions: { provider: selection.provider, model: selection.model },
-          setup,
-        })
-        this.lockRouting(agent)
-        this.agent = agent
-        return agent
+        let agent = live
+        let dispose: (() => Promise<void>) | undefined
+        if (agent === undefined) {
+          const handle = await agents.resume({ resumeSessionId: SessionId(existing), ...createOptions })
+          agent = handle.agent
+          dispose = () => handle.dispose()
+        }
+        if (inOldFolder(agent, cwd)) {
+          const moved = await this.moveConversation(agent, dispose, meta, createOptions)
+          if (moved !== undefined) return moved
+        } else {
+          this.lockRouting(agent)
+          this.agent = agent
+          return agent
+        }
       } catch (error) {
         this.ctx.logger.warn(`idealize-powell: could not resume ${existing}; starting fresh (${String(error)})`)
       }
@@ -610,9 +666,8 @@ export class PowellService extends Service {
     const sessionId = SessionId(`session-${randomUUID()}`)
     const { agent } = await agents.create({
       sessionId,
-      meta: { cwd: homedir(), ...presetId === undefined ? {} : { agentPreset: presetId } },
-      agentOptions: { provider: selection.provider, model: selection.model },
-      setup,
+      meta,
+      ...createOptions,
     })
     this.state.sessionId = String(sessionId)
     await this.save()
@@ -622,6 +677,46 @@ export class PowellService extends Service {
     } catch {
       // A title is cosmetic.
     }
+    this.agent = agent
+    return agent
+  }
+
+  /**
+   * Carry Powell's conversation into its own folder. A session's working folder
+   * is fixed when it starts and decides both its sandbox root and where its log
+   * lives, so an older conversation running in the home folder continues as a
+   * new session seeded with its history, the way a chat's fork does. The old
+   * log stays on disk untouched.
+   * @param old - the conversation still running in the old folder.
+   * @param retire - stops the old agent, when Powell started it.
+   * @param meta - the new session's folder and preset.
+   * @param options - how the new session's agent is set up.
+   * @param options.agentOptions - the model selection.
+   * @param options.setup - the agent's composition.
+   * @returns the agent in the new folder; undefined when there is no finished turn to carry.
+   */
+  private async moveConversation(
+    old: Agent,
+    retire: (() => Promise<void>) | undefined,
+    meta: { cwd: string; agentPreset?: string },
+    options: { agentOptions: { provider: string; model: string }; setup: (agentCtx: Context) => Promise<void> },
+  ): Promise<Agent | undefined> {
+    const events = [...old.session.events]
+    const cut = conversationEnd(events)
+    await retire?.()
+    const agents = this.ctx.get('agents')
+    if (cut === undefined || agents === undefined) return undefined
+    const sessionId = SessionId(`session-${randomUUID()}`)
+    const { agent } = await agents.create({
+      sessionId,
+      seed: events.slice(0, cut),
+      meta: { ...meta, parentSession: old.session.id, seedLength: cut },
+      ...options,
+    })
+    this.ctx.logger.info(`idealize-powell: moved the conversation ${String(old.session.id)} into its own folder as ${String(sessionId)}`)
+    this.state.sessionId = String(sessionId)
+    await this.save()
+    this.lockRouting(agent)
     this.agent = agent
     return agent
   }
@@ -734,17 +829,38 @@ export class PowellService extends Service {
    */
   async open(target: string): Promise<void> {
     if (target === '') return
-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) {
-      const opener = process.platform === 'darwin' ? ['open', [target]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', target]] : ['xdg-open', [target]]
+    const allowed = await checkOpenTarget(target, this.openRoots())
+    if (allowed === undefined) {
+      this.ctx.logger.warn('idealize-powell: refused to open a target outside the allowed set')
+      this.problem('I can only open web pages that start with https, and files in your projects, so I left that closed.', false)
+      return
+    }
+    if (allowed.kind === 'url') {
+      const opener = process.platform === 'darwin' ? ['open', [allowed.url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', allowed.url]] : ['xdg-open', [allowed.url]]
       execFile(opener[0] as string, opener[1] as string[], () => undefined)
       return
     }
     const desktop = this.ctx.get('desktopActions') as DesktopLike | undefined
     if (desktop?.openPath !== undefined) {
-      const failed = await desktop.openPath(target).catch((error: unknown) => String(error))
+      const failed = await desktop.openPath(allowed.path).catch((error: unknown) => String(error))
       if (failed === '') return
     }
-    if (process.platform === 'darwin') execFile('open', [target], () => undefined)
+    if (process.platform === 'darwin') execFile('open', [allowed.path], () => undefined)
+  }
+
+  /** The folders Powell's Open button may reach: open projects, the known roots and Powell's own folder. */
+  private openRoots(): string[] {
+    const folders = this.folders()
+    const project = this.state.project
+    const roots = [
+      this.folder,
+      project?.path,
+      ...(this.ctx.get('workspaceRegistry')?.list() ?? []).map(workspace => workspace.path),
+      folders.projectsRoot,
+      folders.documentationFolder,
+    ]
+    // The home folder is never a project, whatever a setting says.
+    return roots.filter((root): root is string => root !== undefined && root !== '' && root !== homedir() && root !== '/')
   }
 
   /** Show the full app. */
@@ -856,7 +972,8 @@ export class PowellService extends Service {
     if (reply.choices.length > 0) {
       for (const label of reply.choices) choices.push({ label, action: 'say', ...choices.length === 0 ? { primary: true } : {} })
     } else if (reply.open !== undefined) {
-      choices.push({ label: 'Open', action: 'open', target: reply.open, primary: true })
+      // The label names the destination, so the person sees where it goes before pressing.
+      choices.push({ label: openButtonLabel(reply.open), action: 'open', target: reply.open, primary: true })
     }
     const asking = reply.choices.length > 0 || reply.text.endsWith('?')
     const bubble: PowellBubble | null = reply.text === '' ? null : { text: reply.text, choices, kind: asking ? 'question' : 'reply' }

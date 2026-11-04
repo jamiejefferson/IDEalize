@@ -24,6 +24,7 @@ import { normalizeUri } from 'micromark-util-sanitize-uri'
 import { CodeBlock } from './CodeBlock.tsx'
 import { renderTexToReact } from './katex.tsx'
 import type { PositionedBlock } from './incremental.ts'
+import { RemoteImage } from './RemoteImage.tsx'
 import css from './MarkdownText.module.css'
 
 /** Copy-button labels forwarded to fence CodeBlocks (this package is cordis-free, so copy arrives via props). */
@@ -32,6 +33,8 @@ export interface MarkdownCodeLabels {
   copyLabel?: string | undefined
   /** Copy-button label during the post-copy confirmation window. */
   copiedLabel?: string | undefined
+  /** The button standing in for a remote image; `{host}` names the server it comes from. */
+  loadImageLabel?: string | undefined
 }
 
 function sanitizeUrl(url: string): string {
@@ -280,7 +283,7 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
     case 'linkReference':
       return renderLinkReference(node, key, context)
     case 'image':
-      return renderImage(node.url, node.alt ?? '', key)
+      return renderImage(node.url, node.alt ?? '', key, context)
     case 'imageReference':
       return renderImageReference(node, key, context)
     case 'footnoteReference':
@@ -484,22 +487,12 @@ function inlineCodeHttpUrl(value: string): string | undefined {
   }
 }
 
-function renderImage(url: string, alt: string, key: Key): ReactNode {
+function renderImage(url: string, alt: string, key: Key, context: MarkdownRenderContext): ReactNode {
   const imageSrc = remoteImageUrl(sanitizeUrl(normalizeUri(url)))
   if (imageSrc === undefined) {
     return <span key={key} className={css.imageAlt}>{alt}</span>
   }
-  return (
-    <img
-      key={key}
-      className={css.image}
-      src={imageSrc}
-      alt={alt}
-      loading="lazy"
-      decoding="async"
-      referrerPolicy="no-referrer"
-    />
-  )
+  return <RemoteImage key={key} src={imageSrc} alt={alt} label={context.codeLabels?.loadImageLabel} />
 }
 
 /** The bracketed source text a reference reverts to when its definition is missing. */
@@ -532,7 +525,7 @@ function renderImageReference(
 ): ReactNode {
   const definition = context.targets.definitions.get(node.identifier.toUpperCase())
   if (definition === undefined) return `![${node.alt ?? ''}${referenceSuffix(node)}`
-  return renderImage(definition.url, node.alt ?? '', key)
+  return renderImage(definition.url, node.alt ?? '', key, context)
 }
 
 function renderFootnoteReference(

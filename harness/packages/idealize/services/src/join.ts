@@ -16,6 +16,8 @@ export interface ChatCandidate {
   connected: boolean
   /** True while this route is reached by signing in rather than by pasting a key. */
   signIn?: boolean
+  /** The credential name the route reads; a media backend reading the same one shares its row. */
+  env?: string
 }
 
 /** One generation backend, plus the artefacts its catalogue currently offers. */
@@ -67,10 +69,11 @@ export function serviceName(id: string, displayName: string): string {
  * Join both registries into the one list the Services section renders.
  *
  * A service appearing in both — a company selling chat and images alike —
- * stays two rows, because the two keys are stored in different places and
+ * stays two rows when the two keys are stored in different places, because
  * either can be connected without the other. The rows carry the same name and
- * differ in what they say they make, which is the honest description of what
- * connecting each one buys.
+ * differ in what they say they make. When both read the same credential, one
+ * key connects both, so they are one row: OpenRouter's two rows let someone
+ * paste a key into the Images row and leave chat off (JJ, 4 Nov 2026).
  * @param chat - the chat routes the LLM directory declares.
  * @param media - the registered generation backends with their artefacts.
  * @returns the rows in display order.
@@ -91,21 +94,25 @@ export function joinServices(
     if (old === undefined || standIn === undefined) continue
     hidden.add(old.connected && !standIn.connected ? standInId : superseded)
   }
+  const merged = new Set<string>()
   for (const entry of chat) {
     if (hidden.has(entry.provider)) continue
     const name = serviceName(entry.provider, entry.displayName)
     const keyUrl = keyPageFor(entry.provider, name)
+    const shared = entry.env === undefined ? undefined : media.find(row => row.backend === entry.provider && row.env === entry.env)
+    if (shared !== undefined) merged.add(shared.backend)
     rows.push({
       id: entry.provider,
       kind: 'chat',
       name,
-      makes: ['chat'],
+      makes: orderMakes(['chat', ...shared?.artefacts ?? []]),
       connected: entry.connected,
       ...keyUrl === undefined ? {} : { keyUrl },
       ...entry.signIn === true ? { signIn: true } : {},
     })
   }
   for (const entry of media) {
+    if (merged.has(entry.backend)) continue
     const name = serviceName(entry.backend, entry.displayName)
     const keyUrl = keyPageFor(entry.backend, name)
     rows.push({

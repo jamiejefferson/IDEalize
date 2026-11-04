@@ -51,7 +51,7 @@ Assembled proof: [`tests/brain-instructions.snapshot.ts`](tests/brain-instructio
 
 `GET /idealize/spaces` serves one entry per launchable space (never Studio), in chooser order: `{ id, brainCount, brains, models: 'some' | 'none', reason?, recovery?, keyMissing? }`. Loopback-only, no auth header, because it reads.
 
-**The field split is the product invariant: the space chooser offers, the brain screen explains.** A tile reads `id` and `brainCount` and nothing else, so no tile is ever dimmed, disabled or dropped — Motion with no brains and no backend is an ordinary tile reading "No brains yet". `brains`, `models`, `reason` and `recovery` exist for the second step alone: the brains it lists, and the refusal stated once with the way forward. One fetch serves both screens, so the two cannot disagree. A surface that renders `reason` or `recovery` on a tile breaks the rule this payload exists to enforce.
+**The field split is the product invariant: the welcome card offers, the brain screen explains.** An "Also here" chip reads `id` and nothing else, so no way in is ever dimmed, disabled or dropped — Motion with no brains and no backend is an ordinary tile reading "No brains yet". `brains`, `models`, `reason` and `recovery` exist for the second step alone: the brains it lists, and the refusal stated once with the way forward. One fetch serves both screens, so the two cannot disagree. A surface that renders `reason` or `recovery` on a tile breaks the rule this payload exists to enforce.
 
 `brains` is `brainCount` long, in roster order, each entry `{ id, name, model?, default? }`. `model` is the brain's own override; a brain without one follows the deployment default, which the row states rather than naming a model the user never chose. `default` marks the brain a space starts on: the agent the space declares (Gallery, Sound Stage), otherwise the roster default when it works there, otherwise the first brain listed.
 
@@ -69,7 +69,7 @@ The terminal's brain step is why a declared roster does not hide rows. A plain b
 
 Captured payloads from a real composition, with a fixture generation backend mounted and with none: [`proof/roster-with-backend.json`](proof/roster-with-backend.json) and [`proof/roster-no-backend.json`](proof/roster-no-backend.json), produced by [`proof/space-roster-proof.mts`](proof/space-roster-proof.mts).
 
-Two rendered proofs drive the assembled app: [`proof/tab-row-gone-proof.mts`](proof/tab-row-gone-proof.mts) (no tab row, each space's composer chrome, the space durable across a `localStorage` clear) and [`proof/launch-follow-ups-proof.mts`](proof/launch-follow-ups-proof.mts) (the composer names the launched brain at once and after a reload, New chat mints a chat rather than reopening a launched-but-unsent one, and a blank chat carrying an older space names its new brain when relaunched).
+A rendered proof drives the assembled app: [`proof/tab-row-gone-proof.mts`](proof/tab-row-gone-proof.mts) (no tab row, each space's composer chrome, the space durable across a `localStorage` clear).
 
 ## The space icons
 

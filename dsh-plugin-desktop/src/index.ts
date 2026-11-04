@@ -28,7 +28,7 @@ import {
 } from './directory-picker-route.ts'
 import { normalizeDesktopShellMode, type DesktopShellMode, type LegacyDesktopShellMode } from './runtime.ts'
 import type {} from './embedded-terminal.ts'
-import type { AskbarPosition, AskbarSide } from './askbar-window.ts'
+import type { AskbarPosition, AskbarSide } from './dock-geometry.ts'
 import { DESKTOP_VIEW_STATE_PATH, handleDesktopViewStateRequest } from './view-state.ts'
 
 /** Stable Cordis plugin name. */

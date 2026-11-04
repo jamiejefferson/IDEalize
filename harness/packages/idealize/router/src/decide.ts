@@ -173,6 +173,8 @@ export type StayReason =
   | 'improvement-gate-failed'
   | 'needs-payment'
   | 'loses-context'
+  /** Only a stand-in hits this: the model is at another company, so the person chooses. */
+  | 'other-company'
   /** Jev was asked and did not answer in time or at all; the turn keeps its model. */
   | 'jev-unavailable'
 
@@ -274,7 +276,7 @@ export function decide(situation: Situation): Decision {
 }
 
 /** A window the chat has already outgrown, with a tenth kept free for the reply. */
-function losesContext(candidate: Candidate, contextTokens: number | undefined): boolean {
+export function losesContext(candidate: Candidate, contextTokens: number | undefined): boolean {
   if (contextTokens === undefined || candidate.contextWindow === undefined) return false
   return contextTokens > candidate.contextWindow * 0.9
 }

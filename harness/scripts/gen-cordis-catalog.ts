@@ -628,6 +628,8 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   RulesetVersion: 'pinned ruleset version is owned by packages/idealize/doc-policy/src/policy/ruleset.ts',
   CapabilityRequirement: 'generation capability requirement is owned by packages/idealize/generate/src/types.ts',
   GenCatalogEntry: 'generation catalogue entry is owned by packages/idealize/generate/src/types.ts',
+  GenerationChoice: 'generation model choice is owned by packages/idealize/gen-tools/src/types.ts',
+  GenerationReplacement: 'generation model replacement is owned by packages/idealize/gen-tools/src/types.ts',
   GenerationAvailability: 'generation availability projection is owned by packages/idealize/generate/src/types.ts',
   GenerationBackend: 'generation backend descriptor is owned by packages/idealize/generate/src/types.ts',
   GenInputField: 'generation input field is owned by packages/idealize/generate/src/types.ts',

@@ -170,6 +170,28 @@ interface ForegroundValue {
 }
 
 describe('@idealize/gen-tools composition', () => {
+  it('refuses a call over the caps, and holds a generation nobody typed until the person answers', async () => {
+    const { ctx, projectDir } = await loadComposition()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
+    const tool = toolNamed(ctx, 'generate_image')
+    await expect(tool.execute({ prompt: 'a fish', count: 1000 }, execFor(session))).rejects.toThrow(/at most 8/)
+
+    GenToolsTools.forgetPaidConfirmation()
+    const asked: { reason?: string }[] = []
+    ;(ctx as unknown as { provide(name: string, value: unknown): void }).provide('approval', {
+      request: (request: { reason?: string }) => {
+        asked.push(request)
+        return Promise.resolve(asked.length === 1 ? 'rejected' : 'allowed-once')
+      },
+    })
+    await expect(tool.execute({ prompt: 'a fish' }, execFor(session))).rejects.toThrow(/did not allow/)
+    expect((await tool.execute({ prompt: 'a fish' }, execFor(session)) as ForegroundValue).artefacts).toHaveLength(1)
+    await tool.execute({ prompt: 'a fish' }, execFor(session))
+    expect(asked).toHaveLength(2)
+    expect(asked[0]?.reason).toContain('fixture-still')
+    GenToolsTools.forgetPaidConfirmation()
+  })
+
   it('generate_image commits an artefact: durable record, bytes on disk, artefact/created', async () => {
     const { ctx, projectDir } = await loadComposition()
     const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
@@ -242,7 +264,7 @@ describe('@idealize/gen-tools composition', () => {
     expect(audioReroutes).toHaveLength(0)
   })
 
-  it('passes over a model that starts from a picture when the call carries none, and refuses one chosen for it', async () => {
+  it('passes over a model that starts from a picture when the call carries none, and swaps one chosen for it', async () => {
     const { ctx, projectDir } = await loadComposition()
     const seen: string[] = []
     const backend = (id: string, model: string, requiredInputs?: readonly ('image')[]): GenerationBackend => ({
@@ -275,11 +297,55 @@ describe('@idealize/gen-tools composition', () => {
     const moved = await video.execute({ prompt: 'it flies', reference_image: still.artefacts[0]!.id }, execFor(session, 'call-moved')) as ForegroundValue
     expect(moved.model).toBe('animate')
 
-    // Chosen under Brains but called without a picture: refused, by name.
+    // Chosen under Brains but called without a picture: swapped, and the card says why.
     ctx.settings.register(ACTIVITY_NS, sectionSchema, { base: { models: { motion: { provider: 'pic', model: 'animate' } } } })
-    await expect(video.execute({ prompt: 'a kite' }, execFor(session, 'call-refused')))
-      .rejects.toThrow('Animate starts from a picture')
-    expect(seen).toEqual(['txt/clip:0', 'pic/animate:1'])
+    const swapped = await video.execute({ prompt: 'a kite' }, execFor(session, 'call-swapped')) as ForegroundValue
+    expect(swapped.model).toBe('clip')
+    expect(swapped.notice).toBe('Animate needs a starting picture, and this has none. Changed to clip, which starts from a prompt.')
+    const moved2 = session.events.filter(event => event.type === 'generation/rerouted').at(-1)?.data as { callId?: string; reason?: string }
+    expect(moved2.callId).toBe('call-swapped')
+    expect(seen).toEqual(['txt/clip:0', 'pic/animate:1', 'txt/clip:0'])
+  })
+
+  it('hands a refused task to the next model and stays silent about nothing', async () => {
+    const { ctx, projectDir } = await loadComposition()
+    const backend = (id: string, fails?: string): GenerationBackend => ({
+      id,
+      describe: () => [],
+      models: () => [{ id: `${id}-model`, name: id, artefact: 'video', inputModalities: ['text'], outputMediaTypes: ['video/mp4'] }],
+      generate: () => fails !== undefined
+        ? Promise.reject(new GenerationError('refused (422): resolution', fails as never, { status: 422 }))
+        : Promise.resolve({
+          schemaVersion: GENERATION_SCHEMA_VERSION, backend: id, model: `${id}-model`, artefact: 'video',
+          outputs: [{ mediaType: 'video/mp4', data: Buffer.from('MP4').toString('base64') }], timestamp: 1,
+        }),
+    })
+    ctx.generation.register(backend('first', 'INVALID_REQUEST'))
+    ctx.generation.register(backend('second'))
+    const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
+    const done = await toolNamed(ctx, 'generate_video').execute({ prompt: 'a kite' }, execFor(session, 'call-moves')) as ForegroundValue
+    expect(done.provider).toBe('second')
+    expect(done.notice).toBe('first cannot take this request. Changed to second.')
+    expect(session.events.some(event => event.type === 'artefact/failed')).toBe(false)
+  })
+
+  it('leaves a timeout on its model, because the provider may have charged for it', async () => {
+    const { ctx, projectDir } = await loadComposition()
+    const calls: string[] = []
+    const backend = (id: string): GenerationBackend => ({
+      id,
+      describe: () => [],
+      models: () => [{ id: `${id}-model`, name: id, artefact: 'video', inputModalities: ['text'], outputMediaTypes: ['video/mp4'] }],
+      generate: () => {
+        calls.push(id)
+        return Promise.reject(new GenerationError('took too long', 'TIMEOUT'))
+      },
+    })
+    ctx.generation.register(backend('first'))
+    ctx.generation.register(backend('second'))
+    const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
+    await expect(toolNamed(ctx, 'generate_video').execute({ prompt: 'a kite' }, execFor(session, 'call-slow'))).rejects.toThrow('took too long')
+    expect(calls).toEqual(['first'])
   })
 
   it('generate_audio advertises lyrics and carries them into the generation settings', async () => {
@@ -440,7 +506,7 @@ describe('@idealize/gen-tools composition', () => {
       models: () => [{
         id: 'boom-img', name: 'boom-img', artefact: 'image', inputModalities: ['text'], outputMediaTypes: ['image/png'],
       }],
-      generate: () => Promise.reject(new GenerationError('credits exhausted', 'QUOTA')),
+      generate: () => Promise.reject(new GenerationError('took too long', 'TIMEOUT')),
     }
     ctx.generation.register(boom)
     ctx.settings.register(ACTIVITY_NS, sectionSchema, {
@@ -451,13 +517,13 @@ describe('@idealize/gen-tools composition', () => {
     const failure = await toolNamed(ctx, 'generate_image')
       .execute({ prompt: 'a fish' }, execFor(session))
       .catch((error: unknown) => error)
-    expect(isGenerationError(failure) && failure.code).toBe('QUOTA')
+    expect(isGenerationError(failure) && failure.code).toBe('TIMEOUT')
 
     const event = session.events.at(-1)
     expect(event?.type).toBe('artefact/failed')
     expect(event?.ignorable).toBe(true)
     const data = event?.data as { error: string; mediaType: string }
-    expect(data.error).toContain('credits exhausted')
+    expect(data.error).toContain('took too long')
     expect(data.mediaType).toBe('image/png')
     expect(ctx.artefacts.list()).toHaveLength(0)
   })

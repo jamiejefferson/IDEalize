@@ -59,6 +59,8 @@ async function mount(options: {
   refusing?: true
   /** Compose DeepSeek's own adapter, whose whole section is its profile. */
   deepseek?: true
+  /** Compose OpenRouter, which takes a key or a sign-in. */
+  openrouter?: true
 } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'idealize-services-defaults-'))
   homes.push(home)
@@ -68,6 +70,7 @@ async function mount(options: {
   const ctx = new Context()
   contexts.push(ctx)
   let handler: Handler | undefined
+  let importHandler: Handler | undefined
   const stored = new Set(options.storedKeys ?? [])
   const sections: Record<string, unknown> = {
     'llm-pi-ai': options.section === false ? {} : { providers: options.providers ?? {} },
@@ -77,10 +80,10 @@ async function mount(options: {
   }
 
   ctx.provide('webServer', {
-    // The plugin registers the list route and the keys-file import beside it;
-    // these tests drive the list route.
+    // The plugin registers the list route and the keys-file import beside it.
     register(route: { path: string; handler: Handler }) {
       if (route.path === '/idealize/brains/services') handler = route.handler
+      if (route.path === '/idealize/brains/services/import') importHandler = route.handler
       return () => { if (route.path === '/idealize/brains/services') handler = undefined }
     },
   } as never)
@@ -109,6 +112,9 @@ async function mount(options: {
     listConfigurableProviders: () => [
       { provider: 'acme', displayName: 'Acme Gateway', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'acme'] },
       { provider: 'openai-codex', displayName: 'ChatGPT', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai-codex'] },
+      ...options.openrouter === true
+        ? [{ provider: 'openrouter', displayName: 'OpenRouter', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openrouter'] }]
+        : [],
       ...options.deepseek === true
         ? [{ provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] }]
         : [],
@@ -121,7 +127,7 @@ async function mount(options: {
         if (oauth?.throws === true) throw new Error('the sign-in surface is down')
         return [
           { id: 'openai-codex', name: 'ChatGPT', keyless: true, stored: false, pending: false },
-          { id: 'kimi-coding', name: 'Kimi', keyless: false, stored: false, pending: false },
+          { id: 'openrouter', name: 'OpenRouter', keyless: false, stored: false, pending: false },
         ]
       },
     } as never)
@@ -137,7 +143,13 @@ async function mount(options: {
     return res
   }
   const list = async (): Promise<{ id: string; kind: string; connected: boolean; signIn?: boolean }[]> => (await call('GET')).json().services
-  return { ctx, call, list, section: () => sections['llm-pi-ai'], sections, stored }
+  const importKeys = async (body: unknown): Promise<FakeResponse> => {
+    if (importHandler === undefined) throw new Error('the keys-file route was never registered')
+    const res = new FakeResponse()
+    await importHandler(new FakeRequest('POST', { host: '127.0.0.1:3180', 'x-idealize-auth': '1' }, JSON.stringify(body)), res)
+    return res
+  }
+  return { ctx, call, list, importKeys, section: () => sections['llm-pi-ai'], sections, stored }
 }
 
 type PathOp = { op: 'set'; path: string[]; value: unknown } | { op: 'unset'; path: string[] }
@@ -169,10 +181,37 @@ describe('the plugin with no composition config', () => {
 })
 
 describe('a route reached by signing in', () => {
-  it('is left out of the key list while it holds no key', async () => {
+  it('is left out of the key list while it holds no key and takes none', async () => {
     const { list } = await mount()
     const ids = (await list()).filter(row => row.kind === 'chat').map(row => row.id)
-    expect(ids).toEqual(['acme'])
+    expect(ids).not.toContain('openai-codex')
+  })
+
+  // JJ, 4 Nov 2026: someone holding an OpenRouter key was told to sign in, with
+  // no row to paste the key into.
+  it('stays in the key list when it takes a key as well as a sign-in, and connects with one', async () => {
+    const { call, list } = await mount({ openrouter: true })
+    const row = (await list()).find(entry => entry.id === 'openrouter')
+    expect(row).toMatchObject({ kind: 'chat', connected: false })
+    expect(row?.signIn).toBeUndefined()
+    const saved = await call('POST', { id: 'openrouter', kind: 'chat', apiKey: 'sk-or-test' })
+    expect(saved.status).toBe(200)
+    expect((await list()).find(entry => entry.id === 'openrouter')?.connected).toBe(true)
+  })
+
+  it('switches chat on for a key stored before the two rows became one', async () => {
+    const { section } = await mount({ openrouter: true, storedKeys: ['OPENROUTER_API_KEY'] })
+    await vi.waitFor(() => {
+      expect(section()).toMatchObject({ providers: { openrouter: { apiKeyEnv: 'OPENROUTER_API_KEY' } } })
+    })
+  })
+
+  it('takes that key from a keys file', async () => {
+    const { importKeys, list, section } = await mount({ openrouter: true })
+    const imported = await importKeys({ format: 1, credentials: { OPENROUTER_API_KEY: 'sk-or-test' } })
+    expect(imported.status).toBe(200)
+    expect(section()).toMatchObject({ providers: { openrouter: { apiKeyEnv: 'OPENROUTER_API_KEY' } } })
+    expect((await list()).find(entry => entry.id === 'openrouter')?.connected).toBe(true)
   })
 
   it('stays in the list once a key is stored for it, marked sign-in when sign-in is its only auth', async () => {

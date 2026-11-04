@@ -82,7 +82,6 @@ function mount(seed: OnboardingSeedLike | undefined, options: HarnessOptions = {
     skipStep: flow.skipStep,
     quitAll: flow.quitAll,
     back: flow.back,
-    setToolDrafts: flow.setToolDrafts,
     finish: flow.finish,
     celebrationDone: flow.celebrationDone,
     prefersReducedMotion: () => false,
@@ -100,9 +99,9 @@ const typePath = async (path: string): Promise<void> => {
   await probe()
 }
 
-const FOLDERS_SEED: OnboardingSeedLike = { steps: { agents: 'done', tools: 'done' } }
+const FOLDERS_SEED: OnboardingSeedLike = { steps: { agents: 'done' } }
 const FINISH_SEED: OnboardingSeedLike = {
-  steps: { agents: 'done', tools: 'done', 'projects-folder': 'skipped', 'documentation-folder': 'skipped', 'skills-folder': 'skipped' },
+  steps: { agents: 'done', 'projects-folder': 'skipped', 'documentation-folder': 'skipped', 'skills-folder': 'skipped' },
 }
 
 describe('the folder step bodies', () => {
@@ -132,7 +131,7 @@ describe('the folder step bodies', () => {
 
     fireEvent.click(continueButton())
     await flush()
-    expect(writes.steps).toEqual({ agents: 'done', tools: 'done', 'projects-folder': 'done' })
+    expect(writes.steps).toEqual({ agents: 'done', 'projects-folder': 'done' })
     expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('documentation-folder')
   })
 

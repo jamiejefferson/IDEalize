@@ -463,3 +463,12 @@ button.well:focus-visible {
   line-height: 1.6;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* The router's reason a task ran on another model than the one chosen. */
+.routerNote {
+  display: block;
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary, inherit);
+}

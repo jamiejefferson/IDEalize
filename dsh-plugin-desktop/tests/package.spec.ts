@@ -434,7 +434,7 @@ describe('published package surface', () => {
       .toBe('yarn workspace dsh-community-market build && yarn workspace dsh-plugin-desktop dist:win')
     expect(workspaceManifest.scripts?.['dist:win-portable'])
       .toBe('yarn workspace dsh-community-market build && yarn workspace dsh-plugin-desktop dist:win-portable')
-    expect(manifest.build?.afterPack).toBe('./scripts/verify-packaged-runtime.ts')
+    expect(manifest.build?.afterPack).toBe('./scripts/after-pack.ts')
     expect(manifest.build?.mac).toEqual(expect.objectContaining({
       hardenedRuntime: true,
       mergeASARs: false,
@@ -525,8 +525,8 @@ describe('published package surface', () => {
 
   it('keeps Electron out of production dependencies consumed by electron-builder', () => {
     expect(manifest.dependencies).not.toHaveProperty('electron')
-    expect(manifest.peerDependencies?.electron).toBe('43.4.0')
-    expect(manifest.devDependencies?.electron).toBe('43.4.0')
+    expect(manifest.peerDependencies?.electron).toBe('43.8.7')
+    expect(manifest.devDependencies?.electron).toBe('43.8.7')
     expect(manifest.dependencies?.pnpm).toBe('11.7.0')
   })
 

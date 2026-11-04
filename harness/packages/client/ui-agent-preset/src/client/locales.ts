@@ -4,6 +4,7 @@
 export type AgentPresetSettingsKey =
   | 'title' | 'description' | 'loading' | 'error' | 'userTrust' | 'seatHint' | 'headerHint'
   | 'nav' | 'sectionIntro' | 'builtIn' | 'setDefault' | 'view'
+  | 'seededGallery' | 'seededSoundstage'
   | 'presetStandardName' | 'presetStandardDescription'
   | 'presetCodeName' | 'presetCodeDescription'
   | 'presetMinimalName' | 'presetMinimalDescription'
@@ -24,6 +25,8 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   description: 'Applies to sessions you start from now on. Running sessions keep the preset they began with.',
   loading: 'Loading presets…',
   error: 'Could not load agent presets.',
+  seededGallery: 'Images',
+  seededSoundstage: 'Sounds',
   userTrust: 'Custom',
   seatHint: 'Agent preset for the session you are about to start',
   headerHint: 'The agent preset this session runs, fixed when it started',
@@ -90,6 +93,8 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   description: '对此后新建的会话生效。运行中的会话保持它开始时的预设。',
   loading: '正在加载预设…',
   error: '无法加载 Agent 预设。',
+  seededGallery: '图片',
+  seededSoundstage: '声音',
   userTrust: '自定义',
   seatHint: '即将开始的这个会话所用的 Agent 预设',
   headerHint: '本会话运行的 Agent 预设，开始时即固定',
@@ -173,6 +178,12 @@ const BUILT_IN_PRESET_KEYS: Readonly<Partial<Record<string, PresetLocaleKeys>>> 
   cordis: { name: 'presetCordisName', description: 'presetCordisDescription' },
 }
 
+/** The media brains' seeded names, with the word each now reads. */
+const SEEDED_MEDIA_NAMES: Readonly<Record<string, { stored: string; key: AgentPresetSettingsKey }>> = {
+  gallery: { stored: 'Gallery', key: 'seededGallery' },
+  soundstage: { stored: 'Sound Stage', key: 'seededSoundstage' },
+}
+
 /**
  * Resolve preset display copy without making user-authored metadata translatable.
  * @param preset - roster row whose copy is being rendered.
@@ -185,8 +196,11 @@ export function presetDisplayText(
 ): PresetDisplayText {
   const keys = preset.trust === 'system' ? BUILT_IN_PRESET_KEYS[preset.id] : undefined
   if (keys !== undefined) return { name: t(keys.name), description: t(keys.description) }
+  const seeded = SEEDED_MEDIA_NAMES[preset.id]
   return {
-    name: preset.name ?? preset.id,
+    // IDEalize fork: the media brains' seeded names predate the words the app
+    // uses for them now. A name somebody typed stays what they typed.
+    name: seeded !== undefined && seeded.stored === preset.name ? t(seeded.key) : preset.name ?? preset.id,
     ...preset.description === undefined ? {} : { description: preset.description },
   }
 }

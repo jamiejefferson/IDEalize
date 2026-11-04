@@ -783,6 +783,11 @@ describe('mapStopReason / mapUsage', () => {
     })
   })
 
+  it.each(['No API key for provider: openai-codex', 'Provider is not configured: openai-codex'])('reads "%s" as a missing credential', (errorMessage) => {
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
+      .toMatchObject({ kind: 'error', failure: { message: errorMessage, code: 'MISSING_CREDENTIAL' } })
+  })
+
   it('maps routable HTTP-ish error messages to stable codes', () => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 401: bad key' })))
       .toMatchObject({ kind: 'error', failure: { code: 'AUTH' } })
@@ -830,6 +835,18 @@ describe('mapStopReason / mapUsage', () => {
   ])('maps pi-ai transport wording %j', (errorMessage) => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
       .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
+  })
+
+  it('reads the free-tokens engine holding no usable key as a missing credential', () => {
+    const noKeys = '429: {"message":"All models exhausted: 201 routes checked (100 no usable key configured, 101 model lacks tool-calling). Add more API keys or wait for rate limits to reset.","type":"rate_limit_error","code":"routing_exhausted"}'
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: noKeys }))).toMatchObject({ failure: { code: 'MISSING_CREDENTIAL' } })
+    const noneAtAll = '503: {"message":"No candidate model has a configured, usable provider key.","type":"service_unavailable","code":"no_providers_configured"}'
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: noneAtAll }))).toMatchObject({ failure: { code: 'MISSING_CREDENTIAL' } })
+  })
+
+  it('still reads the engine as busy when a route is on cooldown', () => {
+    const busy = '429: {"message":"All models exhausted: 201 routes checked (40 rate-limited or on cooldown, 60 no usable key configured, 101 model lacks tool-calling).","code":"routing_exhausted"}'
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: busy }))).toMatchObject({ failure: { code: 'RATE_LIMIT' } })
   })
 
   it('uses pi-ai provider-specific overflow classification without losing rate-limit exclusions', () => {

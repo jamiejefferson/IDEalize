@@ -25,6 +25,16 @@ const chat = (over: Partial<TranscriptInput> = {}): TranscriptInput => ({
 })
 
 describe('a chat as Markdown', () => {
+  it('keeps a chat started by another chat, under its sender\'s name', () => {
+    const text = transcriptOf(chat({ messages: [
+      { role: 'user', source: { kind: 'chat-brief', brief: 'Build the footer', senderLabel: 'Kit' }, content: [{ type: 'text', text: 'Another chat (Kit) started this chat.\n\nBuild the footer' }] },
+      model('gpt-5.5', [{ type: 'text', text: 'Footer built.' }]),
+    ] })) ?? ''
+    expect(text.match(/^## .+$/gm)).toEqual(['## Brief from Kit', '## gpt-5.5'])
+    expect(text).toContain('Build the footer')
+    expect(text).not.toContain('Another chat (Kit)')
+  })
+
   it('keeps the person and each model, in order, and leaves out tool output, injected context and reasoning', () => {
     const text = transcriptOf(chat({ title: 'Debounce' })) ?? ''
     expect(text).toContain('# Debounce')

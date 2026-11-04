@@ -154,6 +154,21 @@ Use `corepack yarn check` for the headless gate. The [architecture](docs/archite
 
 The app consumes the harness through the tarballs in `vendor/idealize/` (one per `@idealize/*` package plus the upstream packages the fork touches), pinned by the `resolutions` map in the root `package.json`. To land a harness change: in that package run `npx tsc -b tsconfig.json`, `pnpm run bundle` and `pnpm pack --pack-destination ../../../../idealize-desktop/vendor/idealize` (the emit comes first, because the bundle reads `lib/types`); check the tarball's `package/lib/*.js` carries the new code; then here run `corepack yarn install && corepack yarn build && corepack yarn package:dir`, which writes `dsh-plugin-desktop/dist/mac-arm64/IDEalize V1.app`. Quit the running app, replace `/Applications/IDEalize V1.app` with that bundle (`rm -rf` then `ditto`), and open it with `open`; the first launch of a replaced bundle can take half a minute before its window shows, later launches a few seconds. The project board in the harness (`.idealize/project-board.md`) records every landing.
 
+### Proof builds
+
+A packaged macOS build refuses `--remote-debugging-port`, `--remote-debugging-pipe` and `--inspect`, and its `NODE_OPTIONS` and `--inspect` fuses are off. To drive a packaged build in a test, package a proof build instead:
+
+```sh
+IDEALIZE_PROOF_BUILD=1 corepack yarn package:dir   # from the repo root
+```
+
+It is the release build with the hardened runtime, plus a marker file at `Contents/Resources/idealize-proof-build` and those switches and fuses left open. It answers yes to the keys-file and project-link dialogs, and logs each answer to stderr, because a native dialog on a hidden test instance would wait for ever or take the screen. It must never ship: `scripts/land-local.sh` refuses it, and so does the release check, which the release workflow runs on every disk image and you can run by hand:
+
+```sh
+node dsh-plugin-desktop/scripts/verify-release-shape.ts <disk image>                   # the release certificate must have signed it
+node dsh-plugin-desktop/scripts/verify-release-shape.ts --app <app> --any-certificate  # a local build: the shape only
+```
+
 ### What the shell adds
 
 - **The Askbar** — a slim always-on-top column at a screen edge, one chip per agent, that the main window collapses to and expands from: the sidebar's collapse button, the tray, or Ctrl+Alt+A (⌃⌥A on a Mac) from anywhere (a global shortcut, so no IDEalize window needs focus). Rolling over a chip opens a panel to read the agent's latest exchanges and ask it something.

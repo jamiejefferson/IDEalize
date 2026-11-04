@@ -5,7 +5,7 @@
 // renderer is a pure function over mdast, so hand-built trees exercise its
 // defensive arms directly.
 import { StrictMode } from 'react'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type * as Md from 'mdast'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -142,6 +142,9 @@ describe('renderBlocks over hand-built trees', () => {
       { type: 'paragraph', children: [{ type: 'image', url: 'https://example.com/x.png', alt: null }] },
       { type: 'paragraph', children: [{ type: 'imageReference', identifier: 'r', referenceType: 'full', alt: null }] },
     ], { ...makeContext(), targets })
+    const buttons = [...container.querySelectorAll<HTMLElement>('[data-remote-image]')]
+    expect(buttons.map(button => button.textContent)).toEqual(['Load image from example.com', 'Load image from example.com'])
+    for (const button of buttons) fireEvent.click(button)
     const images = [...container.querySelectorAll('img')]
     expect(images.map(image => image.getAttribute('alt'))).toEqual(['', ''])
   })

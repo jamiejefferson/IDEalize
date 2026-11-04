@@ -19,7 +19,6 @@ export const OWL_CLIP_PREFIX = '/idealize/onboarding/owl'
 /** Each clip's served file name: `<clip id>.<content hash>.webm`. */
 export const OWL_CLIP_FILES = {
   'agents': 'agents.229eacc5c801.webm',
-  'tools': 'tools.00486e67af58.webm',
   'projects-folder': 'projects-folder.4ef0abb5e535.webm',
   'documentation-folder': 'documentation-folder.3690947292f5.webm',
   'finish': 'finish.b0276f3af7b4.webm',
@@ -31,7 +30,6 @@ export type OwlClipId = keyof typeof OWL_CLIP_FILES
 /** The clip each wizard step plays. */
 const STEP_CLIPS: Record<OnboardingStepId, OwlClipId> = {
   'agents': 'agents',
-  'tools': 'tools',
   'projects-folder': 'projects-folder',
   'documentation-folder': 'documentation-folder',
   'finish': 'finish',

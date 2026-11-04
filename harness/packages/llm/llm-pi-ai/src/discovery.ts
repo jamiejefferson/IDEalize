@@ -25,6 +25,7 @@
 import { INVALID_CREDENTIAL_CODE, LlmError, normalizeApiKey } from '@deepseek-ai/dsh-llm'
 import type { LlmDiscoveredModel, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
+import { assertKeyMayGoTo } from './address.ts'
 import { catalogModels } from './catalog.ts'
 
 /**
@@ -239,6 +240,7 @@ export async function discoverModels(
   // relies on the provider's own ambient discovery is meant to be asked.
   const supplied = request.apiKey ?? await storedApiKey?.()
   const apiKey = supplied === undefined ? undefined : usableProbeKey(supplied)
+  if (apiKey !== undefined) assertKeyMayGoTo(request.provider ?? 'this provider', request.baseURL)
   let response: Response
   try {
     response = await fetch(url, {

@@ -19,6 +19,8 @@ export {
 } from './escalation.ts'
 export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts'
 export { canonicalPath, writableRoots } from './roots.ts'
+export { READ_DENIED_REASON, isReadDenied, protectedAncestors, readDenialRules, searchReachesDenied } from './read-denials.ts'
+export type { ReadDenialEnvironment, ReadMatch, ReadRule } from './read-denials.ts'
 
 /**
  * File-effect policy for confined processes. `read-only` permits only required
@@ -49,6 +51,18 @@ export interface SandboxExecutionPolicy {
    * for agentless calls, which fall back to per-call backend state.
    */
   sessionId?: SessionId
+  /**
+   * Paths the owner has reopened to confined chats, set with `readAllowed` on
+   * `dsh-sandbox-policy`. Absent when none are. See `readDenialRules`.
+   */
+  readAllowed?: readonly string[]
+  /**
+   * Stop confined commands from launching other apps. `open` hands an app to
+   * Launch Services, which runs it outside the sandbox, so a chat that can write
+   * an app or `.command` file can use it to read what the rules close. Set with
+   * `blockAppLaunch` on `dsh-sandbox-policy`. The Seatbelt backend enforces it.
+   */
+  blockAppLaunch?: boolean
 }
 
 /**

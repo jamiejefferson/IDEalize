@@ -16,7 +16,7 @@ import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-te
 import { desktopInstallRecoveryStatePath } from './install-recovery.ts'
 import { packagedDependencyPath } from './packaged-runtime-path.ts'
 import { ElectronShellGeneration } from './electron-shell-generation.ts'
-import { ASKBAR_TRANSFORM_MS } from './askbar-window.ts'
+import { ASKBAR_TRANSFORM_MS } from './dock-geometry.ts'
 import { PowellWindow, type PowellCommand } from './powell-window.ts'
 import { electronPlatformStrategy, type ElectronPlatformStrategy } from './electron-platform.ts'
 import {
@@ -53,7 +53,9 @@ import {
   recordDesktopUpdateArtifact,
   resolveDesktopUpdateArtifact,
   type DesktopUpdateArtifact,
+  UpdateDownloadError,
 } from './update-download.ts'
+import { updateRefusalMessage, verifyMacUpdate } from './update-verify.ts'
 import type { UpdateCheckResult } from './update-checker.ts'
 import {
   evaluateWindowsWorkspaceVolume,
@@ -729,15 +731,40 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
     const destinationPath = await this.chooseUpdateDestination(version)
     if (destinationPath === undefined) return
     signal.throwIfAborted()
-    const artifactPath = await downloadDesktopUpdate({
-      platform,
-      version,
-      destinationPath,
-      request: (url, init) => net.fetch(url, init),
-      signal,
-    })
+    let installerVersion = version
+    let artifactPath: string
+    try {
+      artifactPath = await downloadDesktopUpdate({
+        platform,
+        version,
+        destinationPath,
+        request: (url, init) => net.fetch(url, init),
+        signal,
+        ...platform === 'darwin'
+          ? {
+              verifyArtifact: async (temporaryPath: string) => {
+                const verified = await verifyMacUpdate({ dmgPath: temporaryPath, currentVersion: PRODUCT_VERSION, signal })
+                installerVersion = verified.version
+              },
+            }
+          : {},
+      })
+    } catch (cause) {
+      if (cause instanceof UpdateDownloadError && (cause.code === 'untrusted-artifact' || cause.code === 'not-newer')) {
+        this.logError(`dsh-plugin-desktop: ${cause.message}`)
+        await dialog.showMessageBox({
+          type: 'warning',
+          ...updateRefusalMessage(cause.code),
+          buttons: ['OK'],
+          defaultId: 0,
+          noLink: true,
+        })
+        return
+      }
+      throw cause
+    }
     signal.throwIfAborted()
-    const artifact: DesktopUpdateArtifact = { platform, version, path: artifactPath }
+    const artifact: DesktopUpdateArtifact = { platform, version: installerVersion, path: artifactPath }
     try {
       await recordDesktopUpdateArtifact(app.getPath('userData'), artifact)
     } catch (cause) {
@@ -751,7 +778,7 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       await dialog.showMessageBox({
         type: 'info',
         title: 'IDEalize Update Downloaded',
-        message: `IDEalize ${version} is ready to install.`,
+        message: `IDEalize ${installerVersion} is ready to install.`,
         detail: 'The disk image has opened. Replace IDEalize in Applications, then reopen it.',
         buttons: ['OK'],
         defaultId: 0,

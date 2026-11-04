@@ -1,8 +1,10 @@
 <div class="_markdown_404681">
   <p>
-    <img alt="https image" class="_image_404681" decoding="async" loading="lazy" referrerpolicy="no-referrer" src="https://example.com/secure.png">
+    <button class="_remoteImage_404681" data-remote-image="https://example.com/secure.png" title="https://example.com/secure.png" type="button">
+      #text "https image · Load image from example.com"
   <p>
-    <img alt="http image" class="_image_404681" decoding="async" loading="lazy" referrerpolicy="no-referrer" src="http://example.com/plain.png">
+    <button class="_remoteImage_404681" data-remote-image="http://example.com/plain.png" title="http://example.com/plain.png" type="button">
+      #text "http image · Load image from example.com"
   <p>
     <span class="_imageAlt_404681">
       #text "relative dropped"
@@ -11,4 +13,5 @@
       #text "bad scheme"
     #text " end."
   <p>
-    <img alt="" class="_image_404681" decoding="async" loading="lazy" referrerpolicy="no-referrer" src="https://example.com/empty-alt.png">
+    <button class="_remoteImage_404681" data-remote-image="https://example.com/empty-alt.png" title="https://example.com/empty-alt.png" type="button">
+      #text "Load image from example.com"

@@ -125,7 +125,6 @@ export function apply(ctx: Context, config: Config): void {
   const chat = async (): Promise<ChatCandidate[]> => {
     const oauth = ctx.get('idealizeOAuth') as OAuthFace | undefined
     const offers = oauth?.status === undefined ? [] : await oauth.status().catch(() => [])
-    const offered = new Set(offers.map(row => row.id))
     // Sign-in is the only auth these routes take: a key stored for one can
     // never serve it, and one did (14 Sep 2026: a stray value under
     // OPENAI_CODEX_API_KEY was sent as a ChatGPT token and every turn on the
@@ -137,18 +136,19 @@ export function apply(ctx: Context, config: Config): void {
       // models page shows as connected here too.
       const env = chatEnv(entry.provider)
       const connected = (await ctx.credentials.resolve(credentialRef(env)).catch(() => undefined)) !== undefined
-      return { provider: entry.provider, displayName: entry.displayName, connected, offered: offered.has(entry.provider) }
+      return { provider: entry.provider, displayName: entry.displayName, connected, env }
     }))
-    // A route reached by signing in is connected under Subscriptions, where
-    // signing in happens; listing it here as well would show one account twice
-    // and offer a key it does not take. A route holding a key belongs here
-    // whether or not sign-in is also on offer; one whose only auth is sign-in
-    // is marked, so the route refuses a new key and lets the stray one go.
-    return rows.filter(row => row.connected || !row.offered)
-      .map(({ provider, displayName, connected }) => ({
+    // A route whose only auth is sign-in is connected under Subscriptions and
+    // takes no key, so it is listed only to let a stray key go, and marked so
+    // the route refuses a new one. A route that takes a key is always listed,
+    // even when sign-in is also on offer: OpenRouter takes both, and hiding it
+    // left someone holding a key with nowhere to paste it (JJ, 4 Nov 2026).
+    return rows.filter(row => row.connected || !keyless.has(row.provider))
+      .map(({ provider, displayName, connected, env }) => ({
         provider,
         displayName,
         connected,
+        env,
         ...keyless.has(provider) ? { signIn: true } : {},
       }))
   }
@@ -179,6 +179,21 @@ export function apply(ctx: Context, config: Config): void {
       { op: 'unset', path: [...route.settingsPath, 'apiKeyEnv'] },
     ])
   }
+
+  // A key pasted into OpenRouter's old Images row reached the credential store
+  // but never switched chat on, so the person was told to sign in while holding
+  // a stored key (JJ, 4 Nov 2026). Their one row now does both; this finishes
+  // the job for a key stored before it did.
+  const switchOnSharedKeys = async (): Promise<void> => {
+    for (const row of media()) {
+      if (routeOf(row.backend) === undefined || chatEnv(row.backend) !== row.env) continue
+      if ((await ctx.credentials.resolve(credentialRef(row.env)).catch(() => undefined)) === undefined) continue
+      await recordChatKeyEnv(row.backend, row.env)
+    }
+  }
+  void switchOnSharedKeys().catch((error: unknown) => {
+    ctx.logger.warn(`idealize-services: a stored shared key could not be switched on: ${error instanceof Error ? error.message : String(error)}`)
+  })
 
   installServicesRoute(ctx, {
     chat,

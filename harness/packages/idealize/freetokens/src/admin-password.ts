@@ -11,7 +11,7 @@
  * from the file instead of failing.
  */
 
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** The file, inside the sidecar's data directory, holding the host's admin password. */
@@ -48,13 +48,16 @@ export function readAdminPassword(dataDir: string): string | undefined {
  * @param adminPassword - the password the host generated at setup.
  */
 export function writeAdminPassword(dataDir: string, adminPassword: string): void {
-  mkdirSync(dataDir, { recursive: true })
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 })
   const path = join(dataDir, FILE)
-  writeFileSync(path, `${JSON.stringify({ adminPassword }, null, 2)}\n`, 'utf8')
   try {
-    chmodSync(path, 0o600)
+    // A file from an older version may be wider; narrow it before the password goes in.
+    if (existsSync(path)) chmodSync(path, 0o600)
   } catch {
-    // Windows and some network filesystems reject POSIX modes; the file's
-    // contents are already written and the directory is the user's own.
+    // Windows and some network filesystems reject POSIX modes; the directory
+    // is the user's own.
   }
+  // The mode applies as the file is created, so there is no moment at which a
+  // new file holding the password can be read by anyone else.
+  writeFileSync(path, `${JSON.stringify({ adminPassword }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
 }

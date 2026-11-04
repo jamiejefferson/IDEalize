@@ -49,6 +49,8 @@ export function candidatesFrom(routes: readonly ConnectedRoute[], prices: PriceT
       continue
     }
     for (const model of route.models) {
+      // OpenRouter lists batch-only variants beside each model, and they answer a chat call with a 404.
+      if (model.id.endsWith(':batch')) continue
       candidates.push({
         provider: route.provider,
         model: model.id,

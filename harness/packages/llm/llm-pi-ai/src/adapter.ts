@@ -49,9 +49,12 @@ import type {
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { idleWatchdog, timeoutOf, TimeoutReason } from '@deepseek-ai/dsh-timeout'
+import { assertKeyMayGoTo, isReachable } from './address.ts'
+import { catalogProvider } from './catalog.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
+import { DEFAULT_FIRST_BYTE_CHECK_MS, FIRST_BYTE_CODE, watchForFirstByte } from './first-byte.ts'
 import { toStreamChunks } from './stream.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
@@ -94,6 +97,13 @@ export interface PiAiAdapterOptions {
    * headers; absent or throwing, behaviour is exactly upstream.
    */
   annotateRequest?: (sessionId: string | undefined) => Record<string, string> | undefined
+  /**
+   * How the no-answer check runs; tests shorten it. See {@link DEFAULT_FIRST_BYTE_CHECK_MS}.
+   */
+  firstByteCheck?: {
+    everyMs?: number
+    reachable?: (baseUrl: string) => Promise<boolean>
+  }
   /**
    * Observe one assistant history message degrading to provider-neutral
    * conversion because its stored replay state is unusable by this build.
@@ -323,13 +333,30 @@ export class PiAiAdapter extends LlmAdapter {
       options.reasoningEffort ?? profile.reasoning,
     )
     const apiKey = await this.config.resolveApiKey(options.provider, profile)
+    // A catalog route may also find its own key in the environment or the
+    // sign-in store, so it is held to this with or without a named key. A custom
+    // route with no key sends nothing, which keeps a keyless server on the local
+    // network working.
+    if (apiKey !== undefined || catalogProvider(options.provider) !== undefined) {
+      assertKeyMayGoTo(options.provider, model.baseUrl)
+    }
 
     const consumer = new AbortController()
-    const upstream = options.signal === undefined
-      ? consumer.signal
-      : AbortSignal.any([options.signal, consumer.signal])
+    const noAnswer = new AbortController()
+    const upstream = AbortSignal.any([
+      consumer.signal,
+      noAnswer.signal,
+      ...options.signal === undefined ? [] : [options.signal],
+    ])
     const streamIdleTimeoutMs = profile.streamIdleTimeoutMs
     using watchdog = idleWatchdog(upstream, streamIdleTimeoutMs, 'LLM_STREAM_IDLE_TIMEOUT')
+    const firstByteMs = this.config.firstByteCheck?.everyMs ?? DEFAULT_FIRST_BYTE_CHECK_MS
+    using firstByte = watchForFirstByte({
+      baseUrl: model.baseUrl,
+      everyMs: firstByteMs,
+      reachable: this.config.firstByteCheck?.reachable ?? isReachable,
+      onUnreachable: () => { noAnswer.abort(new TimeoutReason(FIRST_BYTE_CODE, firstByteMs)) },
+    })
 
     try {
       const containsImage = options.messages.some(message => contentHasImage(message.content))
@@ -362,12 +389,12 @@ export class PiAiAdapter extends LlmAdapter {
       })
       // The caller's signal alone decides what an in-stream `error` means: the
       // watchdog also aborts `upstream`, and its expiry is reported as TIMEOUT below.
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
+      const iterator = toStreamChunks(firstByte.noticing(events), model.contextWindow, options.signal)[Symbol.asyncIterator]()
       let exhausted = false
       try {
         while (true) {
           const result = await watchdog.next(iterator)
-          const timeout = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')
+          const timeout = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') ?? timeoutOf(watchdog.signal, FIRST_BYTE_CODE)
           if (timeout !== undefined) throw timeout
           if (result.done) {
             exhausted = true
@@ -388,6 +415,13 @@ export class PiAiAdapter extends LlmAdapter {
     } catch (error: unknown) {
       if (timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined) {
         throw new LlmError(`pi-ai stream idle timeout after ${streamIdleTimeoutMs}ms`, 'TIMEOUT', { cause: error })
+      }
+      if (timeoutOf(watchdog.signal, FIRST_BYTE_CODE) !== undefined) {
+        throw new LlmError(
+          `${options.provider} did not answer and can't be reached. Check your internet connection and try again.`,
+          'TIMEOUT',
+          { cause: error },
+        )
       }
       if (options.signal?.aborted) {
         throw new LlmError('pi-ai request aborted by caller', 'ABORTED', { cause: error })

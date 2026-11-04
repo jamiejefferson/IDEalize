@@ -52,7 +52,7 @@
   margin: 0 0 20px;
 }
 
-/* The step-body seam: the agents/tools/folder pieces fill this region. */
+/* The step-body seam: the agents and folder pieces fill this region. */
 .body {
   width: 100%;
   flex: 1;

@@ -2,8 +2,10 @@
  * The Settings row's loopback routes. `GET /idealize/telegram/status` answers
  * what the row shows; `POST /idealize/telegram/token` checks and stores a bot
  * token (an empty token removes it); `POST /idealize/telegram/pair` issues a
- * pairing code and `DELETE /idealize/telegram/pair` unpairs. Mutations carry
- * the `x-idealize-auth: 1` header.
+ * pairing code and `DELETE /idealize/telegram/pair` unpairs. A new token and a
+ * claimed pairing take effect only after `POST /idealize/telegram/confirm`,
+ * which the Settings row sends when the person presses Allow or Decline.
+ * Mutations carry the `x-idealize-auth: 1` header.
  * @module @idealize/telegram/routes
  */
 
@@ -19,6 +21,9 @@ export const TOKEN_PATH = '/idealize/telegram/token'
 /** Pairing path. */
 export const PAIR_PATH = '/idealize/telegram/pair'
 
+/** Confirmation path. */
+export const CONFIRM_PATH = '/idealize/telegram/confirm'
+
 /** An HTTP answer the runtime chose. */
 export interface RouteOutcome {
   status: number
@@ -30,6 +35,8 @@ export interface TelegramRoutesRuntime {
   status(): Promise<TelegramStatus>
   setToken(token: string): Promise<RouteOutcome>
   pair(): Promise<RouteOutcome>
+  /** Allow or decline what waits in the app window. */
+  confirm(what: 'token' | 'pairing', allow: boolean): Promise<RouteOutcome>
   unpair(): Promise<RouteOutcome>
 }
 
@@ -55,16 +62,20 @@ function writeJson(res: ServerResponse, outcome: { status: number; body: unknown
   res.writeHead(outcome.status, { 'content-type': 'application/json' }).end(JSON.stringify(outcome.body))
 }
 
-async function tokenOf(req: IncomingMessage): Promise<string | undefined> {
+async function bodyOf(req: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = []
   for await (const chunk of req) chunks.push(chunk as Buffer)
   try {
-    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { token?: unknown }
-    return typeof parsed.token === 'string' ? parsed.token.trim() : undefined
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
   } catch {
-    // A body that is not JSON carries no token; the caller answers 400.
-    return undefined
+    // A body that is not JSON carries nothing; the caller answers 400.
+    return {}
   }
+}
+
+async function tokenOf(req: IncomingMessage): Promise<string | undefined> {
+  const { token } = await bodyOf(req)
+  return typeof token === 'string' ? token.trim() : undefined
 }
 
 /**
@@ -98,6 +109,13 @@ export function installTelegramRoutes(ctx: Context, runtime: TelegramRoutesRunti
       writeJson(res, token === undefined
         ? { status: 400, body: { error: 'send {"token": "..."}; an empty token removes the stored one' } }
         : await runtime.setToken(token))
+    })
+
+    mount(CONFIRM_PATH, ['POST'], async (req, res) => {
+      const { what, allow } = await bodyOf(req)
+      writeJson(res, (what !== 'token' && what !== 'pairing') || typeof allow !== 'boolean'
+        ? { status: 400, body: { error: 'send {"what": "token" or "pairing", "allow": true or false}' } }
+        : await runtime.confirm(what, allow))
     })
 
     mount(PAIR_PATH, ['POST', 'DELETE'], async (req, res) => {

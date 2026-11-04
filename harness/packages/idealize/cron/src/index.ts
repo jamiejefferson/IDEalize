@@ -18,8 +18,9 @@
  * Two writers share the document: the Schedule pane over the routes below,
  * and every agent through the `calendar_add` / `calendar_list` /
  * `calendar_remove` tools (`./tools.ts`), whose entries run in the calling
- * chat's project. Every committed task-list write emits
- * `idealize/cron-changed`, which the host bridge forwards so the pane refetches.
+ * chat's project. An entry an agent adds starts paused and fires only once the
+ * person approves it in the pane (JJ, 9 Oct 2026). Every committed task-list write
+ * emits `idealize/cron-changed`, which the host bridge forwards so the pane refetches.
  *
  * HTTP surface (loopback-fenced; mutations demand `x-idealize-auth: 1`),
  * consumed by the Schedule drawer pane in @idealize/ui-bar:
@@ -27,6 +28,7 @@
  * - `POST /idealize/cron/tasks`      — JSON body: create or update a task
  * - `POST /idealize/cron/delete`     — `?id=`
  * - `POST /idealize/cron/toggle`     — `?id=` flips `enabled`
+ * - `POST /idealize/cron/approve`    — `?id=` the person approves an agent's entry
  * - `GET  /idealize/cron/runs`       — `?task=` filters
  *
  * Each completed fire also emits `idealize/cron-run` for the host bridge.
@@ -49,7 +51,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { invalidReason, nextFire } from './schedule.ts'
 import { CronStore, cronStorePath } from './store.ts'
 import type { CronRun, CronTask } from './store.ts'
-import { CALENDAR_SECTION, createCalendarTools } from './tools.ts'
+import { CALENDAR_SECTION, createCalendarTools, ONE_OFF_REMINDERS_WAIT_FOR_APPROVAL } from './tools.ts'
 // Type-only: the prompt registry's Context merge (ctx.systemPrompt).
 import type {} from '@deepseek-ai/dsh-system-prompt'
 // Type-only: the tool registry's Context merge (ctx.tools).
@@ -59,7 +61,7 @@ export { invalidReason, nextFire, WEEKDAYS, zoneWeekday } from './schedule.ts'
 export type { Schedule } from './schedule.ts'
 export { CronStore, cronStorePath } from './store.ts'
 export type { CronRun, CronTask, RunStatus } from './store.ts'
-export { CALENDAR_SECTION, createCalendarTools, describeSchedule, scheduleOf } from './tools.ts'
+export { CALENDAR_SECTION, createCalendarTools, describeSchedule, ONE_OFF_REMINDERS_WAIT_FOR_APPROVAL, scheduleOf } from './tools.ts'
 export type { CalendarWriter } from './tools.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -248,9 +250,11 @@ export class IdealizeCron extends Service {
    * A one-off whose instant has passed is refused unless the task already
    * recorded `done`, so renaming a fired reminder still saves.
    * @param input - Task fields from the calendar form or a calendar tool; `id` absent creates a new task.
+   * @param origin - who is saving: an agent's new entry starts paused until the person approves it,
+   *   and the person's own edit of one leaves it waiting.
    * @returns the stored task after defaults are applied.
    */
-  async saveTask(input: Partial<CronTask>): Promise<CronTask> {
+  async saveTask(input: Partial<CronTask>, origin: 'person' | 'agent' = 'person'): Promise<CronTask> {
     const schedule = input.schedule
     if (schedule === undefined) throw new Error('task needs a schedule')
     const reason = invalidReason(schedule)
@@ -259,10 +263,14 @@ export class IdealizeCron extends Service {
     const remind = input.remind === true || prompt === ''
     if (prompt === '' && input.remind !== true) throw new Error('task needs a prompt, or remind set for a reminder that runs nothing')
     if (typeof input.cwd !== 'string' || !input.cwd.startsWith('/')) throw new Error('task needs an absolute cwd')
-    if (!remind) await this.assertTaskFolder(input.cwd)
+    // Anything with a prompt runs a chat, whether or not it also notifies.
+    if (prompt !== '') await this.assertTaskFolder(input.cwd)
     if (schedule.kind === 'at' && input.done === undefined && Date.parse(schedule.at) <= Date.now()) {
       throw new Error(`one-off time ${schedule.at} is in the past`)
     }
+    const waiting = origin === 'agent'
+      ? prompt !== '' || schedule.kind !== 'at' || ONE_OFF_REMINDERS_WAIT_FOR_APPROVAL
+      : input.id !== undefined && (await this.store.tasks()).find(task => task.id === input.id)?.awaitingApproval === true
     const task: CronTask = {
       id: input.id ?? randomUUID(),
       name: typeof input.name === 'string' && input.name !== '' ? input.name : 'Scheduled task',
@@ -273,7 +281,8 @@ export class IdealizeCron extends Service {
       ...typeof input.model === 'string' && input.model !== '' ? { model: input.model } : {},
       ...remind ? { remind } : {},
       ...typeof input.done === 'string' ? { done: input.done } : {},
-      enabled: input.enabled !== false,
+      enabled: !waiting && input.enabled !== false,
+      ...waiting ? { awaitingApproval: true } : {},
       createdAt: input.createdAt ?? new Date().toISOString(),
     }
     await this.store.upsertTask(task)
@@ -294,13 +303,37 @@ export class IdealizeCron extends Service {
   }
 
   /**
-   * Flip one task's enabled flag and re-arm it.
+   * The person approves an agent's entry: it arms from here on, and needs no
+   * further approval. The route is the app's alone (the launch gate keeps a
+   * chat's key off it), so no agent can approve its own entry.
+   * @param id - The task to approve.
+   * @returns the armed task (unchanged when it was not waiting), or undefined when no task has that id.
+   * @throws when a one-off's time has passed or its folder is no longer a project.
+   */
+  async approveTask(id: string): Promise<CronTask | undefined> {
+    const task = (await this.store.tasks()).find(candidate => candidate.id === id)
+    if (task === undefined || task.awaitingApproval !== true) return task
+    if (task.schedule.kind === 'at' && Date.parse(task.schedule.at) <= Date.now()) {
+      throw new Error('This entry\'s time has passed. Change the time, then approve it.')
+    }
+    if (task.prompt !== '') await this.assertTaskFolder(task.cwd)
+    const { awaitingApproval: _approved, ...rest } = task
+    const next: CronTask = { ...rest, enabled: true }
+    await this.store.upsertTask(next)
+    this.arm(next)
+    return next
+  }
+
+  /**
+   * Flip one task's enabled flag and re-arm it. Turning on an entry that is
+   * waiting for approval is the person approving it.
    * @param id - The task to toggle.
    * @returns the updated task, or undefined when no task has that id.
    */
   async toggleTask(id: string): Promise<CronTask | undefined> {
     const task = (await this.store.tasks()).find(candidate => candidate.id === id)
     if (task === undefined) return undefined
+    if (task.awaitingApproval === true) return this.approveTask(id)
     const next = { ...task, enabled: !task.enabled }
     await this.store.upsertTask(next)
     this.arm(next)
@@ -319,6 +352,7 @@ export class IdealizeCron extends Service {
   async fire(taskId: string): Promise<CronRun> {
     const task = (await this.store.tasks()).find(candidate => candidate.id === taskId)
     if (task === undefined) throw new Error(`unknown cron task ${taskId}`)
+    if (task.awaitingApproval === true) throw new Error(`${task.name} is waiting for the person to approve it`)
     const firedAt = new Date().toISOString()
     if (this.running.has(task.id)) {
       const run: CronRun = { taskId: task.id, firedAt, status: 'skipped-busy' }
@@ -415,6 +449,9 @@ export class IdealizeCron extends Service {
   private async runAgent(task: CronTask): Promise<{ sessionId: string; errorDetail?: string }> {
     // The loader service (cordis-loader) is not a declared dependency; narrow the probe.
     await (this.ctx.get('loader') as { await(): Promise<void> } | undefined)?.await()
+    // Checked again here: a task stored before the fence covered `remind`, or
+    // whose project has since closed, must not run a chat where it points.
+    await this.assertTaskFolder(task.cwd)
     const agents = this.ctx.get('agents')
     const defaultModel = this.ctx.get('agentDefaultModel')
     const sessions = this.ctx.get('sessions')
@@ -438,6 +475,21 @@ export class IdealizeCron extends Service {
     })
     await this.fileUnderProject(sessionId, task.cwd)
     await agent.whenIdle()
+    // Nobody watches a scheduled chat, and the person may have ticked Full access
+    // for the chats they run themselves (JJ, 4 Nov 2026). Read by shape: the method
+    // is new, and an older presets package without it must still load.
+    const permissions = (this.ctx as unknown as { get(name: string): unknown }).get('permissionPresets') as {
+      confineStartedChat?(session: typeof agent.session, options: { unattended: boolean }): boolean
+    } | undefined
+    if (permissions !== undefined && permissions.confineStartedChat === undefined) {
+      this.ctx.logger.warn('idealize-cron: this build\'s permission presets cannot confine a scheduled chat')
+    }
+    if (permissions?.confineStartedChat?.(agent.session, { unattended: true }) === true) {
+      agent.inject(createUserMessage({
+        content: [{ type: 'text', text: SCHEDULED_CHAT_NOTICE }],
+        source: { kind: 'plugin', plugin: 'idealize-cron', form: 'notice', summary: 'Scheduled chat' },
+      }))
+    }
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: task.prompt }],
       source: { kind: 'user' },
@@ -450,8 +502,51 @@ export class IdealizeCron extends Service {
         errorDetail = `${event.data.reason.error.code}: ${event.data.reason.error.message}`
       }
     }
-    return { sessionId: String(sessionId), ...errorDetail === undefined ? {} : { errorDetail } }
+    // Said here as well as by the model, because the person should not have to
+    // open every chat, and a model can leave out what it could not do.
+    const blocked = blockedActionOf(agent.session.events)
+    if (blocked !== undefined) {
+      try {
+        this.notifier()?.notify({ title: task.name, body: blocked })
+      } catch (error) {
+        this.ctx.logger.warn(`idealize-cron: notification failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    const detail = errorDetail ?? blocked
+    return { sessionId: String(sessionId), ...detail === undefined ? {} : { errorDetail: detail } }
   }
+}
+
+/**
+ * What a scheduled chat knows before its instructions. It reaches the model as a
+ * plugin notice, so the chat can say in its own words what it could not do.
+ */
+export const SCHEDULED_CHAT_NOTICE = 'This chat runs on a schedule and nobody is watching it. You can change files only inside its project folder, '
+  + 'and you cannot ask for permission, so anything that needs permission is refused at once. '
+  + 'If something you were asked to do is refused, carry on with what you can, then say in plain words what you could not change and why.'
+
+/** The start of the line the sandbox adds to a tool result when it denies a file (restates `sandboxDenialMarker`). */
+const SANDBOX_DENIAL = '[sandbox: file access denied under'
+
+/**
+ * What a scheduled chat was stopped from doing, read from its log. A refused file
+ * access says so in the tool result, and a refused action leaves its audit pair.
+ * @param events - the finished run's session events.
+ * @returns the sentence for the run's detail and the notification, or undefined when nothing was stopped.
+ */
+export function blockedActionOf(events: readonly { type: string; data?: unknown }[]): string | undefined {
+  let refused = false
+  for (const event of events) {
+    if (event.type === 'tool/result' && JSON.stringify(event.data ?? null).includes(SANDBOX_DENIAL)) {
+      return 'This scheduled chat tried to change a file outside its project, '
+        + 'and scheduled chats can only change files inside their project folder. '
+        + 'Open the chat to see what it tried.'
+    }
+    if (event.type === 'approval/decided' && (event.data as { outcome?: unknown } | undefined)?.outcome !== 'allowed-once') refused = true
+  }
+  return refused
+    ? 'This scheduled chat tried something that needs your permission, and scheduled chats cannot ask for it. Open the chat to see what it tried.'
+    : undefined
 }
 
 /** Loopback + custom-header fence, same posture as the provider pack's. */
@@ -535,6 +630,11 @@ export function apply(ctx: Context): void {
     register('/idealize/cron/toggle', true, async (req, res) => {
       const id = new URL(req.url ?? '/', 'http://localhost').searchParams.get('id') ?? ''
       const task = await cron.toggleTask(id)
+      sendJson(res, task === undefined ? 404 : 200, task ?? { error: 'unknown task' })
+    })
+    register('/idealize/cron/approve', true, async (req, res) => {
+      const id = new URL(req.url ?? '/', 'http://localhost').searchParams.get('id') ?? ''
+      const task = await cron.approveTask(id)
       sendJson(res, task === undefined ? 404 : 200, task ?? { error: 'unknown task' })
     })
     register('/idealize/cron/run-now', true, async (req, res) => {

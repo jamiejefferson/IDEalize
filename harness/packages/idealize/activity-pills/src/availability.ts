@@ -32,9 +32,9 @@ export interface Surface {
 export type PillReason =
   /** No model resolves for the pill (no free-tokens route, no default model). */
   | 'no-model'
-  /** The route has no credential or sign-in reachable from the chat. */
+  /** The route has no credential or sign-in reachable from the chat; a key clears it. */
   | 'no-access'
-  /** The route is a subscription the person has not signed in to; signing in, not a key, clears it. */
+  /** Sign-in is the route's only way in and the person has not signed in; a key cannot clear it. */
   | 'no-sign-in'
   /** The route is subscription-only here: it runs in the desktop terminal, not the chat. */
   | 'terminal-only'
@@ -73,14 +73,19 @@ export interface PillAvailability {
   model: ActivityModel | null
   state: 'ready' | 'confirm' | 'unavailable'
   reason?: PillReason
+  /** On `no-access`: the route takes a sign-in as well as a key, so either clears it. */
+  signInOffered?: true
 }
+
+/** How a route takes a sign-in: as its only way in, beside a key, or not at all. */
+export type RouteSignIn = 'only' | 'offered' | undefined
 
 /** The facts {@link assessPills} reads. */
 export interface AvailabilityFacts {
   /** Whether the chat can open a request on the route now. */
   reachable: (provider: string) => boolean
-  /** Whether the route is offered through subscription sign-in, so an unreachable one waits on a sign-in rather than a key. */
-  subscription: (provider: string) => boolean
+  /** How the route takes a sign-in. Only `only` makes an unreachable route wait on one: a route that also takes a key waits on either. */
+  signIn: (provider: string) => RouteSignIn
   surface: Surface
   /** Whether the desktop shell offers a terminal (subscription agents run there). */
   terminalAvailable: boolean
@@ -120,6 +125,7 @@ function assessOne(model: ActivityModel | null, facts: AvailabilityFacts): PillA
   if (facts.terminalOnlyProviders.includes(model.provider) && facts.terminalAvailable) {
     return { model, state: 'unavailable', reason: 'terminal-only' }
   }
-  if (facts.subscription(model.provider)) return { model, state: 'unavailable', reason: 'no-sign-in' }
-  return { model, state: 'unavailable', reason: 'no-access' }
+  const signIn = facts.signIn(model.provider)
+  if (signIn === 'only') return { model, state: 'unavailable', reason: 'no-sign-in' }
+  return { model, state: 'unavailable', reason: 'no-access', ...signIn === 'offered' ? { signInOffered: true as const } : {} }
 }

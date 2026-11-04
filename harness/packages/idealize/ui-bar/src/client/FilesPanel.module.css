@@ -147,6 +147,9 @@
 .tree {
   flex: 1;
   overflow: auto;
+  /* Elevated surface: the thumb pair takes the l2 tokens (ui-theme styles/scrollbar.css). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
   padding: 8px 0;
   font-size: var(--idealize-type-body, 12.5px);
   color: var(--dsw-alias-label-primary, #24292f);

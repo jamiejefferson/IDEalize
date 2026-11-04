@@ -317,6 +317,10 @@
  */
 .keyPanel {
   flex: 1 0 100%;
+  /* Counted without its padding, the panel overflowed the list by 28px, and
+     focusing the field scrolled the clipped list sideways. */
+  box-sizing: border-box;
+  min-width: 0;
   display: grid;
   gap: 6px;
   padding: 0 14px 12px;
@@ -981,4 +985,340 @@
   font-family: var(--ds-font-family-code, ui-monospace, monospace);
   font-size: var(--idealize-type-small, 11.5px);
   color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+/* One row per brain: the working mark, what it is and what it runs on, and
+   Edit (Paper "Brains rethink", board 12). */
+.brainRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+}
+
+.brainRow:first-child {
+  border-top: 0;
+}
+
+.markReady,
+.markNeeds {
+  flex: none;
+  display: inline-flex;
+  padding-top: 2px;
+  color: #1a7f37;
+}
+
+.markNeeds {
+  color: var(--dsw-alias-state-warn-label, #a15c07);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.brainText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.brainHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.brainPlaces {
+  flex: none;
+  font-size: var(--idealize-type-small, 11.5px);
+  color: var(--dsw-alias-label-tertiary, #8b8e91);
+}
+
+.brainPurpose {
+  color: var(--dsw-alias-label-secondary, #56595d);
+}
+
+/* The row's name reads as a name; the column heads' capitals belong to tables. */
+/* The default-tool row's label is a sentence, so it reads in full. */
+.row[data-terminal-default-cli] .cellKey {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  overflow: visible;
+  font-size: var(--idealize-type-body, 12.5px);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+}
+
+.brainRow .cellKey {
+  flex: none;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+  font-size: var(--idealize-type-body, 12.5px);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.brainRow .rowNote {
+  flex: none;
+  max-width: none;
+  padding: 0;
+}
+
+.brainRow .rowAccess {
+  flex: none;
+  padding: 2px 0 0;
+  color: var(--dsw-alias-state-warn-label, #a15c07);
+}
+
+.brainRow .rowAccess .chip {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.brainRow .cellAction {
+  flex: none;
+  padding: 0;
+}
+
+.statusStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 14px;
+}
+
+.statusOk,
+.statusNeeds {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 12px;
+  font: inherit;
+  font-size: var(--idealize-type-small, 11.5px);
+  font-weight: 600;
+}
+
+.statusOk {
+  background: color-mix(in srgb, #1a7f37 12%, transparent);
+  color: #1a7f37;
+}
+
+.statusNeeds {
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-label, #a15c07) 12%, transparent);
+  color: var(--dsw-alias-state-warn-label, #a15c07);
+  cursor: pointer;
+}
+
+.readiness {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-label, #a15c07) 10%, transparent);
+}
+
+.readiness .primary {
+  flex: none;
+  white-space: nowrap;
+}
+
+.addBrainRow {
+  display: flex;
+  margin-top: 12px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.addBrainRow .addRow {
+  flex: 1;
+  margin: 0;
+  border-radius: 12px;
+}
+
+.behindScenes {
+  margin-top: 18px;
+}
+
+.behindSummary {
+  font-size: var(--idealize-type-section, 13px);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.behindDetail {
+  margin: 6px 0 10px;
+  color: var(--dsw-alias-label-secondary, #56595d);
+}
+
+.accountsSearch {
+  padding: 14px 0 4px;
+}
+
+.fieldText {
+  color: var(--dsw-alias-label-primary, #1b1f24);
+}
+
+.rowLinkStart {
+  align-self: flex-start;
+  width: fit-content;
+  text-align: left;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary, #0969da);
+  font: inherit;
+  cursor: pointer;
+}
+
+.segments {
+  display: flex;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(31, 35, 40, 0.06));
+}
+
+.segment {
+  flex: 1;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #56595d);
+  font: inherit;
+  cursor: pointer;
+}
+
+.segment[aria-pressed='true'] {
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
+  color: var(--dsw-alias-label-primary, #1b1f24);
+  font-weight: 600;
+}
+
+.moreToggle {
+  align-self: flex-start;
+  margin-bottom: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary, #0969da);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* The Auto-switch tab's plain switches. */
+.settings {
+  display: flex;
+  flex-direction: column;
+  margin-top: 14px;
+  border: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+}
+
+.settingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+}
+
+.settingRow:first-child {
+  border-top: 0;
+}
+
+.settingText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.switch {
+  flex: none;
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--dsw-alias-border-l3, rgba(31, 35, 40, 0.24));
+  cursor: pointer;
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 120ms ease;
+}
+
+.switch:checked {
+  background: var(--dsw-alias-brand-primary, #0969da);
+}
+
+.switch:checked::after {
+  transform: translateX(14px);
+}
+
+.switch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary, #0969da);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch::after {
+    transition: none;
+  }
+}
+
+.serviceSearch {
+  display: block;
+  padding: 10px 12px;
+}
+
+.serviceSearch input {
+  width: 100%;
+}
+
+/* The connection check's verdict, on a connected service's badge. */
+.badge[data-service-check='working'] { color: var(--dsw-alias-state-success, #1a7f37); border-color: currentColor; }
+.badge[data-service-check='refused'],
+.badge[data-service-check='no-credit'],
+.badge[data-service-check='failed'] { color: var(--dsw-alias-state-danger, #c62828); border-color: currentColor; }
+.badgeButton {
+  background: none;
+  cursor: pointer;
 }

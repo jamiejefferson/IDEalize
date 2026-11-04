@@ -220,7 +220,7 @@ const READY = (page: Page) => page.getByRole('button', { name: 'Brains', exact: 
  * open yet (the first render), the project tile on the empty hero is the way in.
  */
 async function newChat(page: Page): Promise<void> {
-  const step = page.locator('[data-launcher-step="space"]')
+  const step = page.locator('[data-hero-below]')
   if (await step.count() > 0 && await step.first().isVisible()) return
   const newChatButton = page.getByRole('button', { name: 'New chat', exact: true })
   if (await newChatButton.count() > 0) {
@@ -233,22 +233,17 @@ async function newChat(page: Page): Promise<void> {
   await page.waitForTimeout(300)
 }
 
-/** Launch a chat into one space through the welcome card's two steps. */
+/** Launch a chat into one space through the welcome card's brain cards. */
 async function launch(page: Page, space: string): Promise<void> {
   await newChat(page)
-  // The tile is retried: a click that lands while the card is still sliding
-  // in is swallowed, and the step stays on screen.
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await page.locator(`[data-launcher-step="space"] [data-space="${space}"]`).click()
-    const advanced = await page.locator('[data-launcher-step="brain"]').waitFor({ timeout: 5_000 })
-      .then(() => true, () => false)
-    if (advanced) break
-    if (attempt === 4) {
-      await page.screenshot({ path: join(out, 'debug-launch.png') })
-      throw new Error(`the ${space} tile never advanced to the brain step`)
-    }
+  // A card starts Chat or Images directly; the other places go through their brain step.
+  const card = space === 'chat' ? '[data-brain-card] [aria-pressed]' : `[data-brain-card="${space}"] [aria-pressed]`
+  if (space === 'chat' || space === 'gallery') {
+    await page.locator(card).first().click()
+  } else {
+    await page.locator(`[data-hero-below] [data-space="${space}"]`).click()
+    await page.locator('[data-launcher-step="brain"] [data-brain]').first().click()
   }
-  await page.locator('[data-brain]').first().click()
   await page.waitForTimeout(2_500)
 }
 

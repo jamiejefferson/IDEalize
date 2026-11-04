@@ -57,6 +57,14 @@ describe('the services list', () => {
     expect(rows.map(row => [row.kind, row.connected])).toEqual([['chat', true], ['media', false]])
   })
 
+  it('shows a company once when its chat route and media backend read the same key', () => {
+    const rows = joinServices(
+      [{ ...chatRow('openrouter', 'OpenRouter', false), env: 'OPENROUTER_API_KEY' }],
+      [{ ...mediaRow('openrouter', 'OpenRouter', ['audio', 'image']), env: 'OPENROUTER_API_KEY' }],
+    )
+    expect(rows.map(row => [row.id, row.kind, row.makes])).toEqual([['openrouter', 'chat', ['chat', 'image', 'audio']]])
+  })
+
   it('shows DeepSeek once: its own adapter stands in for the catalogue route', () => {
     const both = (official: boolean, catalogue: boolean) => joinServices([
       { provider: 'deepseek', displayName: 'DeepSeek', connected: catalogue },

@@ -4,8 +4,13 @@
  * text-storage mechanics — resolve, stat, read/stream, list, the atomic
  * write and the read-match-write edit critical section — are the local
  * implementation's, verbatim; this package adds only the per-call POLICY fence
- * on the two mutations. Reads pass through untouched: every mode permits
- * reading.
+ * on the two mutations.
+ *
+ * Reads through the provider pass through untouched, because trusted code reads
+ * through it too (agent instructions, skills). The fence on the model's own
+ * reads is a `tools/pre-execute` listener over the same rules the Seatbelt
+ * profile uses (`readDenialRules`), so a confined chat's file tools refuse
+ * what its shell cannot read. See {@link ./read-fence.ts}.
  *
  * The fence is a policy check in TRUSTED code over a MODEL-CONTROLLED path,
  * NOT a kernel boundary — the operations are the seam's own (open, rename),
@@ -39,6 +44,7 @@ import { writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { isPathUnder } from './containment.ts'
+import { installReadFence } from './read-fence.ts'
 
 /**
  * Plugin config: the local backend's knobs verbatim (`cwd` resolution default
@@ -63,6 +69,7 @@ export class SandboxedFileSystem extends LocalFileSystem {
   constructor(ctx: Context, config: Config) {
     super(ctx, config)
     this.defaultMode = ctx.sandboxPolicy.defaultMode
+    installReadFence(ctx, this)
   }
 
   /** The deployment default mode — the capability fact the tool layer reads to advertise escalation. */

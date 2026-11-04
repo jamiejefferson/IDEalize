@@ -81,6 +81,8 @@ import { DislikeButton, HeartButton } from './HeartButton.tsx'
 import { RatingLine } from './RatingLine.tsx'
 import { ProjectContext } from './ProjectContext.tsx'
 import { HatchTrigger, NoLanguageRow, NoProviderDialog } from './HatchChrome.tsx'
+import { ChatModelPicker, type ChatModelRequest } from './ChatModelPicker.tsx'
+import { HeroBrains } from './HeroBrains.tsx'
 import { HeroLauncher, NoPresetChip, type BrainAccess, type HeroLauncherInjected, type LauncherSession, type TerminalLaunches } from './HeroLauncher.tsx'
 import { createSpaceSeed, openChatView, ringHasView, subscribeRing, watchInspect, type ErasedSlots } from './view-switch.ts'
 import { type TrajectoryHost } from './TrajectoryPane.tsx'
@@ -147,6 +149,7 @@ export type { PauseControlInjected, PauseControlProps } from './PauseControl.tsx
 export { httpPauseTransport, PAUSE_PATH, PauseStore } from './pause-store.ts'
 export type { PauseAction, PausePhase, PauseState, PauseTransport, PauseView, ShellToOpen } from './pause-store.ts'
 export type { StudioCardInjected, StudioCardProps } from './StudioCard.tsx'
+export { HeroBrains } from './HeroBrains.tsx'
 export { HeroLauncher, NoPresetChip, SPACE_LABELS } from './HeroLauncher.tsx'
 export type { BrainAccess, HeroLauncherInjected, HeroLauncherProps, LauncherSession, LauncherSpaces } from './HeroLauncher.tsx'
 export { CHAT_VIEW, createSpaceSeed, openChatView, ringHasView, subscribeRing } from './view-switch.ts'
@@ -205,6 +208,22 @@ export interface IdealizeBarService {
    * @param space - the space the new brain will work in.
    */
   addBrain(space: SpaceId): void
+  /**
+   * Open the Brains pane on a route's key field, or on the account list.
+   * @param provider - the route waiting on the key.
+   */
+  addKey(provider?: string): void
+  /**
+   * Open a brain's sheet in the Brains pane.
+   * @param id - the brain's agent preset id.
+   */
+  editBrain(id: string): void
+  /**
+   * Render the model browser for a chat, over the window.
+   * @param request - what the chip asks for.
+   * @returns the browser's element.
+   */
+  renderChatModelBrowser(request: ChatModelRequest): ReactNode
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -403,6 +422,9 @@ export function apply(ctx: ClientContext): void {
     closeFile,
     revealFile,
     addBrain: (space) => { requestBrains({ kind: 'add-brain', space }) },
+    addKey: (provider) => { requestBrains(provider === undefined ? { kind: 'add-key' } : { kind: 'add-key', provider }) },
+    editBrain: (id) => { requestBrains({ kind: 'edit-brain', id }) },
+    renderChatModelBrowser: request => createElement(ChatModelPicker, { request, t: ctx.locale.bind(NS) }),
   }
   ctx.effect(() => {
     const dispose = ctx.reflect.provide('idealizeBar', barFace)
@@ -1288,8 +1310,22 @@ export function apply(ctx: ClientContext): void {
           if (!ringHasView(erasedSlots, space)) return true
           return openChatView(erasedSlots, target, space)
         },
+        prepare: async (brain, sessionId) => {
+          const summary = currentSession()
+          const session: PillSessionSummary = summary?.id === sessionId ? summary : { id: sessionId, blank: true }
+          const model = roster.find(entry => entry.id === 'chat')?.brains.find(entry => entry.id === brain)?.model
+          await selectBrain(brain, model, session).catch(() => false)
+        },
+        noteTyping: (brain, sessionId) => {
+          workspacesFace.noteSessionConfigured(sessionId as SessionId)
+          void fetch(SPACES_SELECT_PATH, {
+            method: 'POST',
+            headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' },
+            body: JSON.stringify({ sessionId, space: 'chat', brain }),
+          }).catch(() => undefined)
+        },
         addBrain: (space) => { requestBrains({ kind: 'add-brain', space }) },
-        addKey: () => { requestBrains({ kind: 'add-key' }) },
+        addKey: (provider) => { requestBrains(provider === undefined ? { kind: 'add-key' } : { kind: 'add-key', provider }) },
         // The sign-in surface is a page of its own, opened the way the
         // Brains pane's Subscriptions rows open it.
         signIn: () => { window.open('/idealize/signin', '_blank', 'noopener') },
@@ -1306,6 +1342,11 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       inject: launcherInjected,
     }, HeroLauncher))
+    scope.slots.inject('conversation.hero.below', () => scope.slots.register({
+      name: 'conversation.hero.below',
+      locale: NS,
+      inject: launcherInjected,
+    }, HeroBrains))
   })
 
   // The preset chip ("Standard mode") duplicates the brain step: shadow its

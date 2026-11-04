@@ -7,10 +7,53 @@
  * address is config so a move does not need a release.
  */
 
+import { FREE_PROVIDER } from './candidates.ts'
 import { TASKS, TASK_TYPES } from './tasks.ts'
 import type { Difficulty, TaskReading, TaskType } from './tasks.ts'
 
 export const JEV_URL = 'https://openrouter.ai/api/alpha/decisions'
+
+/**
+ * Whether this process is the installed app. The desktop shell sets the version
+ * only when packaged, and a plain Node run has no Electron version.
+ */
+export function isPackagedApp(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  electron: string | undefined = process.versions.electron,
+): boolean {
+  return electron !== undefined && (env.IDEALIZE_APP_VERSION ?? '').trim() !== ''
+}
+
+/**
+ * The address the router sends messages and the person's OpenRouter key to.
+ * It is a settings field so a move by OpenRouter needs no release in a
+ * development run, and an installed app ignores it: one edited line in the
+ * settings file would otherwise send every message and the key to any server.
+ * @param configured - the settings field.
+ * @param packaged - whether this is the installed app.
+ * @returns the address to use.
+ */
+export function jevAddress(configured: string | undefined, packaged: boolean = isPackagedApp()): string {
+  return packaged ? JEV_URL : configured ?? JEV_URL
+}
+
+/**
+ * Whether a provider's address is on this computer. The free-tokens engine also
+ * listens on this computer, but passes each request to outside companies, so
+ * its route never counts.
+ * @param provider - the route name.
+ * @param baseURL - the route's address, when it has its own.
+ * @returns true for a model that runs on this computer.
+ */
+export function isLocalModelRoute(provider: string, baseURL: unknown): boolean {
+  if (provider === FREE_PROVIDER || typeof baseURL !== 'string') return false
+  try {
+    const host = new URL(baseURL).hostname
+    return host === 'localhost' || host === '[::1]' || host === '0.0.0.0' || /^127\.\d+\.\d+\.\d+$/u.test(host)
+  } catch {
+    return false
+  }
+}
 /** OpenRouter's alias for the newest Jev. */
 export const JEV_MODEL = '~typesafe/jev-latest'
 /** A turn never waits longer than this on the router; past it the local rules answer. */

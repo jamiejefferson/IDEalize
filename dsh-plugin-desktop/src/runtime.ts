@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 import type { UpdateCheckResult, UpdateRequest } from './update-checker.ts'
-import type { AskbarPosition, AskbarSide } from './askbar-window.ts'
+import type { AskbarPosition, AskbarSide } from './dock-geometry.ts'
 import type { DesktopViewState } from './view-state-contract.ts'
 
 /** Electron platforms supported by the IDEalize native adapter. */

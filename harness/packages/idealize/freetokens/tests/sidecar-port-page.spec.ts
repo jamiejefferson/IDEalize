@@ -11,6 +11,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const spawned: { env: Record<string, string | undefined> }[] = []
 vi.mock('node:child_process', () => ({
+  // lsof finding nothing on the port.
+  execFile: (_cmd: string, _args: string[], _options: unknown, done: (error: Error) => void) => { done(new Error('exit 1')) },
   spawn: (_cmd: string, _args: string[], options: { env: Record<string, string | undefined> }) => {
     spawned.push({ env: options.env })
     return { on: () => {}, kill: () => {}, unref: () => {} }

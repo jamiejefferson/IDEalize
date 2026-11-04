@@ -5,7 +5,7 @@
 
 import { EventEmitter } from 'node:events'
 import { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chatKeyEnv, installServicesRoute, KEYS_FILE_FORMAT } from '../src/routes.ts'
 import type { ServicesRuntime } from '../src/routes.ts'
 
@@ -121,6 +121,28 @@ describe('reading the list', () => {
 })
 
 describe('storing a key', () => {
+  // The connection check asks the service itself; these tests never leave the machine.
+  beforeEach(() => { vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })))) })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('refuses a key the service refuses, and stores nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}', { status: 401 }))))
+    const { call, stored } = await mount()
+    const refused = await call({ method: 'POST', body: { id: 'fal', kind: 'media', apiKey: 'bad-key' } })
+    expect(refused.status).toBe(400)
+    expect(refused.json()).toMatchObject({ check: 'refused' })
+    expect(stored.has('FAL_KEY')).toBe(false)
+  })
+
+  it('stores a key when the check could not reach the service', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
+    const { call, stored } = await mount()
+    const saved = await call({ method: 'POST', body: { id: 'fal', kind: 'media', apiKey: 'fal-1' } })
+    expect(saved.status).toBe(200)
+    expect(saved.json()).toMatchObject({ check: 'failed' })
+    expect(stored.get('FAL_KEY')).toBe('fal-1')
+  })
+
   it('stores a chat route’s key and names the credential its profile needs', async () => {
     const { call, recorded, stored } = await mount()
     const answer = await call({ method: 'POST', body: { id: 'acme', kind: 'chat', apiKey: '  sk-live-1  ' } })

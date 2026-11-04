@@ -27,6 +27,7 @@ export default defineConfig([
       terminal: 'src/terminal.ts',
       'update-checker': 'src/update-checker.ts',
       'update-download': 'src/update-download.ts',
+      'update-verify': 'src/update-verify.ts',
       updates: 'src/updates.ts',
       'windows-agent-presets': 'src/windows-agent-presets.ts',
       'windows-pwsh-sandbox': 'src/windows-pwsh-sandbox.ts',

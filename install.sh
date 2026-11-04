@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # One-command install / update for IDEalize V1 on macOS.
 #
-# Fetches the latest GitHub release, replaces any existing copy in
-# /Applications, retires the original IDEalize (V0) app if it is still
-# installed, clears the macOS quarantine flag (the app is self-signed, not
-# notarised), and launches it. Safe to re-run any time to update. Nothing under
-# ~/Library or in your home folder is touched: V0's data, V1's data, projects
-# and keys all stay where they are.
+# Fetches the latest GitHub release, checks it was signed by the IDEalize
+# release certificate, replaces any existing copy in /Applications, retires the
+# original IDEalize (V0) app if it is still installed, clears the macOS
+# quarantine flag (the app is self-signed, so the certificate check above takes
+# the place of Gatekeeper's), and launches it. Safe to re-run any time to update.
+# Nothing under ~/Library or in your home folder is touched: V0's data, V1's
+# data, projects and keys all stay where they are.
 #
 #   curl -fsSL https://raw.githubusercontent.com/jamiejefferson/IDEalize/main/install.sh | bash
 #
@@ -14,8 +15,18 @@ set -euo pipefail
 
 REPO="jamiejefferson/IDEalize"
 APP_NAME="IDEalize V1"
-APP="/Applications/${APP_NAME}.app"
-DMG_URL="https://github.com/${REPO}/releases/latest/download/IDEalize-V1-mac.dmg"
+# The three IDEALIZE_INSTALL_* settings exist so tests can run this script
+# against a local image and a scratch folder; nothing sets them for a person.
+APPS_DIR="${IDEALIZE_INSTALL_APPS_DIR:-/Applications}"
+RELEASE_URL="${IDEALIZE_INSTALL_RELEASE_URL:-https://github.com/${REPO}/releases/latest/download}"
+APP="${APPS_DIR}/${APP_NAME}.app"
+DMG_NAME="IDEalize-V1-mac.dmg"
+DMG_URL="${RELEASE_URL}/${DMG_NAME}"
+SUMS_URL="${RELEASE_URL}/SHA256SUMS-mac.txt"
+# The release certificate (dsh-plugin-desktop/src/update-verify.ts holds the
+# same text). It reads `certificate root` because a self-signed leaf is its own
+# root. It names the certificate by value, so a copy signed by anyone else fails.
+REQUIREMENT='identifier "ai.projject.idealize.v1" and certificate root = H"39aa065ec4f9a9025aaad0dda3d74c8c1111fcd3"'
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "!! IDEalize V1 runs on macOS; this installer cannot help on $(uname -s)." >&2
@@ -36,6 +47,23 @@ if ! curl -fL --progress-bar "$DMG_URL" -o "$TMP/IDEalize.dmg"; then
   exit 1
 fi
 
+# The checksum catches a damaged or swapped download when the release publishes
+# one. It comes from the same place as the image, so the certificate check below
+# is the real proof of who made it.
+if curl -fsSL "$SUMS_URL" -o "$TMP/SHA256SUMS-mac.txt" 2>/dev/null; then
+  echo "==> Checking the download against the release's checksum…"
+  EXPECTED="$(awk -v name="$DMG_NAME" '$2 == name { print $1; exit }' "$TMP/SHA256SUMS-mac.txt")"
+  ACTUAL="$(shasum -a 256 "$TMP/IDEalize.dmg" | awk '{ print $1 }')"
+  if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
+    echo "!! The download does not match the release's checksum, so nothing was installed." >&2
+    echo "   Your current copy has not changed. Run this command again, and if you see this" >&2
+    echo "   message twice, download IDEalize from https://idealize.projject.ai instead." >&2
+    exit 1
+  fi
+else
+  echo "==> This release publishes no checksum, so the certificate check below stands alone."
+fi
+
 echo "==> Opening the disk image…"
 MOUNT="$TMP/mount"
 mkdir -p "$MOUNT"
@@ -44,15 +72,25 @@ if ! hdiutil attach "$TMP/IDEalize.dmg" -nobrowse -readonly -mountpoint "$MOUNT"
   echo "!! The disk image could not be opened." >&2
   exit 1
 fi
-if [ ! -d "$MOUNT/${APP_NAME}.app" ]; then
+if [ -L "$MOUNT/${APP_NAME}.app" ] || [ ! -d "$MOUNT/${APP_NAME}.app" ]; then
   echo "!! The disk image did not carry ${APP_NAME}.app." >&2
+  exit 1
+fi
+
+# Before anything on this Mac changes: the app must be intact and signed by the
+# IDEalize release certificate.
+echo "==> Checking the app was signed by IDEalize (this takes under a minute)…"
+if ! codesign --verify --deep --strict "--test-requirement==${REQUIREMENT}" "$MOUNT/${APP_NAME}.app" 2>/dev/null; then
+  echo "!! IDEalize could not confirm this download is genuine, so nothing was installed." >&2
+  echo "   Your current copy has not changed. Download IDEalize from https://idealize.projject.ai" >&2
+  echo "   and tell whoever sent you this command what happened." >&2
   exit 1
 fi
 
 # The original IDEalize (V0, /Applications/IDEalize.app) is retired by V1:
 # quit it if it is running and remove the app bundle only. Its data folder
 # (~/Library/Application Support/IDEalize) is left in place.
-V0_APP="/Applications/IDEalize.app"
+V0_APP="${APPS_DIR}/IDEalize.app"
 if [ -d "$V0_APP" ]; then
   if pgrep -f "${V0_APP}/Contents/MacOS/" >/dev/null 2>&1; then
     echo "==> Quitting the original IDEalize…"
@@ -79,7 +117,7 @@ echo "==> Installing to ${APP}…"
 # retry the privileged steps under sudo with a clear prompt.
 SUDO=""
 rm -rf "$APP" 2>/dev/null || true
-if [ -e "$APP" ] || [ ! -w /Applications ]; then
+if [ -e "$APP" ] || [ ! -w "$APPS_DIR" ]; then
   SUDO="sudo"
   echo "==> /Applications needs administrator access to update ${APP_NAME}."
   echo "    You'll be prompted for your Mac password."
@@ -99,6 +137,11 @@ $SUDO xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
 hdiutil detach "$MOUNT" -quiet 2>/dev/null || true
 MOUNT=""
+
+if [ -n "${IDEALIZE_INSTALL_NO_LAUNCH:-}" ]; then
+  echo "==> Done. ${APP_NAME} is in ${APPS_DIR}."
+  exit 0
+fi
 
 echo "==> Launching ${APP_NAME}…"
 open "$APP"

@@ -21,6 +21,7 @@ const roster: RosterRow[] = [
 
 interface BenchOptions {
   paired?: string
+  pairedUser?: string
   studio?: boolean
   comm?: boolean
   agents?: boolean
@@ -36,7 +37,7 @@ function bench(options: BenchOptions = {}) {
   const answers: { queryId: string; text?: string }[] = []
   const posts: { text: string; messageId: string }[] = []
   const cancels: string[] = []
-  const claims: { chatId: string; code: string }[] = []
+  const claims: { chatId: string; code: string; userId: string; name: string }[] = []
   const typed: number[] = []
   const typing = { start: vi.fn() }
   const messenger: Messenger = {
@@ -77,9 +78,10 @@ function bench(options: BenchOptions = {}) {
     services,
     relay,
     pairedChat: () => options.paired ?? '42',
-    claimPairing: async (chatId, code) => {
-      claims.push({ chatId, code })
-      return 'paired'
+    pairedUser: () => options.pairedUser ?? options.paired ?? '42',
+    claimPairing: async (claimant, code) => {
+      claims.push({ chatId: claimant.chatId, code, userId: claimant.userId, name: claimant.name })
+      return 'confirm'
     },
     staleAfterMs: 600_000,
     ...options.now === false ? {} : { now: () => NOW },
@@ -87,16 +89,17 @@ function bench(options: BenchOptions = {}) {
   return { inbound, sent, edits, answers, posts, cancels, claims, relay, typing, typed }
 }
 
-const message = (text: string | undefined, chat = 42, date = NOW / 1000): TelegramUpdate => ({
+const message = (text: string | undefined, chat = 42, date = NOW / 1000, from = chat, type = 'private'): TelegramUpdate => ({
   update_id: 1,
-  message: { message_id: 7, date, chat: { id: chat, type: 'private' }, ...text === undefined ? {} : { text } },
+  message: { message_id: 7, date, chat: { id: chat, type }, from: { id: from, username: 'jj' }, ...text === undefined ? {} : { text } },
 })
 
 /** A button press; `chat: null` models a press whose message Telegram no longer has. */
-const press = (data: string | undefined, chat: number | null = 42): TelegramUpdate => ({
+const press = (data: string | undefined, chat: number | null = 42, from = chat ?? 42): TelegramUpdate => ({
   update_id: 2,
   callback_query: {
     id: 'cb',
+    from: { id: from },
     ...data === undefined ? {} : { data },
     ...chat === null ? {} : { message: { message_id: 9, date: NOW / 1000, chat: { id: chat, type: 'private' } } },
   },
@@ -107,11 +110,33 @@ describe('pairing', () => {
     const run = bench({ paired: '' })
     await run.inbound.handle(message('/pair 123456', 99))
     await run.inbound.handle(message('/pair@IdealizeBot 654321', 99))
-    expect(run.claims).toEqual([{ chatId: '99', code: '123456' }, { chatId: '99', code: '654321' }])
-    expect(run.sent).toEqual([
-      { text: PAIR_REPLIES.paired, chatId: '99' },
-      { text: PAIR_REPLIES.paired, chatId: '99' },
+    expect(run.claims).toEqual([
+      { chatId: '99', code: '123456', userId: '99', name: '@jj' },
+      { chatId: '99', code: '654321', userId: '99', name: '@jj' },
     ])
+    expect(run.sent).toEqual([
+      { text: PAIR_REPLIES.confirm, chatId: '99' },
+      { text: PAIR_REPLIES.confirm, chatId: '99' },
+    ])
+  })
+
+  it('refuses a code sent from a group, and does not try it', async () => {
+    const run = bench({ paired: '' })
+    await run.inbound.handle(message('/pair 123456', -100, NOW / 1000, 7, 'group'))
+    await run.inbound.handle(message('/pair 123456', -100, NOW / 1000, 7, 'supergroup'))
+    expect(run.claims).toEqual([])
+    expect(run.sent).toEqual([
+      { text: PAIR_REPLIES['not-private'], chatId: '-100' },
+      { text: PAIR_REPLIES['not-private'], chatId: '-100' },
+    ])
+  })
+
+  it('refuses a code with no sender, which is how a channel post arrives', async () => {
+    const run = bench({ paired: '' })
+    const post = message('/pair 123456', 99)
+    delete (post.message as { from?: unknown }).from
+    await run.inbound.handle(post)
+    expect(run.claims).toEqual([])
   })
 
   it('ignores everything else from a chat that is not paired', async () => {
@@ -120,6 +145,37 @@ describe('pairing', () => {
     const stranger = bench()
     await stranger.inbound.handle(message('/status', 99))
     expect([...unpaired.sent, ...stranger.sent, ...unpaired.posts, ...stranger.posts]).toEqual([])
+  })
+})
+
+describe('someone else in the paired chat', () => {
+  it('cannot direct the app by message', async () => {
+    const run = bench({ paired: '-100', pairedUser: '42' })
+    await run.inbound.handle(message('/stop Ada', -100, NOW / 1000, 666, 'group'))
+    await run.inbound.handle(message('delete everything', -100, NOW / 1000, 666, 'group'))
+    expect(run.posts).toEqual([])
+    expect(run.sent).toEqual([])
+    expect(run.relay.takeText).not.toHaveBeenCalled()
+  })
+
+  it('cannot press the buttons', async () => {
+    const run = bench({ paired: '-100', pairedUser: '42' })
+    await run.inbound.handle(press('s:s-ada', -100, 666))
+    await run.inbound.handle(press('a:1:y', -100, 666))
+    expect(run.cancels).toEqual([])
+    expect(run.relay.press).not.toHaveBeenCalled()
+  })
+
+  it('leaves the paired person able to', async () => {
+    const run = bench({ paired: '-100', pairedUser: '42' })
+    await run.inbound.handle(message('hello', -100, NOW / 1000, 42, 'group'))
+    expect(run.posts).toHaveLength(1)
+  })
+
+  it('obeys nobody when no user is known', async () => {
+    const run = bench({ paired: '42', pairedUser: '' })
+    await run.inbound.handle(message('hello'))
+    expect(run.posts).toEqual([])
   })
 })
 

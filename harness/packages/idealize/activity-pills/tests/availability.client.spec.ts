@@ -13,7 +13,7 @@ const model = { provider: 'openai-codex', model: 'gpt-5.5' } as never
 function facts(surface: AvailabilityFacts['surface']): AvailabilityFacts {
   return {
     reachable: () => true,
-    subscription: () => false,
+    signIn: () => undefined,
     surface,
     terminalAvailable: true,
     terminalOnlyProviders: [],

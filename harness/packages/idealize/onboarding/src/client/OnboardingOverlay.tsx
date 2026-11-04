@@ -15,7 +15,6 @@ import type { OnboardingApi } from './api.ts'
 import { OwlArt } from './OwlArt.tsx'
 import { RainbowBurst } from './RainbowBurst.tsx'
 import { AgentsStepBody } from './AgentsStepBody.tsx'
-import { ToolsStepBody } from './ToolsStepBody.tsx'
 import { FolderStepBody } from './FolderStepBody.tsx'
 import { FinishStepBody } from './FinishStepBody.tsx'
 import type { OnboardingViewState } from './flow.ts'
@@ -46,8 +45,6 @@ export interface OnboardingInjected {
   quitAll: () => void
   /** Return to the previous step without touching recorded outcomes. */
   back: () => void
-  /** Retain unsaved Tools choices while its key recovery visits Agents. */
-  setToolDrafts: (drafts: Record<string, string>) => void
   /** The finish step's completion: persist `done` + `completedAt`, final burst. */
   finish: () => void
   /** The burst's lifetime ended; a final burst closes the flow. */
@@ -64,7 +61,6 @@ export type OnboardingOverlayProps = PropsRuntime<'shell.overlay'>
    dictionary keys explicitly. */
 const STEP_TITLE: Record<OnboardingStepId, OnboardingKey> = {
   agents: 'step.agents.title',
-  tools: 'step.tools.title',
   'projects-folder': 'step.projects-folder.title',
   'documentation-folder': 'step.documentation-folder.title',
   'skills-folder': 'step.skills-folder.title',
@@ -73,7 +69,6 @@ const STEP_TITLE: Record<OnboardingStepId, OnboardingKey> = {
 
 const STEP_SUB: Record<OnboardingStepId, OnboardingKey> = {
   agents: 'step.agents.sub',
-  tools: 'step.tools.sub',
   'projects-folder': 'step.projects-folder.sub',
   'documentation-folder': 'step.documentation-folder.sub',
   'skills-folder': 'step.skills-folder.sub',
@@ -82,7 +77,6 @@ const STEP_SUB: Record<OnboardingStepId, OnboardingKey> = {
 
 const CELEBRATION_LABEL: Record<OnboardingStepId, OnboardingKey> = {
   agents: 'celebrate.agents',
-  tools: 'celebrate.tools',
   'projects-folder': 'celebrate.projects-folder',
   'documentation-folder': 'celebrate.documentation-folder',
   'skills-folder': 'celebrate.skills-folder',
@@ -91,10 +85,9 @@ const CELEBRATION_LABEL: Record<OnboardingStepId, OnboardingKey> = {
 
 export function OnboardingOverlay(props: OnboardingOverlayProps) {
   const { t, api, pickDirectory, readSetupAliases, selectProject } = props
-  const { completeStep, skipStep, quitAll, back, setToolDrafts, finish, celebrationDone, prefersReducedMotion } = props
+  const { completeStep, skipStep, quitAll, back, finish, celebrationDone, prefersReducedMotion } = props
   const step = props.useView(state => state.step)
   const celebration = props.useView(state => state.celebration)
-  const toolDrafts = props.useView(state => state.toolDrafts)
   // The step body's gate and commit: the body reports readiness and registers
   // its save-on-Continue action; both reset on every step change. The reset
   // runs during render (the documented adjust-state-on-prop-change pattern):
@@ -104,7 +97,6 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
   const [stepReady, setStepReady] = useState(true)
   const [busy, setBusy] = useState(false)
   const commitRef = useRef<(() => Promise<boolean>) | null>(null)
-  const [editOpenRouter, setEditOpenRouter] = useState(false)
   // The captured folders, held across the three folder steps and the finish;
   // the finish orients on the first two, the skills folder persists at its own step.
   const [folders, setFolders] = useState({ projects: '', documentation: '', skills: '' })
@@ -124,9 +116,9 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
       .then((proceed) => {
         setBusy(false)
         if (!proceed) return
-        // A key stored on the agents step or a model saved on the tools step
+        // A key stored on the agents step
         // changes what the welcome card under this overlay can offer.
-        if (step === 'agents' || step === 'tools') notifyBrainsChanged()
+        if (step === 'agents') notifyBrainsChanged()
         // The finish step's commit runs the orientation; its success completes
         // the flow (final burst, then close).
         if (isFinish) finish()
@@ -137,10 +129,6 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
       })
   }
 
-  const recoverOpenRouter = (): void => {
-    setEditOpenRouter(true)
-    back()
-  }
 
   return (
     <div className={css.root} data-idealize-onboarding role="dialog" aria-label={t('onboarding.title')}>
@@ -152,9 +140,8 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
         <h2 className={css.title}>{t(STEP_TITLE[step])}</h2>
         <p className={css.sub}>{t(STEP_SUB[step])}</p>
         {/* Each body owns its gate (onReadyChange) and its save-on-Continue
-            action (registerCommit); Tools can return to Agents when a provider
-            key is the recovery, and the folder paths live here so Finish reads
-            both. */}
+            action (registerCommit), and the folder paths live here so Finish
+            reads both. */}
         <div className={css.body} data-onboarding-body={step}>
           {step === 'agents' && (
             <AgentsStepBody
@@ -162,18 +149,6 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
               t={t}
               onReadyChange={setStepReady}
               registerCommit={(commit) => { commitRef.current = commit }}
-              editOpenRouter={editOpenRouter}
-            />
-          )}
-          {step === 'tools' && (
-            <ToolsStepBody
-              api={api}
-              t={t}
-              onReadyChange={setStepReady}
-              registerCommit={(commit) => { commitRef.current = commit }}
-              onAddOpenRouterKey={recoverOpenRouter}
-              drafts={toolDrafts}
-              onDraftsChange={setToolDrafts}
             />
           )}
           {step === 'projects-folder' && (

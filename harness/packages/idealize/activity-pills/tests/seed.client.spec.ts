@@ -78,11 +78,11 @@ describe('assessPills', () => {
   }
   const chat = { kind: 'chat' as const }
 
-  const noSubscription = () => false
+  const noSignIn = () => undefined
 
   it('is ready on a reachable route and refuses a missing model', () => {
     const pills = assessPills(models, {
-      reachable: () => true, subscription: noSubscription, surface: chat, terminalAvailable: false, terminalOnlyProviders: [],
+      reachable: () => true, signIn: noSignIn, surface: chat, terminalAvailable: false, terminalOnlyProviders: [],
     })
     expect(pills.coding).toEqual({ model: models.coding, state: 'ready' })
     expect(pills.admin).toEqual({ model: null, state: 'unavailable', reason: 'no-model' })
@@ -90,7 +90,7 @@ describe('assessPills', () => {
 
   it('points a subscription-only route at the terminal when one exists, else reports no access', () => {
     const facts = {
-      reachable: (p: string) => p !== 'anthropic', subscription: noSubscription, surface: chat, terminalOnlyProviders: ['anthropic'],
+      reachable: (p: string) => p !== 'anthropic', signIn: noSignIn, surface: chat, terminalOnlyProviders: ['anthropic'],
     }
     expect(assessPills(models, { ...facts, terminalAvailable: true }).design?.reason).toBe('terminal-only')
     expect(assessPills(models, { ...facts, terminalAvailable: false }).design?.reason).toBe('no-access')
@@ -100,16 +100,26 @@ describe('assessPills', () => {
     // JJ, 7 Sep 2026: a brain on the ChatGPT route read "No key for openai-codex"
     // with an Add key action, when the route takes a sign-in and no key at all.
     const pills = assessPills(models, {
-      reachable: () => false, subscription: p => p === 'deepseek-official', surface: chat, terminalAvailable: false, terminalOnlyProviders: [],
+      reachable: () => false, signIn: p => p === 'deepseek-official' ? 'only' : undefined, surface: chat, terminalAvailable: false, terminalOnlyProviders: [],
     })
     expect(pills.coding).toEqual({ model: models.coding, state: 'unavailable', reason: 'no-sign-in' })
     expect(pills.design?.reason).toBe('no-access')
+    expect(pills.design?.signInOffered).toBeUndefined()
+  })
+
+  it('asks for a key on a route that takes a key or a sign-in, and says a sign-in would do', () => {
+    // JJ, 4 Nov 2026: a person holding an OpenRouter key was told to sign in,
+    // with no way to paste the key.
+    const pills = assessPills(models, {
+      reachable: () => false, signIn: p => p === 'deepseek-official' ? 'offered' : undefined, surface: chat, terminalAvailable: false, terminalOnlyProviders: [],
+    })
+    expect(pills.coding).toEqual({ model: models.coding, state: 'unavailable', reason: 'no-access', signInOffered: true })
   })
 
   it('asks before moving a terminal agent to another provider', () => {
     const pills = assessPills(models, {
       reachable: () => true,
-      subscription: noSubscription,
+      signIn: noSignIn,
       surface: { kind: 'terminal', provider: 'anthropic' },
       terminalAvailable: true,
       terminalOnlyProviders: ['anthropic'],

@@ -15,18 +15,29 @@ export interface TelegramChat {
   type: string
 }
 
+/** The person behind a message or button press. */
+export interface TelegramUser {
+  id: number
+  first_name?: string
+  username?: string
+}
+
 /** One message, as far as this plugin reads it. */
 export interface TelegramMessage {
   message_id: number
   /** Unix seconds the message was sent. */
   date: number
   chat: TelegramChat
+  /** Who sent it. Telegram leaves this out for channel posts. */
+  from?: TelegramUser
   text?: string
 }
 
 /** A button press on an inline keyboard. */
 export interface TelegramCallbackQuery {
   id: string
+  /** Who pressed the button. */
+  from?: TelegramUser
   /** The button's `callback_data`. */
   data?: string
   /** The message the keyboard belongs to; absent when Telegram no longer has it. */

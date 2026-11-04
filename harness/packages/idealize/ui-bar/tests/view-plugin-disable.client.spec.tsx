@@ -25,7 +25,7 @@ import type { SpaceRosterEntry } from '@idealize/spaces/client'
 import * as Gallery from '@idealize/ui-gallery/src/client/index.ts'
 import * as Soundstage from '@idealize/ui-soundstage/src/client/index.ts'
 import { en } from '../src/client/locales.ts'
-import { HeroLauncher } from '../src/client/HeroLauncher.tsx'
+import { HeroBrains } from '../src/client/HeroBrains.tsx'
 import type { HeroLauncherInjected, HeroLauncherProps } from '../src/client/HeroLauncher.tsx'
 // Type-only: the locale-namespace and slot-key merges the props type reads.
 import type {} from '../src/client/index.ts'
@@ -73,6 +73,9 @@ async function mountHost() {
   return { ctx, slots }
 }
 
+/** What "Also here" offers: every declared place Chat's cards do not already cover. */
+const EXPECTED_TILES = ['soundstage', 'motion', 'terminal']
+
 /** The welcome card over the declared roster. */
 function renderLauncher() {
   const injected: HeroLauncherInjected = {
@@ -85,23 +88,22 @@ function renderLauncher() {
       addBrain: vi.fn(),
       addKey: vi.fn(),
       signIn: vi.fn(),
+      prepare: vi.fn(),
+      noteTyping: vi.fn(),
     },
   }
   const props = {
-    projectRow: <span>idealize-v1</span>,
     projectOpen: true,
-    recentProjects: null,
-    onNewProject: vi.fn(),
-    onFindProject: vi.fn(),
+    draft: '',
     t,
     ...injected,
     useSessions: unused,
     useWorkspaces: unused,
-  } as unknown as HeroLauncherProps
-  return render(<HeroLauncher {...props} />)
+  } as unknown as Parameters<typeof HeroBrains>[0]
+  return render(<HeroBrains {...props} />)
 }
 
-/** The tiles the card currently offers, in row order. */
+/** The places the welcome card offers beside its brain cards, in row order. */
 function tiles(container: HTMLElement): string[] {
   return [...container.querySelectorAll('[data-space]')].map(node => node.getAttribute('data-space') ?? '')
 }
@@ -123,7 +125,7 @@ describe('AC-02: disabling a mode plugin removes its contribution', { timeout: 3
     // (order 7) between them. Disabling the row must drop both of them.
     expect(slots.entries('conversation.view').map(entry => entry.options.id))
       .toEqual(['chat', 'gallery', 'soundstage', 'motion'])
-    expect(tiles(view.container)).toEqual(['chat', 'terminal', 'gallery', 'soundstage', 'motion'])
+    expect(tiles(view.container)).toEqual(EXPECTED_TILES)
 
     // Disabling the row: the Gallery fiber goes, and everything it registered
     // goes with it.
@@ -134,10 +136,10 @@ describe('AC-02: disabling a mode plugin removes its contribution', { timeout: 3
     // strip (7 Sep 2026), so no dock entry of its own survives it.
     expect(slots.entries('conversation.input.dock').map(entry => entry.options.id)).toEqual([])
     expect((ctx.get('conversationViews') as ConversationViewRegistry).entries()).toEqual([])
-    // The roster is declared, so the chooser still offers Gallery: what is
-    // missing belongs on the brain step, never on a dimmed or dropped tile.
-    expect(tiles(view.container)).toEqual(['chat', 'terminal', 'gallery', 'soundstage', 'motion'])
-    expect(view.container.querySelector('[data-space="gallery"]')?.hasAttribute('disabled')).toBe(false)
+    // The roster is declared, so the card still offers Images: what is missing
+    // belongs on the card, never on a dimmed or dropped way in.
+    expect(tiles(view.container)).toEqual(EXPECTED_TILES)
+    expect(view.container.querySelector('[data-brain-card="gallery"]')?.querySelector('[disabled]')).toBeNull()
   })
 
   it('leaves the ring with Chat alone once both media plugins are disabled, tiles untouched', async () => {
@@ -154,6 +156,6 @@ describe('AC-02: disabling a mode plugin removes its contribution', { timeout: 3
 
     expect(slots.entries('conversation.view').map(entry => entry.options.id)).toEqual(['chat'])
     expect((ctx.get('conversationEvents') as ConversationEventRegistry).entries()).toEqual([])
-    expect(tiles(view.container)).toEqual(['chat', 'terminal', 'gallery', 'soundstage', 'motion'])
+    expect(tiles(view.container)).toEqual(EXPECTED_TILES)
   })
 })

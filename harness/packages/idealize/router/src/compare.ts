@@ -67,6 +67,21 @@ export interface SurfaceReader {
 }
 
 /**
+ * What a step's new messages ask: the person's words, or the brief another chat
+ * started this chat with, without the line saying who wrote it.
+ * @param messages - the step's new messages.
+ * @returns those messages and their words.
+ */
+export function askOf<T extends Pick<Message, 'content' | 'source'>>(messages: readonly T[]): { mine: T[]; message: string } {
+  const mine = messages.filter(item => item.source.kind === 'user' || (item.source.kind as string) === 'chat-brief')
+  const message = mine.flatMap((item) => {
+    const brief = (item.source as { brief?: unknown }).brief
+    return typeof brief === 'string' ? [brief] : item.content.map(block => (block.type === 'text' ? block.text : ''))
+  }).join('\n').trim()
+  return { mine, message }
+}
+
+/**
  * What the first model read before it answered: the history up to and
  * including the person's message before the reply.
  * @param session - the session.
@@ -75,7 +90,7 @@ export interface SurfaceReader {
  */
 export function askBefore(session: SurfaceReader, replySeq: number): { messages: Message[]; ask: string; askSeq: number } | undefined {
   const asked = session.events.findLast(event =>
-    event.seq < replySeq && event.type === 'user/message' && event.data.source.kind === 'user' && event.surfaceOp === 'append')
+    event.seq < replySeq && event.type === 'user/message' && (event.data.source.kind === 'user' || (event.data.source.kind as string) === 'chat-brief') && event.surfaceOp === 'append')
   if (asked?.type !== 'user/message') return undefined
   const messages: Message[] = []
   for (const seq of session.surface.nodes) {

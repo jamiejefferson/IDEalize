@@ -1,6 +1,6 @@
 # @idealize/activity-pills
 
-The five Chat and Terminal brains (Coding, Design, Writing, Admin, Free) and the composer's brain switcher; the pill row that once chose an activity at chat start is gone (the new-chat card chooses a space, then a brain — `@idealize/spaces`), and the name `activity-pills` is the package's history, not its surface. Each activity brain is an agent preset: a named composition (tools + persona) with a model the host maps to it. The host half seeds the five presets and serves their model, availability and edit routes; the client half owns the composer's More settings panel (`conversation.input.access`), where the **brain switcher** lists the brains that work in THIS chat's space, the current one marked; the shipped model dropdown stays on the row and reads the chat's model. `/model` remains for a manual pick. The `idealize-activity-pills` row in `@idealize/bundle-idealize` mounts both halves.
+The five Chat and Terminal brains (Coding, Design, Writing, Admin, Free) and the composer's brain chip; the pill row that once chose an activity at chat start is gone (the new-chat card chooses a space, then a brain — `@idealize/spaces`), and the name `activity-pills` is the package's history, not its surface. Each activity brain is an agent preset: a named composition (tools + persona) with a model the host maps to it. The host half seeds the five presets and serves their model, availability and edit routes; the client half owns the composer's More settings panel (`conversation.input.access`), where the **brain switcher** lists the brains that work in THIS chat's space, the current one marked; the shipped model dropdown stays on the row and reads the chat's model. `/model` remains for a manual pick. The `idealize-activity-pills` row in `@idealize/bundle-idealize` mounts both halves.
 
 The welcome card (`@idealize/ui-bar`'s `HeroLauncher`) is the other surface that selects an activity brain; it does so through this package's `activityPills` service, so the free-tokens route and the roster default have one owner.
 
@@ -12,15 +12,17 @@ The welcome card (`@idealize/ui-bar`'s `HeroLauncher`) is the other surface that
 | Started chat | Changes the chat's model only (`session.selectModel`); the preset stays. Also sets the default for new chats. |
 | Any | Free additionally switches the model policy to auto (`POST /idealize/models/mode`). |
 
-`ActivityPillsController` (`src/client/pills-store.ts`) applies this table. The brain switcher routes an activity brain through it and writes every other brain (a media agent, a user-authored one) for the current chat alone, so a Gallery agent never becomes what new chats open on.
+`ActivityPillsController` (`src/client/pills-store.ts`) applies this table. The brain chip routes an activity brain through it and writes every other brain (a media agent, a user-authored one) for the current chat alone, so a Gallery agent never becomes what new chats open on.
 
 ## The composer's overflow control (`conversation.input.access`)
 
-The tool row's three-dot button opens a panel holding the two settings that belong to the chat rather than to the work in front of the user: the project's access mode and this chat's brain. The composer owns the access chip and hands it in as `control` on the seat; this package only decides where it goes. Both sat on the row as chips at opposite ends until 9 Sep 2026, which left a media space's row reading as one undifferentiated line of controls beside the space's own settings.
+The tool row's three-dot button opens a panel holding the project's access mode. The composer owns the access chip and hands it in as `control` on the seat; this package only decides where it goes. The brain lived behind these dots from 9 Sep 2026 until the brain chip brought it back to the row on 4 Nov 2026 (Paper "Brains rethink", JJ).
 
 The trigger carries `data-composer-overflow-trigger` and the panel `data-composer-overflow-panel`. The panel closes on a pointer landing on the page, and stays open for a pointer inside a menu one of its own controls opened (those portal to the body, outside the panel's subtree). A removed session shuts it and refuses the trigger.
 
-## The brain switcher (the panel's Brain row)
+## The brain chip (the composer's model seat)
+
+`BrainChip` (`src/client/BrainChip.tsx`) takes the `conversation.input.model` seat at priority -1 and reads `Coding · DeepSeek V4 Flash`: the brain, then the model it runs on. Its panel lists the brains of this chat's space, then the model with Change into the model browser, thinking effort and the auto-switch switch. On a media row the chip names the brain alone, because the space's settings strip carries the generation model (JJ, 13 Sep 2026). `BrainNotice` (`src/client/BrainNotice.tsx`) takes the dock above the composer card for a blocked chat, a switch and an offer.
 
 **The space owns the tools; the brain owns the model and the standing instructions.** A started conversation's history was produced under its preset's tools, so the host fixes that preset for the life of the chat (`agent-preset-locked`). Switching brains mid-chat therefore never recomposes: it writes the session's model and records the brain in the log.
 
@@ -30,7 +32,7 @@ The trigger carries `data-composer-overflow-trigger` and the panel `data-compose
 | Started chat | `session.selectModel` to the brain's model, then `POST /idealize/spaces/select` records `idealize/brain` with the brain's standing instructions. The tools stay as they were. |
 | Terminal space | A brain whose launch command or provider differs also restarts the shell, through `terminalMode.restart` (`@idealize/ui-terminal`). |
 
-The menu reads three routes: `GET /idealize/spaces` for the brains of this chat's space and the default mark, `GET /idealize/activity/agents` for each brain's resolved model and instructions, and `GET /idealize/terminal/launches` for the commands a fresh shell types. The chat's space and current brain come from the `space` and `brain` session projections (`@idealize/spaces`). The trigger carries `data-brain-switcher`, `data-space` and `data-brain-current`; each menu row carries `data-brain`.
+The panel reads three routes: `GET /idealize/spaces` for the brains of this chat's space and the default mark, `GET /idealize/activity/agents` for each brain's resolved model and instructions, and `GET /idealize/terminal/launches` for the commands a fresh shell types. The chat's space and current brain come from the `space` and `brain` session projections (`@idealize/spaces`). The trigger carries `data-brain-switcher`, `data-space` and `data-brain-current`; each menu row carries `data-brain`.
 
 **The trigger names a brain of the space, or nothing.** `resolveCurrentBrain` takes the recorded brain when the space offers it, then the chat's preset when the space offers that, and otherwise the space's own default — the brain a launch into that space lands on. Both fallbacks earn their place during a launch, which changes the chat's space, its preset and its recorded brain over separate frames: for a beat the log names the brain the chat is leaving while the summary names the preset it was created on, and neither is what the chat runs. The rendered label is that brain's display name, never its preset id, and the control renders nothing while no brain of the space is current. Reads are not coalesced either: each `load()` carries a token and only the newest writes the snapshot, so a superseded answer cannot stand.
 
@@ -71,13 +73,13 @@ Decided by `assessPills` (`src/availability.ts`, pure, unit-tested) from three f
 | State | Reason | When |
 |---|---|---|
 | `unavailable` | `no-model` | No model resolves (no free-tokens route, no default model). |
-| `unavailable` | `no-sign-in` | Route is a subscription the sign-in surface offers (`idealizeOAuth.status()`), not signed in, and not terminal-only. A sign-in clears it; a key cannot. |
+| `unavailable` | `no-sign-in` | Sign-in is the route's only way in (a `keyless` row of `idealizeOAuth.status()`), it is not signed in, and it is not terminal-only. A sign-in clears it; a key cannot. A route that takes a key as well reads `no-access` with `signInOffered: true`, and either clears it. |
 | `unavailable` | `no-access` | Route unreachable, not a subscription, and no terminal to send the user to. |
 | `unavailable` | `terminal-only` | Route is in `terminalOnlyProviders`, unreachable from the chat, and a terminal exists (Claude on subscription runs as Claude Code there). |
 | `confirm` | `terminal-restart` | The shell would be replaced (`terminalRestarts`): the provider differs, or the launch command does. The host read sees only the provider half, because it answers for the roster as a whole and knows no chat's current brain; the brain switcher applies both halves. |
 | `ready` | | Everything else. |
 
-The space roster (`@idealize/spaces`) folds these states into each space's `models` answer; the brain switcher renders the restart half as the row's "restarts the shell" line.
+The space roster (`@idealize/spaces`) folds these states into each space's `models` answer; the brain chip renders the restart half as the row's "restarts the shell" line.
 
 ## Configuration (`idealize-activity-pills` row)
 

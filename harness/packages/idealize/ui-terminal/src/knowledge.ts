@@ -16,7 +16,7 @@
  * @module @idealize/ui-terminal/knowledge
  */
 
-import { mkdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /** What a service offers when it has standing rules for a terminal agent; probed, never injected. */
@@ -61,6 +61,13 @@ export async function gatherKnowledge(
 export interface PromptChannel {
   /** The option, up to where the quoted file read goes. */
   option: string
+  /**
+   * The option that takes the file's path, when the CLI has one. The path is
+   * what reaches the command line, so the standing rules stay out of `ps` and
+   * out of the shell's history. Proved on Claude Code 4 Nov 2026 with a control
+   * run that lacked it.
+   */
+  fileOption?: string
   /** Where the option is typed: Codex reads options before its subcommand or prompt, so its option follows the executable. */
   place: 'end' | 'after-executable'
   /** Matches a command that already sets its own instructions; such a command is the user's and is typed as written. */
@@ -69,7 +76,7 @@ export interface PromptChannel {
 
 /** The CLIs that take standing instructions at launch, keyed by executable name. */
 export const PROMPT_CHANNELS: Readonly<Record<string, PromptChannel>> = {
-  claude: { option: '--append-system-prompt ', place: 'end', own: /(^|\s)--(append-)?system-prompt(-file)?(\s|=|$)/ },
+  claude: { option: '--append-system-prompt ', fileOption: '--append-system-prompt-file ', place: 'end', own: /(^|\s)--(append-)?system-prompt(-file)?(\s|=|$)/ },
   pi: { option: '--append-system-prompt ', place: 'end', own: /(^|\s)--(append-)?system-prompt(\s|=|$)/ },
   codex: { option: '-c developer_instructions=', place: 'after-executable', own: /developer_instructions/ },
 }
@@ -96,9 +103,10 @@ export function promptChannel(command: string): PromptChannel | undefined {
 }
 
 /**
- * The command as typed: the configured launch plus the knowledge file, read by
- * the shell when the command runs. The path is single-quoted, so a space or a
- * quote in the harness home cannot break the line.
+ * The command as typed: the configured launch plus the knowledge file, named
+ * for a CLI that reads the file itself and otherwise read by the shell when the
+ * command runs. The path is single-quoted, so a space or a quote in the harness
+ * home cannot break the line.
  * @param command - the configured launch command.
  * @param file - absolute path of the knowledge file.
  * @returns the command the shell types, or `undefined` when the CLI has no channel.
@@ -107,7 +115,8 @@ export function withKnowledge(command: string, file: string, platform: NodeJS.Pl
   const channel = promptChannel(command)
   if (channel === undefined) return undefined
   if (platform === 'win32') return withKnowledgePowerShell(command, file, channel)
-  const option = `${channel.option}"$(cat '${file.replaceAll('\'', '\'\\\'\'')}')"`
+  const quoted = `'${file.replaceAll('\'', '\'\\\'\'')}'`
+  const option = channel.fileOption === undefined ? `${channel.option}"$(cat ${quoted})"` : `${channel.fileOption}${quoted}`
   const trimmed = command.trim()
   if (channel.place === 'end') return `${trimmed} ${option}`
   const [executable = '', ...rest] = trimmed.split(/\s+/)
@@ -147,15 +156,17 @@ function withKnowledgePowerShell(command: string, file: string, channel: PromptC
 }
 
 /**
- * Write one shell's knowledge file.
+ * Write one shell's knowledge file, readable by its owner alone.
  * @param dir - the knowledge directory under the harness home.
  * @param terminalId - the shell's id; anything outside `[A-Za-z0-9._-]` becomes `_`.
  * @param text - the gathered knowledge.
  * @returns the file's absolute path.
  */
 export async function writeKnowledgeFile(dir: string, terminalId: string, text: string): Promise<string> {
-  await mkdir(dir, { recursive: true })
+  await mkdir(dir, { recursive: true, mode: 0o700 })
   const file = join(dir, `${terminalId.replaceAll(/[^A-Za-z0-9._-]/g, '_')}.md`)
-  await writeFile(file, `${text}\n`)
+  await writeFile(file, `${text}\n`, { mode: 0o600 })
+  // The mode above applies only to a new file. Windows ignores POSIX modes here.
+  await chmod(file, 0o600)
   return file
 }

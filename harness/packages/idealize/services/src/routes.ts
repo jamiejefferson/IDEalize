@@ -16,6 +16,7 @@
  * @module @idealize/services/routes
  */
 
+import { checkKey } from './connection-check.ts'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -32,6 +33,9 @@ import type { ServiceRow } from './directory.ts'
  * printable ASCII, space excluded.
  */
 const LEGAL_API_KEY = /^[\x21-\x7E]+$/
+
+/** How long saving a key waits for the service's catalogue before answering. */
+const REFRESH_WAIT_MS = 3_000
 
 /** The one keys-file format this build reads. */
 export const KEYS_FILE_FORMAT = 1
@@ -151,14 +155,16 @@ async function storeKey(
       return { status: 500, error: `The key is saved, but ${service.name} could not be switched on. ${reason}` }
     }
   }
-  if (service.kind === 'media') {
-    try {
-      await runtime.refreshBackend(service.id)
-    } catch {
+  // A chat row can also carry a media backend reading the same key.
+  if (service.kind === 'media' || mediaEnvOf(runtime, service.id) === env) {
+    // A large catalogue takes minutes to read, and the person is waiting on this answer. It gets a moment
+    // to finish; past that it carries on behind the reply, and the pane reads the list again as it fills.
+    const refreshed = Promise.resolve(runtime.refreshBackend(service.id)).catch(() => {
       // The key is stored either way; a catalogue that could not be
       // re-read leaves the last-known models standing and retries on the
       // adapter's own timer.
-    }
+    })
+    await Promise.race([refreshed, new Promise((resolve) => { setTimeout(resolve, REFRESH_WAIT_MS).unref() })])
   }
   return undefined
 }
@@ -265,14 +271,56 @@ export function installServicesRoute(ctx: Context, runtime: ServicesRuntime): vo
           sendJson(res, 400, { error: 'apiKey contains characters an API key cannot carry' })
           return
         }
+        // The key is tried before it is stored: a key the service refuses never reads as connected.
+        const check = apiKey === '' ? undefined : await checkKey(service.id, apiKey)
+        if (check === 'refused') {
+          sendJson(res, 400, { error: `${service.name} refused this key. Check you copied all of it, then try again.`, check })
+          return
+        }
         const refusal = await storeKey(webCtx.credentials, runtime, service, apiKey)
         if (refusal !== undefined) {
           sendJson(res, refusal.status, { error: refusal.error })
           return
         }
-        sendJson(res, 200, { services: await listServices(runtime) })
+        await defaultModelFollows(webCtx)
+        sendJson(res, 200, { services: await listServices(runtime), ...check === undefined ? {} : { check } })
       },
     }), 'services: route')
+
+    // Whether a connected service still answers, for the Brains pane's row.
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/idealize/brains/services/check',
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { 'content-type': 'text/plain', allow: 'POST' }).end('method not allowed')
+          return
+        }
+        if (refuse(req, res, true)) return
+        let body: { id?: unknown; kind?: unknown }
+        try {
+          body = JSON.parse(await readBody(req)) as typeof body
+        } catch {
+          sendJson(res, 400, { error: 'invalid JSON' })
+          return
+        }
+        // The free tier's key only opens the local engine, so what counts is what the engine holds.
+        if (body.id === 'freetokens') {
+          const router = webCtx.get('idealizeRouter') as { freeEmpty?: () => Promise<boolean> } | undefined
+          const empty = await router?.freeEmpty?.().catch(() => undefined)
+          sendJson(res, 200, { check: empty === true ? 'no-keys' : empty === false ? 'working' : 'untested' })
+          return
+        }
+        const service = (await listServices(runtime)).find(row => row.id === body.id && row.kind === body.kind)
+        if (service === undefined) {
+          sendJson(res, 400, { error: 'id and kind must name a service this app can connect' })
+          return
+        }
+        const env = service.kind === 'chat' ? runtime.chatEnv(service.id) : mediaEnvOf(runtime, service.id)
+        const stored = env === undefined || env === '' ? undefined : await webCtx.credentials.resolve(credentialRef(env)).catch(() => undefined)
+        sendJson(res, 200, { check: stored === undefined ? 'untested' : await checkKey(service.id, stored.value) })
+      },
+    }), 'services: check route')
 
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
@@ -310,10 +358,20 @@ export function installServicesRoute(ctx: Context, runtime: ServicesRuntime): vo
           }
           connected.push({ id: service.id, kind: service.kind, name: service.name })
         }
+        await defaultModelFollows(webCtx)
         sendJson(res, 200, { connected, services: await listServices(runtime) })
       },
     }), 'services: import route')
   })
+}
+
+/**
+ * Give the install's default model the chance to move onto the account just connected, so the
+ * brains read ready when the save answers. Absent when the models plugin is not composed.
+ */
+async function defaultModelFollows(ctx: Context): Promise<void> {
+  const models = ctx.get('idealizeDefaultModel') as { reconsider?: () => Promise<void> } | undefined
+  await models?.reconsider?.()
 }
 
 /** The credential name a generation backend declares, from the live registry. */

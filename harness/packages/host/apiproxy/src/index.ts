@@ -28,6 +28,7 @@ export { toFetchHandler } from './fetch/handler.ts'
 export { AbstractApiClient, InProcessApiClient } from './fetch/client.ts'
 export type { IApiClient } from './fetch/client.ts'
 export { createApiProxy } from './api-proxy.ts'
+export { runsWhenOpened } from './runnable-path.ts'
 export type { ApiProxyDefaults } from './api-proxy.ts'
 
 declare module '@deepseek-ai/cordis' {

@@ -29,7 +29,8 @@ import { Inbound } from './inbound.ts'
 import { createMessenger } from './messenger.ts'
 import { Typing } from './typing.ts'
 import { Outbound } from './outbound.ts'
-import { Pairing } from './pairing.ts'
+import { PAIR_REPLIES } from './format.ts'
+import { Pairing, pairedIdentity, type PairingClaimant } from './pairing.ts'
 import { Poller, type PollerProblem } from './poller.ts'
 import { nameOf, type Services } from './ports.ts'
 import { Relay } from './relay.ts'
@@ -38,7 +39,7 @@ import { TELEGRAM_DEFAULTS, TELEGRAM_SETTINGS_NAMESPACE, TelegramSettingsSchema,
 
 export { BotApi, MESSAGE_LIMIT, splitText, TelegramApiError } from './api.ts'
 export type { InlineButton, TelegramErrorKind, TelegramUpdate } from './api.ts'
-export { PAIR_PATH, STATUS_PATH, TOKEN_PATH } from './routes.ts'
+export { CONFIRM_PATH, PAIR_PATH, STATUS_PATH, TOKEN_PATH } from './routes.ts'
 export { FORWARD_KEYS, TELEGRAM_SETTINGS_NAMESPACE, TelegramSettingsSchema } from './settings.ts'
 export type { ForwardKey, TelegramSettings, TelegramStatus } from './settings.ts'
 
@@ -98,6 +99,14 @@ const PROBLEM_TEXT: Readonly<Record<PollerProblem['kind'], string>> = {
   failed: 'Telegram could not be reached. The app keeps retrying.',
 }
 
+/** What the Settings row says about a pairing stored from a group chat. */
+const GROUP_PAIRING_PROBLEM = 'This bot was paired with a group chat, which anyone in the group could use, so it has stopped listening. Choose Pair and send the code from a private chat with the bot.'
+
+/** A bot token starts with the bot's id. */
+function botIdOf(token: string): string {
+  return token.split(':')[0] ?? token
+}
+
 /**
  * Compose the bot: poller, relay, forwarders and routes.
  * @param ctx - the Cordis context.
@@ -129,16 +138,32 @@ export function apply(ctx: Context, config: Config): void {
     comm: () => ctx.get('idealizeComm'),
     agents: () => ctx.get('agents'),
   }
-  const messenger = createMessenger({ bot, chatId: () => current().chatId })
+  // A stored pairing the bot may no longer obey sends nothing and hears nothing.
+  const identity = (): { chatId: string; userId: string } | undefined => pairedIdentity(current())
+  const pairedChat = (): string => identity()?.chatId ?? ''
+  const pairedUser = (): string => identity()?.userId ?? ''
+  const messenger = createMessenger({ bot, chatId: pairedChat })
   const typing = new Typing({ messenger, onError: report('"typing…" could not be shown') })
   ctx.effect(() => () => { typing.stop() }, 'idealize-telegram: typing indicator')
   const pairing = new Pairing(config.pairCodeTtlMinutes * 60_000, config.maxWrongPairCodes)
+  // What waits for the person to press Allow in the app window, held in memory only.
+  const confirmTtlMs = config.pairCodeTtlMinutes * 60_000
+  let waitingToken: { token: string; botUsername: string; expiresAt: number } | undefined
+  let waitingPairing: (PairingClaimant & { expiresAt: number }) | undefined
+  const liveToken = (): typeof waitingToken => {
+    if (waitingToken !== undefined && Date.now() > waitingToken.expiresAt) waitingToken = undefined
+    return waitingToken
+  }
+  const livePairing = (): typeof waitingPairing => {
+    if (waitingPairing !== undefined && Date.now() > waitingPairing.expiresAt) waitingPairing = undefined
+    return waitingPairing
+  }
 
   const relay = new Relay({
     messenger,
     api: () => ctx.get('apiProxy'),
     nameOf: async sessionId => nameOf(await services.comm()?.roster() ?? [], sessionId),
-    enabled: () => current().forwardApprovals && current().chatId !== '',
+    enabled: () => current().forwardApprovals && pairedChat() !== '',
     reopenDelayMs: config.muxReopenDelayMs,
     onError: report('the approvals relay failed'),
   })
@@ -147,16 +172,17 @@ export function apply(ctx: Context, config: Config): void {
     typing,
     services,
     relay,
-    pairedChat: () => current().chatId,
-    claimPairing: async (chatId, code) => {
-      if (scope === undefined) return 'no-code'
+    pairedChat,
+    pairedUser,
+    claimPairing: (claimant, code) => {
+      if (scope === undefined) return Promise.resolve('no-code')
       const claim = pairing.claim(code)
-      if (claim === 'paired') await scope.update({ chatId })
-      return claim
+      if (claim === 'confirm') waitingPairing = { ...claimant, expiresAt: Date.now() + confirmTtlMs }
+      return Promise.resolve(claim)
     },
     staleAfterMs: config.staleAfterMinutes * 60_000,
   })
-  const outbound = new Outbound({ messenger, services, typing, settings: current })
+  const outbound = new Outbound({ messenger, services, typing, settings: () => ({ ...current(), chatId: pairedChat() }) })
   const poller = new Poller({
     holdSeconds: config.holdSeconds,
     retryDelaysMs: config.retryDelaysMs,
@@ -178,7 +204,7 @@ export function apply(ctx: Context, config: Config): void {
     settingsCtx.effect(() => {
       const unwatch = registered.watch((next, prev) => {
         // A new chat or a re-enabled toggle is offered every request still pending.
-        if (next.chatId !== prev.chatId || next.forwardApprovals !== prev.forwardApprovals) relay.restart()
+        if (next.chatId !== prev.chatId || next.userId !== prev.userId || next.forwardApprovals !== prev.forwardApprovals) relay.restart()
       })
       return () => {
         unwatch()
@@ -219,13 +245,16 @@ export function apply(ctx: Context, config: Config): void {
   const status = async (): Promise<TelegramStatus> => {
     const description = await ctx.get('credentials')?.describe(ref)
     const configured = description?.configured ?? false
+    const waiting = { token: liveToken(), pairing: livePairing() }
     return {
       configured,
       shadowed: configured && description?.writable === false,
       botUsername,
-      paired: current().chatId !== '',
+      paired: pairedChat() !== '',
       pairing: pairing.pending(),
-      problem: problemText(problem),
+      confirmToken: waiting.token === undefined ? undefined : { botUsername: waiting.token.botUsername },
+      confirmPairing: waiting.pairing === undefined ? undefined : { name: waiting.pairing.name },
+      problem: current().chatId !== '' && pairedChat() === '' ? GROUP_PAIRING_PROBLEM : problemText(problem),
     }
   }
   const ok = async (): Promise<RouteOutcome> => ({ status: 200, body: await status() })
@@ -237,6 +266,7 @@ export function apply(ctx: Context, config: Config): void {
       const credentials = ctx.get('credentials')
       if (credentials === undefined) return refusal(503, 'No credential store is composed, so the token cannot be saved.')
       if (token === '') {
+        waitingToken = undefined
         try {
           await credentials.unset(ref)
         } catch (error) {
@@ -254,13 +284,43 @@ export function apply(ctx: Context, config: Config): void {
         }
         return refusal(502, 'Telegram could not be reached to check the token. Try again.')
       }
-      try {
-        await credentials.set(ref, token)
-      } catch (error) {
-        // The store refuses a write the launching environment would shadow.
-        return refusal(409, (error as Error).message)
+      waitingToken = { token, botUsername: username, expiresAt: Date.now() + confirmTtlMs }
+      return await ok()
+    },
+    async confirm(what, allow) {
+      if (what === 'token') {
+        const waiting = liveToken()
+        waitingToken = undefined
+        if (waiting === undefined) return refusal(409, 'Nothing is waiting. Paste the token again.')
+        if (!allow) return await ok()
+        const credentials = ctx.get('credentials')
+        if (credentials === undefined) return refusal(503, 'No credential store is composed, so the token cannot be saved.')
+        const previous = (await credentials.resolve(ref))?.value
+        try {
+          await credentials.set(ref, waiting.token)
+        } catch (error) {
+          // The store refuses a write the launching environment would shadow.
+          return refusal(409, (error as Error).message)
+        }
+        botUsername = waiting.botUsername
+        // A different bot is a different party reading the chat, so the old pairing does not carry over.
+        if (previous !== undefined && botIdOf(previous) !== botIdOf(waiting.token)) {
+          pairing.cancel()
+          waitingPairing = undefined
+          await scope?.update({ chatId: '', userId: '' })
+        }
+        return await ok()
       }
-      botUsername = username
+      const waiting = livePairing()
+      waitingPairing = undefined
+      if (waiting === undefined) return refusal(409, 'Nothing is waiting. Choose Pair for a new code.')
+      if (!allow) {
+        await messenger.send(PAIR_REPLIES.declined, undefined, waiting.chatId)
+        return await ok()
+      }
+      if (scope === undefined) return refusal(503, 'No settings store is composed, so a pairing cannot be kept.')
+      await scope.update({ chatId: waiting.chatId, userId: waiting.userId })
+      await messenger.send(PAIR_REPLIES.paired, undefined, waiting.chatId)
       return await ok()
     },
     async pair() {
@@ -271,7 +331,8 @@ export function apply(ctx: Context, config: Config): void {
     },
     async unpair() {
       pairing.cancel()
-      await scope?.update({ chatId: '' })
+      waitingPairing = undefined
+      await scope?.update({ chatId: '', userId: '' })
       return await ok()
     },
   })

@@ -1,7 +1,7 @@
 /** Pairing codes: single use, expiry, and withdrawal after wrong guesses. */
 
 import { describe, expect, it } from 'vitest'
-import { Pairing } from '../src/pairing.ts'
+import { Pairing, pairedIdentity } from '../src/pairing.ts'
 
 function clock(start = 1_000) {
   let now = start
@@ -23,7 +23,7 @@ describe('Pairing', () => {
   it('pairs once with the live code', () => {
     const pairing = new Pairing(60_000, 5)
     const { code } = pairing.issue()
-    expect(pairing.claim(` ${code} `)).toBe('paired')
+    expect(pairing.claim(` ${code} `)).toBe('confirm')
     expect(pairing.claim(code)).toBe('no-code')
   })
 
@@ -55,5 +55,23 @@ describe('Pairing', () => {
     expect(pairing.pending()).toEqual(second)
     pairing.cancel()
     expect(pairing.pending()).toBeUndefined()
+  })
+})
+
+describe('pairedIdentity', () => {
+  it('uses a stored user id', () => {
+    expect(pairedIdentity({ chatId: '-100', userId: '42' })).toEqual({ chatId: '-100', userId: '42' })
+  })
+
+  it('reads the user from an older private pairing, because a private chat id is the person\'s id', () => {
+    expect(pairedIdentity({ chatId: '42', userId: '' })).toEqual({ chatId: '42', userId: '42' })
+  })
+
+  it('stops obeying an older pairing from a group', () => {
+    expect(pairedIdentity({ chatId: '-100123', userId: '' })).toBeUndefined()
+  })
+
+  it('has nothing when unpaired', () => {
+    expect(pairedIdentity({ chatId: '', userId: '' })).toBeUndefined()
   })
 })

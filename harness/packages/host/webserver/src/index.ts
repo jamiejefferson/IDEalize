@@ -8,6 +8,7 @@
  * IPC bridge. This package never prints: the URL line belongs to the shell.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse, Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -15,8 +16,10 @@ import type { Duplex } from 'node:stream'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { admit } from './launch-gate.ts'
+import { appPagePolicy, ROUTE_PAGE_POLICY } from './page-policy.ts'
 
 export * from './launch-gate.ts'
+export * from './page-policy.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -70,6 +73,8 @@ export class WebServer extends Service {
   private readonly upgrades = new Map<string, WebUpgradeRoute>()
   private readonly upgradedSockets = new Set<Duplex>()
   private readonly indexTaps: ((html: string) => string)[] = []
+  /** The response an index render belongs to, so the render can set that page's policy. */
+  private readonly renderingFor = new AsyncLocalStorage<ServerResponse>()
   private fallback: WebRoute['handler'] | undefined
   private server!: Server
   private listenedPort!: number
@@ -163,6 +168,8 @@ export class WebServer extends Service {
       }
       const route = this.match(rawPath)
       if (route !== undefined) {
+        // A default: a route serving someone's file sends its own, which replaces this.
+        res.setHeader('content-security-policy', ROUTE_PAGE_POLICY)
         await route.handler(req, res)
         return
       }
@@ -172,7 +179,7 @@ export class WebServer extends Service {
         res.end()
         return
       }
-      await fallback(req, res)
+      await this.renderingFor.run(res, () => fallback(req, res))
     }
     // Last-resort guard: handle() rejecting would otherwise be an unhandled
     // rejection killing the process on one malformed request (bad %-escape,
@@ -275,6 +282,9 @@ export class WebServer extends Service {
   applyIndexTaps(html: string): string {
     let out = html
     for (const transform of this.indexTaps) out = transform(out)
+    // Hashed after the last tap: the taps add the inline scripts, and they change between renders.
+    const res = this.renderingFor.getStore()
+    if (res !== undefined && !res.headersSent) res.setHeader('content-security-policy', appPagePolicy(out))
     return out
   }
 }

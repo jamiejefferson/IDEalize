@@ -18,8 +18,10 @@ export interface GenerationReroutedData {
   readonly stored: GenModelRef
   /** The compatible model the task actually ran on. */
   readonly used: GenModelRef
-  /** Why the stored choice was passed over. */
+  /** Why the stored choice was passed over, in words for the person. */
   readonly reason: string
+  /** The tool call this move served, so its card can say why. */
+  readonly callId?: string
 }
 
 declare module '@deepseek-ai/dsh-session/types' {
@@ -49,6 +51,16 @@ export interface GenerationChoice {
   readonly hasReference: boolean
 }
 
+/** What a listener of `generation/replace-model` knows about one call. */
+export interface GenerationReplacement {
+  readonly session: Session
+  readonly presetId: string
+  /** The model that cannot serve the call. */
+  readonly failed: GenCatalogEntry
+  /** The models that could take over. */
+  readonly candidates: readonly GenCatalogEntry[]
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /**
@@ -61,5 +73,13 @@ declare module '@deepseek-ai/cordis' {
      * @param next - the stored choice.
      */
     'generation/choose-model'(choice: GenerationChoice, next: () => Promise<GenCatalogEntry>): Promise<GenCatalogEntry>
+    /**
+     * A model cannot serve this call: name the one that takes over, or
+     * undefined to let the call fail.
+     * @mode waterfall
+     * @param choice - the call: its session, preset, the failed model and the candidates.
+     * @param next - the replacement named so far, undefined when none has been.
+     */
+    'generation/replace-model'(choice: GenerationReplacement, next: () => Promise<GenCatalogEntry | undefined>): Promise<GenCatalogEntry | undefined>
   }
 }

@@ -7,7 +7,8 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Credential } from '@earendil-works/pi-ai'
+import { createModels } from '@earendil-works/pi-ai'
+import type { Credential, OAuthCredential } from '@earendil-works/pi-ai'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FileCredentialStore, OAUTH_STORE_FILENAME, oauthStorePath } from '../src/index.ts'
 
@@ -63,19 +64,58 @@ describe('the credential document', () => {
     expect(await credentials.read('kimi-coding')).toMatchObject({ access: 'second' })
   })
 
-  it('drops the entry when a change returns nothing, and on a delete', async () => {
+  it('leaves the entry alone when a change returns nothing, and drops it on a delete', async () => {
     const { store: credentials } = await store()
     await credentials.modify('radius', async () => credential('one'))
+
+    expect(await credentials.modify('radius', async () => undefined)).toMatchObject({ access: 'one' })
+    expect(await credentials.read('radius')).toMatchObject({ access: 'one' })
+    expect(await credentials.modify('never-signed-in', async () => undefined)).toBeUndefined()
+
+    await credentials.delete('radius')
     await credentials.modify('xai', async () => credential('two'))
-
-    expect(await credentials.modify('radius', async () => undefined)).toBeUndefined()
-    expect(await credentials.read('radius')).toBeUndefined()
-
     await credentials.delete('xai')
     expect(await credentials.list()).toEqual([])
     // Deleting what is not there leaves the document untouched.
     await credentials.delete('xai')
     expect(await credentials.list()).toEqual([])
+  })
+
+  it('keeps a sign-in when two requests meet an expiring token at once', async () => {
+    const { store: credentials } = await store()
+    await credentials.modify('expiring', async () => ({ type: 'oauth', access: 'old', refresh: 'r', expires: 1 }))
+    let refreshes = 0
+    const provider = {
+      id: 'expiring',
+      auth: {
+        oauth: {
+          name: 'Expiring',
+          login: () => Promise.reject(new Error('not asked to sign in')),
+          refresh: async (old: OAuthCredential): Promise<OAuthCredential> => {
+            refreshes += 1
+            return { ...old, access: 'new', expires: Date.now() + 3_600_000 }
+          },
+          toAuth: async (current: OAuthCredential) => ({ apiKey: current.access }),
+        },
+      },
+      resolveModels: () => [],
+    }
+    const models = createModels({ credentials })
+    models.setProvider(provider as never)
+
+    // The chat's title and its first reply ask for the same token together, which is what wiped a live sign-in on 2 Nov.
+    const answers = await Promise.all([models.getAuth('expiring'), models.getAuth('expiring')])
+
+    expect(refreshes).toBe(1)
+    expect(answers.map(answer => answer?.auth)).toEqual([{ apiKey: 'new' }, { apiKey: 'new' }])
+    expect(await credentials.read('expiring')).toMatchObject({ access: 'new' })
+  })
+
+  it('keeps every provider when several change at once', async () => {
+    const { store: credentials } = await store()
+    const ids = ['one', 'two', 'three', 'four', 'five', 'six']
+    await Promise.all(ids.map(id => credentials.modify(id, async () => credential(id))))
+    expect((await credentials.list()).map(entry => entry.providerId).sort()).toEqual([...ids].sort())
   })
 
   it('serializes writes to one provider, so the last one wins', async () => {

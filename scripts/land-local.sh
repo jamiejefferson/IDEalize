@@ -19,6 +19,8 @@ LOG="$HOME/Library/Logs/idealize-land-local.log"
 PROC="IDEalize V1.app/Contents/MacOS/IDEalize V1"
 
 [ -f "$DIST/Contents/Info.plist" ] || { echo "No packaged app at $DIST. Run yarn package:dir first."; exit 1; }
+# A proof build keeps its debugging switches open, so it stays a test copy.
+[ ! -e "$DIST/Contents/Resources/idealize-proof-build" ] || { echo "$DIST is a proof build. Package again without IDEALIZE_PROOF_BUILD to land it."; exit 1; }
 
 if [ "${1:-}" != "--detached" ]; then
   active=$(find "$SESSIONS" -type f -mmin -5 2>/dev/null | sed "s|$SESSIONS/||; s|/session-.*||" | sort -u)

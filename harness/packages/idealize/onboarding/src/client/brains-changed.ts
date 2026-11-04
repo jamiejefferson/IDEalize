@@ -1,6 +1,6 @@
 /**
  * The document event the welcome card reloads its brain roster and access map
- * on, raised here after the wizard's agents and tools steps commit. Restated
+ * on, raised here after the wizard's agents step commits. Restated
  * from `@idealize/ui-bar/client` (`brains-changed.ts`, the event's home): the
  * wizard and the card share a document and nothing else, and a client bundle
  * inlines every workspace import, so the name travels as the protocol it is.

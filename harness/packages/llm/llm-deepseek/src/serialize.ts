@@ -95,9 +95,10 @@ function serializeAssistant(message: Message): WireMessage {
     content: text,
     // Official passback rule (guides/thinking_mode.mdx): reasoning_content
     // must return on tool-call turns; it is ignored on plain turns, so we
-    // drop it there to save tokens.
-    ...toolCalls.length > 0 && reasoning.length > 0 ? { reasoning_content: reasoning } : {},
-    ...toolCalls.length > 0 ? { tool_calls: toolCalls } : {},
+    // drop it there to save tokens. A tool call another model made has no
+    // reasoning to return, and in thinking mode the live API rejects the field's
+    // absence with a 400 while it accepts "", so a mid-turn handover sends "".
+    ...toolCalls.length > 0 ? { reasoning_content: reasoning, tool_calls: toolCalls } : {},
   }
 }
 

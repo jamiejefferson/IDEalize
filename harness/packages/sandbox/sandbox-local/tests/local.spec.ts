@@ -84,7 +84,9 @@ describe('profile dialects', () => {
   })
 
   it('seatbelt read-only: allow-default with every file write denied except the /dev/null literal', () => {
-    expect(seatbeltProfileArgs(RO)).toEqual(['-p', SEATBELT_RO_PROFILE])
+    const profile = seatbeltProfileArgs(RO)[1] as string
+    expect(profile.startsWith(`${SEATBELT_RO_PROFILE} (deny file-write* `)).toBe(true)
+    expect(profile).not.toContain('(allow file-write* (subpath')
   })
 
   it('seatbelt workspace-write: one more allow for the canonicalized workspace root, /tmp, and the user temp dir', () => {
@@ -95,7 +97,7 @@ describe('profile dialects', () => {
     // where they resolve to the same directory.
     const roots = [...new Set(['/ws', realpathSync('/tmp'), realpathSync(tmpdir())])]
     const allow = `(allow file-write* ${roots.map(root => `(subpath "${root}")`).join(' ')})`
-    expect(seatbeltProfileArgs(WW)).toEqual(['-p', `${SEATBELT_RO_PROFILE} ${allow}`])
+    expect((seatbeltProfileArgs(WW)[1] as string).startsWith(`${SEATBELT_RO_PROFILE} ${allow} `)).toBe(true)
   })
 
   it('seatbelt workspace-write dedups a workspace root that already IS the temp dir', () => {

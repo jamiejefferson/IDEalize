@@ -6,6 +6,16 @@ The person's one calendar: durable scheduled agent runs and reminders behind `ct
 
 Four shapes, validated by `invalidReason`: `at` (one ISO-8601 instant; the task fires once, records `done`, and stays listed so the person sees it happened), `every` (a fixed interval of at least 60 seconds), `daily` (`HH:mm` in an explicit IANA zone) and `weekly` (the same time and zone on chosen `days`, 0 = Sunday to 6 = Saturday; `WEEKDAYS` is Monday to Friday). `nextFire` computes repeating rules against the wall clock at each arm, so a sleeping laptop reschedules on wake instead of firing a burst; a one-off returns its instant, so an overdue one-off arms with no delay. `saveTask` refuses a one-off whose instant has passed unless the task already carries `done`, so renaming a fired reminder still saves.
 
+## Agent-made entries wait for approval
+
+A one-off reminder an agent adds, which only shows a notification, arms at once (JJ, 4 Nov 2026). Any other entry an agent adds through `calendar_add` starts paused with `awaitingApproval` set (JJ, 9 Oct 2026). It arms no timer, `fire` refuses it, an edit in the pane leaves it waiting, and only `POST /idealize/cron/approve` (or turning it on with `toggle`) arms it, once. The launch gate keeps a chat's key off those routes, so no agent can approve its own entry. The Schedule pane lists what is waiting with its instructions and folder. A one-off reminder waits too; `ONE_OFF_REMINDERS_WAIT_FOR_APPROVAL` in `src/tools.ts` is the switch to let those arm at once. Entries the person creates in the pane arm as before. An entry stored before this rule carries no flag and stays armed, because nothing records who made it.
+
+A task with a prompt runs a chat, so it must sit in an opened project or the app's own folder whether or not it also notifies; `remind` no longer skips that check. It is checked when the task is saved, when it is approved and again at each fire.
+
+## What a scheduled chat may touch
+
+Every scheduled chat, whoever made the entry, runs in `workspace-write` (JJ, 4 Nov 2026): `runAgent` calls `confineStartedChat` in `@deepseek-ai/dsh-permission-presets`, whose `CONFINE_STARTED_CHATS` is the switch. It also stops waiting on approvals, because an approval nobody answers would hang the run; anything that needs one is refused at once. The chat is told so in a plugin notice before its instructions. When its log shows a denied file or a refused action, the run ends as an error with a plain sentence as its detail and raises the same sentence as a notification. Windows stays as it was until JJ decides otherwise.
+
 ## Run semantics
 
 One run per task at a time: an overdue fire while one runs is recorded `skipped-busy`. Fires missed while the server was down are recorded `missed` and never replayed; the next live fire re-arms from the wall clock. An executed run records `ok` or `error` with `durationMs` and the session id, plus `detail` from the turn's error when there is one; a reminder's run records `ok` with `detail: reminder` and no session. Every finished run emits `idealize/cron-run(run, task)`; the invariant companion fails the run if an executed run carries no duration or a skipped one carries a duration. `CronStore` keeps the newest 500 runs.
@@ -25,6 +35,7 @@ The task's `provider` and `model` select the run's model; absent, the deployment
 - `GET /idealize/cron/tasks` → every task with `nextFireAt` (enabled, not done) and `running`.
 - `POST /idealize/cron/tasks` → JSON body creates (no `id`) or updates a task; refuses an invalid schedule, a past one-off, an empty prompt without `remind`, or a relative `cwd` with 400.
 - `POST /idealize/cron/delete?id=`, `POST /idealize/cron/toggle?id=` (flips `enabled`), `POST /idealize/cron/run-now?id=`.
+- `POST /idealize/cron/approve?id=` → the person approves an agent's entry; 404 for an unknown id, and an error when a one-off's time has passed or its folder is no longer a project.
 - `GET /idealize/cron/runs?task=` → run history, optionally filtered.
 
 ## Model Experience
@@ -38,7 +49,7 @@ One prompt section (`CALENDAR_SECTION`, name `idealize:calendar`, order 122 in t
 ##### The calendar section
 
 ```markdown
-The calendar tools (calendar_add, calendar_list, calendar_remove) are the person's calendar, shown in the Schedule pane; a reminder or scheduled task set any other way does not reach it and will not fire once this chat closes.
+The calendar tools (calendar_add, calendar_list, calendar_remove) are the person's calendar, shown in the Schedule pane; a reminder or scheduled task set any other way does not reach it and will not fire once this chat closes. An entry you add stays paused until the person approves it in the Schedule pane, so tell them it is waiting there.
 ```
 
 #### Token effect
@@ -53,7 +64,7 @@ Prefix-stable: the text is constant, so it does not invalidate reuse.
 
 #### What the model sees
 
-One tool definition with a required `title`, exactly one of `at` (ISO-8601 datetime, one-off), `every_seconds` (integer, at least 60), `daily_at` (`HH:mm`) or `weekly_at` (`HH:mm`) with `weekly_days` (0 = Sunday to 6 = Saturday), an optional `time_zone` (the description names the host's zone as the default), an optional `prompt`, and an optional `remind`. The description says the entry is the person's calendar, appears in the Schedule pane at once, fires whether or not the chat is open, that an entry without a prompt is a reminder that notifies with the title, and that a past `at` is refused. The entry runs in the calling chat's project (`cwd` from the session header); a chat without one fails the call.
+One tool definition with a required `title`, exactly one of `at` (ISO-8601 datetime, one-off), `every_seconds` (integer, at least 60), `daily_at` (`HH:mm`) or `weekly_at` (`HH:mm`) with `weekly_days` (0 = Sunday to 6 = Saturday), an optional `time_zone` (the description names the host's zone as the default), an optional `prompt`, and an optional `remind`. The description says the entry is the person's calendar, appears in the Schedule pane at once, stays paused until the person approves it there and then fires whether or not the chat is open, that an entry without a prompt is a reminder that notifies with the title, and that a past `at` is refused. The entry runs in the calling chat's project (`cwd` from the session header); a chat without one fails the call.
 
 #### Token effect
 
@@ -67,7 +78,7 @@ Prefix-stable while the host's zone is unchanged; the zone appears in one parame
 
 #### What the model sees
 
-One line: `Added "<title>" to the calendar (<id>): <rule>; next <instant>; the person will be notified.` (the two trailing clauses when they apply), backed by the entry object (`id`, `title`, `schedule` as a sentence, `nextFireAt`, `done`, `enabled`, `remind`, `prompt`, `cwd`). A refused call (past `at`, two selectors, no project folder, weekly without days, an interval under 60 seconds) fails with the scheduler's reason.
+One line: `Added "<title>" to the calendar (<id>): <rule>; next <instant>; the person will be notified; it stays paused until the person approves it in the Schedule pane, so tell them it is waiting there.` (the trailing clauses when they apply), backed by the entry object (`id`, `title`, `schedule` as a sentence, `nextFireAt`, `done`, `enabled`, `awaitingApproval`, `remind`, `prompt`, `cwd`). A refused call (past `at`, two selectors, no project folder, weekly without days, an interval under 60 seconds) fails with the scheduler's reason.
 
 #### Token effect
 
@@ -109,11 +120,11 @@ Append-only.
 
 #### What the model sees
 
-Exactly one user message per fire whose text is the task's `prompt` verbatim, sent into a fresh session created in the task's `cwd` with the task's or the default model. A reminder (empty prompt) sends nothing to any model. Everything else in that request (system prompt, tools, workspace context) belongs to the composed plugins the agent factory mounts, not to this package.
+One plugin-sourced notice stating the chat's limits (`SCHEDULED_CHAT_NOTICE`), when the chat is confined, and then exactly one user message per fire whose text is the task's `prompt` verbatim, sent into a fresh session created in the task's `cwd` with the task's or the default model. A reminder (empty prompt) sends nothing to any model. Everything else in that request (system prompt, tools, workspace context) belongs to the composed plugins the agent factory mounts, not to this package.
 
 #### Token effect
 
-The prompt's own length once per fire; nothing is retained between fires because every fire is a new session.
+The prompt's own length and the notice's fixed three sentences once per fire; nothing is retained between fires because every fire is a new session.
 
 #### KV Cache effect
 

@@ -17,6 +17,13 @@ The composer appends the settings strip's choices to the message as a bracketed 
 
 `run_in_background: true` (advertised while `enableRunInBackground` is true, the default) runs the generation as `ctx.jobs` work of kind `generation` and returns `{kind: 'background', jobId}`; the artefacts commit inside the job. UI render intent: `generic` cards (the pending card titles the prompt; the artefact itself renders through `@idealize/artefacts`' transcript node).
 
+
+## What a generation can spend
+
+A generation charges the person's own provider account, so `src/paid.ts` bounds it. One call may ask for at most 8 items (`MAX_COUNT`), 60 seconds of video or 300 seconds of audio (`MAX_SECONDS`); the provider inputs passed through `options` count under their own names, and a call over a cap fails before anything is sent.
+
+The first paid generation of a launch that nobody typed a request for waits for the person's yes in that chat, through the approval prompt, naming the model and its price. A model counts as paid unless the catalogue states a price of zero. Calls in flight share one question. A yes holds until the app restarts; a no is not remembered and the agent is told to explain itself. A turn the person typed in does not ask: `ASK_WHEN_PERSON_TYPED` is the switch to ask anyway. A chat on Full access runs without asking, because its approval policy answers every request with no. The caps still hold there.
+
 ## Preset seeding (package root, `idealize-gen-tools` row)
 
 On mount, when the roster holds none of `gallery`, `soundstage` and `video`, all three are written into the user preset root (`$DSH_HOME/.agent-presets`, or `root` from config): a persona row, the `@idealize/gen-tools/tools` row, and `@deepseek-ai/dsh-tool-jobs` for collecting background generations — no shell, filesystem, web, or delegation rows. `video` is Motion's agent (the space table's `agentPreset`), added 7 Sep 2026 after a Video brain created from the Brains pane composed no `generate_video` tool and the model reached for a third-party CLI instead. A root already holding any of the ids is left untouched, so deleting one respects the deletion (the `@idealize/activity-pills` rule); an install seeded before Video existed gains it through the repair pass below, once a Video brain is created there.
@@ -46,6 +53,8 @@ The space owns the tools; the brain owns the model and the instructions (JJ, 7 S
 #### What the model sees
 
 Three schemas — `generate_image` (`prompt`, `aspect`, `count`, `reference_image`, `options`), `generate_video` (`prompt`, `duration_s`, `reference_image`, `options`) and `generate_audio` (`prompt`, `duration_s`, `lyrics`, `options`) — each gaining `run_in_background` while `enableRunInBackground` is true. Each description carries the settings-tag mapping above, so the model reads the composer's trailing tag as arguments, and the two picture tools describe `reference_image` as "an artefact id from a previous generation (any chat of this project), or a path under the project", so a model handed an id from another chat's result knows to pass it rather than reach for a file tool it does not have. They join the catalogue of generating sessions only, because the registration lives in the media agent preset compositions (and in every brain confined to generating spaces) rather than the host composition.
+
+The `count` and `duration_s` descriptions name their caps. A refusal over a cap and a refused paid generation reach the model as a tool error in plain words, telling it to explain itself to the person.
 
 #### Token effect
 

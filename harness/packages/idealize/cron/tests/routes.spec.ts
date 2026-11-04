@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apply } from '../src/index.ts'
+import { apply, blockedActionOf, SCHEDULED_CHAT_NOTICE } from '../src/index.ts'
 import type { CronTask } from '../src/store.ts'
 
 type Handler = (req: FakeRequest, res: FakeResponse) => Promise<void>
@@ -55,7 +55,9 @@ const reminder = (overrides: Partial<CronTask> = {}) => ({
 
 /** One host root serving every cron route, with the agent stack optionally faked. */
 async function mount(options: {
-  agents?: false | { errors?: boolean; slow?: boolean; quietTurn?: boolean }
+  agents?: false | { errors?: boolean; slow?: boolean; quietTurn?: boolean; events?: unknown[] }
+  confine?: (session: unknown, options: unknown) => boolean
+  notifications?: unknown[]
   flushThrows?: unknown
   home?: string
   notifierThrows?: unknown
@@ -68,7 +70,9 @@ async function mount(options: {
   contexts.push(ctx)
   const handlers = new Map<string, Handler>()
   const prompts: string[] = []
+  const notices: string[] = []
 
+  if (options.confine !== undefined) ctx.provide('permissionPresets', { confineStartedChat: options.confine } as never)
   ctx.provide('webServer', {
     register(route: { path: string; handler: Handler }) {
       handlers.set(route.path, route.handler)
@@ -76,11 +80,11 @@ async function mount(options: {
     },
   } as never)
   if (options.agents !== false) {
-    const events = options.agents?.errors === true
+    const events: unknown[] = options.agents?.errors === true
       ? [{ type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'no_key', message: 'the key expired' } } } }]
       : options.agents?.quietTurn === true
         ? [{ type: 'turn/end', data: { reason: { kind: 'stop' } } }]
-        : []
+        : options.agents?.events ?? []
     ctx.provide('agents', {
       create: async ({ setup }: { setup: (agentCtx: Context) => void }) => {
         setup(ctx)
@@ -92,6 +96,7 @@ async function mount(options: {
               }
             },
             followup: (message: { content: { text: string }[] }) => { prompts.push(message.content[0]!.text) },
+            inject: (message: { content: { text: string }[] }) => { notices.push(message.content[0]!.text) },
             session: { events },
           },
         }
@@ -120,6 +125,10 @@ async function mount(options: {
       notify: () => { throw options.notifierThrows },
     } as never)
   }
+  if (options.notifications !== undefined) {
+    const notifications = options.notifications
+    ctx.provide('desktopActions', { notify: (note: unknown) => { notifications.push(note) } } as never)
+  }
   await ctx.plugin({ name: 'idealize-cron', inject: [], apply }).await()
   await ctx.plugin({
     name: 'idealize-cron-config',
@@ -146,7 +155,7 @@ async function mount(options: {
     ), res)
     return res
   }
-  return { ctx, call, prompts, root }
+  return { ctx, call, prompts, notices, root }
 }
 
 describe('the schedule routes', () => {
@@ -246,6 +255,76 @@ describe('what a fire runs', () => {
       body: reminder({ remind: true, prompt: '', cwd: '/Users/someone' }),
     })
     expect(reminderOnly.status).toBe(200)
+  })
+
+  it('confines a scheduled chat, tells it why, and has nothing to say when nothing was stopped', async () => {
+    const asked: unknown[] = []
+    const { call, prompts, notices } = await mount({ confine: (_session, options) => { asked.push(options); return true } })
+    const saved = (await call('/idealize/cron/tasks', { method: 'POST', body: reminder({ remind: false, prompt: 'Tidy.', cwd: '/work/demo' }) })).json()
+    const run = (await call('/idealize/cron/run-now', { query: `?id=${String(saved.id)}` })).json()
+    expect(asked).toEqual([{ unattended: true }])
+    expect(notices).toEqual([SCHEDULED_CHAT_NOTICE])
+    expect(prompts).toEqual(['Tidy.'])
+    expect(run.status).toBe('ok')
+  })
+
+  it('says in plain words why a scheduled chat was stopped writing a file, in the run and as a notification', async () => {
+    const events = [{ type: 'tool/result', data: { message: { content: [{ type: 'text', text: 'rm: denied\n[sandbox: file access denied under workspace-write mode]' }] } } }]
+    const notified: unknown[] = []
+    const { call } = await mount({ agents: { events }, confine: () => true, notifications: notified })
+    const saved = (await call('/idealize/cron/tasks', { method: 'POST', body: reminder({ name: 'Tidy', remind: false, prompt: 'Tidy.', cwd: '/work/demo' }) })).json()
+    const run = (await call('/idealize/cron/run-now', { query: `?id=${String(saved.id)}` })).json()
+    expect(run.status).toBe('error')
+    expect(run.detail).toContain('tried to change a file outside its project')
+    expect(notified).toContainEqual({ title: 'Tidy', body: expect.stringContaining('outside its project') as string })
+  })
+
+  it('names a refused action apart from a denied file, and is quiet about a granted one', () => {
+    expect(blockedActionOf([{ type: 'approval/decided', data: { outcome: 'rejected' } }])).toContain('needs your permission')
+    expect(blockedActionOf([{ type: 'approval/decided', data: { outcome: 'allowed-once' } }])).toBeUndefined()
+    expect(blockedActionOf([{ type: 'tool/result', data: { text: 'fine' } }])).toBeUndefined()
+  })
+
+  it('still runs a scheduled chat when the presets package predates confinement', async () => {
+    const { ctx, call, prompts, notices } = await mount()
+    ctx.provide('permissionPresets', {} as never)
+    const saved = (await call('/idealize/cron/tasks', { method: 'POST', body: reminder({ remind: false, prompt: 'Tidy.', cwd: '/work/demo' }) })).json()
+    expect((await call('/idealize/cron/run-now', { query: `?id=${String(saved.id)}` })).json().status).toBe('ok')
+    expect(prompts).toEqual(['Tidy.'])
+    expect(notices).toEqual([])
+  })
+
+  it('never lets remind carry a prompt past the folder fence, on save, approval or fire', async () => {
+    const { ctx, call, prompts, root } = await mount({ projects: { '/work/demo': [] } })
+    // The attack: a task that notifies and also runs a chat in the home folder.
+    const refused = await call('/idealize/cron/tasks', {
+      method: 'POST',
+      body: reminder({ remind: true, prompt: 'Rewrite .zshrc', cwd: '/Users/someone' }),
+    })
+    expect(refused.status).toBeGreaterThanOrEqual(400)
+    expect(JSON.stringify(refused.json())).toMatch(/not a project the person has opened/)
+    // A task stored by an older build fails at its fire and runs nothing.
+    const cron = (ctx as unknown as { idealizeCron: { store: { upsertTask(task: unknown): Promise<void> } } }).idealizeCron
+    await cron.store.upsertTask({ ...reminder({ remind: true, prompt: 'Rewrite .zshrc', cwd: '/Users/someone' }), id: 'old', name: 'Old', enabled: false, createdAt: 'x' })
+    const run = (await call('/idealize/cron/run-now', { query: '?id=old' })).json()
+    expect(run.status).toBe('error')
+    expect(run.detail).toMatch(/not a project the person has opened/)
+    expect(prompts).toEqual([])
+    expect(root).toBeDefined()
+  })
+
+  it('arms an agent\'s entry through the approve route, for the app alone', async () => {
+    const { ctx, call } = await mount({ projects: { '/work/demo': [] } })
+    const cron = (ctx as unknown as { idealizeCron: { saveTask(input: unknown, origin: string): Promise<{ id: string }> } }).idealizeCron
+    const entry = await cron.saveTask(reminder({ remind: false, prompt: 'Brief.', cwd: '/work/demo', schedule: { kind: 'daily', at: '09:00', timeZone: 'UTC' } }), 'agent')
+    expect((await call('/idealize/cron/run-now', { query: `?id=${entry.id}` })).status).toBe(500)
+    const noHeader = await call('/idealize/cron/approve', { method: 'POST', query: `?id=${entry.id}`, auth: false })
+    expect(noHeader.status).toBe(403)
+    const approved = await call('/idealize/cron/approve', { method: 'POST', query: `?id=${entry.id}` })
+    expect(approved.status).toBe(200)
+    expect(approved.json()).toMatchObject({ enabled: true })
+    expect((await call('/idealize/cron/approve', { method: 'POST', query: '?id=ghost' })).status).toBe(404)
+    expect((await call('/idealize/cron/run-now', { query: `?id=${entry.id}` })).json().status).toBe('ok')
   })
 
   it('records the turn’s own error as the run’s detail', async () => {

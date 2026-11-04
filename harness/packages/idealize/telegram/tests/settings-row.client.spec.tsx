@@ -32,7 +32,7 @@ const connected: TelegramStatus = { ...unconfigured, configured: true, botUserna
 
 function row(state: Partial<TelegramRowState> = {}) {
   const store = createSnapshotStore<TelegramRowState>({ status: unconfigured, forward, busy: false, error: '', ...state })
-  const face = { refresh: vi.fn(), saveToken: vi.fn(), pair: vi.fn(), unpair: vi.fn(), setForward: vi.fn() }
+  const face = { refresh: vi.fn(), saveToken: vi.fn(), pair: vi.fn(), unpair: vi.fn(), confirm: vi.fn(), setForward: vi.fn() }
   const view = render(
     <TelegramRow
       useTelegram={bindSnapshotSelector(store)}
@@ -46,6 +46,23 @@ function row(state: Partial<TelegramRowState> = {}) {
 }
 
 describe('TelegramRow', () => {
+  it('asks the person to allow a new bot, naming it', () => {
+    const { view, confirm } = row({ status: { ...unconfigured, confirmToken: { botUsername: 'some_bot' } } })
+    expect(view.container.textContent).toContain('@some_bot')
+    expect(view.container.querySelector('form')).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: 'telegram.confirm.allow' }))
+    expect(confirm).toHaveBeenCalledWith('token', true)
+    fireEvent.click(view.getByRole('button', { name: 'telegram.confirm.decline' }))
+    expect(confirm).toHaveBeenCalledWith('token', false)
+  })
+
+  it('asks the person to allow whoever sent the code, naming them', () => {
+    const { view, confirm } = row({ status: { ...connected, confirmPairing: { name: '@stranger' } } })
+    expect(view.container.textContent).toContain('@stranger')
+    fireEvent.click(view.getByRole('button', { name: 'telegram.confirm.allow' }))
+    expect(confirm).toHaveBeenCalledWith('pairing', true)
+  })
+
   it('shows only its heading until the status arrives, and asks for it on mount', () => {
     const { view, refresh } = row({ status: undefined })
     expect(refresh).toHaveBeenCalledTimes(1)
@@ -140,7 +157,7 @@ describe('the plugin\'s settings row', () => {
   it('binds the idealize-telegram scope and follows the stored toggles', async () => {
     const { face, stub, bind } = await plugin()
     expect(bind).toHaveBeenCalledWith({ namespace: 'idealize-telegram' })
-    const { chatId: _chatId, ...toggles } = TELEGRAM_DEFAULTS
+    const { chatId: _chatId, userId: _userId, ...toggles } = TELEGRAM_DEFAULTS
     expect(face.hooks.telegram.getSnapshot().forward).toEqual(toggles)
     stub.publish({ status: 'ready', value: { ...TELEGRAM_DEFAULTS, forwardAttention: false } })
     expect(face.hooks.telegram.getSnapshot().forward.forwardAttention).toBe(false)

@@ -289,9 +289,25 @@ function publishedModelIds(root: string, packages: Map<string, WorkspacePackage>
  */
 const CLI_LAUNCHER_IDS = new Set(['claude-code'])
 
+/** A file name such as `claude-turns.json` shares a family's prefix and names no model. */
+const FILE_NAME = /\.(?:json|ya?ml|toml|md|txt|log)$/i
+
+/**
+ * The settings surfaces inside mode packages. The gate's rule is that only
+ * adapter packages and settings name a provider, and these files are where a
+ * person connects an account and compares models, so they show provider names
+ * and open a provider's key form. They still choose no provider for a chat.
+ */
+const SETTINGS_SURFACES = new Set([
+  'packages/idealize/ui-bar/src/client/BrainsPanel.tsx',
+  'packages/idealize/ui-bar/src/client/HeroBrains.tsx',
+  'packages/idealize/ui-bar/src/client/model-browser.ts',
+])
+
 /** Whether a literal names a model in a catalogue. */
 function isModelId(value: string, published: ReadonlySet<string>): boolean {
   if (CLI_LAUNCHER_IDS.has(value.toLowerCase())) return false
+  if (FILE_NAME.test(value)) return false
   if (BARE_MODEL_ID.test(value)) return true
   if (published.has(value)) return true
   if (!MODEL_SLUG.test(value)) return false
@@ -338,7 +354,7 @@ export function collectModeProviderBoundaryViolations(root: string): string[] {
 
   // Rules 2 and 3: literals in mode source and in the preset definitions.
   const literalScan = [
-    ...modes.flatMap(mode => mode.sources),
+    ...modes.flatMap(mode => mode.sources).filter(file => !SETTINGS_SURFACES.has(file.split(sep).join('/'))),
     ...discoverPresetSources(root, packages),
   ]
   for (const file of literalScan) {

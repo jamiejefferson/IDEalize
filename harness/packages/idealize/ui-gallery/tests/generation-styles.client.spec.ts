@@ -34,8 +34,9 @@ describe('GenerationSettings.module.css', () => {
     expect(rule).toContain('data-gen-settings-space')
     // The seat's wrapper carries an inline `display: contents`, so the rule
     // has to reach what the seat renders rather than the seat itself.
-    expect(rule).toMatch(/> \*$/)
-    const body = /\[data-slot='conversation\.input\.model'\]\) > \*\s*\{([^{}]*)\}/.exec(css)?.[1] ?? ''
+    // The brain chip sits on the seat and names no model here, so it stays.
+    expect(rule).toMatch(/> \*:not\(:global\(\[data-brain-chip\]\)\)$/)
+    const body = /\[data-slot='conversation\.input\.model'\]\) > \*:not\(:global\(\[data-brain-chip\]\)\)\s*\{([^{}]*)\}/.exec(css)?.[1] ?? ''
     expect(body).toContain('display: none')
   })
 

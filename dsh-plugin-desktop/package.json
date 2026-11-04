@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-desktop",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "IDEalize: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "license": "MIT",
   "publishConfig": {
@@ -232,7 +232,7 @@
     "@idealize/bundle-idealize": "1.0.0-dev.0",
     "@idealize/comm": "1.0.0-dev.0",
     "@idealize/spaces": "1.0.0-dev.0",
-    "adm-zip": "^0.6.0",
+    "adm-zip": "^0.6.1",
     "dsh-community-market": "0.1.0-dev.0",
     "koffi": "3.1.5",
     "node-addon-require-builtin": "^0.1.4",
@@ -242,16 +242,17 @@
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
-    "electron": "43.4.0"
+    "electron": "43.8.7"
   },
   "devDependencies": {
     "@electron/asar": "3.4.1",
+    "@electron/fuses": "1.8.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.20.0",
     "@types/react": "^18",
-    "electron": "43.4.0",
+    "electron": "43.8.7",
     "electron-builder": "26.15.7",
-    "sharp": "0.35.3",
+    "sharp": "0.35.5",
     "tsdown": "0.22.2",
     "typescript": "6.0.3",
     "vitest": "4.1.8"
@@ -267,7 +268,7 @@
       "lib/**",
       "node_modules/**"
     ],
-    "afterPack": "./scripts/verify-packaged-runtime.ts",
+    "afterPack": "./scripts/after-pack.ts",
     "afterSign": "./scripts/sign-with-certificate.ts",
     "electronFuses": {
       "runAsNode": true
@@ -324,7 +325,8 @@
       "notarize": true,
       "x64ArchFiles": "**/node_modules/{node-pty/prebuilds/darwin-*/**,node-addon-require-builtin-darwin-*/**,@vscode/ripgrep-darwin-*/**,@img/sharp-darwin-*/**,@img/sharp-libvips-darwin-*/**,@koromix/koffi-darwin-*/**,onnxruntime-node/bin/napi-v6/darwin/**}",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Powell listens while you hold it or press Control-Option-Space, and sends that audio to a cloud service to turn it into text."
+        "NSMicrophoneUsageDescription": "Powell listens while you hold it or press Control-Option-Space, and sends that audio to a cloud service to turn it into text.",
+        "NSAppleEventsUsageDescription": "A tool you or an agent runs inside IDEalize is asking to control this app."
       }
     },
     "win": {

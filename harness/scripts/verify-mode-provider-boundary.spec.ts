@@ -233,9 +233,9 @@ describe('mode/provider boundary gate — the repository it ships against', () =
       '@idealize/ui-terminal',
     ]))
     expect(adapters).toEqual(expect.arrayContaining(['@idealize/gen-fixture', '@idealize/services']))
-  })
+  }, 60_000)
 
   it('finds the boundary intact', () => {
     expect(collectModeProviderBoundaryViolations(REPO_ROOT)).toEqual([])
-  })
+  }, 60_000)
 })

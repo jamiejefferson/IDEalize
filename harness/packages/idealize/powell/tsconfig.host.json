@@ -10,6 +10,7 @@
     "src/guide.ts",
     "src/index.ts",
     "src/invariant.ts",
+    "src/open-target.ts",
     "src/chats.ts",
     "src/projects.ts",
     "src/speech.ts",
@@ -36,6 +37,7 @@
     { "path": "../../interaction/user-approval" },
     { "path": "../../workspace/workspace" },
     { "path": "../../runtime-diagnostics/invariants" },
-    { "path": "../skin" }
+    { "path": "../skin" },
+    { "path": "../../host/apiproxy" }
   ]
 }

@@ -29,7 +29,7 @@ import { en, zh, type OnboardingKey } from './locales.ts'
 export { deriveStep, advance, skipAll, stepBefore, ONBOARDING_STEP_IDS } from './steps.ts'
 export type { OnboardingSeedLike, OnboardingStepId, OnboardingStepOutcome } from './steps.ts'
 export { createOnboardingApi } from './api.ts'
-export type { AgentsState, OnboardingApi, OrientOutcome, SaveOutcome, ToolsState } from './api.ts'
+export type { AgentsState, OnboardingApi, OrientOutcome, SaveOutcome } from './api.ts'
 export { OnboardingOverlay } from './OnboardingOverlay.tsx'
 export type { OnboardingInjected, OnboardingOverlayProps, OnboardingCelebration, OnboardingViewState } from './OnboardingOverlay.tsx'
 export { OnboardingRow } from './OnboardingRow.tsx'
@@ -130,7 +130,6 @@ export function apply(ctx: ClientContext): void {
     skipStep: flow.skipStep,
     quitAll: flow.quitAll,
     back: flow.back,
-    setToolDrafts: flow.setToolDrafts,
     finish: flow.finish,
     celebrationDone: flow.celebrationDone,
     prefersReducedMotion: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,

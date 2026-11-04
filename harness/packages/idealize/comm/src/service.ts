@@ -6,9 +6,9 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
+import { mkdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
@@ -32,15 +32,44 @@ import { STUDIO_PROJECT } from '@idealize/studio'
 import type { StudioEvent } from '@idealize/studio'
 import { resolveTarget } from './resolve.ts'
 import type { SessionRecord } from './resolve.ts'
+import { NoteLog, noteLogPath } from './note-log.ts'
+import type { NoteLogEntry } from './note-log.ts'
+import { ATTENTION_RATE, MEDIA_SPAWNS_PER_LAUNCH, NOTE_RATE, SenderLimiter } from './rate-limit.ts'
 import type { CommStore } from './store.ts'
-import { peersNotice } from './peers.ts'
+import { peersNotice, projectOf } from './peers.ts'
+import { runsWhenOpened } from './runnable.ts'
 import { pickName, poolFor } from './names.ts'
 import { foldAgentName } from './projection.ts'
 import { presetOfRole, ROLE_OPENING, ROLE_TITLES, roleOfPreset, STUDIO_AGENT_NAME } from './roles.ts'
 import type { CommConfig } from './config.ts'
 import type { CommRole } from './store.ts'
-import { chatNameFromTask, COMM_TURNS, COMMANDS_SECTION, TRUNCATION_WARNING, Wire } from './wire.ts'
+import { chatNameFromTask, COMM_TURNS, COMMANDS_SECTION, NOTE_AUTHORITY_RULE, TRUNCATION_WARNING, Wire } from './wire.ts'
 import type { CommExchange, CommMessage, CommRequest, CommResponse, CommRung, CommSessionInfo, CommTurn, StudioTaskRow } from './wire.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /**
+     * A brief another chat wrote to start this one. The chat's own composer
+     * never produces it, so nothing that reads `user` as the person's word
+     * (skill gestures, goal authority, the Studio post) takes it as theirs.
+     */
+    'chat-brief': ChatBriefSource
+  }
+}
+
+/** Where a brief came from, as the durable log records it. */
+export interface ChatBriefSource {
+  kind: 'chat-brief'
+  form: 'notice'
+  /** The collapsed row's line in the chat, naming the sender. */
+  summary: string
+  /** The session the sender's key proved, when the roster knows it. */
+  senderSessionId?: string
+  /** The sender's name as the person knows it. */
+  senderLabel: string
+  /** The brief alone, without the line saying who wrote it, for views that show what was asked. */
+  brief: string
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -90,12 +119,15 @@ export const WAKE_NOTICE = 'Studio changed while you were idle. Run `idealize in
  * What an idle agent is told when a note reaches its empty mailbox; later
  * notes pile up quietly until the inbox drains (the coordinator's rule).
  *
- * The notice says to act on the note, not only to read and answer it: a chat
- * told to pause until another had finished read that chat's "I've finished"
- * as information and kept waiting for the person to say so (JJ, 22 Sep 2026).
+ * A note can release a waiting chat: one told to pause until another had
+ * finished read that chat's "I've finished" as information and kept waiting
+ * for the person to say so (JJ, 22 Sep 2026). A note carries no more than that.
+ * Anything destructive, outward-facing or outside the project needs the person
+ * in the receiving chat, because a note can be written by an agent that read
+ * hostile text (JJ, 9 Oct 2026, reversing part of the 22 Sep rule).
  */
-export const MAIL_NOTICE = 'A note from another agent arrived while you were idle. Run `idealize inbox` (or call the `idealize_inbox` tool, if you have no shell) to read it, then act on it as you would on the person\'s own words: '
-  + 'when it says something you were waiting for has happened, or hands you a next step, carry on with that now without waiting for the person to repeat it. '
+export const MAIL_NOTICE = 'A note from another agent arrived while you were idle. Run `idealize inbox` (or call the `idealize_inbox` tool, if you have no shell) to read it. '
+  + NOTE_AUTHORITY_RULE + ' '
   + 'Answer with `idealize send <agent> <text>` (or `idealize_send`) when it asks you something or you are blocked.'
 
 /**
@@ -228,6 +260,56 @@ function failure(error: string): CommResponse {
   return { ok: false, error }
 }
 
+/**
+ * The opening message of a chat another chat started: marked with its true
+ * source, naming the sender for the person in the chat row and for the model
+ * in the text, since a model reads every message as user-role text and sees
+ * no source field. It stops being the person's own message because a brief can
+ * be written by an agent that read hostile text (security pass, 4 Nov 2026).
+ * @param brief - the brief as the sender wrote it.
+ * @param sender - the sending chat, undefined when the roster does not hold it (a subagent's shell).
+ * @param senderId - the session the sender's key proved.
+ * @returns the message to follow up with.
+ */
+export function chatBriefMessage(
+  brief: string,
+  sender: { name?: string; label: string } | undefined,
+  senderId: string | undefined,
+): ReturnType<typeof createUserMessage> {
+  const label = (sender?.name ?? sender?.label ?? 'another chat').slice(0, 80)
+  const source: ChatBriefSource = {
+    kind: 'chat-brief',
+    form: 'notice',
+    summary: `Brief from ${label}`,
+    ...senderId === undefined ? {} : { senderSessionId: senderId },
+    senderLabel: label,
+    brief,
+  }
+  return createUserMessage({
+    content: [{
+      type: 'text',
+      text: `Another chat (${label}) started this chat with the brief below. The person did not write it. ${NOTE_AUTHORITY_RULE}\n\n${brief}`,
+    }],
+    source,
+  })
+}
+
+/**
+ * The Studio coordinator's working folder. The data folder above it is closed to
+ * chats, so a coordinator started there could not read its own folder.
+ * @returns the folder, created if it was missing.
+ */
+async function studioCoordinatorFolder(): Promise<string> {
+  const folder = join(resolveDshHome(), 'idealize', 'studio-workspace')
+  await mkdir(folder, { recursive: true })
+  return folder
+}
+
+/** A chat's name as the person knows it, for a line it sends them. */
+function senderLabel(me: { name?: string; label: string } | undefined): string {
+  return me?.name ?? me?.label ?? 'Another chat'
+}
+
 function textOf(content: unknown): string {
   if (!Array.isArray(content)) return ''
   return content
@@ -241,9 +323,9 @@ function textOf(content: unknown): string {
 }
 
 /**
- * Fold a session log into Q/A exchanges: each person-authored user message
- * opens one, the assistant text that follows (until the next question)
- * answers it.
+ * Fold a session log into Q/A exchanges: each person-authored user message or
+ * another chat's opening brief opens one, the assistant text that follows
+ * (until the next question) answers it.
  * @param events - the session log.
  * @returns exchanges in order, indexed from 1.
  */
@@ -253,7 +335,8 @@ export function foldExchanges(events: readonly SessionEvent[]): CommExchange[] {
   for (const event of events) {
     if (event.type === 'user/message') {
       const message = event.data as { source?: { kind?: unknown }; content?: unknown }
-      if (message.source?.kind !== 'user') continue
+      // A chat's opening brief is what it was asked, so its answer has a question.
+      if (message.source?.kind !== 'user' && message.source?.kind !== 'chat-brief') continue
       const question = textOf(message.content)
       if (question === '') continue
       current = { index: exchanges.length + 1, question }
@@ -272,13 +355,38 @@ export function foldExchanges(events: readonly SessionEvent[]): CommExchange[] {
 export interface CommCaller {
   /** True when a chat's shell sent it (the `idealize` command), false for the app itself. */
   shell: boolean
+  /** The sender the request's body named, before the host stamped the proven one. */
+  claimedFrom?: string
 }
+
+/** What lands in another chat's inbox or on the timeline, counted against a chat's note limit. */
+const NOTE_COMMANDS: ReadonlySet<CommRequest['command']> = new Set([
+  'send', 'post', 'rung', 'task', 'progress', 'blocked', 'need', 'done', 'handoff', 'decide', 'synthesis', 'spawn',
+])
+
+/** What interrupts the person, counted against a chat's attention limit. */
+function interrupts(request: CommRequest): boolean {
+  return request.command === 'notify' || request.command === 'focus' || (request.command === 'reveal' && request.open === true)
+}
+
+/** The refusals worth a line in the note log: a chat reaching past its bounds, as opposed to a typing slip. */
+const AUDITED_COMMANDS: ReadonlySet<CommRequest['command']> = new Set(['spawn', 'transcript', 'reveal'])
 
 export class IdealizeComm extends Service {
   /** The current settings section (preset→role mapping, background post window); the plugin swaps this for the settings source. */
   config: () => CommConfig
 
   private readonly store: CommStore
+
+  /** Every note, kept after its inbox is read. */
+  private readonly noteLog: NoteLog
+
+  private readonly noteLimiter = new SenderLimiter(NOTE_RATE)
+
+  private readonly attentionLimiter = new SenderLimiter(ATTENTION_RATE)
+
+  /** Image, sound and video chats started by chats in this launch. */
+  private mediaSpawns = 0
 
   /** Background generations awaiting their one Studio line, keyed by session id. */
   private readonly pendingBackground = new Map<string, PendingBackground>()
@@ -341,9 +449,10 @@ export class IdealizeComm extends Service {
     }
   }
 
-  constructor(ctx: Context, options: { store: CommStore; config: () => CommConfig }) {
+  constructor(ctx: Context, options: { store: CommStore; config: () => CommConfig; noteLog?: NoteLog }) {
     super(ctx, 'idealizeComm')
     this.store = options.store
+    this.noteLog = options.noteLog ?? new NoteLog(noteLogPath(dirname(dirname(options.store.path))))
     this.config = options.config
     ctx.effect(() => () => {
       for (const pending of this.pendingBackground.values()) clearTimeout(pending.timer)
@@ -518,7 +627,8 @@ export class IdealizeComm extends Service {
       ...entry.name === undefined ? {} : { name: entry.name },
       title: entry.label,
       ...entry.cwd === undefined ? {} : { projectPath: entry.cwd },
-      status: this.store.status(entry.id) ?? (entry.running ? 'working' : 'idle'),
+      // Cleaned again on the way out: a line stored before the cap still reads safely.
+      status: Wire.cleanStatus(this.store.status(entry.id) ?? (entry.running ? 'working' : 'idle')),
       unread: this.store.unread(entry.id),
       role: entry.role,
       running: entry.running,
@@ -526,7 +636,42 @@ export class IdealizeComm extends Service {
     }
   }
 
+  /**
+   * Add one line to the note log. A full or unwritable disk must not stop chats
+   * talking to each other, so a failed write is logged and dropped.
+   * @param entry - the act to record.
+   */
+  private async logNote(entry: NoteLogEntry): Promise<void> {
+    try {
+      await this.noteLog.append(entry)
+    } catch (error) {
+      this.ctx.logger.warn(`idealize-comm: note log not written: ${String(error)}`)
+    }
+  }
+
+  /** Record a chat's refused attempt. */
+  private logRefusal(request: CommRequest, reason: string): Promise<void> {
+    return this.logNote({
+      at: new Date().toISOString(),
+      kind: 'refused',
+      from: request.from ?? '?',
+      command: request.command,
+      ...request.target === undefined ? {} : { to: request.target },
+      ...request.path === undefined ? {} : { body: request.path },
+      reason,
+    })
+  }
+
   private async deliver(dest: RosterEntry, message: CommMessage): Promise<void> {
+    await this.logNote({
+      at: message.timestamp,
+      kind: 'note',
+      from: message.from,
+      ...message.fromLabel === undefined ? {} : { fromLabel: message.fromLabel },
+      to: dest.id,
+      toLabel: dest.name ?? dest.label,
+      body: message.body,
+    })
     await this.store.deliver(dest.id, message)
     const unread = this.store.unread(dest.id)
     this.ctx.emit('idealize/comm-mail', dest.id, message, unread)
@@ -552,10 +697,41 @@ export class IdealizeComm extends Service {
 
   /**
    * Answer one wire request. Never throws for a caller mistake; those come back as `ok: false`.
+   * A chat's shell also answers to the note limits, and what it tries past
+   * its bounds goes in the note log.
    * @param request - the command envelope from the wire.
+   * @param caller - who the host's launch gate proved sent it.
    * @returns the command's response payload.
    */
   async handle(request: CommRequest, caller: CommCaller = { shell: false }): Promise<CommResponse> {
+    if (!caller.shell) return this.answer(request, caller)
+    if (caller.claimedFrom !== undefined && caller.claimedFrom !== request.from) {
+      await this.logRefusal(request, `claimed to be '${caller.claimedFrom}'; recorded as the chat its key proves`)
+    }
+    const sender = request.from ?? '?'
+    const verdict = interrupts(request)
+      ? this.attentionLimiter.take(sender)
+      : NOTE_COMMANDS.has(request.command) ? this.noteLimiter.take(sender) : { ok: true as const }
+    if (!verdict.ok) {
+      const error = `this chat has sent too many messages for now. Wait ${String(verdict.retryAfterSeconds)} seconds, or put what you need to say in a note in the project's documentation folder`
+      if (verdict.first) await this.logRefusal(request, error)
+      return failure(error)
+    }
+    const response = await this.answer(request, caller)
+    if (!response.ok && AUDITED_COMMANDS.has(request.command)) await this.logRefusal(request, response.error ?? 'refused')
+    return response
+  }
+
+  /**
+   * The app's lines of the note log, newest last, for the Studio to show.
+   * @param limit - how many to return, at most 1000.
+   * @returns the entries.
+   */
+  noteHistory(limit: number): Promise<NoteLogEntry[]> {
+    return this.noteLog.read(Math.max(1, Math.min(limit, 1000)))
+  }
+
+  private async answer(request: CommRequest, caller: CommCaller): Promise<CommResponse> {
     // Two commands read no roster, and building one walks every stored chat:
     // a ping, and a board nobody sent (its scope is the path alone). The bars
     // poll the second every couple of seconds.
@@ -575,16 +751,19 @@ export class IdealizeComm extends Service {
         return { ok: true, sessions: roster.map(entry => this.info(entry)) }
 
       case 'notify': {
-        const title = request.title ?? 'IDEalize'
-        const full = me === undefined ? title : `${title} · ${me.label}`
-        const body = request.body ?? ''
-        this.ctx.emit('idealize/comm-notify', full, body, request.sound === true)
+        const asked = caller.shell ? senderLabel(me) : undefined
+        // A chat can't dress its message as the system's: its name is the title.
+        const title = asked ?? request.title ?? 'IDEalize'
+        const full = asked !== undefined ? `${asked}, a chat in IDEalize` : me === undefined ? title : `${title} · ${me.label}`
+        const body = asked === undefined ? request.body ?? '' : Wire.clampNote(request.body ?? '')
+        this.ctx.emit('idealize/comm-notify', full, body, asked === undefined && request.sound === true)
         this.ctx.get('idealizeBridge')?.buffer.push({
           kind: 'notify',
           title: full,
           body,
           ...me === undefined ? {} : { sessionId: me.id },
         })
+        if (asked !== undefined) await this.askPerson(me, body)
         return { ok: true }
       }
 
@@ -647,6 +826,13 @@ export class IdealizeComm extends Service {
         return { ok: true, messages }
       }
 
+      // The inbox is emptied by reading it; a chat's own lines stay here.
+      case 'notes': {
+        if (me === undefined) return failure('unknown sender session')
+        const notes = await this.noteLog.read(Math.max(1, Math.min(request.limit ?? 20, 100)), me.id)
+        return { ok: true, notes }
+      }
+
       case 'rung': {
         if (me === undefined) return failure('unknown sender session')
         const rawPiece = (request.piece ?? '').trim()
@@ -692,7 +878,7 @@ export class IdealizeComm extends Service {
 
       case 'setStatus': {
         if (me === undefined) return failure('unknown sender session')
-        const text = (request.body ?? '').trim()
+        const text = Wire.cleanStatus(request.body ?? '')
         await this.store.setStatus(me.id, text === '' ? undefined : text)
         return { ok: true }
       }
@@ -701,6 +887,13 @@ export class IdealizeComm extends Service {
         if (request.target === undefined) return failure('no session matching target')
         const found = find(request.target)
         if (!found.ok) return failure(found.error)
+        // The person's screen moves on the person's say-so: a chat's shell can
+        // only ask them to look.
+        if (caller.shell) {
+          const wanted = found.session.name ?? found.session.label
+          await this.askPerson(me, `Please look at the chat ${wanted}.`)
+          return { ok: true, info: `asked the person to look at ${wanted}; their screen did not change` }
+        }
         this.ctx.emit('idealize/comm-focus', found.session.id)
         this.ctx.get('idealizeBridge')?.buffer.push({
           kind: 'focus',
@@ -712,13 +905,16 @@ export class IdealizeComm extends Service {
       }
 
       case 'reveal':
-        return this.reveal(request, roster, me)
+        return this.reveal(request, roster, me, caller)
 
       case 'transcript': {
         const target = request.target ?? request.from
         if (target === undefined) return failure('unknown session')
         const found = find(target)
         if (!found.ok) return failure(found.error)
+        if (caller.shell && !this.mayRead(me, found.session)) {
+          return failure(`${found.session.name ?? found.session.label} is in another project, and a chat can only read the chats in its own`)
+        }
         const limit = Math.max(1, Math.min(request.limit ?? 10, 50))
         const events = await this.eventsOf(found.session)
         if (events === undefined) return failure(`no transcript available for ${found.session.id}`)
@@ -969,7 +1165,46 @@ export class IdealizeComm extends Service {
     }
   }
 
-  private async reveal(request: CommRequest, roster: readonly RosterEntry[], me: RosterEntry | undefined): Promise<CommResponse> {
+  /**
+   * Whether a chat's shell may read another chat's transcript: its own, any in
+   * its project, and any for the Studio manager, which spans every project.
+   * @param me - the reading chat, undefined when the roster does not hold it.
+   * @param other - the chat to read.
+   * @returns true when the read stays in bounds.
+   */
+  private mayRead(me: RosterEntry | undefined, other: RosterEntry): boolean {
+    if (me === undefined) return false
+    if (me.id === other.id || me.role === 'studio-agent') return true
+    if (me.cwd === undefined || other.cwd === undefined) return false
+    const roots = this.ctx.get('workspaceRegistry')?.list().map(workspace => workspace.path) ?? []
+    return projectOf(me.cwd, roots) === projectOf(other.cwd, roots)
+  }
+
+  /**
+   * Put a line from a chat in front of the person, the only way a chat's shell
+   * reaches their attention: a request naming them on the project's Studio
+   * timeline, under the chat's own name, which `@idealize/notify` raises as an
+   * alert (the `needs-input` row of its table). Nothing on screen moves until
+   * they open it.
+   * @param me - the asking chat.
+   * @param text - what it asks.
+   * @returns true when the line reached a timeline.
+   */
+  private async askPerson(me: RosterEntry | undefined, text: string): Promise<boolean> {
+    const studio = this.ctx.get('idealizeStudio')
+    if (studio === undefined || me === undefined) return false
+    const project = this.store.role(me.id) === 'studio-agent' ? STUDIO_PROJECT : me.cwd
+    if (project === undefined || project === '' || project === '/') return false
+    await studio.record({ project, author: me.id, kind: 'request', subtype: 'needs-input', target: 'user', body: text })
+    return true
+  }
+
+  private async reveal(
+    request: CommRequest,
+    roster: readonly RosterEntry[],
+    me: RosterEntry | undefined,
+    caller: CommCaller,
+  ): Promise<CommResponse> {
     const raw = request.target
     if (raw === undefined || raw === '') return failure('missing path')
     let path: string
@@ -991,7 +1226,13 @@ export class IdealizeComm extends Service {
     }
     const owner = owners.find(entry => entry.id === me?.id) ?? owners[0]
     if (owner === undefined) return failure(`${path} isn't inside any folder open in IDEalize`)
-    const open = request.open === true
+    // A chat's shell can point at a file. Opening it is the person's call, and
+    // a file that would run when opened is refused outright.
+    const askedToOpen = caller.shell && request.open === true
+    if (askedToOpen && await runsWhenOpened(path)) {
+      return failure(`${basename(path)} would run when opened, so a chat can't open it`)
+    }
+    const open = request.open === true && !askedToOpen
     this.ctx.emit('idealize/comm-reveal', path, open, owner.id)
     this.ctx.get('idealizeBridge')?.buffer.push({
       kind: 'reveal',
@@ -999,6 +1240,10 @@ export class IdealizeComm extends Service {
       body: path,
       sessionId: owner.id,
     })
+    if (askedToOpen) {
+      await this.askPerson(me, `Please open ${basename(path)}.`)
+      return { ok: true, info: `revealed ${basename(path)} in ${owner.label} and asked the person to open it` }
+    }
     return { ok: true, info: `revealed ${basename(path)} in ${owner.label}` }
   }
 
@@ -1259,6 +1504,17 @@ export class IdealizeComm extends Service {
     // alone, there is one, and it runs in the harness home because the Studio's
     // own records live there and it owns no project's files.
     const studio = request.studio === true
+    // Powell runs in the home folder and acts across every project, so a chat
+    // that reads hostile text must not be able to start it or hand it words
+    // that read as the person's (security pass, 4 Nov 2026). A chat's shell
+    // only learns its id; the person's own window starts it.
+    if (studio && caller.shell) {
+      if ((request.body ?? '').trim() !== '') return failure('a chat can\'t give Powell a brief. Send it a note instead with `idealize send studio-agent <text>`')
+      const running = roster.find(entry => entry.role === 'studio-agent' && entry.live !== undefined)
+      return running === undefined
+        ? failure('Powell isn\'t running and a chat can\'t start it. A note sent with `idealize send studio-agent <text>` waits until it opens')
+        : { ok: true, info: running.id }
+    }
     // Powell owns the Studio manager's chat (2.0.0): it starts or resumes it
     // with its own brain, guide and tools, which a plain spawn would lack.
     // Read structurally, so comm needs no dependency on Powell's package.
@@ -1277,7 +1533,7 @@ export class IdealizeComm extends Service {
       }
     }
     const project = studio
-      ? resolveDshHome()
+      ? await studioCoordinatorFolder()
       : request.path !== undefined && request.path !== '' ? resolve(request.path) : me?.cwd
     if (project === undefined) return failure('no project folder to spawn in — pass a path')
     let canonical: string
@@ -1330,6 +1586,13 @@ export class IdealizeComm extends Service {
     if (role === undefined && request.space !== undefined) {
       space = spaceOfRequest(request.space)
       if (space === undefined) return failure(`unknown space '${request.space}' — one of: images, sounds, video, chat`)
+      if (caller.shell && spaceById(space).composition === 'media') {
+        if (this.mediaSpawns >= MEDIA_SPAWNS_PER_LAUNCH) {
+          return failure(`chats have started ${String(MEDIA_SPAWNS_PER_LAUNCH)} image, sound or video chats since the app last opened, `
+            + 'which is the limit because each can charge the person\'s account. Ask the person to start this one from that space')
+        }
+        this.mediaSpawns += 1
+      }
     }
     const brief = (request.body ?? '').trim() || (role === undefined ? '' : ROLE_OPENING[role])
     const composed = await this.composition(role, request.model, space === undefined ? undefined : spaceById(space).agentPreset)
@@ -1360,6 +1623,18 @@ export class IdealizeComm extends Service {
         this.ctx.logger.warn(`idealize-comm: spawned ${String(sessionId)} but could not attach it to a project: ${String(error)}`)
       }
     }
+    // A chat started by a chat stays inside its project unless its starter holds
+    // Full access (JJ, 4 Nov 2026). Read by shape: `confineStartedChat` is new, and
+    // an older presets package without it must still load.
+    if (caller.shell) {
+      const permissions = this.ctx.get('permissionPresets') as {
+        confineStartedChat?(session: Agent['session'], options: { starterEvents?: readonly unknown[] | undefined }): boolean
+      } | undefined
+      if (permissions !== undefined && permissions.confineStartedChat === undefined) {
+        this.ctx.logger.warn('idealize-comm: this build\'s permission presets cannot confine a started chat')
+      }
+      permissions?.confineStartedChat?.(agent.session, { starterEvents: me?.live?.session.events })
+    }
     const title = role !== undefined
       ? ROLE_TITLES[role]
       : (request.name === undefined ? undefined : chatNameFromTask(request.name))
@@ -1378,10 +1653,21 @@ export class IdealizeComm extends Service {
       recordSelection(agent.session, { ok: true, sessionId: String(sessionId), space, ...brain })
     }
     if (brief !== '') {
-      agent.followup(createUserMessage({
-        content: [{ type: 'text', text: brief }],
-        source: { kind: 'user' },
-      }))
+      if (caller.shell) {
+        await this.logNote({
+          at: new Date().toISOString(),
+          kind: 'brief',
+          from: request.from ?? '?',
+          ...me === undefined ? {} : { fromLabel: me.name ?? me.label },
+          to: String(sessionId),
+          ...title === undefined ? {} : { toLabel: title },
+          body: brief,
+        })
+      }
+      // The app's own window starts a chat for the person, so that brief is theirs.
+      agent.followup(caller.shell
+        ? chatBriefMessage(brief, me, request.from)
+        : createUserMessage({ content: [{ type: 'text', text: brief }], source: { kind: 'user' } }))
     }
     return { ok: true, info: String(sessionId) }
   }

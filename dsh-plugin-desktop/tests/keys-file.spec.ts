@@ -1,17 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   importKeysFile,
   isKeysFilePath,
   KEYS_FILE_MAX_BYTES,
   keysFileFromArgv,
   keysFileNotification,
+  confirmAndImportKeysFile,
 } from '../src/keys-file.ts'
 import type { KeysFileImport } from '../src/keys-file.ts'
 
 const TEXT = JSON.stringify({ format: 1, credentials: { ANTHROPIC_API_KEY: 'sk-1', FAL_KEY: 'fal-1' } })
 
 function stub(answer: { ok: boolean; status: number; body?: unknown; throws?: Error }, text = TEXT) {
-  const requests: { url: string; init: { method: string; headers: Record<string, string>; body: string } }[] = []
+  const requests: { url: string; init: { method: string; headers: Record<string, string>; body?: string } }[] = []
   const options: KeysFileImport = {
     path: '/Users/jj/Downloads/IDEalize Acme keys.idealizekeys',
     port: 3180,
@@ -90,5 +91,65 @@ describe('the notification', () => {
       .toEqual({ title: 'Keys file read', body: 'It named no service this app connects.' })
     expect(keysFileNotification({ ok: false, reason: 'the app answered 403' }))
       .toEqual({ title: 'Keys file not applied', body: 'the app answered 403' })
+  })
+})
+
+describe('confirming a keys file', () => {
+  const FILE = JSON.stringify({ format: 1, credentials: { OPENROUTER_API_KEY: 'sk-or-secret', FAL_KEY: 'fal-secret', ODD_API_KEY: 'odd-secret' } })
+  const SERVICES = [
+    { id: 'openrouter', name: 'OpenRouter', connected: true },
+    { id: 'fal', name: 'fal', connected: false },
+  ]
+
+  function harness(answer: boolean, readFile: () => Promise<string> = async () => FILE) {
+    const request = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ connected: [{ name: 'OpenRouter' }] }) }))
+    const ask = vi.fn(async () => answer)
+    return { request, ask, options: { path: '/tmp/Acme keys.idealizekeys', port: 1234, readFile, request, ask, listServices: async () => SERVICES } }
+  }
+
+  it('a double-clicked file changes nothing until the person says yes', async () => {
+    const { options, request, ask } = harness(false)
+    await expect(confirmAndImportKeysFile(options)).resolves.toBeUndefined()
+    expect(ask).toHaveBeenCalledOnce()
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('names each service, says which key it replaces and never shows a key', async () => {
+    const { options, ask } = harness(false)
+    await confirmAndImportKeysFile(options)
+    const question = (ask.mock.calls as unknown as [{ message: string; detail: string; confirm: string }][])[0]?.[0]
+    expect(question?.message).toContain('Acme keys.idealizekeys')
+    expect(question?.detail).toContain('OpenRouter: replaces the key you have now')
+    expect(question?.detail).toContain('fal: adds a new key')
+    expect(question?.detail).toContain('ODD_API_KEY: replaces any key you have for it')
+    expect(question?.confirm).toBe('Add Keys')
+    expect(JSON.stringify(question)).not.toContain('secret')
+  })
+
+  it('on yes, posts the text the person was shown, even if the file has changed since', async () => {
+    let reads = 0
+    const { options, request } = harness(true, async () => {
+      reads += 1
+      return reads === 1 ? FILE : JSON.stringify({ format: 1, credentials: { OTHER_API_KEY: 'swapped' } })
+    })
+    await expect(confirmAndImportKeysFile(options)).resolves.toEqual({ ok: true, connected: ['OpenRouter'] })
+    expect(reads).toBe(1)
+    expect((request.mock.calls as unknown as [string, { body: string }][])[0]?.[1].body).toBe(FILE)
+  })
+
+  it('still asks when the service list is unavailable', async () => {
+    const { options, ask } = harness(false)
+    await confirmAndImportKeysFile({ ...options, listServices: async () => undefined })
+    const question = (ask.mock.calls as unknown as [{ detail: string }][])[0]?.[0]
+    expect(question?.detail).toContain('OPENROUTER_API_KEY: replaces any key you have for it')
+  })
+
+  it('lets the route refuse text that is no keys file, asking nothing', async () => {
+    const request = vi.fn(async () => ({ ok: false, status: 400, json: async () => ({ error: 'invalid JSON' }) }))
+    const ask = vi.fn(async () => true)
+    await expect(confirmAndImportKeysFile({
+      path: '/tmp/x.idealizekeys', port: 1, readFile: async () => 'not json', request, ask,
+    })).resolves.toEqual({ ok: false, reason: 'invalid JSON' })
+    expect(ask).not.toHaveBeenCalled()
   })
 })

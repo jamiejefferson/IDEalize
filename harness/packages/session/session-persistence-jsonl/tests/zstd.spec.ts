@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { appendFile, mkdir, mkdtemp, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
+import { zstdDecompressSync } from 'node:zlib'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -732,23 +733,82 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
   })
 })
 
-describe('JsonlSessionPersistence: encoding selection', () => {
-  it('rejects roots owned by the opposite encoding in both directions', async () => {
-    const rawRoot = await freshRoot('dsh-jsonl-raw-mismatch-')
-    const raw = await mount(rawRoot, 'none')
-    const rawHeader = meta('raw-log')
-    await raw.sessionPersistence.create(rawHeader)
-    await raw.sessionPersistence.append(rawHeader.id, oneTurnLog())
-    const defaultBackend = await mount(rawRoot)
-    await expect(defaultBackend.sessionPersistence.list()).rejects.toThrow(/configured for compression "zstd"/)
+describe('JsonlSessionPersistence: readEveryFile', () => {
+  const every = async (ctx: Context): Promise<Map<string, string>> => {
+    const found = new Map<string, string>()
+    for await (const { path, text } of (ctx.sessionPersistence as JsonlSessionPersistence).readEveryFile()) found.set(path, text)
+    return found
+  }
 
-    const zstdRoot = await freshRoot('dsh-jsonl-zstd-mismatch-')
-    const zstd = await mount(zstdRoot)
-    const zstdHeader = meta('zstd-log')
-    await zstd.sessionPersistence.create(zstdHeader)
-    await zstd.sessionPersistence.append(zstdHeader.id, oneTurnLog())
-    const rawBackend = await mount(zstdRoot, 'none')
-    await expect(rawBackend.sessionPersistence.list()).rejects.toThrow(/configured for compression "none"/)
+  it('reads past a log\'s first frame, where Node\'s one-shot decoder silently stops', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    const header = meta('many-frames')
+    await ctx.sessionPersistence.create(header)
+    await ctx.sessionPersistence.append(header.id, oneTurnLog())
+    const path = logPath(root, header.cwd, header.id, 'zstd')
+    expect(zstdDecompressSync(await readFile(path)).toString()).not.toContain('turn/start')
+    expect((await every(ctx)).get(path)).toContain('turn/start')
+  })
+
+  it('reads the folders chats are set aside in', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    await mkdir(join(root, '.blank-chats-2026-11-04', 'project', 'x'), { recursive: true })
+    await writeFile(join(root, '.blank-chats-2026-11-04', 'project', 'x', 'session.jsonl.zstd'), await compressZstdFrame('kept reference\n'))
+    expect([...(await every(ctx)).values()]).toContain('kept reference\n')
+  })
+
+  it('throws on a log it cannot decode, so nobody takes it for a log that says nothing', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    await mkdir(join(root, '.quarantine', 'project', 'x'), { recursive: true })
+    await writeFile(join(root, '.quarantine', 'project', 'x', 'session.jsonl.zstd'), 'not zstd at all')
+    await expect(every(ctx)).rejects.toThrow()
+  })
+})
+
+describe('JsonlSessionPersistence: encoding selection', () => {
+  it('sets aside a wrong-encoding log and starts, in both directions', async () => {
+    // A wrong-encoding log used to throw from the root check, outside the
+    // per-session catch, and so stop the app starting.
+    for (const [written, reading, suffix] of [['none', 'zstd', '.jsonl'], ['zstd', 'none', '.jsonl.zstd']] as const) {
+      const root = await freshRoot(`dsh-jsonl-${written}-mismatch-`)
+      const writer = await mount(root, reading)
+      const healthy = meta('healthy-log')
+      await writer.sessionPersistence.create(healthy)
+      await writer.sessionPersistence.append(healthy.id, oneTurnLog())
+      const bad = meta('wrong-encoding-log')
+      const planterRoot = await freshRoot(`dsh-jsonl-${written}-planter-`)
+      const planter = await mount(planterRoot, written)
+      await planter.sessionPersistence.create(bad)
+      await planter.sessionPersistence.append(bad.id, oneTurnLog())
+      await mkdir(sessionDir(root, bad.cwd, bad.id), { recursive: true })
+      await rename(logPath(planterRoot, bad.cwd, bad.id, written), logPath(root, bad.cwd, bad.id, written))
+
+      const ctx = await mount(root, reading)
+      expect((await ctx.sessionPersistence.list()).map(header => header.id)).toEqual(['healthy-log'])
+      const aside = (ctx.sessionPersistence as JsonlSessionPersistence).quarantined
+      expect(aside).toHaveLength(1)
+      expect(aside[0]?.reason).toMatch(new RegExp(`configured for compression "${reading}"`))
+      expect(aside[0]?.to).toContain(join(root, '.quarantine'))
+      // Set aside whole, with nothing erased.
+      expect((await readdir(aside[0]!.to))).toContain(`session${suffix}`)
+      await expect(ctx.sessionPersistence.load(healthy.id)).resolves.toMatchObject({ meta: { id: healthy.id } })
+    }
+  })
+
+  it('starts even when the first thing asked of the root is a write', async () => {
+    const root = await freshRoot()
+    const bad = meta('late-wrong-encoding')
+    await mkdir(sessionDir(root, bad.cwd, bad.id), { recursive: true })
+    await writeFile(logPath(root, bad.cwd, bad.id, 'none'), `${JSON.stringify(toHeaderLine(bad))}\n`)
+    const ctx = await mount(root)
+    const fresh = meta('fresh')
+    await ctx.sessionPersistence.create(fresh)
+    await ctx.sessionPersistence.append(fresh.id, oneTurnLog())
+    expect((await ctx.sessionPersistence.list()).map(header => header.id)).toEqual(['fresh'])
+    expect((ctx.sessionPersistence as JsonlSessionPersistence).quarantined).toHaveLength(1)
   })
 
   it('rechecks targeted artifacts and listing after an initially empty root', async () => {

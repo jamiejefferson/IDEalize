@@ -27,6 +27,8 @@ export interface TelegramRowInjected {
   saveToken: (token: string) => void
   pair: () => void
   unpair: () => void
+  /** Allow or decline a new bot or a claimed pairing. */
+  confirm: (what: 'token' | 'pairing', allow: boolean) => void
   setForward: (key: ForwardKey, value: boolean) => void
 }
 
@@ -40,7 +42,7 @@ export type TelegramRowProps =
  * Render the Telegram remote row.
  * @param props - composed Settings slot props.
  */
-export function TelegramRow({ useTelegram, refresh, saveToken, pair, unpair, setForward, t }: TelegramRowProps) {
+export function TelegramRow({ useTelegram, refresh, saveToken, pair, unpair, confirm, setForward, t }: TelegramRowProps) {
   const state = useTelegram(value => value)
   const [token, setToken] = useState('')
   useEffect(() => { refresh() }, [refresh])
@@ -54,7 +56,31 @@ export function TelegramRow({ useTelegram, refresh, saveToken, pair, unpair, set
         <div className={css.desc}>{t('telegram.description')}</div>
       </div>
 
-      {status !== undefined && !status.configured && (
+      {status?.confirmToken !== undefined && (
+        <div className={css.controls} data-telegram-confirm="token">
+          <span className={css.line}>{t('telegram.confirm.token')} @{status.confirmToken.botUsername}</span>
+          <button type="button" className={css.button} disabled={state.busy} onClick={() => { confirm('token', true) }}>
+            {t('telegram.confirm.allow')}
+          </button>
+          <button type="button" className={css.button} disabled={state.busy} onClick={() => { confirm('token', false) }}>
+            {t('telegram.confirm.decline')}
+          </button>
+        </div>
+      )}
+
+      {status?.confirmPairing !== undefined && (
+        <div className={css.controls} data-telegram-confirm="pairing">
+          <span className={css.line}>{t('telegram.confirm.pairing')} {status.confirmPairing.name}</span>
+          <button type="button" className={css.button} disabled={state.busy} onClick={() => { confirm('pairing', true) }}>
+            {t('telegram.confirm.allow')}
+          </button>
+          <button type="button" className={css.button} disabled={state.busy} onClick={() => { confirm('pairing', false) }}>
+            {t('telegram.confirm.decline')}
+          </button>
+        </div>
+      )}
+
+      {status !== undefined && !status.configured && status.confirmToken === undefined && (
         <form
           className={css.controls}
           onSubmit={(event) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { askJev, JEV_MODEL, JEV_URL, readingFrom, requestFor } from '../src/jev.ts'
+import { askJev, JEV_MODEL, JEV_URL, readingFrom, requestFor, isLocalModelRoute, isPackagedApp, jevAddress } from '../src/jev.ts'
 
 const reply = (body: unknown, status = 200): typeof fetch =>
   vi.fn(async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
@@ -57,5 +57,40 @@ describe('the call', () => {
     expect(await askJev(request, { key: 'k', fetch: down })).toMatchObject({ failure: 'unreachable' })
     const slow = vi.fn(async () => { throw Object.assign(new Error('timed out'), { name: 'TimeoutError' }) }) as unknown as typeof fetch
     expect(await askJev(request, { key: 'k', fetch: slow })).toMatchObject({ failure: 'timeout' })
+  })
+})
+
+describe('where the router sends messages', () => {
+  it('is always OpenRouter in the installed app, whatever the settings file says', () => {
+    // The replay: one edited line in settings.yaml would send every message and
+    // the person's key to this server.
+    expect(jevAddress('https://thief.example.com/decisions', true)).toBe(JEV_URL)
+    expect(jevAddress(undefined, true)).toBe(JEV_URL)
+  })
+
+  it('follows the setting in a development run', () => {
+    expect(jevAddress('http://127.0.0.1:9/decisions', false)).toBe('http://127.0.0.1:9/decisions')
+    expect(jevAddress(undefined, false)).toBe(JEV_URL)
+  })
+
+  it('counts as installed only inside the app with its version set', () => {
+    expect(isPackagedApp({ IDEALIZE_APP_VERSION: '1.0.19' }, '43.4.0')).toBe(true)
+    expect(isPackagedApp({}, '43.4.0')).toBe(false)
+    expect(isPackagedApp({ IDEALIZE_APP_VERSION: ' ' }, '43.4.0')).toBe(false)
+    expect(isPackagedApp({ IDEALIZE_APP_VERSION: '1.0.19' }, undefined)).toBe(false)
+  })
+})
+
+describe('a model on this computer', () => {
+  it.each(['http://localhost:11434/v1', 'http://127.0.0.1:1234/v1', 'http://[::1]:11434/v1', 'http://0.0.0.0:1234/v1'])('%s skips the router', (url) => {
+    expect(isLocalModelRoute('ollama', url)).toBe(true)
+  })
+
+  it.each(['https://openrouter.ai/api/v1', 'http://192.168.1.20:11434/v1', 'http://127.0.0.1.example.com/v1', undefined, 'not a url'])('%s does not', (url) => {
+    expect(isLocalModelRoute('someone', url)).toBe(false)
+  })
+
+  it('does not include the free-tokens engine, which passes requests to outside companies', () => {
+    expect(isLocalModelRoute('freetokens', 'http://127.0.0.1:3213/v1')).toBe(false)
   })
 })

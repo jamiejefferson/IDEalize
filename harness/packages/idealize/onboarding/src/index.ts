@@ -1,7 +1,7 @@
 /**
  * @idealize/onboarding — first-run onboarding, host half: the durable
  * `idealize-onboarding` settings section and the wizard's detection/save
- * routes. The browser half renders the five-step wizard (agents, tools,
+ * routes. The browser half renders the five-step wizard (agents,
  * projects folder, documentation folder, finish) gated by this section,
  * exactly as the tour is gated by `idealize-tour.hasSeenTour`: `done` closes
  * the flow for good, `steps` records each step's outcome so a relaunch
@@ -16,9 +16,7 @@
  * - `POST /idealize/onboarding/openrouter` — verify-then-store an OpenRouter
  *   key: the credential plus the `openrouter` provider route's `apiKeyEnv`
  *   binding in the `llm-pi-ai` section (the only write a catalog route needs).
- * The tools step reads and writes through the existing
- * `/idealize/models/state`, `/idealize/activity/*`, and `/idealize/brains/media`
- * routes; the folder steps reuse @idealize/setup's routes.
+ * The folder steps reuse @idealize/setup's routes.
  *
  * @module @idealize/onboarding
  */
@@ -26,13 +24,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { ONBOARDING_STEP_IDS } from './step-ids.ts'
+import { STORED_STEP_IDS } from './step-ids.ts'
 import { installOnboardingRoutes } from './routes.ts'
 
 export { ONBOARDING_STEP_IDS } from './step-ids.ts'
 export type { OnboardingStepId, OnboardingStepOutcome } from './step-ids.ts'
 export { OPENROUTER_KEY_ENV } from './routes.ts'
-import type { OnboardingStepId, OnboardingStepOutcome } from './step-ids.ts'
+import type { OnboardingStepOutcome } from './step-ids.ts'
 
 /** Cordis plugin name. */
 export const name = 'idealize-onboarding'
@@ -63,7 +61,7 @@ export interface OnboardingSettings {
   /** True once the flow completed or was skipped wholesale. */
   done: boolean
   /** Per-step outcome, keyed by step id (sparse at rest; schema default `{}`). */
-  steps: Record<OnboardingStepId, OnboardingStepOutcome>
+  steps: Record<(typeof STORED_STEP_IDS)[number], OnboardingStepOutcome>
   /** When the flow completed (ISO); a skip-all leaves it absent. */
   completedAt?: string
 }
@@ -72,7 +70,7 @@ export interface OnboardingSettings {
 export const OnboardingSettingsSchema: z<OnboardingSettings> = z.object({
   done: z.boolean().default(false),
   // Schemastery's dict schemas carry `{}` as their implicit default.
-  steps: z.dict(z.union(['done', 'skipped']), z.union(ONBOARDING_STEP_IDS)),
+  steps: z.dict(z.union(['done', 'skipped']), z.union(STORED_STEP_IDS)),
   completedAt: z.string(),
 })
 
