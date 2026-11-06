@@ -1,7 +1,8 @@
 name: Release
 
-# Pushing a v<version> tag builds the universal macOS DMG and the unsigned
-# Windows x64 NSIS installer and publishes both on one GitHub Release. The
+# Pushing a v<version> tag builds the universal macOS DMG and publishes it on a
+# GitHub Release. The Windows version ships from the PC team's fork
+# (JJ, 6 Nov 2026), so no Windows installer is built here. The
 # Release is born a pre-release, so `releases/latest` (the update checker, the
 # install script and the website) keeps the previous version until the build
 # has been tested: `gh release edit v<version> --prerelease=false --latest`.
@@ -9,8 +10,7 @@ name: Release
 # IDEALIZE_MAC_CERT_P12 secret, so folder grants survive an update and the
 # updater and install script accept the build. Without the secret the release
 # stops: every copy already installed would refuse what it produced.
-# The version in the tag must match the manifests. Each job uploads its own
-# checksum file so neither overwrites the other's.
+# The version in the tag must match the manifests.
 #
 # The job that holds the certificate cannot publish, and the job that publishes
 # never sees the certificate, so a compromised publishing action has no way to
@@ -143,52 +143,3 @@ jobs:
             ```
             xattr -dr com.apple.quarantine "/Applications/IDEalize V1.app"
             ```
-
-            **Windows:** download `IDEalize-V1-Setup.exe` and run it. The installer is unsigned, so SmartScreen shows "Windows protected your PC": choose **More info**, then **Run anyway**.
-
-  release-windows:
-    runs-on: windows-latest
-    timeout-minutes: 90
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: 22.23.2
-      - run: corepack enable
-      - name: Resolve Yarn cache folder
-        id: yarn-cache
-        run: echo "dir=$(yarn config get cacheFolder)" >> "$env:GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ${{ steps.yarn-cache.outputs.dir }}
-          key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
-      - run: yarn install --immutable
-      - name: The tag names the manifest version
-        shell: bash
-        run: |
-          version="$(node -p "require('./dsh-plugin-desktop/package.json').version")"
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "tag ${GITHUB_REF_NAME} does not match dsh-plugin-desktop version ${version}" >&2
-            exit 1
-          fi
-      - run: yarn dist:win
-      - name: Name the assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          out=dsh-plugin-desktop/dist
-          setup="$(ls "$out"/IDEalize-*-x64-Setup.exe | head -1)"
-          test -f "$setup"
-          mkdir -p release-assets
-          cp "$setup" release-assets/
-          cp "$setup" release-assets/IDEalize-V1-Setup.exe
-          (cd release-assets && sha256sum -- * > SHA256SUMS-windows.txt)
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          files: release-assets/*
-          prerelease: true

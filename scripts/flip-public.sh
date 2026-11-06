@@ -105,7 +105,7 @@ The agent-directing desktop app for designers (root) over the IDEalize harness (
 fi
 confirm "Push V1 to $OWNER/IDEalize main (V0 stays on branch v0)?"
 run git -C "$EXPORT/repo" push origin main:main
-run gh repo edit "$OWNER/IDEalize" --description "IDEalize V1: the agent-directing desktop app for designers, for macOS and Windows. V0 lives on branch v0." --homepage "https://idealize.projject.ai"
+run gh repo edit "$OWNER/IDEalize" --description "IDEalize V1: the agent-directing desktop app for designers, for macOS. V0 lives on branch v0." --homepage "https://idealize.projject.ai"
 
 if [ "$SYNC" = 1 ]; then
   if [ -n "$TAG" ]; then

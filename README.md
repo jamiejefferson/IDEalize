@@ -1,7 +1,7 @@
 <h1 align="center">IDEalize V1</h1>
 
 <p align="center">
-  <strong>The agent-directing desktop app for designers, for macOS and Windows.</strong><br>
+  <strong>The agent-directing desktop app for designers, for macOS.</strong><br>
   Open a project folder, pick a space and a brain, and direct the work from one window.
 </p>
 
@@ -12,16 +12,15 @@
   <a href="https://idealize.projject.ai"><img src="https://img.shields.io/github/downloads/jamiejefferson/IDEalize/total?style=flat&amp;label=downloads&amp;color=FF5436" alt="Total downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/macOS-4493F8?style=flat-square" alt="Supported platform: macOS">
-  <img src="https://img.shields.io/badge/Windows_x64-4493F8?style=flat-square" alt="Supported platform: Windows x64">
 </p>
 
-IDEalize V1 packages the IDEalize harness (its plugin Host, web client and every `@idealize/*` plugin) into a native desktop application for macOS and Windows x64: the window, tray, Askbar, terminal, updates and work profiles come from this repository; the harness runs unchanged from vendored tarballs under `vendor/idealize/`.
+IDEalize V1 packages the IDEalize harness (its plugin Host, web client and every `@idealize/*` plugin) into a native desktop application for macOS: the window, tray, Askbar, terminal, updates and work profiles come from this repository; the harness runs unchanged from vendored tarballs under `vendor/idealize/`.
 
 <a id="run"></a>
 
 ## Download and install
 
-Download the installer for your platform from [idealize.projject.ai](https://idealize.projject.ai). The [FAQ](docs/faq.md#which-operating-systems-are-supported) lists the supported platforms.
+Download the installer from [idealize.projject.ai](https://idealize.projject.ai). The [FAQ](docs/faq.md#which-operating-systems-are-supported) lists the supported platforms.
 
 ### macOS
 
@@ -37,13 +36,9 @@ Or open the DMG and drag `IDEalize V1.app` into Applications. The build is self-
 xattr -dr com.apple.quarantine "/Applications/IDEalize V1.app"
 ```
 
-### Windows
-
-Run `IDEalize-V1-Setup.exe`. The installer is unsigned, so SmartScreen shows "Windows protected your PC": choose **More info**, then **Run anyway**. The default installs for your user account and needs no administrator password. The installer also adds **Idealize this** to the right-click menu of every folder, which opens that folder as a project; Windows 11 lists it under **Show more options**.
-
 ### Updates
 
-On both platforms the app checks for a newer release itself and offers the download.
+The app checks for a newer release itself and offers the download.
 
 ### Keys
 
@@ -121,7 +116,7 @@ The [IDEalize harness](https://github.com/jamiejefferson/IDEalize/tree/main/harn
 - Desktop application packaging
 - Starting, stopping, and recovering the local service
 - Desktop window and system tray integration
-- macOS and Windows installer builds and releases
+- macOS installer builds and releases
 - An interface designed for desktop use
 
 To run the harness from the command line or contribute to its core functionality, start with the IDEalize harness repository.
@@ -172,7 +167,7 @@ node dsh-plugin-desktop/scripts/verify-release-shape.ts --app <app> --any-certif
 ### What the shell adds
 
 - **The Askbar** — a slim always-on-top column at a screen edge, one chip per agent, that the main window collapses to and expands from: the sidebar's collapse button, the tray, or Ctrl+Alt+A (⌃⌥A on a Mac) from anywhere (a global shortcut, so no IDEalize window needs focus). Rolling over a chip opens a panel to read the agent's latest exchanges and ask it something.
-- **"Idealize this"**: right-click a folder in Finder or Windows Explorer to open it as a project. On macOS the app installs a Quick Action into `~/Library/Services` on each launch. On Windows the installer registers the menu entry and the uninstaller removes it.
+- **"Idealize this"**: right-click a folder in Finder to open it as a project. The app installs a Quick Action into `~/Library/Services` on each launch.
 - **Keys files** — double-click a `.idealizekeys` file and the keys it carries are connected at once (see [Keys](#keys)). See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute.
 
 ## Community

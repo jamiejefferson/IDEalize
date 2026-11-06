@@ -4,7 +4,7 @@ This page answers common questions about installation, supported platforms, the 
 
 ## What is IDEalize V1?
 
-IDEalize V1 is an open-source desktop client for the IDEalize harness on Windows and macOS. It packages the harness's local web UI, Host service, and plugin system into a native desktop application with a window, system tray, Askbar, terminal, updates, and profile management.
+IDEalize V1 is an open-source desktop client for the IDEalize harness on macOS. It packages the harness's local web UI, Host service, and plugin system into a native desktop application with a window, system tray, Askbar, terminal, updates, and profile management.
 
 ## Is this an official DeepSeek product?
 
@@ -12,7 +12,7 @@ No. IDEalize V1 is an independent open-source project: a fork of [DeepSeek Harne
 
 ## Which operating systems are supported?
 
-Current release installers support Windows x64 and Apple Silicon macOS. There is currently no Linux installer, and Intel Macs are not supported. Cross-platform compatibility code in the source tree does not imply that an installer has been released for that platform.
+Current release installers support Apple Silicon macOS. There is no Windows or Linux installer, and Intel Macs are not supported. Cross-platform compatibility code in the source tree does not imply that an installer has been released for that platform.
 
 ## Do I need to install Node.js, pnpm, or the harness?
 
@@ -40,7 +40,7 @@ No plugins are copied automatically. Each profile has its own bundle and depende
 
 ## How are updates installed?
 
-Packaged applications check for stable releases in the background but never install silently. A newer version requires confirmation. macOS downloads and opens a DMG; Windows downloads and starts an NSIS installer. Network and download failures leave the current installation intact.
+Packaged applications check for stable releases in the background but never install silently. A newer version requires confirmation. The app downloads and opens a DMG. Network and download failures leave the current installation intact.
 
 ## Where can I download the app or report a problem?
 
