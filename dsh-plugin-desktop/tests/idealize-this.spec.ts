@@ -18,7 +18,7 @@ describe('the idealize:// scheme', () => {
   })
 
   it('takes a Windows drive path', () => {
-    expect(parseIdealizeUrl('idealize://project?path=C%3A%5CWork%5CVault')?.path).toBe('C:\\Work\\Vault')
+    expect(parseIdealizeUrl('idealize://project?path=C%3A%5CWork%5CVault')).toEqual({ kind: 'open-project', path: 'C:\\Work\\Vault' })
   })
 
   it('refuses another scheme, another request, and a relative path', () => {

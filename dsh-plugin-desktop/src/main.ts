@@ -77,7 +77,8 @@ import { DesktopActionsService } from './desktop-actions.ts'
 import { PROOF_BUILD_MARKER, refusedDebugSwitch } from './debug-switches.ts'
 import { hardeningApplies } from './platform-hardening.ts'
 import { installPermissionPolicy } from './permission-policy.ts'
-import { IDEALIZE_SCHEME, parseIdealizeUrl, requestFromArgv, type OpenProjectRequest } from './idealize-url.ts'
+import { IDEALIZE_SCHEME, parseIdealizeUrl, requestFromArgv, type IdealizeRequest } from './idealize-url.ts'
+import { connectGatewayLink, gatewayLinkNotification } from './gateway-link.ts'
 import { confirmAndImportKeysFile, importKeysFile, isKeysFilePath, keysFileFromArgv, keysFileNotification } from './keys-file.ts'
 import { openGuarded } from './open-guard.ts'
 import { oneQuestionAtATime, projectLinkQuestion, type AskConfirmation } from './open-confirmation.ts'
@@ -224,8 +225,8 @@ async function start(): Promise<void> {
   // macOS delivers it as an `open-url` event, which can fire before the Host
   // is up, so the request is held here and handed over once there is a window
   // to hand it to. Windows and Linux put the URL in the argument list instead.
-  let pendingProject: OpenProjectRequest | undefined = requestFromArgv(process.argv)
-  let deliverProject: (request: OpenProjectRequest) => void = (request) => { pendingProject = request }
+  let pendingProject: IdealizeRequest | undefined = requestFromArgv(process.argv)
+  let deliverProject: (request: IdealizeRequest) => void = (request) => { pendingProject = request }
   app.setAsDefaultProtocolClient(IDEALIZE_SCHEME)
   app.on('open-url', (event, url) => {
     const request = parseIdealizeUrl(url)
@@ -836,6 +837,27 @@ async function start(): Promise<void> {
       return answer.response === 0
     })
     deliverProject = (request) => {
+      if (request.kind === 'connect-gateway') {
+        // Any web page can send this link, so the person is asked on every platform.
+        const webServer = current?.get('webServer') as { port: number } | undefined
+        if (webServer === undefined) {
+          runtime.updates.notify(gatewayLinkNotification(request.address, { ok: false, reason: 'The app is still starting. Press Connect in the gateway again in a moment.' }))
+          return
+        }
+        void connectGatewayLink({
+          link: request,
+          ask: askPerson,
+          port: webServer.port,
+          ...launchKey === undefined ? {} : { launchKey },
+          fetchGateway: (url, init) => net.fetch(url, init),
+          request: (url: string, init: RequestInit) => net.fetch(url, init),
+        }).then((outcome) => {
+          if (outcome === undefined) return
+          if (!outcome.ok) electronLogger.error(`${BIN_NAME}: key gateway ${request.address} not connected: ${outcome.reason}`)
+          runtime.updates.notify(gatewayLinkNotification(request.address, outcome))
+        })
+        return
+      }
       void (async () => {
         if (hardeningApplies(process.platform) && !await askPerson(projectLinkQuestion(request.path))) return
         const bridge = current?.get('idealizeBridge') as { buffer: { push(event: Record<string, unknown>): void } } | undefined

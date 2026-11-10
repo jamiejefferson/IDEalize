@@ -37,6 +37,25 @@ export function projectLinkQuestion(path: string): ConfirmationQuestion {
   }
 }
 
+/**
+ * @param address - the gateway address the link names.
+ * @returns the question for an `idealize://gateway` link.
+ */
+export function gatewayLinkQuestion(address: string): ConfirmationQuestion {
+  let host = address
+  try {
+    host = new URL(address).host
+  } catch {
+    // The parser only passes https addresses, so this keeps the text as given.
+  }
+  return {
+    title: 'Connect Key Gateway?',
+    message: `A link is asking IDEalize to connect the key gateway at ${displayable(host)}.`,
+    detail: `${displayable(address)}\n\nYour chats, pictures and videos will run through this gateway, and it will see them. Choose Connect only if you pressed Connect in your organisation's gateway just now.`,
+    confirm: 'Connect',
+  }
+}
+
 /** One service as the Host lists it. */
 export interface ServiceSummary {
   readonly id: string
