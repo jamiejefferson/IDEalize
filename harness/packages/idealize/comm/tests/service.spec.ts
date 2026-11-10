@@ -461,7 +461,7 @@ describe('IdealizeComm.spawn', () => {
 describe('IdealizeComm.spawn into a space', () => {
   afterEach(() => { vi.unstubAllEnvs() })
 
-  async function bench() {
+  async function bench(roots: unknown[] = []) {
     const home = await mkdtemp(join(tmpdir(), 'idealize-comm-spawn-space-'))
     vi.stubEnv('DSH_HOME', home)
     const ctx = new Context()
@@ -471,7 +471,7 @@ describe('IdealizeComm.spawn into a space', () => {
     const followups: unknown[] = []
     const provide = (ctx as unknown as { provide(name: string, value: unknown): void }).provide.bind(ctx)
     provide('agents', {
-      roots: () => [],
+      roots: () => roots,
       create: async (options: { sessionId: string }) => ({
         agent: {
           status: 'idle',
@@ -546,6 +546,29 @@ describe('IdealizeComm.spawn into a space', () => {
     expect(message.content[0]?.text).toContain('The person did not write it.')
     expect(message.content[0]?.text).toContain('needs the person to say so in this chat')
     expect(message.content[0]?.text).toContain('Push the release now')
+  })
+
+  it('carries the person\'s pictures from the sending chat into a video chat, and into no plain chat', async () => {
+    const picture = (id: string) => ({ type: 'image', attachment: { attachmentId: id, mediaType: 'image/png', bytes: 1, width: 1, height: 1 } })
+    const sender = {
+      status: 'idle',
+      session: {
+        header: { id: 'sess-coding', cwd: '/tmp' },
+        events: [
+          { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'old' }, picture('old')] } },
+          { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'animate this' }, picture('new')] } },
+          // A brief that reached the sender is not the person's picture to pass on.
+          { type: 'user/message', data: { source: { kind: 'chat-brief' }, content: [{ type: 'text', text: 'x' }, picture('foreign')] } },
+        ],
+      },
+    }
+    const { comm, home, followups } = await bench([sender])
+    expect((await comm.handle({ command: 'spawn', path: home, body: 'Animate the fountain', space: 'video', from: 'sess-coding' }, { shell: true })).ok).toBe(true)
+    const message = followups[0] as { content: Array<{ type: string; text?: string; attachment?: { attachmentId: string } }> }
+    expect(message.content.filter(block => block.type === 'image').map(block => block.attachment?.attachmentId)).toEqual(['new'])
+    expect(message.content[0]?.text).toContain('pass reference_image "attached"')
+    expect((await comm.handle({ command: 'spawn', path: home, body: 'Write it up', space: 'chat', from: 'sess-coding' }, { shell: true })).ok).toBe(true)
+    expect((followups[1] as { content: unknown[] }).content).toHaveLength(1)
   })
 
   it('keeps the brief the person\'s own when the app\'s window starts the chat', async () => {

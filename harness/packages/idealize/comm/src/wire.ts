@@ -320,9 +320,10 @@ export const COMMANDS_SECTION = {
     + '`idealize chat` reads the recent Studio posts; `idealize reveal <path>` points the person at a file; `idealize help` lists the rest. '
     + 'When the person writes @Name they mean that chat\'s agent: ask it with `idealize send Name "<question>"`, then `idealize inbox --wait`, and pass its answer on. '
     + 'If no answer comes, say so instead of searching for its work. '
-    + 'When the person asks for images, sound or video and you cannot make them yourself, start a chat that can with '
+    + 'When the person asks for images, sound or video, animating a picture included, and you have no generate tool, start a chat that can make them with '
     + '`idealize spawn "<the brief: what to make, its use, its size or length, and where it is going>" --space images` (or `sounds`, `video`); '
-    + 'it reports back with a note, and its results appear in the project. '
+    + 'it reports back with a note, its results appear in the project, and pictures the person attached in your chat go with the brief. '
+    + 'Draw or animate with code only when the person asks for code. '
     + 'When you finish a piece of work the person asked for (a generation, an edit, a task), post one line to the Studio with `idealize post` saying what you did and where it is. '
     + 'When a note reaches you from the Studio (its sender is the person, via the Studio), answer in the Studio with `idealize post`, not only in your own chat. '
     + `${NOTE_AUTHORITY_RULE} `

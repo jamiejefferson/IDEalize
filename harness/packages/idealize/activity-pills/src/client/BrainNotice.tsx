@@ -70,7 +70,8 @@ export function BrainNotice(props: BrainNoticeProps) {
   }
 
   const last = routed?.last
-  if (last === undefined || actions === undefined || space !== 'chat') return null
+  // An image, sound or video chat is not routed, but its conversation is rescued and can be offered a model like any chat.
+  if (last === undefined || actions === undefined || (space !== 'chat' && last.outcome !== 'offer')) return null
   const key = `${sessionId}:${last.outcome}:${last.from.provider}/${last.from.model}:${last.to.provider}/${last.to.model}`
   if (dismissed === key) return null
   const dismiss = (
@@ -92,7 +93,7 @@ export function BrainNotice(props: BrainNoticeProps) {
   if (last.outcome === 'offer') {
     return (
       <div className={css.notice} data-brain-notice="offer" title={last.rationale}>
-        <span className={css.noticeLine}>{t(`router.offer.${last.reason ?? 'needs-payment'}`, { to: last.to.label })}</span>
+        <span className={css.noticeLine}>{t(`router.offer.${last.reason ?? 'needs-payment'}`, { from: last.from.label, to: last.to.label })}</span>
         <button type="button" className={css.tintButton} data-router-accept="" onClick={() => { void actions.accept(sessionId, last.to) }}>{t('chip.try', { model: last.to.label })}</button>
         {dismiss}
       </div>

@@ -45,6 +45,13 @@ describe('routing a turn', () => {
     expect(result.events).toEqual([])
   })
 
+  it('moves a chat whose model cannot see its pictures even when Jev does not answer', async () => {
+    const blind = input({ resolved: free, hasImages: true, candidates: [free, mini] })
+    const result = await routeTurn(blind, { ...noWindow, askJev: () => Promise.resolve({ failure: 'no-key', ms: 0 }) })
+    expect(result.use).toEqual({ provider: 'openrouter', model: 'openai/gpt-5.4-mini' })
+    expect(result.events[0]).toMatchObject({ outcome: 'switched', rationale: 'GPT-5.4 mini can see the pictures in this chat, and Free tokens can\'t.' })
+  })
+
   it('routes on the keyword rules only when Jev is switched off in config', async () => {
     const result = await routeTurn(input({}), noWindow)
     expect(result.reading.source).toBe('rules')

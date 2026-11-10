@@ -373,3 +373,72 @@ describe('the router in a failing turn', () => {
     expect([...dropped.log, ...locked.log, ...off.log]).toEqual([])
   })
 })
+
+describe('a video chat holding a picture its model cannot see', () => {
+  let home: string
+  const saved = process.env.DSH_HOME
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), 'idealize-router-sight-'))
+    process.env.DSH_HOME = home
+  })
+  afterEach(async () => {
+    if (saved === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = saved
+    await rm(home, { recursive: true, force: true })
+  })
+
+  async function mountVideo(withPicture: boolean, models: Record<string, { id: string; inputModalities: string[] }[]>, onModel = { provider: 'deepseek', model: 'deepseek-v4-flash' }) {
+    const ctx = new Context()
+    const log: Array<{ type: string; data: Record<string, unknown> }> = []
+    ctx.provide('llm', {
+      listProviders: () => Object.keys(models).map(id => ({ id })),
+      listConfigurableProviders: () => Object.keys(models).map(provider => ({ provider, settingsNs: provider, settingsPath: [] })),
+      listModels: (provider: string) => Promise.resolve(models[provider] ?? []),
+      resolveModelInfo: () => Promise.resolve({}),
+    })
+    ctx.provide('settings', { get: () => ({ apiKeyEnv: 'THE_KEY' }), update: () => Promise.resolve(), register: () => () => {} })
+    ctx.provide('credentials', { resolve: () => Promise.resolve({ value: 'stored' }) })
+    await ctx.plugin({ name: 'idealize-router', inject: [], apply }, { useJev: false, preferFree: false })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const picture = { type: 'image', attachment: { attachmentId: 'a', mediaType: 'image/png', bytes: 1, width: 1, height: 1 } }
+    const session = {
+      header: { id: 'session-video' },
+      events: [
+        { type: 'idealize/space', data: { space: 'motion' } },
+        { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'animate this' }, ...withPicture ? [picture] : []] } },
+      ] as Array<{ type: string; data: Record<string, unknown> }>,
+      append: (type: string, data: Record<string, unknown>) => {
+        log.push({ type, data })
+        session.events.push({ type, data })
+      },
+    }
+    const signal = new AbortController().signal
+    const request = () => ctx.waterfall('agent/request', { agent: { session }, turn: 1, step: 1, signal } as never, () => Promise.resolve(onModel as never))
+    return { log, request }
+  }
+
+  const models = {
+    deepseek: [{ id: 'deepseek-v4-flash', inputModalities: ['text'] }],
+    openrouter: [{ id: 'deepseek/deepseek-v4-flash', inputModalities: ['text'] }, { id: 'openai/gpt-5.4-mini', inputModalities: ['text', 'image'] }],
+  }
+
+  it('moves within the account before the request, so the picture never reaches a model that would refuse it', async () => {
+    const chat = await mountVideo(true, models, { provider: 'openrouter', model: 'deepseek/deepseek-v4-flash' })
+    expect(await chat.request()).toMatchObject({ provider: 'openrouter', model: 'openai/gpt-5.4-mini' })
+    expect(chat.log[0]?.data).toMatchObject({
+      outcome: 'switched', rationale: expect.stringContaining('can\'t see the pictures in this chat') as string,
+    })
+  })
+
+  it('offers a model at another company that can see it, as any rescue would', async () => {
+    const chat = await mountVideo(true, models)
+    expect(await chat.request()).toMatchObject({ provider: 'deepseek', model: 'deepseek-v4-flash' })
+    expect(chat.log[0]?.data).toMatchObject({ outcome: 'offer', to: { provider: 'openrouter', model: 'openai/gpt-5.4-mini' } })
+  })
+
+  it('leaves a video chat with no picture where it is', async () => {
+    const chat = await mountVideo(false, models)
+    expect(await chat.request()).toMatchObject({ provider: 'deepseek', model: 'deepseek-v4-flash' })
+    expect(chat.log).toEqual([])
+  })
+})

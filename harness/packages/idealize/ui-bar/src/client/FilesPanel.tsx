@@ -252,10 +252,26 @@ export function projectDocsRoots(entries: ProjectDocsEntry[]): RootEntry[] {
   }))
 }
 
-/** One directory re-list request; a bumped nonce re-fetches `path`'s listing. */
+/**
+ * One re-list request; a bumped nonce re-fetches every folder in `paths`. A
+ * move names both folders in one signal: two signals set in the same tick
+ * render once, and the first folder would never be re-listed (JJ, 9 Nov 2026:
+ * a moved file seemed not to exist until the whole pane was refreshed).
+ */
 interface RefreshSignal {
-  path: string
+  paths: readonly string[]
   nonce: number
+}
+
+/**
+ * How often an open tree re-lists the folders it has loaded, so a file a chat
+ * or Finder moved, made or deleted shows without a press of Refresh.
+ */
+export const FILES_POLL_MS = 3000
+
+/** Whether two listings name the same entries in the same order with the same details. */
+function sameListing(a: ListEntry[] | 'error' | undefined, b: ListEntry[]): boolean {
+  return Array.isArray(a) && a.length === b.length && JSON.stringify(a) === JSON.stringify(b)
 }
 
 /** How long a revealed row stays lit when nothing is clicked. */
@@ -356,7 +372,8 @@ function LazyTree({
     .then(response => response.ok
       ? response.json() as Promise<{ entries: ListEntry[] }>
       : Promise.reject(new Error('listing failed')))
-    .then((body) => { setListings(current => ({ ...current, [path]: body.entries })) })
+    // An unchanged listing keeps its state, so the poll below re-renders nothing.
+    .then((body) => { setListings(current => sameListing(current[path], body.entries) ? current : { ...current, [path]: body.entries }) })
     .catch(() => { setListings(current => ({ ...current, [path]: 'error' })) }), [endpoint])
 
   const toggleDir = useCallback((path: string) => {
@@ -401,15 +418,36 @@ function LazyTree({
     })
   }, [reloadNonce, list])
 
-  // A create landed in `refresh.path`: re-list it and keep it open, when it
-  // belongs to this tree (both trees receive every signal).
+  // An operation landed in `refresh.paths`: re-list each folder that belongs
+  // to this tree (both trees receive every signal) and keep it open.
   useEffect(() => {
     if (refresh === undefined) return
-    const { path } = refresh
-    if (!roots.some(root => isAtOrBeneath(root.path, path))) return
-    setExpanded(previous => previous.has(path) ? previous : new Set(previous).add(path))
-    void list(path)
+    const mine = refresh.paths.filter(path => roots.some(root => isAtOrBeneath(root.path, path)))
+    if (mine.length === 0) return
+    setExpanded(previous => mine.every(path => previous.has(path)) ? previous : new Set([...previous, ...mine]))
+    for (const path of mine) void list(path)
   }, [refresh, roots, list])
+
+  // Changes made outside the pane (a chat's shell, Finder) send no signal, so
+  // the loaded folders are re-listed when the window comes back and on a
+  // short poll while the page is visible. Unchanged listings render nothing.
+  useEffect(() => {
+    const relist = (): void => {
+      if (document.visibilityState === 'hidden') return
+      setListings((previous) => {
+        for (const path of Object.keys(previous)) void list(path)
+        return previous
+      })
+    }
+    const timer = setInterval(relist, FILES_POLL_MS)
+    window.addEventListener('focus', relist)
+    document.addEventListener('visibilitychange', relist)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', relist)
+      document.removeEventListener('visibilitychange', relist)
+    }
+  }, [list])
 
   // A reveal: unfold the root, open every folder down to the file, re-list
   // the file's folder (a fresh artefact postdates any earlier listing) and
@@ -847,7 +885,7 @@ export function FilesPanel({
 
   /** POST one entry operation; the status line reports the outcome by its own pair of sentences. */
   const operate = useCallback(async (
-    route: string, body: Record<string, string>, done: BarKey, failed: BarKey, refreshPath: string,
+    route: string, body: Record<string, string>, done: BarKey, failed: BarKey, refreshPaths: readonly string[],
   ): Promise<{ path?: string } | undefined> => {
     try {
       const response = await fetch(`/idealize/bar/${route}`, {
@@ -861,7 +899,7 @@ export function FilesPanel({
       }
       const result = await response.json() as { path?: string }
       setStatus({ level: 'info', text: t(done) })
-      setRefresh(previous => ({ path: refreshPath, nonce: (previous?.nonce ?? 0) + 1 }))
+      setRefresh(previous => ({ paths: refreshPaths, nonce: (previous?.nonce ?? 0) + 1 }))
       return result
     } catch {
       setStatus({ level: 'error', text: t(failed) })
@@ -870,11 +908,11 @@ export function FilesPanel({
   }, [t])
   const parentOf = (path: string): string => dirName(path)
   const duplicateEntry = useCallback((path: string) => {
-    void operate('duplicate', { path }, 'files.duplicated', 'files.duplicateFailed', parentOf(path))
+    void operate('duplicate', { path }, 'files.duplicated', 'files.duplicateFailed', [parentOf(path)])
   }, [operate])
   const moveEntry = useCallback((path: string, parent: string) => {
-    void operate('move', { path, parent }, 'files.moved', 'files.moveFailed', parent)
-      .then((result) => { if (result !== undefined) setRefresh(previous => ({ path: parentOf(path), nonce: (previous?.nonce ?? 0) + 1 })) })
+    // Both folders in one signal: the file leaves one and joins the other.
+    void operate('move', { path, parent }, 'files.moved', 'files.moveFailed', [parent, parentOf(path)])
   }, [operate])
   // Move to Trash arms on the first click and goes on the second: the menu
   // stays open in between, so the confirmation is the same item reworded.
@@ -885,7 +923,7 @@ export function FilesPanel({
     }
     setTrashArmed(null)
     setMenu(null)
-    void operate('trash', { path }, fileManagerKey('files.trashed'), fileManagerKey('files.trashFailed'), parentOf(path))
+    void operate('trash', { path }, fileManagerKey('files.trashed'), fileManagerKey('files.trashFailed'), [parentOf(path)])
   }, [operate, trashArmed])
   const renameEntry = useCallback(async (): Promise<void> => {
     if (renaming === null || creating || !isValidEntryName(draftName)) return
@@ -905,7 +943,7 @@ export function FilesPanel({
       setRenaming(null)
       setDraftName('')
       setStatus({ level: 'info', text: t('files.renamed') })
-      setRefresh(previous => ({ path: parentOf(renaming.path), nonce: (previous?.nonce ?? 0) + 1 }))
+      setRefresh(previous => ({ paths: [parentOf(renaming.path)], nonce: (previous?.nonce ?? 0) + 1 }))
     } catch {
       setSheetError(t('files.renameFailed'))
     } finally {
@@ -1033,7 +1071,7 @@ export function FilesPanel({
       }
       const body = await response.json() as { path: string }
       closeSheet()
-      setRefresh(previous => ({ path: target.path, nonce: (previous?.nonce ?? 0) + 1 }))
+      setRefresh(previous => ({ paths: [target.path], nonce: (previous?.nonce ?? 0) + 1 }))
       if (sheet === 'file') onOpenFile(body.path)
     } catch {
       setSheetError(t('files.createFailed'))

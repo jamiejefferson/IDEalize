@@ -458,7 +458,7 @@ describe('@idealize/gen-tools composition', () => {
 
     // Refused before any generation: a path leaving the project, a missing file, a non-image, a non-image artefact.
     await expect(video.execute({ prompt: 'x', reference_image: '../outside.png' }, execFor(session, 'call-out')))
-      .rejects.toThrow('reference_image must be an artefact id or a path inside the project')
+      .rejects.toThrow('reference_image must be "attached", an artefact id or a path inside the project')
     await expect(video.execute({ prompt: 'x', reference_image: '/etc/hosts.png' }, execFor(session, 'call-abs-out')))
       .rejects.toThrow('inside the project')
     await expect(video.execute({ prompt: 'x', reference_image: '.' }, execFor(session, 'call-dot')))
@@ -471,6 +471,78 @@ describe('@idealize/gen-tools composition', () => {
     await expect(video.execute({ prompt: 'x', reference_image: sound.artefacts[0]!.id }, execFor(session, 'call-audio-ref')))
       .rejects.toThrow('not an image')
     expect(seen).toHaveLength(4)
+  })
+
+  it('reads a picture the person attached in the chat when the reference says "attached"', async () => {
+    const { ctx, projectDir } = await loadComposition()
+    const seen: GenerationRequest[] = []
+    ctx.generation.register({
+      id: 'capture',
+      describe: () => [],
+      models: () => [{ id: 'capture-clip', name: 'capture-clip', artefact: 'video', inputModalities: ['text', 'image'], outputMediaTypes: ['video/mp4'] }],
+      generate: (request) => {
+        seen.push(request)
+        return Promise.resolve({
+          schemaVersion: GENERATION_SCHEMA_VERSION, backend: 'capture', model: 'capture-clip', artefact: 'video',
+          outputs: [{ mediaType: 'video/mp4', data: Buffer.from('MP4').toString('base64') }], timestamp: 1,
+        })
+      },
+    })
+    const stored = new Map([['att-1', 'FIRST'], ['att-2', 'SECOND']])
+    ;(ctx as unknown as { provide(name: string, value: unknown): void }).provide('attachments', {
+      readImage: (ref: { attachmentId: string; mediaType: string }) =>
+        Promise.resolve({ ref, data: new Uint8Array(Buffer.from(stored.get(ref.attachmentId) ?? '')) }),
+    })
+    const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
+    const video = toolNamed(ctx, 'generate_video')
+    expect((video.parameters as { properties: Record<string, { description: string }> }).properties['reference_image']?.description)
+      .toContain('"attached" for the picture the person attached')
+
+    // Nothing attached yet: refused, and the words say so.
+    await expect(video.execute({ prompt: 'x', reference_image: 'attached' }, execFor(session, 'call-none')))
+      .rejects.toThrow('nobody has attached one in this chat')
+
+    const picture = (id: string): unknown => ({ type: 'image', attachment: { attachmentId: id, mediaType: 'image/jpeg', bytes: 5, width: 1, height: 1 } })
+    session.append('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'animate these' }, picture('att-1'), picture('att-2')] } as never, { surfaceOp: 'append' })
+    await video.execute({ prompt: 'it moves', reference_image: 'attached' }, execFor(session, 'call-first'))
+    expect(seen[0]!.attachments).toEqual([{ mediaType: 'image/jpeg', data: Buffer.from('FIRST').toString('base64') }])
+    await video.execute({ prompt: 'it moves', reference_image: 'attached:2' }, execFor(session, 'call-second'))
+    expect(seen[1]!.attachments).toEqual([{ mediaType: 'image/jpeg', data: Buffer.from('SECOND').toString('base64') }])
+    await expect(video.execute({ prompt: 'x', reference_image: 'attached:3' }, execFor(session, 'call-third')))
+      .rejects.toThrow('asks for picture 3, and the latest message with pictures has 2')
+  })
+
+  it('moves a picture call off a model that cannot take one, and skips a service with no key', async () => {
+    const { ctx, projectDir } = await loadComposition()
+    const seen: string[] = []
+    const backend = (id: string, model: string, inputs: readonly ('text' | 'image')[], keyed = true): GenerationBackend => ({
+      id,
+      describe: () => [{ artefact: 'video', availability: keyed ? 'available' : 'no-credential' }] as never,
+      ...keyed ? {} : { credential: { label: id } as never },
+      models: () => [{ id: model, name: model, artefact: 'video', inputModalities: inputs, outputMediaTypes: ['video/mp4'] }],
+      generate: (request) => {
+        seen.push(`${id}/${request.model.model}:${String(request.attachments?.length ?? 0)}`)
+        return Promise.resolve({
+          schemaVersion: GENERATION_SCHEMA_VERSION, backend: id, model, artefact: 'video',
+          outputs: [{ mediaType: 'video/mp4', data: Buffer.from('MP4').toString('base64') }], timestamp: 1,
+        })
+      },
+    })
+    // A service with no key heads the catalogue; it must never be tried while a connected one can do the work.
+    ctx.generation.register(backend('nokey', 'locked', ['text', 'image'], false))
+    ctx.generation.register(backend('txt', 'prompt-only', ['text']))
+    ctx.generation.register(backend('pic', 'animator', ['text', 'image']))
+    ctx.settings.register(ACTIVITY_NS, sectionSchema, { base: { models: { motion: { provider: 'txt', model: 'prompt-only' } } } })
+    const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
+    const still = await toolNamed(ctx, 'generate_image').execute({ prompt: 'a kite' }, execFor(session, 'call-still')) as ForegroundValue
+    const video = toolNamed(ctx, 'generate_video')
+
+    const plain = await video.execute({ prompt: 'a kite' }, execFor(session, 'call-plain')) as ForegroundValue
+    expect(plain.model).toBe('prompt-only')
+    const moved = await video.execute({ prompt: 'it flies', reference_image: still.artefacts[0]!.id }, execFor(session, 'call-moved')) as ForegroundValue
+    expect(moved.model).toBe('animator')
+    expect(moved.notice).toBe('prompt-only can\'t start from a picture. Changed to animator, which can.')
+    expect(seen).toEqual(['txt/prompt-only:0', 'pic/animator:1'])
   })
 
   it('generate_video surfaces the BRN-09 unavailable state against the real images adapter', async () => {

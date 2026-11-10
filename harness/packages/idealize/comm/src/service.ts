@@ -15,6 +15,7 @@ import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ImageBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -269,12 +270,14 @@ function failure(error: string): CommResponse {
  * @param brief - the brief as the sender wrote it.
  * @param sender - the sending chat, undefined when the roster does not hold it (a subagent's shell).
  * @param senderId - the session the sender's key proved.
+ * @param pictures - pictures the person attached in the sending chat, carried so an image or video chat can start from them.
  * @returns the message to follow up with.
  */
 export function chatBriefMessage(
   brief: string,
   sender: { name?: string; label: string } | undefined,
   senderId: string | undefined,
+  pictures: readonly ImageBlock[] = [],
 ): ReturnType<typeof createUserMessage> {
   const label = (sender?.name ?? sender?.label ?? 'another chat').slice(0, 80)
   const source: ChatBriefSource = {
@@ -285,11 +288,15 @@ export function chatBriefMessage(
     senderLabel: label,
     brief,
   }
+  const carried = pictures.length === 0
+    ? ''
+    : `\n\nThe ${pictures.length === 1 ? 'picture' : `${String(pictures.length)} pictures`} the person attached in that chat ${pictures.length === 1 ? 'is' : 'are'} `
+      + 'attached here; pass reference_image "attached" (or "attached:2" and on) to start from one.'
   return createUserMessage({
     content: [{
       type: 'text',
-      text: `Another chat (${label}) started this chat with the brief below. The person did not write it. ${NOTE_AUTHORITY_RULE}\n\n${brief}`,
-    }],
+      text: `Another chat (${label}) started this chat with the brief below. The person did not write it. ${NOTE_AUTHORITY_RULE}\n\n${brief}${carried}`,
+    }, ...pictures],
     source,
   })
 }
@@ -1664,9 +1671,16 @@ export class IdealizeComm extends Service {
           body: brief,
         })
       }
+      // An image or video chat a chat starts can begin from the person's pictures in that chat: their latest
+      // message that carries any. Only the person's own: a brief that reached the sender stays where it was.
+      const latest = space === undefined || space === 'soundstage' || spaceById(space).composition !== 'media'
+        ? undefined
+        : me?.live?.session.events.findLast(event => event.type === 'user/message' && event.data.source.kind === 'user'
+          && event.data.content.some(block => block.type === 'image'))
+      const pictures = latest?.type === 'user/message' ? latest.data.content.filter((block): block is ImageBlock => block.type === 'image') : []
       // The app's own window starts a chat for the person, so that brief is theirs.
       agent.followup(caller.shell
-        ? chatBriefMessage(brief, me, request.from)
+        ? chatBriefMessage(brief, me, request.from, pictures)
         : createUserMessage({ content: [{ type: 'text', text: brief }], source: { kind: 'user' } }))
     }
     return { ok: true, info: String(sessionId) }

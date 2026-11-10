@@ -152,3 +152,39 @@ describe('rationale', () => {
     expect(decision.rationale.endsWith('.')).toBe(true)
   })
 })
+
+describe('a chat holding pictures its model cannot see', () => {
+  const flash: Candidate = { provider: 'deepseek', model: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', price: { input: 0.1, output: 0.4 }, images: false }
+  const vision: Candidate = { ...mini, provider: 'openrouter', model: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', price: 'free', images: true }
+
+  it('moves past every gate to a model that can see them, and says why', () => {
+    // A reading too unsure to move any other chat, on the strictest gates.
+    const unsure: TaskReading = { ...quick, confidence: 0.1 }
+    const decision = decide(situation({
+      current: flash, candidates: [flash, mini, free], reading: unsure, gates: PRESETS.conservative, hasImages: true, sinceLastSwitch: 1,
+    }))
+    expect(decision.switched).toBe(true)
+    expect(decision.sight).toBe(true)
+    expect(decision.use.model).toBe('openai/gpt-5.4-mini')
+    expect(decision.rationale).toBe('GPT-5.4 mini can see the pictures in this chat, and DeepSeek V4 Flash can\'t.')
+  })
+
+  it('keeps the person\'s free-only rule: a free model that sees moves, a paid one is offered', () => {
+    const freeOnly = decide(situation({
+      current: flash, candidates: [flash, mini, vision], reading: quick, preferFree: true, hasImages: true,
+    }))
+    expect(freeOnly.use.model).toBe('google/gemini-2.5-flash')
+    const offered = decide(situation({
+      current: flash, candidates: [flash, mini, free], reading: quick, preferFree: true, hasImages: true,
+    }))
+    expect(offered.switched).toBe(false)
+    expect(offered.stayed).toBe('needs-payment')
+    expect(offered.recommended?.model).toBe('openai/gpt-5.4-mini')
+  })
+
+  it('leaves a model that can see, or one the app knows nothing about, to the usual gates', () => {
+    expect(decide(situation({ current: mini, reading: { ...quick, confidence: 0.1 }, hasImages: true })).sight).toBeUndefined()
+    const unknown = { ...flash, images: undefined }
+    expect(decide(situation({ current: unknown, reading: { ...quick, confidence: 0.1 }, hasImages: true })).switched).toBe(false)
+  })
+})

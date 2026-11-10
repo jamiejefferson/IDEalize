@@ -28,6 +28,8 @@ export interface LogEntry {
   to: string
   switched: boolean
   stayed?: StayReason | undefined
+  /** The reply check offered `recommended` because the model said the work was beyond it. */
+  check?: 'said-cannot' | undefined
   recommended?: string | undefined
   improvement: number
   switchConfidence: number

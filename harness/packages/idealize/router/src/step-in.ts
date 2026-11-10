@@ -35,6 +35,7 @@ const CANNOT_ANSWER: Readonly<Record<string, string>> = {
   QUOTA: 'has run out of credit',
   RATE_LIMIT: 'stayed busy through its retries',
   SERVER: 'kept returning server errors',
+  UNSUPPORTED_CONTENT: "can't see the pictures in this chat",
 }
 
 /**
@@ -71,6 +72,8 @@ export interface StepInInput {
   hasImages: boolean
   /** No model has answered in this chat yet, so it holds no history for a company to receive. */
   nothingSent?: boolean | undefined
+  /** The choice is only ever offered, so the best model at any company is the one to name. */
+  offerOnly?: boolean | undefined
   table?: readonly ScoreRow[] | undefined
   standingOf?: ((candidate: Candidate) => Standing) | undefined
 }
@@ -131,6 +134,7 @@ const companyOf = (route: { provider: string; model: string }): string => {
  * model has to share an account or a company with a model the chat has already been sent to.
  */
 const movesFreely = (input: StepInInput, candidate: Candidate): boolean => {
+  if (input.offerOnly === true) return true
   if (input.failed.provider === FREE_PROVIDER && input.code === 'MISSING_CREDENTIAL') return true
   if (input.nothingSent === true && (input.code === 'MISSING_CREDENTIAL' || input.code === 'NO_ADAPTER')) return true
   return [input.failed, ...input.tried].some(model =>

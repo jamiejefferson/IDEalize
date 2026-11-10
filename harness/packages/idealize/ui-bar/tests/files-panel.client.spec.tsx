@@ -13,8 +13,8 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { en } from '../src/client/locales.ts'
 import {
-  currentProjectDocs, currentProjectRoots, DEFAULT_FILE_SORT, FilesPanel, isValidEntryName, opensInApp, projectDocsRoots, readFileSort,
-  revealAncestors, sortEntries, viewOf,
+  currentProjectDocs, currentProjectRoots, DEFAULT_FILE_SORT, FILES_POLL_MS, FilesPanel, isValidEntryName, opensInApp, projectDocsRoots,
+  readFileSort, revealAncestors, sortEntries, viewOf,
 } from '../src/client/FilesPanel.tsx'
 // Type-only: the locale-namespace merge the props type reads.
 import type {} from '../src/client/index.ts'
@@ -961,6 +961,72 @@ describe('FilesPanel', () => {
     })
     expect(fetchCalls.filter(call => call.url === '/idealize/bar/move').at(-1)?.body)
       .toEqual({ path: '/w/proj/src/inner.md', parent: '/w/proj' })
+  })
+
+  it('re-lists both folders after a move, so the file leaves one and shows in the other', async () => {
+    let moved = false
+    const { view } = mount({}, {
+      listing: path => jsonResponse({
+        path,
+        entries: path === '/w/proj'
+          ? (moved ? [{ name: 'src', kind: 'dir' }] : [{ name: 'src', kind: 'dir' }, { name: 'notes.md', kind: 'file' }])
+          : (moved ? [{ name: 'notes.md', kind: 'file' }] : []),
+      }),
+      operate: () => {
+        moved = true
+        return jsonResponse({ ok: true })
+      },
+    })
+    await view.findByText('notes.md')
+    const folderButton = view.getByRole('button', { name: 'src' })
+    fireEvent.click(folderButton)
+    const folderRow = folderButton.closest('[data-path]')!
+    fireEvent.drop(folderRow, { dataTransfer: transferOf('/w/proj/notes.md') })
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-path="/w/proj/src/notes.md"]')).not.toBeNull()
+      expect(view.container.querySelector('[data-path="/w/proj/notes.md"]')).toBeNull()
+    })
+  })
+
+  it('shows a file moved outside the pane when the window comes back (JJ, 9 Nov 2026)', async () => {
+    let movedElsewhere = false
+    const { view } = mount({}, {
+      listing: path => jsonResponse({
+        path,
+        entries: path === '/w/proj' && movedElsewhere ? [{ name: 'GFX', kind: 'dir' }] : [{ name: 'IMG_3441.jpg', kind: 'file' }],
+      }),
+    })
+    await view.findByText('IMG_3441.jpg')
+    movedElsewhere = true
+    fireEvent.focus(window)
+    await view.findByRole('button', { name: 'GFX' })
+    expect(view.container.querySelector('[data-path="/w/proj/IMG_3441.jpg"]')).toBeNull()
+  })
+
+  it('re-lists its loaded folders on a short poll, so a chat\'s changes show without Refresh', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let added = false
+      const { view } = mount({}, {
+        listing: path => jsonResponse({
+          path,
+          entries: path === '/w/proj' && added
+            ? [{ name: 'notes.md', kind: 'file' }, { name: 'made-by-a-chat.md', kind: 'file' }]
+            : [{ name: 'notes.md', kind: 'file' }],
+        }),
+      })
+      await view.findByText('notes.md')
+      const listings = (): number => fetchCalls.filter(call => call.url === '/idealize/bar/files?path=%2Fw%2Fproj').length
+      const before = listings()
+      vi.advanceTimersByTime(FILES_POLL_MS)
+      await waitFor(() => { expect(listings()).toBeGreaterThan(before) })
+      expect(view.queryByText('made-by-a-chat.md')).toBeNull()
+      added = true
+      vi.advanceTimersByTime(FILES_POLL_MS)
+      await view.findByText('made-by-a-chat.md')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('opens the root folder menu from a right-click on the tree background', async () => {

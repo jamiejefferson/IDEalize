@@ -95,7 +95,7 @@ export async function routeTurn(input: TurnInput, deps: TurnDeps): Promise<TurnR
   let decision = decide(situation)
   // A turn never waits on the router past Jev's limit, and never moves on a guess: when Jev was asked and gave
   // no reading (no key, a timeout, an error), the chat keeps its model. The keyword rules only fill the log.
-  if (deps.askJev !== undefined && jev?.reading === undefined) {
+  if (deps.askJev !== undefined && jev?.reading === undefined && decision.sight !== true) {
     const { recommended: _unused, ...rest } = decision
     decision = { ...rest, use: from, switched: false, stayed: 'jev-unavailable', rationale: `${from.label} stays: the message was not read.` }
   }

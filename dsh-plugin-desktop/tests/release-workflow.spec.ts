@@ -54,13 +54,10 @@ describe('release workflow', () => {
     expect(release).not.toContain("if: env.IDEALIZE_MAC_SIGN_IDENTITY != ''")
   })
 
-  it('keeps Windows publishing on the same release, with no certificate in reach', () => {
-    const windows = jobs['release-windows']
-    expect(windows?.permissions).toEqual({ contents: 'write' })
-    expect(windows && jobNeedingCertificate(windows)).toBe(false)
-    const publishStep = windows?.steps.find(step => step.uses?.startsWith('softprops/action-gh-release@')) as { with?: Record<string, unknown> } | undefined
-    expect(publishStep?.with).toEqual(expect.objectContaining({ files: 'release-assets/*', prerelease: true }))
-    expect(windows?.steps.some(step => step.run === 'yarn dist:win')).toBe(true)
+  it('builds and publishes macOS only, because the PC team ships Windows from its own fork', () => {
+    // JJ, 6 Nov 2026: Windows installs move to the PC team's version.
+    expect(Object.keys(jobs).sort()).toEqual(['build-macos', 'publish-macos'])
+    expect(release).not.toContain('dist:win')
   })
 
   it('grants nothing by default', () => {

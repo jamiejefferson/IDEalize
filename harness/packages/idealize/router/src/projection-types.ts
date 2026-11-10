@@ -21,7 +21,7 @@ export interface RouterEventData {
   from: RoutedModel
   to: RoutedModel
   /** Why an offer was not taken by the router itself. */
-  reason?: Extract<StayReason, 'needs-payment' | 'loses-context' | 'other-company'> | undefined
+  reason?: Extract<StayReason, 'needs-payment' | 'loses-context' | 'other-company'> | 'said-cannot' | undefined
   task?: TaskType | undefined
   rationale?: string | undefined
   /** Gain in weighted score, 0 to 1. */

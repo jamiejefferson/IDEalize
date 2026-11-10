@@ -84,6 +84,7 @@ import type { Aggressiveness, Candidate, Weights } from './decide.ts'
 import { askJev, isLocalModelRoute, jevAddress, JEV_TIMEOUT_MS, JEV_URL, requestFor } from './jev.ts'
 import type { JevFailure } from './jev.ts'
 import { appendLog, entryFor, readLog } from './log.ts'
+import { checkReply, saidItCannot } from './reply-check.ts'
 import { foldLocked, foldRouted, routerProjectionDefinition } from './projection.ts'
 import {
   decideMedia, hasStarsFor, MEDIA_CONFIDENCE, mediaAlternativesFor, mediaCost, mediaTagFor, PRESET_KIND, readableTags, readPrompt,
@@ -161,6 +162,8 @@ export interface RouterConfig {
   jevUrl?: string
   /** The longest a turn waits on Jev, in milliseconds. */
   jevTimeoutMs?: number
+  /** Off: a finished reply is not read, so a model that says the work is beyond it gets no offer of another. */
+  replyCheck?: boolean
 }
 
 export const Config: z<RouterConfig> = z.object({
@@ -178,6 +181,7 @@ export const Config: z<RouterConfig> = z.object({
   })).default({}),
   jevUrl: z.string().default(JEV_URL),
   jevTimeoutMs: z.natural().default(JEV_TIMEOUT_MS),
+  replyCheck: z.boolean().default(true),
 })
 
 /** The subscription sign-in service's face, as far as this plugin reads it. */
@@ -589,6 +593,11 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
             if (isFreeEmpty()) cause = { code: 'MISSING_CREDENTIAL', message: 'the free-tokens engine holds no usable key' }
           } else if (!routeCtx.llm.listProviders().some(provider => provider.id === resolved.provider)) {
             cause = { code: 'NO_ADAPTER', message: `nothing serves the route ${resolved.provider}` }
+          } else if (!routable(agent) && agent.session.events.some(event => event.type === 'user/message' && event.data.content.some(block => block.type === 'image'))) {
+            // A chat holding pictures on a model stated to take none would fail or answer blind. Ordinary routing moves
+            // a chat that holds them (decide's sight rule); an image, sound or video chat, which it leaves alone, moves here.
+            const here = (await usable()).find(candidate => sameModel(candidate, resolved))
+            if (here?.images === false) cause = { code: 'UNSUPPORTED_CONTENT', message: `${here.label} takes no pictures` }
           }
           if (cause !== undefined) {
             const start: RoutedTurn = { turn, use: resolved, resolved, fellBack: false }
@@ -686,6 +695,80 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         return action
       }
     }, { prepend: true })
+
+    /** The text of a message's content, pictures and tool calls left out. */
+    const textOf = (content: ReadonlyArray<{ type: string; text?: string }>): string =>
+      content.map(block => (block.type === 'text' ? block.text ?? '' : '')).join('\n').trim()
+
+    /**
+     * Read a finished turn, and offer another model when the chat's model said the work was beyond it. Runs after the
+     * turn has ended and never holds it up; an offer arrives only while the person has not written again.
+     */
+    const checkReplyOf = async (agent: Agent, turn: number): Promise<void> => {
+      const settings = current()
+      const routed = routedTurns.get(agent)
+      if (settings.useJev === false || settings.replyCheck === false || !rescuable(agent)) return
+      // A model on this computer keeps the chat on it; its reply does not leave it either.
+      if (routed?.turn !== turn || localRoute(routed.use.provider)) return
+      const events = agent.session.events
+      const reply = events.findLast(event => event.type === 'assistant/message' && event.data.turn === turn)
+      const asked = events.findLast(event => event.type === 'user/message'
+        && (event.data.source.kind === 'user' || (event.data.source.kind as string) === 'chat-brief'))
+      if (reply?.type !== 'assistant/message' || asked?.type !== 'user/message') return
+      const replyText = textOf(reply.data.message.content)
+      const brief = (asked.data.source as { brief?: unknown }).brief
+      const askText = typeof brief === 'string' ? brief : textOf(asked.data.content)
+      if (replyText === '' || askText === '') return
+      const key = await openRouterKey()
+      if (key === undefined) return
+      const seen = events.length
+      const check = await checkReply(askText, replyText, { key, url: jevAddress(settings.jevUrl) })
+      if (!saidItCannot(check)) return
+      // The person wrote again while Jev read, so the offer would answer a turn that has moved on.
+      if (agent.session.events.slice(seen).some(event => event.type === 'user/message')) return
+      const session = String(agent.session.header.id)
+      const record = foldBrainRecord(events)
+      const read = readings.get(session)
+      const reading = read?.turn === turn ? read.reading : readLocally(askText, record?.brain)
+      const file = await currentRatings()
+      const failed = routed.use
+      const choice = await chooseStandIn({
+        failed,
+        code: 'SAID_CANNOT',
+        tried: [],
+        candidates: await usable(),
+        reading,
+        weights: criteria(record?.brain).weights,
+        preferFree: settings.preferFree ?? true,
+        contextTokens: contextTokensOf(events),
+        hasImages: events.some(event => event.type === 'user/message' && event.data.content.some(block => block.type === 'image')),
+        offerOnly: true,
+        table: await scoreTable(home),
+        standingOf: candidate => standing(file, { kind: 'chat', model: candidate.model }, TASK_TAG[reading.task]),
+      }, async candidate => (await routeCtx.llm.resolveModelInfo(candidate.provider, candidate.model)).context?.contextWindow)
+      if (choice.kind === 'none') return
+      const at = new Date().toISOString()
+      const fromLabel = await labelOf(failed)
+      const to = { provider: choice.to.provider, model: choice.to.model, label: choice.to.label }
+      const rationale = `${fromLabel} said it couldn't do this.`
+      agent.session.append('idealize/router', {
+        outcome: 'offer', at, from: { ...failed, label: fromLabel }, to, task: reading.task, reason: 'said-cannot',
+        ...settings.showRationale === false ? {} : { rationale },
+      }, { ignorable: true })
+      void appendLog(home, {
+        at, session, brain: record?.brain, reading, from: routeKey(failed), to: routeKey(failed), switched: false,
+        check: 'said-cannot', recommended: routeKey(choice.to), improvement: 0,
+        switchConfidence: Number((check.confidence ?? 0).toFixed(3)), rationale,
+        ...check.cost === undefined ? {} : { jevCost: check.cost }, jevMs: check.ms,
+      })
+    }
+
+    // A turn that ended normally is read once it has ended, so the person never waits on the check.
+    routeCtx.on('agent/turn-stopping', ({ agent, turn }) => {
+      void checkReplyOf(agent, turn).catch((error: unknown) => {
+        routeCtx.logger.warn(`idealize-router: the reply check failed, the chat carries on: ${String(error)}`)
+      })
+    })
 
     // The generating spaces: a generation moves to the model the person rated highest for the work its prompt asks
     // for, or stays on the stored choice. With no stars for the kind, nothing is read and nothing moves (JJ, 28 Oct 2026).

@@ -165,7 +165,8 @@ const OPTIONS_PARAMETER: ParameterPropertySpec = {
  */
 const REFERENCE_IMAGE_PARAMETER: ParameterPropertySpec = {
   type: 'string',
-  description: 'Optional reference image the generation starts from: an artefact id from a previous generation '
+  description: 'Optional reference image the generation starts from: "attached" for the picture the person attached '
+    + 'to their latest message in this chat ("attached:2" for its second picture), an artefact id from a previous generation '
     + '(any chat of this project), or a path under the project such as "Images/2026-09-08_ab12cd34.png". '
     + 'A video model animates it as the first frame; an image model uses it as the source picture.',
 }
@@ -231,9 +232,51 @@ const IMAGE_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
   '.gif': 'image/gif',
 }
 
+/** The attachment store's face, as far as a reference reads it. */
+interface AttachmentsFace {
+  readImage(ref: never, signal?: AbortSignal): Promise<{ data: Uint8Array; ref: { mediaType: string } }>
+}
+
+/** `attached` or `attached:N`: a picture the person attached in this chat. */
+const ATTACHED = /^attached(?::(\d+))?$/i
+
+/**
+ * The picture a person attached in this chat: their latest message that
+ * carries pictures (or a brief from another chat), and the Nth picture in it.
+ * Attachments live in the app's own store under an opaque id, so the chat's
+ * model sees the picture but has no path or artefact id to name it by.
+ * @param ctx - the plugin context, for the attachment store.
+ * @param toolName - the calling tool, for the refusal.
+ * @param session - the chat whose messages are read.
+ * @param reference - `attached` or `attached:N`, N counted from 1.
+ * @returns the attachment, base64 encoded.
+ * @throws when the chat has no attached picture, N is past the last one, or the store is not mounted.
+ */
+async function attachedImage(
+  ctx: Context, toolName: string, session: Pick<Session, 'events'>, reference: string,
+): Promise<GenAttachment> {
+  const index = Number(ATTACHED.exec(reference)?.[1] ?? '1')
+  const message = session.events.findLast(event => event.type === 'user/message'
+    && (event.data.source.kind === 'user' || (event.data.source.kind as string) === 'chat-brief')
+    && event.data.content.some(block => block.type === 'image'))
+  if (message?.type !== 'user/message') {
+    throw new Error(`${toolName}: reference_image "${reference}" names an attached picture, and nobody has attached one in this chat`)
+  }
+  const pictures = message.data.content.filter(block => block.type === 'image')
+  const picture = pictures[index - 1]
+  if (index < 1 || picture === undefined) {
+    throw new Error(`${toolName}: reference_image "${reference}" asks for picture ${String(index)}, and the latest message with pictures has ${String(pictures.length)}`)
+  }
+  const store = (ctx as unknown as { get(service: string): unknown }).get('attachments') as AttachmentsFace | undefined
+  if (store === undefined) throw new Error(`${toolName}: attached pictures can't be read right now; save the picture into the project and pass its path`)
+  const stored = await store.readImage(picture.attachment as never)
+  return { mediaType: stored.ref.mediaType, data: Buffer.from(stored.data).toString('base64') }
+}
+
 /**
  * Resolve a `reference_image` argument to the bytes a generation request
- * attaches: an artefact id names a stored image through `ctx.artefacts`; any
+ * attaches: `attached` names a picture the person attached in this chat; an
+ * artefact id names a stored image through `ctx.artefacts`; any
  * other value is a path under `projectPath`, and one that resolves outside it
  * is refused rather than read. The model produced the value, so every step
  * is checked.
@@ -241,12 +284,14 @@ const IMAGE_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
  * @param toolName - the calling tool, for the refusal.
  * @param reference - the argument as the model sent it.
  * @param projectPath - the project the path form is fenced to.
+ * @param session - the chat, whose attached pictures the `attached` form reads.
  * @returns the attachment, base64 encoded.
  * @throws when the id is unknown or not an image, the path leaves the project, the file is missing, or its type is not an image.
  */
 export async function resolveReferenceImage(
-  ctx: Context, toolName: string, reference: string, projectPath: string,
+  ctx: Context, toolName: string, reference: string, projectPath: string, session?: Pick<Session, 'events'>,
 ): Promise<GenAttachment> {
+  if (session !== undefined && ATTACHED.test(reference.trim())) return attachedImage(ctx, toolName, session, reference.trim())
   const record = ctx.artefacts.get(ArtefactId(reference))
   if (record !== undefined) {
     if (!record.mediaType.startsWith('image/')) {
@@ -271,7 +316,7 @@ export async function resolveReferenceImage(
     // Swallows the missing-file error: `real` stays undefined and readFile below names the failure.
   }
   if (real === undefined ? escapes(projectPath, absolute) : escapes(await realpath(projectPath), real)) {
-    throw new Error(`${toolName}: reference_image must be an artefact id or a path inside the project; ${reference} is neither`)
+    throw new Error(`${toolName}: reference_image must be "attached", an artefact id or a path inside the project; ${reference} is none of these`)
   }
   const mediaType = IMAGE_TYPES_BY_EXTENSION[extname(absolute).toLowerCase()]
   if (mediaType === undefined) {
@@ -422,15 +467,23 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
         // where a picture came from.
         const reference = args.reference_image === undefined || args.reference_image === ''
           ? undefined
-          : await resolveReferenceImage(ctx, spec.toolName, args.reference_image, workspace.path)
+          : await resolveReferenceImage(ctx, spec.toolName, args.reference_image, workspace.path, session)
         const recorded: JsonValue = reference === undefined ? settings : { ...settings, reference_image: args.reference_image ?? '' }
-        const candidates: GenCatalogEntry[] = ctx.generation.compatible(preset.requiredCapabilities)
+        // A service with no key stored still publishes its catalogue, and a
+        // model there fails before it starts; the connected ones go first, and
+        // only when none can do the work does the full list stay, so the
+        // refusal names the missing key.
+        const compatible: GenCatalogEntry[] = ctx.generation.compatible(preset.requiredCapabilities)
+        const unkeyed = new Set(ctx.generation.credentials().filter(row => !row.connected).map(row => row.backend))
         // A model that starts from a picture (image-to-image, image-to-video)
-        // cannot run on a prompt alone; it is passed over when the call
-        // carries no reference image.
+        // cannot run on a prompt alone, and a prompt-only model would drop the
+        // picture a call carries; each is passed over for the other's call.
         const provided: GenModality[] = reference === undefined ? ['text'] : ['text', 'image']
         const runnable = (candidate: GenCatalogEntry): boolean =>
           (candidate.model.requiredInputs ?? []).every(modality => provided.includes(modality))
+          && (reference === undefined || candidate.model.inputModalities.includes('image'))
+        const keyed = compatible.filter(entry => !unkeyed.has(entry.backend))
+        const candidates: GenCatalogEntry[] = keyed.some(runnable) ? keyed : compatible
         const first = candidates.find(runnable)
         if (first === undefined) {
           const availability = ctx.generation.availability(preset.requiredCapabilities)
@@ -461,12 +514,16 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
           if (pool.length === 0) return undefined
           return await ctx.waterfall('generation/replace-model', { session, presetId: preset.id, failed, candidates: pool }, () => Promise.resolve(closestModel(failed, pool)))
         }
-        // A model that needs a picture the call does not carry is swapped before anything is sent.
+        // A model that needs a picture the call does not carry, or cannot take
+        // the picture it does carry, is swapped before anything is sent.
         const needsPicture = storedEntry !== undefined && !runnable(storedEntry) ? storedEntry : undefined
         const instead = needsPicture === undefined ? undefined : await replacement(needsPicture, candidates.filter(runnable))
         if (needsPicture !== undefined && instead === undefined) {
-          throw new Error(`${spec.toolName}: ${needsPicture.model.name} starts from a picture; pass reference_image, `
-            + 'or ask the person to choose a model that starts from a prompt under Brains')
+          throw new Error(reference === undefined
+            ? `${spec.toolName}: ${needsPicture.model.name} starts from a picture; pass reference_image, `
+              + 'or ask the person to choose a model that starts from a prompt under Brains'
+            : `${spec.toolName}: no connected ${spec.artefact} model can start from a picture; `
+              + 'ask the person to connect one under Brains, or generate from the prompt alone')
         }
         const fallback = instead ?? storedEntry ?? first
         // The router may move this one call to a model the person rated for the work the prompt asks for.
@@ -484,9 +541,13 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
         const entry = choice.candidates.find(one => one.backend === offered.backend && one.model.id === offered.model.id) ?? fallback
         if (needsPicture !== undefined) {
           // A family's picture and prompt models can share one name, so "changed to X" alone would read as no change.
-          moved(needsPicture, entry, needsPicture.model.name === entry.model.name
-            ? `The picture version of ${entry.model.name} needs a starting picture, and this has none. Changed to its prompt version.`
-            : `${needsPicture.model.name} needs a starting picture, and this has none. Changed to ${entry.model.name}, which starts from a prompt.`)
+          moved(needsPicture, entry, reference !== undefined
+            ? (needsPicture.model.name === entry.model.name
+              ? `The prompt version of ${entry.model.name} can't start from a picture. Changed to its picture version.`
+              : `${needsPicture.model.name} can't start from a picture. Changed to ${entry.model.name}, which can.`)
+            : needsPicture.model.name === entry.model.name
+              ? `The picture version of ${entry.model.name} needs a starting picture, and this has none. Changed to its prompt version.`
+              : `${needsPicture.model.name} needs a starting picture, and this has none. Changed to ${entry.model.name}, which starts from a prompt.`)
         }
         let notice: string | undefined
         if (stored !== null && storedEntry === undefined) {

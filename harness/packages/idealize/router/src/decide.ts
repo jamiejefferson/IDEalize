@@ -192,6 +192,11 @@ export interface Decision {
   gates: { throttle: boolean; confidence: boolean; improvement: boolean }
   rationale: string
   scored: Scored[]
+  /**
+   * The chat holds pictures its model cannot see, so the move is a need, not a
+   * preference: no gate holds it back, and an unread message still moves.
+   */
+  sight?: true
 }
 
 /** The rationale's second clause names the one axis besides fit that moved most. */
@@ -256,6 +261,23 @@ export function decide(situation: Situation): Decision {
     rationale: recommended === undefined ? `${from.label} suits this.` : rationaleFor(recommended, from, reading),
   })
 
+  // A model that cannot take pictures, in a chat that holds them, answers blind.
+  // Any connected model that can see them beats it, whatever the gates say;
+  // the person's own limits (free only, one star, a window too small) still hold.
+  if (situation.hasImages && current.images === false) {
+    const sighted = eligible.filter(candidate => situation.candidates.some(one => same(one, candidate) && one.images === true))
+    const fits = sighted.filter(candidate => !losesContext(candidate, situation.contextTokens))
+    const pick = situation.preferFree ? fits.find(candidate => candidate.price === 'free') : fits[0]
+    if (pick !== undefined) {
+      return {
+        ...base, use: pick, switched: true, recommended: pick, sight: true,
+        improvement: Math.max(0, pick.total - from.total),
+        rationale: `${pick.label} can see the pictures in this chat, and ${from.label} can't.`,
+      }
+    }
+    const offer = sighted[0]
+    if (offer !== undefined) return stay(losesContext(offer, situation.contextTokens) ? 'loses-context' : 'needs-payment', offer)
+  }
   if (best === undefined || best.total <= from.total) return stay('no-recommendation')
   if (!passed.throttle) return stay('throttle-failed', best)
   if (!passed.confidence) return stay('confidence-gate-failed', best)

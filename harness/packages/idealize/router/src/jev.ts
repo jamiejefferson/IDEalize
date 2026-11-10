@@ -142,14 +142,20 @@ export interface AskOptions {
   now?: () => number
 }
 
+/** What one call to Jev came back with: its answers, or the reason there are none. */
+export interface JevCall {
+  body?: JevResponse
+  failure?: Exclude<JevFailure, 'unreadable'>
+  ms: number
+}
+
 /**
- * Ask Jev about one message. Never throws: every failure comes back named, so
- * the caller falls to the local rules and the settings can say why.
- * @param request - the body from {@link requestFor}.
+ * Send one request to Jev. Never throws: every failure comes back named.
+ * @param request - the body to post.
  * @param options - the user's OpenRouter key and the transport.
- * @returns the reading or the failure, with the time the call took.
+ * @returns the parsed answers or the failure, with the time the call took.
  */
-export async function askJev(request: JevRequest, options: AskOptions): Promise<JevResult> {
+export async function postJev(request: JevRequest, options: AskOptions): Promise<JevCall> {
   const now = options.now ?? Date.now
   const started = now()
   if (options.key === undefined || options.key.trim() === '') return { failure: 'no-key', ms: 0 }
@@ -177,12 +183,33 @@ export async function askJev(request: JevRequest, options: AskOptions): Promise<
   if (response.status === 429) return { failure: 'rate-limited', ms }
   if (!response.ok) return { failure: 'unreachable', ms }
   const body = await response.json().catch(() => null) as JevResponse | null
-  const reading = body === null ? undefined : readingFrom(body)
-  if (reading === undefined) return { failure: 'unreadable', ms }
+  return body === null ? { ms } : { body, ms }
+}
+
+/**
+ * What OpenRouter charged and how much Jev read, when the reply says.
+ * @param body - the parsed reply.
+ * @returns the cost and input tokens that are present.
+ */
+export function usageOf(body: JevResponse | undefined): { cost?: number; inputTokens?: number } {
   const cost = Number(body?.usage?.cost)
   return {
-    reading, ms,
     ...Number.isFinite(cost) && cost >= 0 ? { cost } : {},
     ...typeof body?.usage?.input_tokens === 'number' ? { inputTokens: body.usage.input_tokens } : {},
   }
+}
+
+/**
+ * Ask Jev about one message. Never throws: every failure comes back named, so
+ * the caller falls to the local rules and the settings can say why.
+ * @param request - the body from {@link requestFor}.
+ * @param options - the user's OpenRouter key and the transport.
+ * @returns the reading or the failure, with the time the call took.
+ */
+export async function askJev(request: JevRequest, options: AskOptions): Promise<JevResult> {
+  const call = await postJev(request, options)
+  if (call.failure !== undefined) return { failure: call.failure, ms: call.ms }
+  const reading = call.body === undefined ? undefined : readingFrom(call.body)
+  if (reading === undefined) return { failure: 'unreadable', ms: call.ms }
+  return { reading, ms: call.ms, ...usageOf(call.body) }
 }
