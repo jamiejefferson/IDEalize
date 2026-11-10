@@ -29,7 +29,8 @@ export type PriceTable = Readonly<Record<string, Readonly<Record<string, { input
  */
 function priceOf(route: ConnectedRoute, model: string, prices: PriceTable): Price {
   if (route.auth !== 'apiKey') return 'free'
-  const listed = prices[route.provider]?.[model]
+  // A key gateway's route charges what the company it fronts lists.
+  const listed = prices[route.provider]?.[model] ?? prices[route.provider.replace(/^gateway-/u, '')]?.[model]
   if (listed === undefined) return undefined
   return listed.input === 0 && listed.output === 0 ? 'free' : { input: listed.input, output: listed.output }
 }

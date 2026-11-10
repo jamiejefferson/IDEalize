@@ -52,6 +52,20 @@ describe('routing a turn', () => {
     expect(result.events[0]).toMatchObject({ outcome: 'switched', rationale: 'GPT-5.4 mini can see the pictures in this chat, and Free tokens can\'t.' })
   })
 
+  it('moves a chat onto the key gateway even when Jev does not answer', async () => {
+    const viaMini: Candidate = { ...mini, provider: 'gateway-openrouter', label: 'GPT-5.4 mini via gateway' }
+    const silent = { ...noWindow, askJev: () => Promise.resolve({ failure: 'timeout' as const, ms: 1500 }) }
+    const result = await routeTurn(input({ candidates: [mini, opus, free, viaMini] }), silent)
+    expect(result.use).toEqual({ provider: 'gateway-openrouter', model: 'openai/gpt-5.4-mini' })
+    expect(result.events[0]).toMatchObject({ outcome: 'switched', rationale: "GPT-5.4 mini via gateway runs through your organisation's key gateway." })
+  })
+
+  it('prices a gateway model as the company it fronts lists it', () => {
+    const route = { provider: 'gateway-anthropic', auth: 'apiKey' as const, models: [{ id: 'claude-sonnet-5' }] }
+    const list = candidatesFrom([route], { anthropic: { 'claude-sonnet-5': { input: 3, output: 15 } } })
+    expect(list[0]?.price).toEqual({ input: 3, output: 15 })
+  })
+
   it('routes on the keyword rules only when Jev is switched off in config', async () => {
     const result = await routeTurn(input({}), noWindow)
     expect(result.reading.source).toBe('rules')

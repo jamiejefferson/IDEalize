@@ -114,6 +114,19 @@ describe('confirming a keys file', () => {
     expect(request).not.toHaveBeenCalled()
   })
 
+  it('shows where a gateway in the file would send the work, and which gateway it replaces', async () => {
+    const file = JSON.stringify({ format: 1, credentials: { GATEWAY_URL: 'https://gateway.test', GATEWAY_API_KEY: 'gw-secret', FAL_KEY: 'fal-secret' } })
+    const { options, ask } = harness(false, async () => file)
+    await confirmAndImportKeysFile({ ...options, currentGateway: async () => 'https://old.test' })
+    const question = (ask.mock.calls as unknown as [{ detail: string }][])[0]?.[0]
+    expect(question?.detail).toContain('Key gateway at gateway.test (https://gateway.test)')
+    expect(question?.detail).toContain('its replies direct what your agents do on this Mac')
+    expect(question?.detail).toContain('This replaces the gateway you have connected now, at old.test.')
+    expect(question?.detail).toContain('fal: adds a new key')
+    expect(question?.detail).not.toContain('GATEWAY_URL')
+    expect(question?.detail).not.toContain('gw-secret')
+  })
+
   it('names each service, says which key it replaces and never shows a key', async () => {
     const { options, ask } = harness(false)
     await confirmAndImportKeysFile(options)

@@ -414,9 +414,10 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       const routes = await connectedRoutes()
       const user = (routeCtx.settings.get(MODELS_NS) as { tokenPrices?: TokenPriceTable } | undefined)?.tokenPrices ?? {}
       const shipped: TokenPriceTable = {}
-      for (const route of routes) {
-        const prices = shippedTokenPrices(route.provider)
-        if (prices !== undefined) shipped[route.provider] = prices
+      // A key gateway's route reads the prices of the company it fronts.
+      for (const provider of new Set(routes.flatMap(route => [route.provider, route.provider.replace(/^gateway-/u, '')]))) {
+        const prices = shippedTokenPrices(provider)
+        if (prices !== undefined) shipped[provider] = prices
       }
       const prices = effectivePrices(user, readOpenRouterPriceCache(home)?.prices, shipped)
       cached = { at: Date.now(), candidates: candidatesFrom(routes, prices) }

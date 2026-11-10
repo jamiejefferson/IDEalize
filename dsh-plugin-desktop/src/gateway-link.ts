@@ -8,7 +8,7 @@
  */
 
 import type { ConnectGatewayRequest } from './idealize-url.ts'
-import { importKeysFile, type KeysFileImport, type KeysFileOutcome } from './keys-file.ts'
+import { hostGateway, importKeysFile, type KeysFileImport, type KeysFileOutcome } from './keys-file.ts'
 import { gatewayLinkQuestion, type AskConfirmation } from './open-confirmation.ts'
 
 /** How long the code exchange may take before the app stops waiting. */
@@ -25,7 +25,14 @@ export interface GatewayLinkConnect {
   /** This launch's token, which the Host's launch gate requires of the main process. */
   launchKey?: string
   /** Reach the gateway; Electron's `net.fetch` in the app, a stub in tests. */
-  fetchGateway: (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{
+  fetchGateway: (url: string, init: {
+    method: string
+    headers: Record<string, string>
+    body: string
+    credentials: 'omit'
+    redirect: 'error'
+    signal?: AbortSignal
+  }) => Promise<{
     ok: boolean
     status: number
     json: () => Promise<unknown>
@@ -51,13 +58,17 @@ function refusalWords(body: unknown): string | undefined {
  */
 export async function connectGatewayLink(options: GatewayLinkConnect): Promise<KeysFileOutcome | undefined> {
   const { address, code } = options.link
-  if (!await options.ask(gatewayLinkQuestion(address))) return undefined
+  if (!await options.ask(gatewayLinkQuestion(address, await hostGateway(options)))) return undefined
   let response: Awaited<ReturnType<GatewayLinkConnect['fetchGateway']>>
   try {
     response = await options.fetchGateway(`${address}/v1/pair`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({ code }),
+      // The app's session holds the cookie that opens its own local server. This request goes to an address a link
+      // chose, so it carries no cookies and follows no redirect to somewhere the person was never shown.
+      credentials: 'omit',
+      redirect: 'error',
       signal: AbortSignal.timeout(PAIR_TIMEOUT_MS),
     })
   } catch {

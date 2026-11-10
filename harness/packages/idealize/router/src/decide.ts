@@ -4,6 +4,8 @@
  * Pure. Jev (or the local rules) supplies the reading; the arithmetic lives
  * here because a decision model compares numbers unreliably, and because a
  * rationale the user can check has to come from figures the app holds.
+ * A connected key gateway comes first: a chat moves onto it and then only
+ * between its models, and the direct keys answer a turn the gateway fails.
  */
 
 import type { Standing, Stars } from './ratings.ts'
@@ -70,6 +72,17 @@ export interface Scored extends Candidate {
 
 const same = (a: { provider: string; model: string }, b: { provider: string; model: string }): boolean =>
   a.provider === b.provider && a.model === b.model
+
+/** Every route a key gateway adds starts with this, as `@idealize/services` names them. */
+export const GATEWAY_PREFIX = 'gateway-'
+
+/**
+ * Whether a model runs through the person's key gateway. The organisation behind the gateway pays for it,
+ * so a gateway model never asks the person to start spending.
+ * @param model - the model's route.
+ * @returns true for a gateway route.
+ */
+export const viaGateway = (model: { provider: string }): boolean => model.provider.startsWith(GATEWAY_PREFIX)
 
 /**
  * The table row for a model. The free-tokens route is one candidate whatever
@@ -197,6 +210,11 @@ export interface Decision {
    * preference: no gate holds it back, and an unread message still moves.
    */
   sight?: true
+  /**
+   * A key gateway is connected and the chat's model was a direct route, so the
+   * chat moved onto the gateway: no gate holds it back, and an unread message still moves.
+   */
+  gateway?: true
 }
 
 /** The rationale's second clause names the one axis besides fit that moved most. */
@@ -232,8 +250,11 @@ export function rationaleFor(to: Scored, from: Scored, reading: TaskReading): st
 export function decide(situation: Situation): Decision {
   const { current, reading, weights, gates, table, standingOf } = situation
   const from = score(current, reading, weights, table, standingOf?.(current))
+  // With a key gateway connected the chat moves only between gateway models; direct keys stay for a failed turn.
+  const gatewayOn = situation.candidates.some(viaGateway)
   const eligible = situation.candidates
     .filter(candidate => !same(candidate, current))
+    .filter(candidate => !gatewayOn || viaGateway(candidate))
     .filter(candidate => !situation.hasImages || candidate.images !== false)
     .map(candidate => ({ candidate, rated: standingOf?.(candidate) }))
     // One star bars a model from this kind of work.
@@ -267,7 +288,7 @@ export function decide(situation: Situation): Decision {
   if (situation.hasImages && current.images === false) {
     const sighted = eligible.filter(candidate => situation.candidates.some(one => same(one, candidate) && one.images === true))
     const fits = sighted.filter(candidate => !losesContext(candidate, situation.contextTokens))
-    const pick = situation.preferFree ? fits.find(candidate => candidate.price === 'free') : fits[0]
+    const pick = situation.preferFree ? fits.find(candidate => candidate.price === 'free' || viaGateway(candidate)) : fits[0]
     if (pick !== undefined) {
       return {
         ...base, use: pick, switched: true, recommended: pick, sight: true,
@@ -278,13 +299,28 @@ export function decide(situation: Situation): Decision {
     const offer = sighted[0]
     if (offer !== undefined) return stay(losesContext(offer, situation.contextTokens) ? 'loses-context' : 'needs-payment', offer)
   }
+  // A chat on a direct route moves onto the gateway whatever the gates say: the same model through the gateway
+  // when it lists it, else the gateway model that scores best. The person's limits (one star, a window too small) hold.
+  if (gatewayOn && !viaGateway(current)) {
+    const twin = eligible.find(candidate => candidate.provider === GATEWAY_PREFIX + current.provider && candidate.model === current.model)
+    const pick = twin !== undefined && !losesContext(twin, situation.contextTokens)
+      ? twin
+      : eligible.find(candidate => !losesContext(candidate, situation.contextTokens))
+    if (pick !== undefined) {
+      return {
+        ...base, use: pick, switched: true, recommended: pick, gateway: true,
+        improvement: Math.max(0, pick.total - from.total),
+        rationale: `${pick.label} runs through your organisation's key gateway.`,
+      }
+    }
+  }
   if (best === undefined || best.total <= from.total) return stay('no-recommendation')
   if (!passed.throttle) return stay('throttle-failed', best)
   if (!passed.confidence) return stay('confidence-gate-failed', best)
   if (!passed.improvement) return stay('improvement-gate-failed', best)
   // Two switches are the user's to make, so the router offers them and stays:
   // one that starts spending money, and one that would cut the chat's context.
-  if (situation.preferFree && best.price !== 'free') {
+  if (situation.preferFree && best.price !== 'free' && !viaGateway(best)) {
     const free = eligible.find(candidate => candidate.price === 'free' && candidate.total - from.total >= gates.improvement
       && !losesContext(candidate, situation.contextTokens))
     if (free === undefined) return stay('needs-payment', best)

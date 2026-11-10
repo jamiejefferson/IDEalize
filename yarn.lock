@@ -822,7 +822,7 @@ __metadata:
 
 "@deepseek-ai/dsh-app-boot@file:./vendor/idealize/deepseek-ai-dsh-app-boot-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-app-boot@file:./vendor/idealize/deepseek-ai-dsh-app-boot-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-app-boot-0.1.0-rc.7.tgz::hash=426932&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-app-boot@file:./vendor/idealize/deepseek-ai-dsh-app-boot-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-app-boot-0.1.0-rc.7.tgz::hash=823797&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     js-yaml: "npm:^4.2.0"
   peerDependencies:
@@ -838,7 +838,7 @@ __metadata:
   peerDependenciesMeta:
     "@deepseek-ai/cordis-plugin-hmr":
       optional: true
-  checksum: 10c0/074863aa1803e40baee067fa59ac7211b8be5659454e221c3eab4ddbac5593b650590f8cc4e1b78699b82aa92ef9cf12efea7e56c702fedff7c251f7cc843485
+  checksum: 10c0/eafe14962063cfa360cd65ad04ca8f637b2f391dd8cc62738cb14b0e5ed47ec2ac0154e0fc44c5c8fb32ac5bb9a15cf50704a3d1c7df2a8a7829eb86a2a3e380
   languageName: node
   linkType: hard
 
@@ -1073,7 +1073,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-runtime@file:./vendor/idealize/deepseek-ai-dsh-client-runtime-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-runtime@file:./vendor/idealize/deepseek-ai-dsh-client-runtime-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-runtime-0.1.0-rc.7.tgz::hash=d2d09c&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-runtime@file:./vendor/idealize/deepseek-ai-dsh-client-runtime-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-runtime-0.1.0-rc.7.tgz::hash=767ed0&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
     "@deepseek-ai/dsh-attachment": "npm:^0.1.0-rc.7"
@@ -1096,7 +1096,7 @@ __metadata:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@deepseek-ai/dsh-typert-protocol": ^0.1.0-rc.7
     "@deepseek-ai/dsh-typert-registry": ^0.1.0-rc.7
-  checksum: 10c0/3ae79766443e85352dd43641b8b78b42b976828a319a204470873226597fea6a12e646241e018f4fa9daa3a82de41d2ba4c12ff2943008eb72d42bf1552cda31
+  checksum: 10c0/df85b34273596e82bd28befa22689013d95ed03901350aae5b4cc7046c36121745e690b1c45042036ec0374a965ecf101ff9c2b8a2d092926710884cdf9f585d
   languageName: node
   linkType: hard
 
@@ -1114,7 +1114,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-agent-preset@file:./vendor/idealize/deepseek-ai-dsh-client-ui-agent-preset-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-agent-preset@file:./vendor/idealize/deepseek-ai-dsh-client-ui-agent-preset-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-agent-preset-0.1.0-rc.7.tgz::hash=5ef768&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-agent-preset@file:./vendor/idealize/deepseek-ai-dsh-client-ui-agent-preset-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-agent-preset-0.1.0-rc.7.tgz::hash=0a90a6&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-api-remotes": ^0.1.0-rc.7
@@ -1128,7 +1128,7 @@ __metadata:
     "@deepseek-ai/dsh-client-web-react": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/a7e5d8cda28ac6cd0dfd664c6eedd7420e11b62aec6b999d13730dd01fcfb0bcf151c1701bd229ca420ad54b0e92dcaeca48dd44a581ecc156f9e6449e3f43b4
+  checksum: 10c0/fe7b5286fd73cdc0120b9927bfe576c5a97a002be56d3073036f57548a54fee11a0682e4b6d2e1b1776e62394f544166dd6187252d8fb4d1ac56dd7ee2fa76f2
   languageName: node
   linkType: hard
 
@@ -1171,7 +1171,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-conversation@file:./vendor/idealize/deepseek-ai-dsh-client-ui-conversation-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-conversation@file:./vendor/idealize/deepseek-ai-dsh-client-ui-conversation-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-conversation-0.1.0-rc.7.tgz::hash=7c9583&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-conversation@file:./vendor/idealize/deepseek-ai-dsh-client-ui-conversation-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-conversation-0.1.0-rc.7.tgz::hash=1e325c&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-settings": "npm:^0.1.0-rc.7"
     "@deepseek-ai/schemastery": "npm:^3.18.1"
@@ -1198,7 +1198,7 @@ __metadata:
     "@deepseek-ai/dsh-token-meter": ^0.1.0-rc.7
     "@deepseek-ai/dsh-tools": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/74d8348d56273152310c6a0fef73d0721d3152aee7522e3a549c87ddc1ddaabd337608b3267c71bd4fa06e8612e6699fac2868ce3d7d157aa32654efa4ecff3a
+  checksum: 10c0/b764803cd032d2066f606dcf6dea1ae0efe82414b1dec11bf608a1efa7c512379cd71a7978dee78ce433eb56ade90a43d08e8dae200603b899d623d04d39205f
   languageName: node
   linkType: hard
 
@@ -1346,7 +1346,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-layout@file:./vendor/idealize/deepseek-ai-dsh-client-ui-layout-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-layout@file:./vendor/idealize/deepseek-ai-dsh-client-ui-layout-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-layout-0.1.0-rc.7.tgz::hash=2cffa4&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-layout@file:./vendor/idealize/deepseek-ai-dsh-client-ui-layout-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-layout-0.1.0-rc.7.tgz::hash=76dffe&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-runtime": ^0.1.0-rc.7
@@ -1354,13 +1354,13 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-theme": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/e3f5af950054875b047f67d95d76ce6dd65e54b065acd6205fa4d5c8b9483cb4dad306818e5834f06ef9fb4a8b99882db65962269084d33801f1260143b7881f
+  checksum: 10c0/5fdec50ec4a0abac9a443d2a7db5db10978aac0105a1590f9ec68b7acb95fb1772681013c8b17006fbf01c3672e2af805756d9ab4ec83d8202959f6d7194f601
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-client-ui-message-feedback@file:./vendor/idealize/deepseek-ai-dsh-client-ui-message-feedback-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-message-feedback@file:./vendor/idealize/deepseek-ai-dsh-client-ui-message-feedback-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-message-feedback-0.1.0-rc.7.tgz::hash=8a78e4&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-message-feedback@file:./vendor/idealize/deepseek-ai-dsh-client-ui-message-feedback-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-message-feedback-0.1.0-rc.7.tgz::hash=46766f&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-api-remotes": ^0.1.0-rc.7
@@ -1374,13 +1374,13 @@ __metadata:
     "@deepseek-ai/dsh-message-feedback": ^0.1.0-rc.7
     "@deepseek-ai/dsh-typert-protocol": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/6535690c7ba62fcc4f27f63951023a658c6f248ae00cf6bb1dacb68dbc5a1d14713d7ad41c80ab12cf0aa2389177cae94e1ee129e28e1a87204c2c7d9f3deeef
+  checksum: 10c0/7afa9093349db26ae3a17b8ba60eb65da5d27e994940170c59ceca1980ffa1a3d094155bce42762d41381c42b961d8439f3f61b3a6f77345fc0b6aa3026af2b5
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-client-ui-model-selection@file:./vendor/idealize/deepseek-ai-dsh-client-ui-model-selection-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-model-selection@file:./vendor/idealize/deepseek-ai-dsh-client-ui-model-selection-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-model-selection-0.1.0-rc.7.tgz::hash=5cf8c9&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-model-selection@file:./vendor/idealize/deepseek-ai-dsh-client-ui-model-selection-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-model-selection-0.1.0-rc.7.tgz::hash=71f146&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-api-remotes": ^0.1.0-rc.7
@@ -1395,7 +1395,7 @@ __metadata:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     clsx: ^2.1.1
     react: ^18.2.0
-  checksum: 10c0/21b38db71b6636e5723c3059a83860021b292a547aece01a82b1cf3de59cb14aff712398a56d5ed418214691b8529fabe09417beb93d3f999ee328d5c62238d6
+  checksum: 10c0/5e9bcba4c45d94c706e1de0bc7ddf223e13d7030346bfb649ff8f2ea1ebf64c6483396db4856347f512e10edf954ad1e36b62c0d9913842c91bccb720737fa6e
   languageName: node
   linkType: hard
 
@@ -1472,7 +1472,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-settings-general@file:./vendor/idealize/deepseek-ai-dsh-client-ui-settings-general-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-settings-general@file:./vendor/idealize/deepseek-ai-dsh-client-ui-settings-general-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-settings-general-0.1.0-rc.7.tgz::hash=9b64be&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-settings-general@file:./vendor/idealize/deepseek-ai-dsh-client-ui-settings-general-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-settings-general-0.1.0-rc.7.tgz::hash=1e2f4e&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-settings": "npm:^0.1.0-rc.7"
     "@deepseek-ai/schemastery": "npm:^3.18.1"
@@ -1490,13 +1490,13 @@ __metadata:
     "@deepseek-ai/dsh-client-web-react": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/ce5c74d9ea5c4679e6b414e12c84a781f30016bfdcf372ade5e64c012a688258b54074d9da408b955af1cd5cb2014a3664b306fb9f4fa3092371247c1ea8490a
+  checksum: 10c0/82bac4117d02d23c1de345d1ab582cf6ec107368f6cb054be4d376a3bd829626e2047255654158d87ac178fef365121ff5ae24802a3941b5ecaa21c8e55e0e46
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-client-ui-settings-models@file:./vendor/idealize/deepseek-ai-dsh-client-ui-settings-models-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-settings-models@file:./vendor/idealize/deepseek-ai-dsh-client-ui-settings-models-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-settings-models-0.1.0-rc.7.tgz::hash=152d93&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-settings-models@file:./vendor/idealize/deepseek-ai-dsh-client-ui-settings-models-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-settings-models-0.1.0-rc.7.tgz::hash=ee4e26&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-api-remotes": ^0.1.0-rc.7
@@ -1508,7 +1508,7 @@ __metadata:
     "@deepseek-ai/dsh-client-web-react": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/2a86340794191646e6247be16f63d09b976e9489217f51d609c313bc6239e984c2485b94ea53966b428659e9f3b53a61667b660b60e1ebb147ebedd7fbc68df4
+  checksum: 10c0/b19d747bb81894e54ec18080d77e36344e422bd8dbfdba8050500deb79285bef00b38569e525cccdfcdcda1d8f9678657e546c82bb3ef922623f662bc5b94bd4
   languageName: node
   linkType: hard
 
@@ -1552,7 +1552,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-settings@file:./vendor/idealize/deepseek-ai-dsh-client-ui-settings-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-settings@file:./vendor/idealize/deepseek-ai-dsh-client-ui-settings-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-settings-0.1.0-rc.7.tgz::hash=7a8f3a&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-settings@file:./vendor/idealize/deepseek-ai-dsh-client-ui-settings-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-settings-0.1.0-rc.7.tgz::hash=253aab&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-api-remotes": ^0.1.0-rc.7
@@ -1563,13 +1563,13 @@ __metadata:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@deepseek-ai/dsh-settings": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/b5dc445dd250767a359e41e5910b51b7c8ef518204424cf091305bcfa5be02ef3626f36461765ce6dea051a16a90bf30443ee4aa9283e4d08022fbc355ae76e9
+  checksum: 10c0/aaef5aaa6730bc7cdd8e75238ae9450032bf4203f4971ec6b8753d325ed85abe4a2e501412085fdfb6864654e6af684f0183d16a6229cf3de6f511bcdec5436c
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-client-ui-sidebar@file:./vendor/idealize/deepseek-ai-dsh-client-ui-sidebar-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-sidebar@file:./vendor/idealize/deepseek-ai-dsh-client-ui-sidebar-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-sidebar-0.1.0-rc.7.tgz::hash=91763f&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-sidebar@file:./vendor/idealize/deepseek-ai-dsh-client-ui-sidebar-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-sidebar-0.1.0-rc.7.tgz::hash=8dc894&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     clsx: "npm:^2.0.0"
   peerDependencies:
@@ -1580,13 +1580,13 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-slots": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/233e13b7159fd90d116f80d6e214c8d96b06cc517b507fb707e3460761a007ad4b3977f191f2558f4dc6c4c8a1cdc910ebebc666c90e084cf51bc7ca2fcd2ec7
+  checksum: 10c0/ab7ae5520aa85519d07765274ddcb8bf36437399830add89db50bb9c123f483d7c0955ee26c03dfca9c6b29827be62b09c777cf2ad802af7dc9afb14a6d94a68
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-client-ui-skill@file:./vendor/idealize/deepseek-ai-dsh-client-ui-skill-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-skill@file:./vendor/idealize/deepseek-ai-dsh-client-ui-skill-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-skill-0.1.0-rc.7.tgz::hash=2cb75b&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-skill@file:./vendor/idealize/deepseek-ai-dsh-client-ui-skill-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-skill-0.1.0-rc.7.tgz::hash=7a0dd0&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-api-remotes": ^0.1.0-rc.7
@@ -1599,7 +1599,7 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-tool": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/d72e45bb11c95ccdf4ce16e30140dc8a3f205bac6050955ddaa0c5d4ac41e87ca44fe3c7ca64e2f54a2855d3b14e6f91abdae690c4dba1a9d6b42cf027230420
+  checksum: 10c0/10cd98b9a7018103eaef614b0aa3896fef7c38397774fbeb5332c8129353f24a9460506c2ea05be84b8003804ff6f8cabc4742346b5090b389fef2b8cc520428
   languageName: node
   linkType: hard
 
@@ -1635,7 +1635,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-theme@file:./vendor/idealize/deepseek-ai-dsh-client-ui-theme-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-theme@file:./vendor/idealize/deepseek-ai-dsh-client-ui-theme-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-theme-0.1.0-rc.7.tgz::hash=076883&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-theme@file:./vendor/idealize/deepseek-ai-dsh-client-ui-theme-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-theme-0.1.0-rc.7.tgz::hash=31c750&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-settings": "npm:^0.1.0-rc.7"
     "@deepseek-ai/schemastery": "npm:^3.18.1"
@@ -1652,7 +1652,7 @@ __metadata:
     "@deepseek-ai/dsh-host-webserver": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/0a202cffc777553d6d1e7b925de75c7abb524e36cb53912784afb432a7b69bd0bb0bd7c4ef3f5366281c1207e442f8bd75800437a09e7d27a978a7d92c951e9b
+  checksum: 10c0/f234a0114f72bfa37f474b8a0d6a35ffa2ecbf955f787917cf58fce7338ab5529a79d0cbcfcebdf8bc5e242b8d99509b55cc643fe6809c7c55c0b772a7fd5ca8
   languageName: node
   linkType: hard
 
@@ -1677,7 +1677,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-trajectory@file:./vendor/idealize/deepseek-ai-dsh-client-ui-trajectory-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-trajectory@file:./vendor/idealize/deepseek-ai-dsh-client-ui-trajectory-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-trajectory-0.1.0-rc.7.tgz::hash=a50eff&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-trajectory@file:./vendor/idealize/deepseek-ai-dsh-client-ui-trajectory-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-trajectory-0.1.0-rc.7.tgz::hash=910364&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@tanstack/react-virtual": "npm:^3.14.9"
     diff: "npm:^9.0.0"
@@ -1693,7 +1693,7 @@ __metadata:
     "@deepseek-ai/dsh-tools": ^0.1.0-rc.7
     react: ^18.2.0
     react-dom: ^18.2.0
-  checksum: 10c0/63006512b82afa42082383c5e25e8c718008cc78b0481d942f938c6880d258712cb67b563355f1f860c0853b53eeedc1f3f355beb4fe50cc75b6bc61b7e07c17
+  checksum: 10c0/fc3a826d0f5c805cfea01e920195117120866a3d940f76c47cab860b401f82f49d04c0c94f137594b17a752297b272e0ac5ddc597de88a0567639aabea6be298
   languageName: node
   linkType: hard
 
@@ -1739,7 +1739,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-workspace@file:./vendor/idealize/deepseek-ai-dsh-client-ui-workspace-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-workspace@file:./vendor/idealize/deepseek-ai-dsh-client-ui-workspace-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-workspace-0.1.0-rc.7.tgz::hash=534b01&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-workspace@file:./vendor/idealize/deepseek-ai-dsh-client-ui-workspace-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-client-ui-workspace-0.1.0-rc.7.tgz::hash=3201c8&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     clsx: "npm:^2.0.0"
   peerDependencies:
@@ -1753,13 +1753,13 @@ __metadata:
     "@idealize/comm": ^1.0.0-dev.0
     "@idealize/spaces": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/af4c1b6d157fd92cbac70afd446ffc094d712b4b67d14073834139b3109cb3648d9b6ce32844009693a41ac659087d6015d6e33ab029965255ba6531604f0956
+  checksum: 10c0/aae81dc98c7fa2ff0f2dde44f5aef030190efa383991ce814b585b63ad2f07a8dfea8d108c7d4dc8d5a506429e7f9ce0030f2b483f66ff2bb7671a7f2ec79b6a
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-client-ui-workspace@patch:@deepseek-ai/dsh-client-ui-workspace@file%3A./vendor/idealize/deepseek-ai-dsh-client-ui-workspace-0.1.0-rc.7.tgz#./patches/dsh-client-ui-workspace@0.1.0-rc.7.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-client-ui-workspace@patch:@deepseek-ai/dsh-client-ui-workspace@file%3A./vendor/idealize/deepseek-ai-dsh-client-ui-workspace-0.1.0-rc.7.tgz%23./vendor/idealize/deepseek-ai-dsh-client-ui-workspace-0.1.0-rc.7.tgz%3A%3Ahash=534b01&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-workspace@0.1.0-rc.7.patch::version=0.1.0-rc.7&hash=bf3724&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-workspace@patch:@deepseek-ai/dsh-client-ui-workspace@file%3A./vendor/idealize/deepseek-ai-dsh-client-ui-workspace-0.1.0-rc.7.tgz%23./vendor/idealize/deepseek-ai-dsh-client-ui-workspace-0.1.0-rc.7.tgz%3A%3Ahash=3201c8&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-workspace@0.1.0-rc.7.patch::version=0.1.0-rc.7&hash=bf3724&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     clsx: "npm:^2.0.0"
   peerDependencies:
@@ -1773,7 +1773,7 @@ __metadata:
     "@idealize/comm": ^1.0.0-dev.0
     "@idealize/spaces": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/af174382a4c64f2ea51d0b53ecb2b98989433c3cd19b73db5a27a54fc211b284c425cede87d001303320c0a8cbe52e4b9aa1b5b598a03e82e5bb32cb83bc5679
+  checksum: 10c0/6cdef8e21a13ccd6bb24d3c92544e98a41b7fec22790b2eae29d0e4275832871af12fce9a1f1d839377571fcbf2eb9d54062966e88e9976b044f3f81b8b5214f
   languageName: node
   linkType: hard
 
@@ -1957,7 +1957,7 @@ __metadata:
 
 "@deepseek-ai/dsh-cordis-client-runner@file:./vendor/idealize/deepseek-ai-dsh-cordis-client-runner-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-cordis-client-runner@file:./vendor/idealize/deepseek-ai-dsh-cordis-client-runner-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-cordis-client-runner-0.1.0-rc.7.tgz::hash=994792&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-cordis-client-runner@file:./vendor/idealize/deepseek-ai-dsh-cordis-client-runner-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-cordis-client-runner-0.1.0-rc.7.tgz::hash=de335a&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/cordis-plugin-loader": ^1.0.2
@@ -1969,7 +1969,7 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-theme": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/f263d7de93f21e3e53930da3b2ba4c9a366d9ef71d3131fffda368adf6a5e0f0097399141e7d8f474484c8513f74ca88282bc2b83bad3f6a3b55324562c85147
+  checksum: 10c0/4a64a1fd94d000bf073d2b5e50a07d67bafd5a22de1db1b965866c67f3a6804aa60e9b9a45d2feeea8950fdafcd737e075b4c54b58770049bc4c48976b354dea
   languageName: node
   linkType: hard
 
@@ -2049,7 +2049,7 @@ __metadata:
 
 "@deepseek-ai/dsh-fs-sandbox@file:./vendor/idealize/deepseek-ai-dsh-fs-sandbox-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-fs-sandbox@file:./vendor/idealize/deepseek-ai-dsh-fs-sandbox-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-fs-sandbox-0.1.0-rc.7.tgz::hash=599547&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-fs-sandbox@file:./vendor/idealize/deepseek-ai-dsh-fs-sandbox-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-fs-sandbox-0.1.0-rc.7.tgz::hash=9fe618&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-fs": ^0.1.0-rc.7
@@ -2058,7 +2058,7 @@ __metadata:
     "@deepseek-ai/dsh-sandbox": ^0.1.0-rc.7
     "@deepseek-ai/dsh-sandbox-policy": ^0.1.0-rc.7
     "@deepseek-ai/dsh-tools": ^0.1.0-rc.7
-  checksum: 10c0/37a39fc3e7e9068a6481ac7dfabd771a4b138609d04d3a5edade98bb484f6677fa05e217b5dcf039817404a3f4e13230f55fe286dd87db634c71171fc07e0df1
+  checksum: 10c0/c924292bdde3a409912b8285fb87b2d7b9661ea805b06afcc5d142e28f646159b97c94718974f998c3e749926c8fba35279d689a7070801dc48617cdc0b49a14
   languageName: node
   linkType: hard
 
@@ -2141,7 +2141,7 @@ __metadata:
 
 "@deepseek-ai/dsh-host-apiproxy@file:./vendor/idealize/deepseek-ai-dsh-host-apiproxy-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-host-apiproxy@file:./vendor/idealize/deepseek-ai-dsh-host-apiproxy-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-host-apiproxy-0.1.0-rc.7.tgz::hash=9cd5ad&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-host-apiproxy@file:./vendor/idealize/deepseek-ai-dsh-host-apiproxy-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-host-apiproxy-0.1.0-rc.7.tgz::hash=518543&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
     "@deepseek-ai/dsh-agent-default-model": "npm:^0.1.0-rc.7"
@@ -2176,7 +2176,7 @@ __metadata:
     "@deepseek-ai/dsh-agent-presets": ^0.1.0-rc.7
     "@deepseek-ai/dsh-cordis-host-runner": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/f4e17848b398cd457fd78054b6f9474ba36ef660daff7b3761088ddab1e1bbc6f581e955fab7972c50450d9dcabd00d7057be2b8665c02526f16ae6aae787f81
+  checksum: 10c0/298ac3ab7780c89197a5a369906738344885ad073348f109a262c3212c4b7d613e30d3b87405166f59f56d37de3eeab3e9776cf6b87caffb08b343b73ef70105
   languageName: node
   linkType: hard
 
@@ -2263,13 +2263,13 @@ __metadata:
 
 "@deepseek-ai/dsh-host-webserver@file:./vendor/idealize/deepseek-ai-dsh-host-webserver-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-host-webserver@file:./vendor/idealize/deepseek-ai-dsh-host-webserver-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-host-webserver-0.1.0-rc.7.tgz::hash=49cdff&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-host-webserver@file:./vendor/idealize/deepseek-ai-dsh-host-webserver-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-host-webserver-0.1.0-rc.7.tgz::hash=55506b&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/f5a268ea64bf43a3c4e2a6892e1dd64d6c392b2ca5cfe7a34bba15180a6f1e31a2a4a7a96d168fcfa2b1df243a48fc9d8e235bd059d9664a5a1a3b26c66e8a2c
+  checksum: 10c0/31b7d0188c3d4e48a6fe3b37b62b1459d9b714292270ff8d2b9a713282114633d6738b14a4ade2c70fe17ee373198df6391c5bb03817262e91a0897a9df96b2f
   languageName: node
   linkType: hard
 
@@ -2363,7 +2363,7 @@ __metadata:
 
 "@deepseek-ai/dsh-llm-pi-ai@file:./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-llm-pi-ai@file:./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz::hash=2fc336&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-llm-pi-ai@file:./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz::hash=5e8226&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
     "@earendil-works/pi-ai": "npm:^0.85.1"
@@ -2376,7 +2376,7 @@ __metadata:
     "@deepseek-ai/dsh-llm": ^0.1.0-rc.7
     "@deepseek-ai/dsh-settings": ^0.1.0-rc.7
     "@deepseek-ai/dsh-timeout": ^0.1.0-rc.7
-  checksum: 10c0/bf524aa323450b2adeabf4a01bad06ff517b2b4cef3d07353f0210bff72a5e5cd03257b090d242a1a06743c1011557b037b821753fd37afd72872777c31889bc
+  checksum: 10c0/a390c1e5ab0bcf016f35629ecb2a14e10489ef5695ae6ed0e48b00ff6597d4bf1123a6f17bd466822ca4f9a72bc6cbbf23a011633c93708633ec4aed0c645b89
   languageName: node
   linkType: hard
 
@@ -2414,7 +2414,7 @@ __metadata:
 
 "@deepseek-ai/dsh-mcp-client@file:./vendor/idealize/deepseek-ai-dsh-mcp-client-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-mcp-client@file:./vendor/idealize/deepseek-ai-dsh-mcp-client-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-mcp-client-0.1.0-rc.7.tgz::hash=914852&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-mcp-client@file:./vendor/idealize/deepseek-ai-dsh-mcp-client-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-mcp-client-0.1.0-rc.7.tgz::hash=763bb5&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
     "@modelcontextprotocol/sdk": "npm:^1.12.0"
@@ -2427,7 +2427,7 @@ __metadata:
     "@deepseek-ai/dsh-subprocess": ^0.1.0-rc.7
     "@deepseek-ai/dsh-timeout": ^0.1.0-rc.7
     "@deepseek-ai/dsh-tools": ^0.1.0-rc.7
-  checksum: 10c0/1173303281f023572424db858eea9ddae45eb9326dadf615b3ac338978095d3aa1f23da3dac236da3b7611d8d14e2dc9075fbfe218c9d48d0cbe8170fc70960b
+  checksum: 10c0/997fa70255c5707d08672c9dfffe7880c51b66cab998095ed132cfaebf96718935ce64c2c82d103e56913201f1ca0bf66323b5c3f4628fa892f489f76858167e
   languageName: node
   linkType: hard
 
@@ -2472,7 +2472,7 @@ __metadata:
 
 "@deepseek-ai/dsh-permission-presets@file:./vendor/idealize/deepseek-ai-dsh-permission-presets-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-permission-presets@file:./vendor/idealize/deepseek-ai-dsh-permission-presets-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-permission-presets-0.1.0-rc.7.tgz::hash=4bfab4&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-permission-presets@file:./vendor/idealize/deepseek-ai-dsh-permission-presets-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-permission-presets-0.1.0-rc.7.tgz::hash=4785d1&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
     zod: "npm:^4.4.3"
@@ -2487,7 +2487,7 @@ __metadata:
     "@deepseek-ai/dsh-settings": ^0.1.0-rc.7
     "@deepseek-ai/dsh-shell": ^0.1.0-rc.7
     "@deepseek-ai/dsh-user-approval": ^0.1.0-rc.7
-  checksum: 10c0/b1b720c7e153d2978149eb8ca0e95f90ac98ce24d76d2ffb2c34ceb015bedbf5f25d921d4c690d0738374093f38698724e9635720ae8115dbc0b6dcecf1184a5
+  checksum: 10c0/f884ee579d9c295460fea6c9c458047ffacbf13d9ff72826b549efd4c2c586c916d2342ccb66fce490b8b9de8b280a81babeebb7fba341da27bcbd2a1c33f3cb
   languageName: node
   linkType: hard
 
@@ -2573,7 +2573,7 @@ __metadata:
 
 "@deepseek-ai/dsh-sandbox-local@file:./vendor/idealize/deepseek-ai-dsh-sandbox-local-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-sandbox-local@file:./vendor/idealize/deepseek-ai-dsh-sandbox-local-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-sandbox-local-0.1.0-rc.7.tgz::hash=af570f&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-sandbox-local@file:./vendor/idealize/deepseek-ai-dsh-sandbox-local-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-sandbox-local-0.1.0-rc.7.tgz::hash=2a8bef&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-sandbox-windows-acl": "npm:^0.1.0-rc.7"
     "@deepseek-ai/node-addon-landlock-run": "npm:^0.1.1"
@@ -2584,13 +2584,13 @@ __metadata:
     "@deepseek-ai/dsh-llm": ^0.1.0-rc.7
     "@deepseek-ai/dsh-sandbox": ^0.1.0-rc.7
     "@deepseek-ai/dsh-session": ^0.1.0-rc.7
-  checksum: 10c0/f881ba62d2aeeb3478f1a7055b531c7d4f8891ace8084cc5ab7ab12500a58a79a7a8c23a3ec2f025916ac8486f9064aa5be7c2ececa8b94a162fa827a0e39f7a
+  checksum: 10c0/4da2952935a6f2aed529be444f6e729de1756a421ed24c679c175602f937b47f6ce1c533f4109e41c3ade78efde1bc44ffb7d3ecfdea263be0589590b5bb9780
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-sandbox-policy@file:./vendor/idealize/deepseek-ai-dsh-sandbox-policy-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-sandbox-policy@file:./vendor/idealize/deepseek-ai-dsh-sandbox-policy-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-sandbox-policy-0.1.0-rc.7.tgz::hash=930ec6&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-sandbox-policy@file:./vendor/idealize/deepseek-ai-dsh-sandbox-policy-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-sandbox-policy-0.1.0-rc.7.tgz::hash=100a88&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
@@ -2600,7 +2600,7 @@ __metadata:
     "@deepseek-ai/dsh-sandbox": ^0.1.0-rc.7
     "@deepseek-ai/dsh-session": ^0.1.0-rc.7
     "@deepseek-ai/dsh-system-prompt": ^0.1.0-rc.7
-  checksum: 10c0/f193f54034bc9b56c3bc9d919a98646ca6d7c982e3153a77b4f8f28f198fb5b2136b7df4d44f4dc914d1c8836c58b85053711a1c4c4ddb637daf21090ee3e9f9
+  checksum: 10c0/6e0fbc2b36fc8409d65bbd1d68ad2ccfe2f49d01e1bf8021c828df0f563a5efcf4252d4e32dc5a3f88f1270f0385bb16bd65b5542d0838f8e63ca13759ab891d
   languageName: node
   linkType: hard
 
@@ -2630,14 +2630,14 @@ __metadata:
 
 "@deepseek-ai/dsh-sandbox@file:./vendor/idealize/deepseek-ai-dsh-sandbox-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-sandbox@file:./vendor/idealize/deepseek-ai-dsh-sandbox-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-sandbox-0.1.0-rc.7.tgz::hash=4aa848&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-sandbox@file:./vendor/idealize/deepseek-ai-dsh-sandbox-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-sandbox-0.1.0-rc.7.tgz::hash=a2ab82&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-home-paths": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@deepseek-ai/dsh-llm": ^0.1.0-rc.7
     "@deepseek-ai/dsh-session": ^0.1.0-rc.7
-  checksum: 10c0/940d4fab27ae07eb3ab2a98e1e2d3c098ae177d3112cce700060192cbb08406235100101161055411cc6f5c533d25ead1232a9d1582e43f74f4f920bdbb66671
+  checksum: 10c0/9a287dbee83c3463eaebe85febfc7f3a179fe56d5a0629587b1d100b5f80b4016c32c3702226a43aa92fde6235cf0889824615252877d314534b41cd0ecd99a6
   languageName: node
   linkType: hard
 
@@ -2684,7 +2684,7 @@ __metadata:
 
 "@deepseek-ai/dsh-session-log-export@file:./vendor/idealize/deepseek-ai-dsh-session-log-export-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-session-log-export@file:./vendor/idealize/deepseek-ai-dsh-session-log-export-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-session-log-export-0.1.0-rc.7.tgz::hash=f48fd8&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-session-log-export@file:./vendor/idealize/deepseek-ai-dsh-session-log-export-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-session-log-export-0.1.0-rc.7.tgz::hash=2b9575&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-locale": ^0.1.0-rc.7
@@ -2696,13 +2696,13 @@ __metadata:
     "@deepseek-ai/dsh-commands": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/c48c63d73c3d0dbb19c50e82c287a51db85b239b218528c4e1da68808e14609887183495b8d0fbeb8e1767cc56b79d1f7b474df56c5e6c08ac11f67b89847386
+  checksum: 10c0/72e2023b4d5795ffa397812a477fececc31ad6fd0f78ea868f99e3f4e332c6244e0af326ddea3bd0168b7cad55ee183cbd65c455a1127a5ea29a7f0cf41f46d7
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-session-persistence-jsonl@file:./vendor/idealize/deepseek-ai-dsh-session-persistence-jsonl-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-session-persistence-jsonl@file:./vendor/idealize/deepseek-ai-dsh-session-persistence-jsonl-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-session-persistence-jsonl-0.1.0-rc.7.tgz::hash=4bc270&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-session-persistence-jsonl@file:./vendor/idealize/deepseek-ai-dsh-session-persistence-jsonl-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-session-persistence-jsonl-0.1.0-rc.7.tgz::hash=c0458f&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
     koffi: "npm:^3.1.0"
@@ -2711,7 +2711,7 @@ __metadata:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@deepseek-ai/dsh-session": ^0.1.0-rc.7
     "@deepseek-ai/dsh-session-persistence": ^0.1.0-rc.7
-  checksum: 10c0/b7ea65a3804dc78c7561cdccfbaa4f2fb1a40aa8c9a34abf2e62b0ec4c018a2e80b7d293701b8f79fab020ac97da3f34da2e50e799ddf47352157f3867c06e07
+  checksum: 10c0/ab8e1618ca2200c6378eaa573a127aecd671ddd304209653df93a432ebaace214473c0e8db598ee82f126841e3ef81ba39b622d4202ae370f58d80aee9214e46
   languageName: node
   linkType: hard
 
@@ -2864,7 +2864,7 @@ __metadata:
 
 "@deepseek-ai/dsh-session-title-first-prompt-llm@file:./vendor/idealize/deepseek-ai-dsh-session-title-first-prompt-llm-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-session-title-first-prompt-llm@file:./vendor/idealize/deepseek-ai-dsh-session-title-first-prompt-llm-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-session-title-first-prompt-llm-0.1.0-rc.7.tgz::hash=3c3bd5&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-session-title-first-prompt-llm@file:./vendor/idealize/deepseek-ai-dsh-session-title-first-prompt-llm-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-session-title-first-prompt-llm-0.1.0-rc.7.tgz::hash=0177b5&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
@@ -2874,13 +2874,13 @@ __metadata:
     "@deepseek-ai/dsh-session": ^0.1.0-rc.7
     "@deepseek-ai/dsh-session-title": ^0.1.0-rc.7
     "@deepseek-ai/dsh-session-title-llm": ^0.1.0-rc.7
-  checksum: 10c0/39bff2f8a3811f735b0ca62a2d45501da4b1853a3378f20674b12e8fdb20bbbe9addb2f5c307ac8c05ef945ad8e1c0dfa2c99234e55fc94627135b9c09600981
+  checksum: 10c0/0235c9e846417e6c493d942e572d8a026982587c9fed3d988667a95120049e49736dddaa6a431dd529f3fe1503faf37100c30df74f083af24b4e50df89bc7d3e
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-session-title-llm@file:./vendor/idealize/deepseek-ai-dsh-session-title-llm-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-session-title-llm@file:./vendor/idealize/deepseek-ai-dsh-session-title-llm-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-session-title-llm-0.1.0-rc.7.tgz::hash=1a455b&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-session-title-llm@file:./vendor/idealize/deepseek-ai-dsh-session-title-llm-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-session-title-llm-0.1.0-rc.7.tgz::hash=f1802a&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
@@ -2890,7 +2890,7 @@ __metadata:
     "@deepseek-ai/dsh-session": ^0.1.0-rc.7
     "@deepseek-ai/dsh-session-title": ^0.1.0-rc.7
     "@deepseek-ai/dsh-timeout": ^0.1.0-rc.7
-  checksum: 10c0/e8f48e18fe66da694fa0c0b11171687922472cfa3919b808de70be83403a5aafbb087f5f4a50c293d7d22d5d120ab816252ed94cc7c4fa012d26047a3d145e5b
+  checksum: 10c0/7f5e08ab3d3cbd089340587f765f3233861788e8b3c39615f605002ec1fc83ac32c1cbbd4d68f999fb7df3346c1498f3860889a7c5aa5d372e5d358dd6289fae
   languageName: node
   linkType: hard
 
@@ -2913,7 +2913,7 @@ __metadata:
 
 "@deepseek-ai/dsh-session@file:./vendor/idealize/deepseek-ai-dsh-session-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-session@file:./vendor/idealize/deepseek-ai-dsh-session-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-session-0.1.0-rc.7.tgz::hash=ea1808&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-session@file:./vendor/idealize/deepseek-ai-dsh-session-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-session-0.1.0-rc.7.tgz::hash=d0ef2c&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-brand": ^0.1.0-rc.7
@@ -2921,13 +2921,13 @@ __metadata:
     "@deepseek-ai/dsh-llm": ^0.1.0-rc.7
     "@deepseek-ai/dsh-scope": ^0.1.0-rc.7
     "@deepseek-ai/dsh-typert-protocol": ^0.1.0-rc.7
-  checksum: 10c0/839eb8eb70c62f62288b0edfb5d45d670fbe34fd7126ae28bd92b4e7db227dc85a5219afac4a061d0b3748824be386983c98b87d04ae0c6f237ce625f29f2353
+  checksum: 10c0/83ee558ece2e578cc2fae5f95bac874ffee704e4c35961c9495a1187e860ac382de9a8c3ba29433b92b03de85c2aae0551655060180d6ade96a4d5ef5a07ae70
   languageName: node
   linkType: hard
 
 "@deepseek-ai/dsh-settings-file@file:./vendor/idealize/deepseek-ai-dsh-settings-file-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-settings-file@file:./vendor/idealize/deepseek-ai-dsh-settings-file-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-settings-file-0.1.0-rc.7.tgz::hash=251162&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-settings-file@file:./vendor/idealize/deepseek-ai-dsh-settings-file-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-settings-file-0.1.0-rc.7.tgz::hash=66c4cd&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
     chokidar: "npm:^4.0.3"
@@ -2938,7 +2938,7 @@ __metadata:
     "@deepseek-ai/dsh-home-paths": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@deepseek-ai/dsh-settings": ^0.1.0-rc.7
-  checksum: 10c0/095d13eaa2bb12e80603d3a656f8ba9efe0bc6899db436f9bc1dcd00094e813e60e921567272f70889ada496064e2af3a20723ddb922d586c4a988f93999d9ef
+  checksum: 10c0/c7a7318f1257d4caa05e159f83d95c200899797c69ed5d7e6ad056ec3551829e64dc9c878093ae14d6b531d7e628b1fee81efde3c120961ad0ddf70fb0dfdb5b
   languageName: node
   linkType: hard
 
@@ -3013,7 +3013,7 @@ __metadata:
 
 "@deepseek-ai/dsh-skill@file:./vendor/idealize/deepseek-ai-dsh-skill-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-skill@file:./vendor/idealize/deepseek-ai-dsh-skill-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-skill-0.1.0-rc.7.tgz::hash=7610b6&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-skill@file:./vendor/idealize/deepseek-ai-dsh-skill-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-skill-0.1.0-rc.7.tgz::hash=7bf20c&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
@@ -3021,7 +3021,7 @@ __metadata:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@deepseek-ai/dsh-llm": ^0.1.0-rc.7
     "@deepseek-ai/dsh-scope": ^0.1.0-rc.7
-  checksum: 10c0/8eef95230f2e810bd857481b8a9e959d4aada25e306baadbfbe30faedb0ba300a2e1a8be482352e7f71177ce9d02b9d2d42f880f26631e2e2ec1b8f630c5f668
+  checksum: 10c0/bdf5d37e39e9db3bb4ab6c48ca40ae781d2d6227dfbb81d1a9a7e40a1e92b08d9a96fcd63477e645cd2242c6ea8f6785c569b7290b9fdf8d9029a4e305199478
   languageName: node
   linkType: hard
 
@@ -3084,14 +3084,14 @@ __metadata:
 
 "@deepseek-ai/dsh-storage-json@file:./vendor/idealize/deepseek-ai-dsh-storage-json-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-storage-json@file:./vendor/idealize/deepseek-ai-dsh-storage-json-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-storage-json-0.1.0-rc.7.tgz::hash=47189d&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-storage-json@file:./vendor/idealize/deepseek-ai-dsh-storage-json-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-storage-json-0.1.0-rc.7.tgz::hash=b81f62&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@deepseek-ai/dsh-storage": ^0.1.0-rc.7
-  checksum: 10c0/130e0254998e91661ad90662e15a55fb3866fd976608e11c30886e59f204a7acdae5a9c8c2501702ddd0f8c4499fcbbbd1d3b2bbfd132fd0ae20f5aea614e7ed
+  checksum: 10c0/87fd04eb70d2f78202ea04063c2200d1f963d9473f768368797c37e4971084ec65b1319e67f8c6bc305e20d2e46ce8bd544dae5d64c3b064c03145840260431e
   languageName: node
   linkType: hard
 
@@ -3220,7 +3220,7 @@ __metadata:
 
 "@deepseek-ai/dsh-system-prompt@file:./vendor/idealize/deepseek-ai-dsh-system-prompt-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-system-prompt@file:./vendor/idealize/deepseek-ai-dsh-system-prompt-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-system-prompt-0.1.0-rc.7.tgz::hash=084951&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-system-prompt@file:./vendor/idealize/deepseek-ai-dsh-system-prompt-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-system-prompt-0.1.0-rc.7.tgz::hash=dbd435&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
@@ -3228,7 +3228,7 @@ __metadata:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@deepseek-ai/dsh-llm": ^0.1.0-rc.7
     "@deepseek-ai/dsh-scope": ^0.1.0-rc.7
-  checksum: 10c0/2b87ac63f4fca5b5f8fe175adec362515b27c35302c091f134a29da2ff17d8de00fd65078ce9800b8a40a6b0878ff6a780e0b22872b84d9600a0669a611c5b9a
+  checksum: 10c0/26761c368ee92b7f0ff8f858aa083836e7b8db2ee055d058f426c264b9ff6dde020e12fd5abb16add343a048e8ab068700008451a767d5688bf7c818c67e3c07
   languageName: node
   linkType: hard
 
@@ -3384,7 +3384,7 @@ __metadata:
 
 "@deepseek-ai/dsh-tool-cordis@file:./vendor/idealize/deepseek-ai-dsh-tool-cordis-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-tool-cordis@file:./vendor/idealize/deepseek-ai-dsh-tool-cordis-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-tool-cordis-0.1.0-rc.7.tgz::hash=c74f81&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-tool-cordis@file:./vendor/idealize/deepseek-ai-dsh-tool-cordis-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-tool-cordis-0.1.0-rc.7.tgz::hash=deeef4&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-agent": ^0.1.0-rc.7
@@ -3395,7 +3395,7 @@ __metadata:
     "@deepseek-ai/dsh-session": ^0.1.0-rc.7
     "@deepseek-ai/dsh-system-prompt": ^0.1.0-rc.7
     "@deepseek-ai/dsh-tools": ^0.1.0-rc.7
-  checksum: 10c0/5f3652f35c2e93d8e9b1431a44d96f4d4e843f9f57fd373a912e88c5e8cb6adac91e261bf437136f104b9d9da6b56d32443e160b9e942df04976ca810fc47630
+  checksum: 10c0/cf5bb149a0b42556745915bb941a48af343ab9f2f2b92db355a8d8b5e356d20d92ca0e67b7ece822f83e8b639144ebe78e129e27a2db96038f2a42e03fb1e1ea
   languageName: node
   linkType: hard
 
@@ -3812,12 +3812,12 @@ __metadata:
 
 "@deepseek-ai/dsh-web-frontend@file:./vendor/idealize/deepseek-ai-dsh-web-frontend-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-web-frontend@file:./vendor/idealize/deepseek-ai-dsh-web-frontend-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-web-frontend-0.1.0-rc.7.tgz::hash=9f6ba7&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-web-frontend@file:./vendor/idealize/deepseek-ai-dsh-web-frontend-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-web-frontend-0.1.0-rc.7.tgz::hash=ad15c7&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-client-web": "npm:^0.1.0-rc.7"
     react: "npm:^18.2.0"
     react-dom: "npm:^18.2.0"
-  checksum: 10c0/6c03c56e3d7d87639b03e4022dcf8b6b2db41edecfabdfaa27d9133a612eef6767c8880cfe2ecfc7a3573c0a8bef08bed1effa4499b01e95487e4a19f01e2453
+  checksum: 10c0/d882a50bfc228458e9712a52482dfa1c206ee114f1ae6665023b8d59025ab7cbc8d5a92d14435e55936eb3f3281c8a3e5498d5a35d486d581100485045c1c4f7
   languageName: node
   linkType: hard
 
@@ -4430,7 +4430,7 @@ __metadata:
 
 "@idealize/activity-pills@file:./vendor/idealize/idealize-activity-pills-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/activity-pills@file:./vendor/idealize/idealize-activity-pills-1.0.0-dev.0.tgz#./vendor/idealize/idealize-activity-pills-1.0.0-dev.0.tgz::hash=6e9992&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/activity-pills@file:./vendor/idealize/idealize-activity-pills-1.0.0-dev.0.tgz#./vendor/idealize/idealize-activity-pills-1.0.0-dev.0.tgz::hash=9c67db&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     js-yaml: "npm:^4.1.0"
   peerDependencies:
@@ -4454,13 +4454,13 @@ __metadata:
     "@idealize/router": ^1.0.0-dev.0
     "@idealize/spaces": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/265bb59fb9ffa5a5cb92033fb88838442fe5e6c8126f97338b22c0d9b5ec05d77a8d27a262cbed3cfef3e67525ec4632e3b848cb2191a3200ddfa88665a2fad4
+  checksum: 10c0/ccf466f700c903f84d34353da2ac3b5ff30ae28d9639eab0744cfc2ea568d94db1c164f25545916c441703626e728f8a120cf65186a8f1da41df8b3e081d836a
   languageName: node
   linkType: hard
 
 "@idealize/appearance@file:./vendor/idealize/idealize-appearance-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/appearance@file:./vendor/idealize/idealize-appearance-1.0.0-dev.0.tgz#./vendor/idealize/idealize-appearance-1.0.0-dev.0.tgz::hash=4079dd&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/appearance@file:./vendor/idealize/idealize-appearance-1.0.0-dev.0.tgz#./vendor/idealize/idealize-appearance-1.0.0-dev.0.tgz::hash=3a244a&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
@@ -4476,13 +4476,13 @@ __metadata:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@deepseek-ai/dsh-settings": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/5a062ff871505e74b1f0a7be6b6dbd08396f92d07c3adb5d16aaaed9c2cf1c0e2ceb591922886b327b1ee0f543659fdbffaebcdfd7f89a52b2b104ff49552805
+  checksum: 10c0/d51d5b884aeda7370cf6dc581146b2d294a83a20a9fcaf6ede6e2521a607a5a3420bdc253a3e474ac51f289105763f6022681eef39b9d32afa934eea1c985b59
   languageName: node
   linkType: hard
 
 "@idealize/artefacts@file:./vendor/idealize/idealize-artefacts-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/artefacts@file:./vendor/idealize/idealize-artefacts-1.0.0-dev.0.tgz#./vendor/idealize/idealize-artefacts-1.0.0-dev.0.tgz::hash=004de4&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/artefacts@file:./vendor/idealize/idealize-artefacts-1.0.0-dev.0.tgz#./vendor/idealize/idealize-artefacts-1.0.0-dev.0.tgz::hash=0100c6&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-brand": ^0.1.0-rc.7
@@ -4503,13 +4503,13 @@ __metadata:
     "@deepseek-ai/schemastery": ^3.18.1
     react: ^18.2.0
     zod: ^4.1.13
-  checksum: 10c0/1439efc9ab58a58844bee9482a1223f78b5a66ed45b9b11ecc782f37f78dc6e4add3555dd0643d76872051ca8fbf3a241709d0bbd73d5d54919a6f73853c1bb2
+  checksum: 10c0/f3a1c0253aeedf59867518d359eb5419913d4ddcf1c000ea279d15c620da3d887adc397fa7a42e1e18cd203a538c714f5fc9a52ff05cad42ebd9f3abb40bacb5
   languageName: node
   linkType: hard
 
 "@idealize/askbar@file:./vendor/idealize/idealize-askbar-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/askbar@file:./vendor/idealize/idealize-askbar-1.0.0-dev.0.tgz#./vendor/idealize/idealize-askbar-1.0.0-dev.0.tgz::hash=4655e5&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/askbar@file:./vendor/idealize/idealize-askbar-1.0.0-dev.0.tgz#./vendor/idealize/idealize-askbar-1.0.0-dev.0.tgz::hash=ef527b&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-host-webserver": "npm:^0.1.0-rc.7"
@@ -4523,13 +4523,13 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-slots": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/8edb996a72c80c4a7b09585b097376039ca67ac50730f5a04be66bd81464265c977cf915d56a00ec25d66d35732e34bfdb755d867491293d8a80eeddefc9128d
+  checksum: 10c0/8e72c3ca3f931f01cec3ffb85bc62dc96f719f36b951807a4109f8e4cecba772c382583d0a78f4b8cdebc078135e6aa212c4d5deb74fb2901712e5799cfa8958
   languageName: node
   linkType: hard
 
 "@idealize/bundle-idealize@file:./vendor/idealize/idealize-bundle-idealize-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/bundle-idealize@file:./vendor/idealize/idealize-bundle-idealize-1.0.0-dev.0.tgz#./vendor/idealize/idealize-bundle-idealize-1.0.0-dev.0.tgz::hash=c8a519&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/bundle-idealize@file:./vendor/idealize/idealize-bundle-idealize-1.0.0-dev.0.tgz#./vendor/idealize/idealize-bundle-idealize-1.0.0-dev.0.tgz::hash=81279b&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-mcp-client": "npm:^0.1.0-rc.7"
     "@idealize/activity-pills": "npm:^1.0.0-dev.0"
@@ -4571,13 +4571,13 @@ __metadata:
     "@idealize/web-search-openrouter": "npm:^1.0.0-dev.0"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/5501f85509e27b81201ae168222a5f0dced9c9b3d5ccab16eabd645abe348667a78508255dbfea5a4507e5740e5af39020c06c68f443e7e73b32f45ae9525958
+  checksum: 10c0/20d6e8e677800aec53fdf3e653313fbfaa54382121ad359ca5dc0f14896492bb4c806ea94732d50694ea23b0caa74e4f9f9d9ba28deba80444ffcda80bdb4ee8
   languageName: node
   linkType: hard
 
 "@idealize/comm@file:./vendor/idealize/idealize-comm-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/comm@file:./vendor/idealize/idealize-comm-1.0.0-dev.0.tgz#./vendor/idealize/idealize-comm-1.0.0-dev.0.tgz::hash=d2f98a&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/comm@file:./vendor/idealize/idealize-comm-1.0.0-dev.0.tgz#./vendor/idealize/idealize-comm-1.0.0-dev.0.tgz::hash=11fe0a&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
@@ -4606,13 +4606,13 @@ __metadata:
     "@deepseek-ai/dsh-system-prompt": ^0.1.0-rc.7
   bin:
     idealize: lib/cli.js
-  checksum: 10c0/ec80937ac0ba54fe6403f4ba077f8c9fbe08b4bd1c68df86e32829e45ad97fd80bb0384c4db1ba3aa434eb279c23ce034233ae23aeab857fb873ab778352d82a
+  checksum: 10c0/fdf4a1dacb2a02d3fc3a878f5bf7c2a90efc90a75ff42da7b08a88a125549d3110dad963cda60e41ffcc479040cd711f51c5195c0c165885cf5ea37a0ba31bcf
   languageName: node
   linkType: hard
 
 "@idealize/cron@file:./vendor/idealize/idealize-cron-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/cron@file:./vendor/idealize/idealize-cron-1.0.0-dev.0.tgz#./vendor/idealize/idealize-cron-1.0.0-dev.0.tgz::hash=10e49f&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/cron@file:./vendor/idealize/idealize-cron-1.0.0-dev.0.tgz#./vendor/idealize/idealize-cron-1.0.0-dev.0.tgz::hash=9fabce&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
@@ -4625,13 +4625,13 @@ __metadata:
     "@deepseek-ai/dsh-tools": "npm:^0.1.0-rc.7"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/6016a27f8336a96ca8dd74ec849af9fb4136273ef4149d7de653b7953bef99a7832b386f27be49a43fe4918b11cf097ae499d087d3fd823d97f05b711a21bdeb
+  checksum: 10c0/fc0d8ee2be84197091d63d62281e716c911e92cb8cbc18bec9e5f42d4c20406537f2cd14e95153a4ae4f45479cb78526a770326ab6a7672a9d5bf5caed401e76
   languageName: node
   linkType: hard
 
 "@idealize/doc-policy@file:./vendor/idealize/idealize-doc-policy-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/doc-policy@file:./vendor/idealize/idealize-doc-policy-1.0.0-dev.0.tgz#./vendor/idealize/idealize-doc-policy-1.0.0-dev.0.tgz::hash=8a81a1&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/doc-policy@file:./vendor/idealize/idealize-doc-policy-1.0.0-dev.0.tgz#./vendor/idealize/idealize-doc-policy-1.0.0-dev.0.tgz::hash=ba03d4&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
@@ -4646,7 +4646,7 @@ __metadata:
     zod: "npm:^4.4.3"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/29e908e7b002390b798d6aaf56fecde33403c74aac1024455ec7c54fc967c92aa0c91b11b18a95c2b0e812712345022c9738f6741cdd02ca95ec00a0eac25d6e
+  checksum: 10c0/fd4e33ca0410f79991945d0f9be71e89b22eb53b6845924c79dc1a9a14a8b5767f2ffd82e10cf3969796d540b2cb90b9e96fab99518ebd6ed7c0b0935df0ef80
   languageName: node
   linkType: hard
 
@@ -4665,7 +4665,7 @@ __metadata:
 
 "@idealize/freetokens@file:./vendor/idealize/idealize-freetokens-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/freetokens@file:./vendor/idealize/idealize-freetokens-1.0.0-dev.0.tgz#./vendor/idealize/idealize-freetokens-1.0.0-dev.0.tgz::hash=b29cd6&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/freetokens@file:./vendor/idealize/idealize-freetokens-1.0.0-dev.0.tgz#./vendor/idealize/idealize-freetokens-1.0.0-dev.0.tgz::hash=2cdaec&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-credentials": "npm:^0.1.0-rc.7"
@@ -4676,13 +4676,13 @@ __metadata:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/ecbc999db087de1f165e688b928e4c72c5152c6ea5d0d70d8a6ef60b2fc414ce1c12bc1cf46eeaea69f868c24130087e57673705f861d30ba3bcbc8cad4573c3
+  checksum: 10c0/e8519c7680592fe5e77d22f8f9564610acaeed83f44c3901d0f2cb2bc05ae5d87ea53f2f9d2dbd5790412737864faeae66d9712c1fd5de80603f75a7a17d4039
   languageName: node
   linkType: hard
 
 "@idealize/gen-tools@file:./vendor/idealize/idealize-gen-tools-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/gen-tools@file:./vendor/idealize/idealize-gen-tools-1.0.0-dev.0.tgz#./vendor/idealize/idealize-gen-tools-1.0.0-dev.0.tgz::hash=c21b57&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/gen-tools@file:./vendor/idealize/idealize-gen-tools-1.0.0-dev.0.tgz#./vendor/idealize/idealize-gen-tools-1.0.0-dev.0.tgz::hash=be6f1d&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/cordis-plugin-include": "npm:^1.0.6"
@@ -4700,13 +4700,13 @@ __metadata:
     js-yaml: "npm:^4.1.0"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/3e224caaa206d63d34c68003c885108487d6a8df4044f4ceb5c58db0ba456d2b13960a062e80542762f8deb78f38473c571a5c8883f510d42b38a133cd28cf27
+  checksum: 10c0/91381d53994f7ab0dc4234fc4bded164a02e75d9cd80e6926ad390230df02af76216c3f88269e6ca3d9f37c3360ec719e061df77f662472dad46d3209dccf565
   languageName: node
   linkType: hard
 
 "@idealize/generate@file:./vendor/idealize/idealize-generate-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/generate@file:./vendor/idealize/idealize-generate-1.0.0-dev.0.tgz#./vendor/idealize/idealize-generate-1.0.0-dev.0.tgz::hash=d6ebb4&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/generate@file:./vendor/idealize/idealize-generate-1.0.0-dev.0.tgz#./vendor/idealize/idealize-generate-1.0.0-dev.0.tgz::hash=96560e&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-credentials": "npm:^0.1.0-rc.7"
@@ -4715,13 +4715,13 @@ __metadata:
     "@deepseek-ai/dsh-settings": "npm:^0.1.0-rc.7"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/04b83dc0b461e4cc5ffa3dfa8bed2fe99d21c57d3906343add4c3564e5bdf442c8d1731fccd32013feeb29060f0609bda08e322fe8986a3e8808d38b962995c4
+  checksum: 10c0/92520a94fd70ac8af111176c1d34cf54489bf9496dc468c7acee2fb4c3ea05f0059d813bebacf9cdd6c9b06fe9734df069596f5c711f00fc73fc24069e42fc6f
   languageName: node
   linkType: hard
 
 "@idealize/hatch@file:./vendor/idealize/idealize-hatch-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/hatch@file:./vendor/idealize/idealize-hatch-1.0.0-dev.0.tgz#./vendor/idealize/idealize-hatch-1.0.0-dev.0.tgz::hash=093d2e&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/hatch@file:./vendor/idealize/idealize-hatch-1.0.0-dev.0.tgz#./vendor/idealize/idealize-hatch-1.0.0-dev.0.tgz::hash=f16d9a&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-app-boot": "npm:^0.1.0-rc.7"
@@ -4732,13 +4732,13 @@ __metadata:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/60db8a471ad677ce7b8dbd2e0e523e12933fb1076503740fb6e2646ec5f773c9998dd6b32c67c079ea44afd26b5943a8a0bf54b91d0ce790bc7eca41abf67dd8
+  checksum: 10c0/a2259d6fa6423317ba23bbac6c4d71aa846cf85b0d9fc88caec9dee859b0dc4f0209005bb08bd72e0e984072f17dc1dc0e474ed0badc6ae592e2aa784e776da3
   languageName: node
   linkType: hard
 
 "@idealize/host-bridge@file:./vendor/idealize/idealize-host-bridge-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/host-bridge@file:./vendor/idealize/idealize-host-bridge-1.0.0-dev.0.tgz#./vendor/idealize/idealize-host-bridge-1.0.0-dev.0.tgz::hash=195a30&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/host-bridge@file:./vendor/idealize/idealize-host-bridge-1.0.0-dev.0.tgz#./vendor/idealize/idealize-host-bridge-1.0.0-dev.0.tgz::hash=f7fa32&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
@@ -4748,13 +4748,13 @@ __metadata:
     "@idealize/cron": "npm:^1.0.0-dev.0"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/72887e366d241353403233060c529b3aa7e5f4f95bd275f6f60372f2b340bb654875beb617f45cbd9af2874aae58b724508f30bb049264243158be1bb4d1c5ce
+  checksum: 10c0/fe2024f291ae562047de373d3e97ae7c6ffa0bde86b285a48ae108ac26e04085589d41d2be6f4563fcad4168abd3ea2cae2a3f5c9fc199039614c9caaf8bea38
   languageName: node
   linkType: hard
 
 "@idealize/models@file:./vendor/idealize/idealize-models-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/models@file:./vendor/idealize/idealize-models-1.0.0-dev.0.tgz#./vendor/idealize/idealize-models-1.0.0-dev.0.tgz::hash=bd380b&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/models@file:./vendor/idealize/idealize-models-1.0.0-dev.0.tgz#./vendor/idealize/idealize-models-1.0.0-dev.0.tgz::hash=ef99a8&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
@@ -4772,13 +4772,13 @@ __metadata:
     "@idealize/services": "npm:^1.0.0-dev.0"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/4e5de58caeee4e31dabc75483b11dec47c19ff06fa92d7cfed1489d83a26ff3b53b0ad9320db8955b7aa417292c9047bfc9844c441497254d8bb4e7e01ae8ab7
+  checksum: 10c0/46fa403e34da06c7155c322848ba5a2c817269bdb2f11da663907b2c530a499fda38f13c2101c69ffe3ce956671d124c2914ab5f71654dec7006044e312f679a
   languageName: node
   linkType: hard
 
 "@idealize/notify@file:./vendor/idealize/idealize-notify-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/notify@file:./vendor/idealize/idealize-notify-1.0.0-dev.0.tgz#./vendor/idealize/idealize-notify-1.0.0-dev.0.tgz::hash=8b0cee&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/notify@file:./vendor/idealize/idealize-notify-1.0.0-dev.0.tgz#./vendor/idealize/idealize-notify-1.0.0-dev.0.tgz::hash=6804e0&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-locale": ^0.1.0-rc.7
@@ -4796,13 +4796,13 @@ __metadata:
     "@idealize/host-bridge": ^1.0.0-dev.0
     "@idealize/studio": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/fb34a7613fb8ec22b42f809f390e6692e478999b83230247614954108e124b275d2d1c049daf0b55ac57cd73ba46177bd77a716ef48fc634707dedb0bb95b0f0
+  checksum: 10c0/7874dbf80aa4ffaddc191b1d007474d06f6229213b549db6dd5ef3162c1d37d08c75ad3b44a3fbcb94bfc542bdd3b915664816d54fa079ea41011a3ef92c5216
   languageName: node
   linkType: hard
 
 "@idealize/onboarding@file:./vendor/idealize/idealize-onboarding-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/onboarding@file:./vendor/idealize/idealize-onboarding-1.0.0-dev.0.tgz#./vendor/idealize/idealize-onboarding-1.0.0-dev.0.tgz::hash=486000&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/onboarding@file:./vendor/idealize/idealize-onboarding-1.0.0-dev.0.tgz#./vendor/idealize/idealize-onboarding-1.0.0-dev.0.tgz::hash=3e2f69&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-locale": ^0.1.0-rc.7
@@ -4818,13 +4818,13 @@ __metadata:
     "@deepseek-ai/schemastery": ^3.18.1
     "@idealize/ui-tour": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/18f2c462313bcd72f94ddc049258c63becd995db4998c691072856dbab3f310f449b5116adf371fa466cf61e794162a3eb069ef0145f7981ed432a50cfd25373
+  checksum: 10c0/4fdc3b7d2c6644181e9b4f04c24cd49392cc3639d62e2ac4c701eb5daa01ca554dfdfa5f4486bb8987f737f05d742140a5819c4a83e2b4f59345c8f1e765192e
   languageName: node
   linkType: hard
 
 "@idealize/powell@file:./vendor/idealize/idealize-powell-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/powell@file:./vendor/idealize/idealize-powell-1.0.0-dev.0.tgz#./vendor/idealize/idealize-powell-1.0.0-dev.0.tgz::hash=304f9e&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/powell@file:./vendor/idealize/idealize-powell-1.0.0-dev.0.tgz#./vendor/idealize/idealize-powell-1.0.0-dev.0.tgz::hash=8f7f13&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
@@ -4849,7 +4849,7 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-slots": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/a0ec740027e3e5594840813b8584acf8f1629bdc035607f097dab2cfdc2ae77008b269ff25eac45cf08988c8c44e447ee9262ab0fab0d03014774271649b05c9
+  checksum: 10c0/3db8a30fc0ba5a7396ea116990572cbb3f91db72d8cf48e00d214914fe7fd221f2288ba1511cabfb4e636db084b582a6417c2ae8309fd7e14680558aa99d7a68
   languageName: node
   linkType: hard
 
@@ -4869,7 +4869,7 @@ __metadata:
 
 "@idealize/router@file:./vendor/idealize/idealize-router-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/router@file:./vendor/idealize/idealize-router-1.0.0-dev.0.tgz#./vendor/idealize/idealize-router-1.0.0-dev.0.tgz::hash=16cbed&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/router@file:./vendor/idealize/idealize-router-1.0.0-dev.0.tgz#./vendor/idealize/idealize-router-1.0.0-dev.0.tgz::hash=b5e458&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
@@ -4890,13 +4890,13 @@ __metadata:
     zod: "npm:^4.4.3"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/6350781cb0a2accd5612838d638987a99848b37057de8f4b755848bc0182425676e4b76936afc9d95ba1d9a163512e71cef1ba1697b04c58c38df743951313e4
+  checksum: 10c0/086592ebe8b07147874bf923096829d16505bd2fc22a6c7f09f71f4c9c993ace77e3ba6b160bd9782a975f364764e9933eb04ded5ba8e9f5f5893f5a3c7055e0
   languageName: node
   linkType: hard
 
 "@idealize/services@file:./vendor/idealize/idealize-services-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/services@file:./vendor/idealize/idealize-services-1.0.0-dev.0.tgz#./vendor/idealize/idealize-services-1.0.0-dev.0.tgz::hash=deee87&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/services@file:./vendor/idealize/idealize-services-1.0.0-dev.0.tgz#./vendor/idealize/idealize-services-1.0.0-dev.0.tgz::hash=d5997d&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-credentials": "npm:^0.1.0-rc.7"
@@ -4909,13 +4909,13 @@ __metadata:
     "@idealize/generate": "npm:^1.0.0-dev.0"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/204c02a0d2e0560847add9da6e8e749d1edef11652b033b1926ab748e4e56c8259b890c1d81f902a7f123f08c31b3117a351c14fab6cc859fae63e46bbaa6d9c
+  checksum: 10c0/345ac9899a3cd459f02ea6716e5d58a3917367a13b5399a3a01f3f12d1dbf113bd00bd8855895de1e3808f4e64a373001e6aec8979a919ef96e5be6fecd096c0
   languageName: node
   linkType: hard
 
 "@idealize/setup@file:./vendor/idealize/idealize-setup-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/setup@file:./vendor/idealize/idealize-setup-1.0.0-dev.0.tgz#./vendor/idealize/idealize-setup-1.0.0-dev.0.tgz::hash=142468&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/setup@file:./vendor/idealize/idealize-setup-1.0.0-dev.0.tgz#./vendor/idealize/idealize-setup-1.0.0-dev.0.tgz::hash=23dfab&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-host-webserver": ^0.1.0-rc.7
@@ -4924,13 +4924,13 @@ __metadata:
     "@deepseek-ai/dsh-workspace": ^0.1.0-rc.7
     "@deepseek-ai/schemastery": ^3.18.1
     "@idealize/doc-policy": ^1.0.0-dev.0
-  checksum: 10c0/f61f997ac115bfc6f26e313532ccf2cd3c2f08f33fc3396d2ae1bf790f87cc18da90f5420ec14334b29652b82f7594f7d8b9df1412f25a259a52be5809b19f67
+  checksum: 10c0/25ee18565995868bd11ee607f6afd383ea2bd714aaaee35f164555ecfda5ed2e49e548b2be2c4d9cc93acf0d949c0812f0bc039fa47432f2e0f2cdf3a2d33abb
   languageName: node
   linkType: hard
 
 "@idealize/skills@file:./vendor/idealize/idealize-skills-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/skills@file:./vendor/idealize/idealize-skills-1.0.0-dev.0.tgz#./vendor/idealize/idealize-skills-1.0.0-dev.0.tgz::hash=a612bb&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/skills@file:./vendor/idealize/idealize-skills-1.0.0-dev.0.tgz#./vendor/idealize/idealize-skills-1.0.0-dev.0.tgz::hash=9ece71&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-home-paths": "npm:^0.1.0-rc.7"
@@ -4942,7 +4942,7 @@ __metadata:
     yaml: "npm:^2.4.2"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/d4f4440c364f6a4e8672978bed1e5bb747a24a771e5322de1474bea6ed3b13401ec580c62ae63b66aa274d7ce6ea2210decb48fbb28033f4c267420493528aeb
+  checksum: 10c0/39b38369519319916efde8bfc1a6e362706c6be5c91245cc6ce9cfa472afa79ed8dc47f39085fca44d8689df9713638ef26d5f5505968ddc89969d8b4222d07e
   languageName: node
   linkType: hard
 
@@ -4962,7 +4962,7 @@ __metadata:
 
 "@idealize/spaces@file:./vendor/idealize/idealize-spaces-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/spaces@file:./vendor/idealize/idealize-spaces-1.0.0-dev.0.tgz#./vendor/idealize/idealize-spaces-1.0.0-dev.0.tgz::hash=5ae192&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/spaces@file:./vendor/idealize/idealize-spaces-1.0.0-dev.0.tgz#./vendor/idealize/idealize-spaces-1.0.0-dev.0.tgz::hash=c9cd33&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
@@ -4978,13 +4978,13 @@ __metadata:
     zod: "npm:^4.4.3"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/45ee03cf9c0389b12a83e8b1c24d6f4dfa96767b94317732877e74ae0c5076b6940655abee99c452fd9f2a742c60de88746bec5d8b10593e9e53620826d7bc9c
+  checksum: 10c0/d37e19cfcd99ebaf65171ef385f59ad60482b5d254559d5fb6a429dbfc9a4c4c2053f499e4d19f77f318a20edbc2c036d6359b7c72d6b3233ea94a3645df80f9
   languageName: node
   linkType: hard
 
 "@idealize/studio@file:./vendor/idealize/idealize-studio-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/studio@file:./vendor/idealize/idealize-studio-1.0.0-dev.0.tgz#./vendor/idealize/idealize-studio-1.0.0-dev.0.tgz::hash=a6d414&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/studio@file:./vendor/idealize/idealize-studio-1.0.0-dev.0.tgz#./vendor/idealize/idealize-studio-1.0.0-dev.0.tgz::hash=a63c27&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
@@ -4996,13 +4996,13 @@ __metadata:
     zod: "npm:^4.4.3"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/a07aa6d6e4a2a200c29f280b6a6fd16c4e9e4009aff68abce07a27e71a178f5d029438dc3838fcd3b227c07c585dde67aa59346847d248626787c843cb34f092
+  checksum: 10c0/7bb1a595ad61358aeec4e1018fb4ede96cb9a98d4a76fba4ea96e599d313abf8e0d9d34440d40f9f58d2cf12fe2ed2517155b8ea1c5b5c03ea94ecbda0f20290
   languageName: node
   linkType: hard
 
 "@idealize/telegram@file:./vendor/idealize/idealize-telegram-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/telegram@file:./vendor/idealize/idealize-telegram-1.0.0-dev.0.tgz#./vendor/idealize/idealize-telegram-1.0.0-dev.0.tgz::hash=627fd8&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/telegram@file:./vendor/idealize/idealize-telegram-1.0.0-dev.0.tgz#./vendor/idealize/idealize-telegram-1.0.0-dev.0.tgz::hash=d1d7ee&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-locale": ^0.1.0-rc.7
@@ -5020,13 +5020,13 @@ __metadata:
     "@idealize/host-bridge": ^1.0.0-dev.0
     "@idealize/studio": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/2a2b1cfc37c8edce3f402b4375c156d33cfa53a0f11b374be0bbbf64de2d0a3285ddbe23db1d39d08743b522a1dcb05071428fba24cec41bfdf9f3ada323410a
+  checksum: 10c0/5796b37eae55fd34b71693a491e098c2320daaac73d7100bbbaf9713b5fc812cc60df7cac02e4b100ad94e3f1f45f969b41e21ae3f6bf062839cf22b7bacfddb
   languageName: node
   linkType: hard
 
 "@idealize/ui-bar@file:./vendor/idealize/idealize-ui-bar-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/ui-bar@file:./vendor/idealize/idealize-ui-bar-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-bar-1.0.0-dev.0.tgz::hash=1ced3f&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/ui-bar@file:./vendor/idealize/idealize-ui-bar-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-bar-1.0.0-dev.0.tgz::hash=b34eb4&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-api-remotes": ^0.1.0-rc.7
@@ -5062,13 +5062,13 @@ __metadata:
     "@idealize/ui-schedule": ^1.0.0-dev.0
     "@idealize/ui-studio": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/7f368785fe466fc4dfd7ac6715f800b926919206f7898188fa06ae1288435d1d5bafb5de59c22d10e5d0c856d335990ffe9e099a21e8420804afc242fd316ac0
+  checksum: 10c0/c71658b5b7634a84eea85012ac79530bd520a2b4c97349aefcb5978a24a09ff18fe1cfacf446d9b6293277480868a16949290402836439d8c31b2b815a76e6af
   languageName: node
   linkType: hard
 
 "@idealize/ui-gallery@file:./vendor/idealize/idealize-ui-gallery-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/ui-gallery@file:./vendor/idealize/idealize-ui-gallery-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-gallery-1.0.0-dev.0.tgz::hash=1afc38&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/ui-gallery@file:./vendor/idealize/idealize-ui-gallery-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-gallery-1.0.0-dev.0.tgz::hash=7367b2&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-locale": ^0.1.0-rc.7
@@ -5080,13 +5080,13 @@ __metadata:
     "@deepseek-ai/dsh-session": ^0.1.0-rc.7
     "@idealize/artefacts": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/6edf684fbc45696d4ace62eec7992bb4621ab49b562a974b663dad2e33d911bb463b0c24d1ba2f0a89c7552bc290fbd051b19943f289c3372e3c164a130f2c67
+  checksum: 10c0/1ac13ea3fba6a36740aff4f3259eb9625c6f2a70a421edb06baf95792582d99ee43584454faaba4e1cd3ddbc920f18cd6f4702ce7fe8ef4eafef53ca8eb35c33
   languageName: node
   linkType: hard
 
 "@idealize/ui-launch@file:./vendor/idealize/idealize-ui-launch-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/ui-launch@file:./vendor/idealize/idealize-ui-launch-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-launch-1.0.0-dev.0.tgz::hash=997be1&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/ui-launch@file:./vendor/idealize/idealize-ui-launch-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-launch-1.0.0-dev.0.tgz::hash=278556&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-runtime": ^0.1.0-rc.7
@@ -5094,13 +5094,13 @@ __metadata:
     "@deepseek-ai/dsh-client-ui-slots": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/6239e7cc67d4bb7489eef890a4a1d8a237fe615e9ef5597e5616aa82292ddb276e43f5ad8189ff090dbb154da9c49dcaec3acedd659e97a41ffcd7be2ba1b9ad
+  checksum: 10c0/77b561d5ea5f09d1fb8f1356915b689240d58869d66fa8d6ee2d0a2f455c97a64f81830c8a110a4b55bf5fe25a159a034e1db795cc4d51584d606065c837885b
   languageName: node
   linkType: hard
 
 "@idealize/ui-schedule@file:./vendor/idealize/idealize-ui-schedule-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/ui-schedule@file:./vendor/idealize/idealize-ui-schedule-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-schedule-1.0.0-dev.0.tgz::hash=ada03f&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/ui-schedule@file:./vendor/idealize/idealize-ui-schedule-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-schedule-1.0.0-dev.0.tgz::hash=87174e&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-locale": ^0.1.0-rc.7
@@ -5110,13 +5110,13 @@ __metadata:
     "@deepseek-ai/dsh-client-web-react": ^0.1.0-rc.7
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/d62b72c7d484bd077781871dad71451456075d83c723f78c33cb9cadf875cc5f81aba91bc5a5e5e76060c9eed8dcdc970778bc88a6271f24900313e292559a54
+  checksum: 10c0/0c7465858c6b26a94c37bd2bb1054dda14bbfa86e81c8ee6ca61817c2b6b454d9366e4edb7e2cb56de950144475a5c676bc7b52ebf39e1d9ed4e732613425c12
   languageName: node
   linkType: hard
 
 "@idealize/ui-soundstage@file:./vendor/idealize/idealize-ui-soundstage-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/ui-soundstage@file:./vendor/idealize/idealize-ui-soundstage-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-soundstage-1.0.0-dev.0.tgz::hash=37259d&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/ui-soundstage@file:./vendor/idealize/idealize-ui-soundstage-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-soundstage-1.0.0-dev.0.tgz::hash=54a93b&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@idealize/ui-gallery": "npm:^1.0.0-dev.0"
   peerDependencies:
@@ -5128,13 +5128,13 @@ __metadata:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@idealize/artefacts": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/60d28231e58d3870aaa88be376b833f49efbfacef0708778485ce11212c534fd8c672a1753c49955f8f65bc4aede827564618fa9d6cabebb9141ed1f30e21754
+  checksum: 10c0/1754dd30e63a78d68cfad6fe3e4697f909f62ceb818c8bb2ec51d1d32b431b3827067c4b132ef657f3f5cdfc069f8ad4e40dbee7ee635d26950ed1464d7fcb9a
   languageName: node
   linkType: hard
 
 "@idealize/ui-studio@file:./vendor/idealize/idealize-ui-studio-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/ui-studio@file:./vendor/idealize/idealize-ui-studio-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-studio-1.0.0-dev.0.tgz::hash=a2daa9&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/ui-studio@file:./vendor/idealize/idealize-ui-studio-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-studio-1.0.0-dev.0.tgz::hash=7fa2f0&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-locale": ^0.1.0-rc.7
@@ -5147,13 +5147,13 @@ __metadata:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@idealize/comm": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/5b832f6435cd83aff441a11da83b6a5de602bc879dd68cf6cc790ec5dabb975116df361ec36bef01434383eb4a946294f7e3544e847a20d85420fac193106cbc
+  checksum: 10c0/9280b506798579863cf9b0ee4a6490dad2fca656ba78598a2abdc2eba439ae186198b349dfad01d9fac0180e82b1665a661742209f96989a056c862910e5a029
   languageName: node
   linkType: hard
 
 "@idealize/ui-tasks@file:./vendor/idealize/idealize-ui-tasks-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/ui-tasks@file:./vendor/idealize/idealize-ui-tasks-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-tasks-1.0.0-dev.0.tgz::hash=4477dc&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/ui-tasks@file:./vendor/idealize/idealize-ui-tasks-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-tasks-1.0.0-dev.0.tgz::hash=62fda3&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-locale": ^0.1.0-rc.7
@@ -5165,13 +5165,13 @@ __metadata:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
     "@deepseek-ai/dsh-tool-todo": ^0.1.0-rc.7
     react: ^18.2.0
-  checksum: 10c0/c7317e149699fcb40b78f71d5f5ccf57827dd3a8e2717c166a418a552bfcc3094e9c01e924dd878ba4fb15786a171af8e5da1e5a74e7c4a2556f4ea83f7570be
+  checksum: 10c0/26f4e04c70f627b985786df3b05f0534bbd103836400ae50a53d5ff01301c3015c31946eb97ce87bc4084719b234b3aa4f81d7428ecd029f3138711183f1e9f8
   languageName: node
   linkType: hard
 
 "@idealize/ui-terminal@file:./vendor/idealize/idealize-ui-terminal-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/ui-terminal@file:./vendor/idealize/idealize-ui-terminal-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-terminal-1.0.0-dev.0.tgz::hash=bb0a3b&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/ui-terminal@file:./vendor/idealize/idealize-ui-terminal-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-terminal-1.0.0-dev.0.tgz::hash=eda323&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@xterm/addon-fit": "npm:^0.11.0"
     "@xterm/xterm": "npm:6.0.0"
@@ -5192,13 +5192,13 @@ __metadata:
     "@idealize/activity-pills": ^1.0.0-dev.0
     "@idealize/appearance": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/b32e1ba9beb38345b0551816e023d838bf6789d49efd65536f62c884bd2bde92278bdeaa0b0bf3503705997b953c2bac1379d8b04cecc6264b0896581a110b54
+  checksum: 10c0/cfe503e1fcf3b1f2bb3a0792dfc6e66b2fa7e15a60798d538dfe859ad863784c67583cbd30208245f176e2ed218b7df7940f8c5610e970c8606a51213469e7e9
   languageName: node
   linkType: hard
 
 "@idealize/ui-tour@file:./vendor/idealize/idealize-ui-tour-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/ui-tour@file:./vendor/idealize/idealize-ui-tour-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-tour-1.0.0-dev.0.tgz::hash=05acb4&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/ui-tour@file:./vendor/idealize/idealize-ui-tour-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-tour-1.0.0-dev.0.tgz::hash=409bde&locator=deepseek-harness-desktop%40workspace%3A."
   peerDependencies:
     "@deepseek-ai/cordis": ^4.0.1
     "@deepseek-ai/dsh-client-locale": ^0.1.0-rc.7
@@ -5211,13 +5211,13 @@ __metadata:
     "@deepseek-ai/dsh-settings": ^0.1.0-rc.7
     "@deepseek-ai/schemastery": ^3.18.1
     react: ^18.2.0
-  checksum: 10c0/5f42db6a398e2c6810c786c3d1a3e57bd6d5b2b95c1a11e84c7a43b40a3070f4e9abe2b947f3f994b2ce3de32d5fcb962016fc91d1a3c6d0afb754e9a3daec9c
+  checksum: 10c0/5fc9fcf44ba51440c1d0ddeb96aca0b0a977415ecee8a73ca37f84d3503149638055fd29816aae7bf563d0319770ff417f04ce4b4622a30fcd1c339a510b00d5
   languageName: node
   linkType: hard
 
 "@idealize/vault@file:./vendor/idealize/idealize-vault-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/vault@file:./vendor/idealize/idealize-vault-1.0.0-dev.0.tgz#./vendor/idealize/idealize-vault-1.0.0-dev.0.tgz::hash=3e8be9&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/vault@file:./vendor/idealize/idealize-vault-1.0.0-dev.0.tgz#./vendor/idealize/idealize-vault-1.0.0-dev.0.tgz::hash=d9843c&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-host-webserver": "npm:^0.1.0-rc.7"
@@ -5227,13 +5227,13 @@ __metadata:
     "@idealize/doc-policy": "npm:^1.0.0-dev.0"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/fd0e06bd1b05d20e64ee80a1e2b7404e04c6b5c5ae9a4f3dae021fb6c7b6ff8989bc8c1d5cb3f42199bc35f1de245cda2147801301bc02fb0b63fd859ed11f6b
+  checksum: 10c0/68d03e607b2523c03e07d2593f97ab007183573ca0adf169f03706d8804f68090af982202e2aaebec42652b15e90a4fed0d6253afc94fe1c2616042dd83f6fce
   languageName: node
   linkType: hard
 
 "@idealize/web-search-openrouter@file:./vendor/idealize/idealize-web-search-openrouter-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/web-search-openrouter@file:./vendor/idealize/idealize-web-search-openrouter-1.0.0-dev.0.tgz#./vendor/idealize/idealize-web-search-openrouter-1.0.0-dev.0.tgz::hash=411fcc&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/web-search-openrouter@file:./vendor/idealize/idealize-web-search-openrouter-1.0.0-dev.0.tgz#./vendor/idealize/idealize-web-search-openrouter-1.0.0-dev.0.tgz::hash=7875c5&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-credentials": "npm:^0.1.0-rc.7"
@@ -5242,7 +5242,7 @@ __metadata:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/134be8af026c40aa9bc65905bdf06494e1918b1e740a7f687406b67be9361e01335b0ffb8fd87167c5eec52508a3a9dfab9513aaa5e2bec73c2f89eee599fee8
+  checksum: 10c0/fb271c9d225ad791ea2edfa1aa2a3c8d1c897bdf3f64e738956e0fc58f33c6280f40516fbbc8a8dd093da6b6b054f367fb37475ee23f033d708f435b1b64b67e
   languageName: node
   linkType: hard
 

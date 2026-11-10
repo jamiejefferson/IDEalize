@@ -188,3 +188,44 @@ describe('a chat holding pictures its model cannot see', () => {
     expect(decide(situation({ current: unknown, reading: { ...quick, confidence: 0.1 }, hasImages: true })).switched).toBe(false)
   })
 })
+
+describe('a connected key gateway', () => {
+  const viaSonnet: Candidate = { ...sonnet, provider: 'gateway-anthropic', label: 'Claude Sonnet 5 via gateway' }
+  const viaOpus: Candidate = { ...opus, provider: 'gateway-anthropic', label: 'Claude Opus 5 via gateway' }
+  const viaMini: Candidate = { ...mini, provider: 'gateway-openrouter', label: 'GPT-5.4 mini via gateway' }
+  const codex: Candidate = { provider: 'openai-codex', model: 'gpt-5.5', label: 'GPT-5.5', price: 'free', images: true }
+  const all = [sonnet, opus, mini, free, codex, viaSonnet, viaOpus, viaMini]
+
+  it('moves a chat on a direct key to the same model through the gateway, whatever the gates say', () => {
+    const unsure = { ...quick, confidence: 0.1 }
+    const decision = decide(situation({ current: sonnet, candidates: all, reading: unsure, gates: PRESETS.conservative, preferFree: true }))
+    expect(decision).toMatchObject({ switched: true, gateway: true, use: { provider: 'gateway-anthropic', model: 'claude-sonnet-5' } })
+  })
+
+  it('moves a chat on a route the gateway does not front to its best gateway model', () => {
+    const decision = decide(situation({ current: codex, candidates: all, reading: hardCode }))
+    expect(decision.gateway).toBe(true)
+    expect(decision.use.provider.startsWith('gateway-')).toBe(true)
+  })
+
+  it('moves a chat already on the gateway only between gateway models, and the person pays nothing extra', () => {
+    const weights = { cost: 0.1, speed: 0.3, intelligence: 1 }
+    const decision = decide(situation({ current: viaMini, candidates: all, reading: hardCode, weights, preferFree: true }))
+    expect(decision).toMatchObject({ switched: true, use: { provider: 'gateway-anthropic', model: 'claude-opus-5' } })
+    expect(decision.gateway).toBeUndefined()
+  })
+
+  it('takes another gateway model when the twin would cut the chat, and keeps the chat when none fits', () => {
+    const small: Candidate = { ...viaSonnet, contextWindow: 8_000 }
+    const roomy: Candidate = { ...viaOpus, contextWindow: 1_000_000 }
+    const moved = decide(situation({ current: sonnet, candidates: [sonnet, small, roomy], reading: quick, contextTokens: 150_000 }))
+    expect(moved).toMatchObject({ gateway: true, use: { model: 'claude-opus-5' } })
+    const kept = decide(situation({ current: sonnet, candidates: [sonnet, small], reading: quick, contextTokens: 150_000 }))
+    expect(kept.gateway).toBeUndefined()
+    expect(kept.use).toBe(sonnet)
+  })
+
+  it('leaves routing as it was when no gateway is connected', () => {
+    expect(decide(situation({ current: sonnet, reading: quick })).gateway).toBeUndefined()
+  })
+})

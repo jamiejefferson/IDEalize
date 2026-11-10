@@ -37,22 +37,51 @@ export function projectLinkQuestion(path: string): ConfirmationQuestion {
   }
 }
 
+/** The host of an address as a dialog may show it; the text as given when it is no address. */
+function hostOf(address: string): string {
+  try {
+    return displayable(new URL(address).host)
+  } catch {
+    return displayable(address)
+  }
+}
+
+/** What connecting a gateway means, for every dialog that offers one. */
+const GATEWAY_MEANS = 'Your chats, pictures and videos will run through this gateway. It will see them, and its replies direct what your agents do on this Mac.'
+
+/** The line saying a connected gateway would go, or nothing when none is connected or it is the same one. */
+function replacementLine(address: string, current: string | undefined): string {
+  return current === undefined || hostOf(current) === hostOf(address)
+    ? ''
+    : `\n\nThis replaces the gateway you have connected now, at ${hostOf(current)}. Its key is not kept.`
+}
+
 /**
  * @param address - the gateway address the link names.
+ * @param current - the gateway already connected, when there is one.
  * @returns the question for an `idealize://gateway` link.
  */
-export function gatewayLinkQuestion(address: string): ConfirmationQuestion {
-  let host = address
-  try {
-    host = new URL(address).host
-  } catch {
-    // The parser only passes https addresses, so this keeps the text as given.
-  }
+export function gatewayLinkQuestion(address: string, current?: string): ConfirmationQuestion {
   return {
     title: 'Connect Key Gateway?',
-    message: `A link is asking IDEalize to connect the key gateway at ${displayable(host)}.`,
-    detail: `${displayable(address)}\n\nYour chats, pictures and videos will run through this gateway, and it will see them. Choose Connect only if you pressed Connect in your organisation's gateway just now.`,
+    message: `A link is asking IDEalize to connect the key gateway at ${hostOf(address)}.`,
+    detail: `${displayable(address)}\n\n${GATEWAY_MEANS}${replacementLine(address, current)}\n\nChoose Connect only if you pressed Connect in your organisation's gateway just now.`,
     confirm: 'Connect',
+  }
+}
+
+/**
+ * The gateway address a keys file carries. An address is no secret, and the person has to see where their work would
+ * go before agreeing.
+ * @param text - the file's text.
+ * @returns the address, or undefined when the file carries none.
+ */
+export function keysFileGateway(text: string): string | undefined {
+  try {
+    const address = (JSON.parse(text) as { credentials?: Record<string, unknown> } | null)?.credentials?.['GATEWAY_URL']
+    return typeof address === 'string' && address.trim() !== '' ? address.trim() : undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -105,14 +134,20 @@ export function keysFileQuestion(
   fileName: string,
   credentials: readonly string[],
   services: readonly ServiceSummary[] | undefined,
+  gateway?: { address: string; current?: string },
 ): ConfirmationQuestion {
-  const lines = credentials.map((credential) => {
+  // A gateway's two entries read as one line that names where the work would go.
+  const gatewayLines = gateway === undefined
+    ? []
+    : [`Key gateway at ${hostOf(gateway.address)} (${displayable(gateway.address)}): ${GATEWAY_MEANS}${replacementLine(gateway.address, gateway.current).replace(/^\n\n/u, ' ')}`]
+  const named = gateway === undefined ? credentials : credentials.filter(name => name !== 'GATEWAY_URL' && name !== 'GATEWAY_API_KEY')
+  const lines = [...gatewayLines, ...named.map((credential) => {
     const service = services === undefined ? undefined : serviceFor(credential, services)
     if (service === undefined) return `${displayable(credential)}: replaces any key you have for it`
     return service.connected
       ? `${displayable(service.name)}: replaces the key you have now`
       : `${displayable(service.name)}: adds a new key`
-  })
+  })]
   return {
     title: 'Add These Keys?',
     message: `"${displayable(fileName)}" wants to change the keys IDEalize uses.`,

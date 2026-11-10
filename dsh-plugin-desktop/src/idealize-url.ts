@@ -80,10 +80,11 @@ function connectGateway(rawAddress: string, code: string): ConnectGatewayRequest
   } catch {
     return undefined
   }
-  // The code is sent to this address, and the key comes back from it, so it must be https (or a test gateway on this
-  // computer, as the app's own gateway setting allows) and carry nothing that could hide where it points.
-  const local = address.hostname === 'localhost' || /^127\.\d+\.\d+\.\d+$/u.test(address.hostname)
-  if (address.protocol !== 'https:' && !(address.protocol === 'http:' && local)) return undefined
+  // The code is sent to this address, and the key comes back from it, so it must be https and carry nothing that
+  // could hide where it points. An address on this computer is refused even though the Brains pane takes one for a
+  // test gateway: a link can come from any program, and one that listens locally must not be handed the app's own
+  // request (1.0.22 accepted `http://127.0.0.1` here and sent its launch cookie along).
+  if (address.protocol !== 'https:') return undefined
   if (address.username !== '' || address.password !== '' || address.search !== '' || address.hash !== '') return undefined
   if (code === '' || code.length > GATEWAY_CODE_MAX || !/^[\x21-\x7E]+$/u.test(code)) return undefined
   return { kind: 'connect-gateway', address: `${address.origin}${address.pathname}`.replace(/\/+$/u, ''), code }

@@ -18,7 +18,9 @@ describe('a gateway link', () => {
   it('refuses an address that is not plain https, and a code that is missing, too long or not printable', () => {
     const link = (address: string, code = 'abc') => `idealize://gateway?address=${encodeURIComponent(address)}&code=${encodeURIComponent(code)}`
     expect(parseIdealizeUrl(link('http://gateway.test'))).toBeUndefined()
-    expect(parseIdealizeUrl(link('http://127.0.0.1:8787'))).toMatchObject({ address: 'http://127.0.0.1:8787' })
+    // 1.0.22 took a local http address, and the pairing request carried the app's launch cookie to it.
+    expect(parseIdealizeUrl(link('http://127.0.0.1:8787'))).toBeUndefined()
+    expect(parseIdealizeUrl(link('http://localhost:8787'))).toBeUndefined()
     expect(parseIdealizeUrl(link('https://me:pw@gateway.test'))).toBeUndefined()
     expect(parseIdealizeUrl(link('https://gateway.test/?next=evil'))).toBeUndefined()
     expect(parseIdealizeUrl(link('not an address'))).toBeUndefined()
@@ -28,35 +30,53 @@ describe('a gateway link', () => {
     expect(parseIdealizeUrl(link('https://gateway.test', 'x'.repeat(100)))).toMatchObject({ code: 'x'.repeat(100) })
   })
 
-  it('asks by the gateway\'s host and says the gateway will see the work', () => {
+  it('asks by the gateway\'s host and says the gateway sees the work and directs the agents', () => {
     const question = gatewayLinkQuestion('https://gateway.test')
     expect(question.message).toBe('A link is asking IDEalize to connect the key gateway at gateway.test.')
-    expect(question.detail).toContain('it will see them')
+    expect(question.detail).toContain('It will see them, and its replies direct what your agents do on this Mac.')
+    expect(question.detail).not.toContain('replaces')
     expect(question.confirm).toBe('Connect')
+  })
+
+  it('names the gateway it would replace, and stays quiet when the link names the one already connected', () => {
+    expect(gatewayLinkQuestion('https://other.test', 'https://gateway.test').detail)
+      .toContain('This replaces the gateway you have connected now, at gateway.test. Its key is not kept.')
+    expect(gatewayLinkQuestion('https://gateway.test', 'https://gateway.test').detail).not.toContain('replaces')
   })
 })
 
 const json = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) })
 
-function connect(options: { answer?: boolean; pair?: () => Promise<ReturnType<typeof json>>; host?: ReturnType<typeof json> } = {}) {
+function connect(options: {
+  answer?: boolean
+  pair?: () => Promise<ReturnType<typeof json>>
+  host?: ReturnType<typeof json>
+  current?: string
+} = {}) {
   const asked: string[] = []
-  const pairCalls: { url: string; body: string }[] = []
+  const pairCalls: { url: string; body: string; credentials: string; redirect: string }[] = []
+  const details: string[] = []
   const hostCalls: { url: string; body?: string; headers: Record<string, string> }[] = []
   const outcome = connectGatewayLink({
     link: { kind: 'connect-gateway', address: 'https://gateway.test', code: 'abc123' },
-    ask: async (question) => { asked.push(question.message); return options.answer ?? true },
+    ask: async (question) => {
+      asked.push(question.message)
+      details.push(question.detail)
+      return options.answer ?? true
+    },
     port: 4321,
     launchKey: 'launch',
     fetchGateway: async (url, init) => {
-      pairCalls.push({ url, body: init.body })
+      pairCalls.push({ url, body: init.body, credentials: init.credentials, redirect: init.redirect })
       return await (options.pair ?? (async () => json(200, { address: 'https://elsewhere.test', key: 'kb-secret', me_url: 'https://gateway.test/v1/me' })))()
     },
     request: vi.fn(async (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => {
+      if (init.method === 'GET') return json(200, options.current === undefined ? { configured: false } : { configured: true, address: options.current })
       hostCalls.push({ url, headers: init.headers, ...init.body === undefined ? {} : { body: init.body } })
       return options.host ?? json(200, { connected: [{ name: 'Key gateway' }] })
     }),
   })
-  return { outcome, asked, pairCalls, hostCalls }
+  return { outcome, asked, details, pairCalls, hostCalls }
 }
 
 describe('connecting from a gateway link', () => {
@@ -64,12 +84,25 @@ describe('connecting from a gateway link', () => {
     const run = connect()
     expect(await run.outcome).toEqual({ ok: true, connected: ['Key gateway'] })
     expect(run.asked).toHaveLength(1)
-    expect(run.pairCalls).toEqual([{ url: 'https://gateway.test/v1/pair', body: '{"code":"abc123"}' }])
+    // No cookies and no redirects: the app's session holds the cookie that opens its own local server.
+    expect(run.pairCalls).toEqual([{ url: 'https://gateway.test/v1/pair', body: '{"code":"abc123"}', credentials: 'omit', redirect: 'error' }])
     expect(run.hostCalls[0]?.url).toBe('http://127.0.0.1:4321/idealize/brains/services/import')
     expect(run.hostCalls[0]?.headers['x-idealize-key']).toBe('launch')
     expect(JSON.parse(run.hostCalls[0]?.body ?? '')).toEqual({
       format: 1, credentials: { GATEWAY_URL: 'https://gateway.test', GATEWAY_API_KEY: 'kb-secret' },
     })
+  })
+
+  it('tells the person which gateway the link would replace before anything is sent', async () => {
+    const run = connect({ current: 'https://old.test', answer: false })
+    expect(await run.outcome).toBeUndefined()
+    expect(run.details[0]).toContain('This replaces the gateway you have connected now, at old.test.')
+    expect(run.pairCalls).toHaveLength(0)
+  })
+
+  it('reads a refusal that arrives with a success status as a refusal', async () => {
+    const run = connect({ host: json(200, { error: 'The gateway gave an answer this app cannot read.' }) })
+    expect(await run.outcome).toEqual({ ok: false, reason: 'The gateway gave an answer this app cannot read.' })
   })
 
   it('does nothing at all when the person cancels', async () => {

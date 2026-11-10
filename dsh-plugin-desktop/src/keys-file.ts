@@ -13,6 +13,7 @@
 import { basename } from 'node:path'
 import {
   keysFileCredentials,
+  keysFileGateway,
   keysFileQuestion,
   type AskConfirmation,
   type ServiceSummary,
@@ -107,7 +108,9 @@ export async function importKeysFile(options: KeysFileImport): Promise<KeysFileO
     // reason to show; the status stands in below.
     body = undefined
   }
-  if (!response.ok) {
+  // A refusal is a refusal whatever its status: a gateway's unreadable answer once came back as 200 with an error,
+  // and the notification said the keys were connected.
+  if (!response.ok || typeof body?.error === 'string') {
     const reason = typeof body?.error === 'string' ? body.error : `the app answered ${String(response.status)}`
     return { ok: false, reason }
   }
@@ -126,6 +129,23 @@ export interface ConfirmedKeysFileImport extends KeysFileImport {
   ask: AskConfirmation
   /** Read the Host's list of services; replaced in tests. */
   listServices?: () => Promise<readonly ServiceSummary[] | undefined>
+  /** Read the address of the gateway already connected; replaced in tests. */
+  currentGateway?: () => Promise<string | undefined>
+}
+
+/** The gateway already connected, which a keys file carrying one would replace. */
+export async function hostGateway(options: Pick<KeysFileImport, 'port' | 'launchKey' | 'request'>): Promise<string | undefined> {
+  try {
+    const response = await options.request(`http://127.0.0.1:${String(options.port)}/idealize/brains/gateway`, {
+      method: 'GET',
+      headers: { 'x-idealize-auth': '1', ...options.launchKey === undefined ? {} : { 'x-idealize-key': options.launchKey } },
+    })
+    if (!response.ok) return undefined
+    const address = (await response.json() as { address?: unknown } | null)?.address
+    return typeof address === 'string' && address !== '' ? address : undefined
+  } catch {
+    return undefined
+  }
 }
 
 async function hostServices(options: KeysFileImport): Promise<readonly ServiceSummary[] | undefined> {
@@ -162,7 +182,10 @@ export async function confirmAndImportKeysFile(options: ConfirmedKeysFileImport)
   const credentials = Buffer.byteLength(text, 'utf8') > KEYS_FILE_MAX_BYTES ? undefined : keysFileCredentials(text)
   if (credentials !== undefined) {
     const services = await (options.listServices ?? (() => hostServices(options)))()
-    if (!await options.ask(keysFileQuestion(basename(options.path), credentials, services))) return undefined
+    const address = keysFileGateway(text)
+    const current = address === undefined ? undefined : await (options.currentGateway ?? (() => hostGateway(options)))()
+    const gateway = address === undefined ? undefined : { address, ...current === undefined ? {} : { current } }
+    if (!await options.ask(keysFileQuestion(basename(options.path), credentials, services, gateway))) return undefined
   }
   return await importKeysFile({ ...options, readFile: async () => text })
 }
