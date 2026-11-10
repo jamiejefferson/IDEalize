@@ -44,7 +44,11 @@ afterEach(async () => {
 })
 
 /** One host root serving the route over a recording runtime and key store. */
-async function mount(options: { setThrows?: unknown; refreshThrows?: unknown } = {}) {
+async function mount(options: {
+  setThrows?: unknown
+  refreshThrows?: unknown
+  connectGateway?: ServicesRuntime['connectGateway']
+} = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   const handlers = new Map<string, Handler>()
@@ -81,6 +85,7 @@ async function mount(options: { setThrows?: unknown; refreshThrows?: unknown } =
       if (options.refreshThrows !== undefined) throw options.refreshThrows
       return true
     },
+    ...options.connectGateway === undefined ? {} : { connectGateway: options.connectGateway },
   }
   await ctx.plugin({ name: 'idealize-services-route', inject: [], apply: (pluginCtx: Context) => { installServicesRoute(pluginCtx, runtime) } }).await()
 
@@ -253,6 +258,28 @@ describe('importing a keys file', () => {
     expect(stored.get('FAL_KEY')).toBe('fal-1')
     expect(recorded).toEqual(['acme=ACME_API_KEY'])
     expect(Array.isArray(answer.json().services)).toBe(true)
+  })
+
+  it('connects a key gateway from its address and key, asking the gateway first', async () => {
+    const asked: string[] = []
+    const { call, stored } = await mount({ connectGateway: async (address, key) => { asked.push(`${address} ${key}`); return undefined } })
+    const answer = await call({ method: 'POST', path: IMPORT, body: file({ GATEWAY_URL: 'https://gateway.test', GATEWAY_API_KEY: 'gw-1', FAL_KEY: 'fal-1' }) })
+    expect(answer.status).toBe(200)
+    expect(answer.json().connected).toEqual([
+      { id: 'gateway', kind: 'chat', name: 'Key gateway' },
+      { id: 'fal', kind: 'media', name: 'fal.ai' },
+    ])
+    expect(asked).toEqual(['https://gateway.test gw-1'])
+    expect(stored.get('FAL_KEY')).toBe('fal-1')
+  })
+
+  it('stores nothing when the gateway refuses, or when the file carries half a gateway', async () => {
+    const refusing = await mount({ connectGateway: async () => ({ status: 401, error: 'Key revoked.' }) })
+    const answer = await refusing.call({ method: 'POST', path: IMPORT, body: file({ GATEWAY_URL: 'https://gateway.test', GATEWAY_API_KEY: 'gw-1', FAL_KEY: 'fal-1' }) })
+    expect([answer.status, answer.json().error]).toEqual([401, 'Key gateway: Key revoked.'])
+    expect(refusing.stored.size).toBe(0)
+    const half = await (await mount({ connectGateway: async () => undefined })).call({ method: 'POST', path: IMPORT, body: file({ GATEWAY_API_KEY: 'gw-1' }) })
+    expect([half.status, half.json().error]).toEqual([400, 'a key gateway needs both GATEWAY_URL and GATEWAY_API_KEY'])
   })
 
   it('refuses the whole file when one name belongs to no service, storing nothing', async () => {

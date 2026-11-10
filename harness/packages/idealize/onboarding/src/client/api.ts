@@ -35,6 +35,13 @@ export interface OnboardingApi {
    * @returns ok, or the host's plain refusal.
    */
   connectOpenRouter(apiKey: string): Promise<SaveOutcome>
+  /** Whether a key gateway is connected; false when the host serves none. */
+  loadGateway(): Promise<boolean>
+  /**
+   * Check a key gateway's address and key with the gateway, then store both.
+   * @returns ok, or the gateway's own refusal.
+   */
+  connectGateway(address: string, key: string): Promise<SaveOutcome>
   /**
    * Probe one folder path through the setup alias route — which also persists
    * the alias on success (the finish step's orientation write re-confirms it).
@@ -97,6 +104,10 @@ export function createOnboardingApi(fetchFn: typeof fetch = fetch): OnboardingAp
     loadAgents: () => get<AgentsState>('/idealize/onboarding/agents'),
 
     connectOpenRouter: apiKey => post('/idealize/onboarding/openrouter', { apiKey }),
+
+    loadGateway: () => get<{ connected?: boolean }>('/idealize/brains/gateway').then(state => state.connected === true, () => false),
+
+    connectGateway: (address, key) => post('/idealize/brains/gateway', { address, key }),
 
     async probeFolder(alias, path) {
       let response: Response

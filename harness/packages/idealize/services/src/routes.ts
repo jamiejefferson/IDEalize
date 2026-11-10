@@ -23,6 +23,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { GATEWAY_KEY_ENV, GATEWAY_URL_ENV } from './gateway.ts'
 import { joinServices } from './join.ts'
 import type { ChatCandidate, MediaCandidate } from './join.ts'
 import type { ServiceRow } from './directory.ts'
@@ -95,6 +96,8 @@ export interface ServicesRuntime {
   forgetChatKeyEnv(provider: string, env: string): Promise<void>
   /** Re-read a generation backend's catalogue after its key changed. */
   refreshBackend(id: string): Promise<boolean>
+  /** Connect a key gateway from a keys file's address and key; the refusal, or undefined once connected. */
+  connectGateway?(address: string, key: string): Promise<{ status: number; error: string } | undefined>
 }
 
 /**
@@ -339,9 +342,16 @@ export function installServicesRoute(ctx: Context, runtime: ServicesRuntime): vo
         // Every name is matched before any key is stored: a file naming one
         // credential this app cannot place is refused whole, so a person is
         // never left with half a file connected and no way to tell which half.
+        // A gateway's address and key travel together, and the gateway is asked before anything is stored.
+        const { [GATEWAY_URL_ENV]: gatewayUrl, [GATEWAY_KEY_ENV]: gatewayKey, ...keys } = parsed.file.credentials
+        const halfGateway = (gatewayUrl === undefined) !== (gatewayKey === undefined)
+        if (halfGateway || (gatewayUrl !== undefined && runtime.connectGateway === undefined)) {
+          sendJson(res, 400, { error: `a key gateway needs both ${GATEWAY_URL_ENV} and ${GATEWAY_KEY_ENV}` })
+          return
+        }
         const services = await listServices(runtime)
         const targets: { service: ServiceRow; apiKey: string }[] = []
-        for (const [env, apiKey] of Object.entries(parsed.file.credentials)) {
+        for (const [env, apiKey] of Object.entries(keys)) {
           const service = serviceOwning(runtime, services, env)
           if (service === undefined) {
             sendJson(res, 400, { error: `${env} is not a credential any service this app can connect takes` })
@@ -350,6 +360,14 @@ export function installServicesRoute(ctx: Context, runtime: ServicesRuntime): vo
           targets.push({ service, apiKey })
         }
         const connected: { id: string; kind: ServiceRow['kind']; name: string }[] = []
+        if (gatewayUrl !== undefined && gatewayKey !== undefined && runtime.connectGateway !== undefined) {
+          const refusal = await runtime.connectGateway(gatewayUrl, gatewayKey)
+          if (refusal !== undefined) {
+            sendJson(res, refusal.status, { error: `Key gateway: ${refusal.error}`, connected })
+            return
+          }
+          connected.push({ id: 'gateway', kind: 'chat', name: 'Key gateway' })
+        }
         for (const { service, apiKey } of targets) {
           const refusal = await storeKey(webCtx.credentials, runtime, service, apiKey)
           if (refusal !== undefined) {

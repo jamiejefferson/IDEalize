@@ -28,6 +28,8 @@ export interface MediaServiceRow {
   adapter: MediaAdapter
   /** Catalogue API origin including its version segment, no trailing slash. */
   baseUrl: string
+  /** Images adapter: where the keyless model list is read, when it is not `baseUrl`. */
+  catalogUrl?: string
   /** Credential environment name the key is stored under. */
   apiKeyEnv: string
   /** Queue API origin, no trailing slash. `queue` rows only. */

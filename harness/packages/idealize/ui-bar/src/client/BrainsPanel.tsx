@@ -78,6 +78,7 @@ import { ModelBrowser } from './ModelBrowser.tsx'
 import type { BrowserExample } from './ModelBrowser.tsx'
 import { RouterTab } from './RouterTab.tsx'
 import { SectionHead } from './SectionHead.tsx'
+import { GatewayRow } from './GatewayRow.tsx'
 import css from './BrainsPanel.module.css'
 
 export { providerDisplayName } from './format.ts'
@@ -500,6 +501,7 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
   const [checks, setChecks] = useState<Record<string, ServiceCheck | 'checking'>>({})
   /** True while the "Add a service" picker is open over the connected list. */
   const [adding, setAdding] = useState(false)
+  const [gatewaySet, setGatewaySet] = useState(false)
   /** The route an "Add key" asked for, until the services list can place it. */
   const [keyFor, setKeyFor] = useState<string | null>(null)
   const [spaces, setSpaces] = useState<SpaceRosterEntry[] | null>(null)
@@ -1591,7 +1593,8 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
           <>
             <SectionHead title={t('brains.accounts.connected')} />
             <div className={css.list} data-accounts-connected="" data-services="">
-              {connectedPlans.length === 0 && readyClis.length === 0 && connectedServices.length === 0 && free?.connected !== true && (
+              {connectedPlans.length === 0 && readyClis.length === 0 && connectedServices.length === 0
+                && free?.connected !== true && !gatewaySet && (
                 <div className={css.emptyRow}>{t('brains.accounts.none')}</div>
               )}
               {connectedPlans.map(provider => (
@@ -1606,6 +1609,7 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
               ))}
               {readyClis.map(cliRow)}
               {connectedServices.map(row => <Fragment key={`${row.kind}:${row.id}`}>{serviceRow(row)}</Fragment>)}
+              <GatewayRow t={t} configuredOnly onState={setGatewaySet} />
               {free?.connected === true && freeRow(free.models.length)}
             </div>
 
@@ -1656,6 +1660,7 @@ export function BrainsPanel({ host, request, onRequestHandled, t }: {
                     onChange={(event) => { setServiceQuery(event.target.value) }}
                   />
                 </label>
+                <GatewayRow t={t} configuredOnly={false} onState={setGatewaySet} />
                 {otherPlans.filter(provider => matchesQuery(providerName(provider.provider))).map(provider => (
                   <div key={provider.provider} className={css.providerRow} data-provider={provider.provider}>
                     <span className={css.providerName}>

@@ -21,7 +21,7 @@ import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
-import { MODALITIES, resolveRouteModels, SUPPORTED_THINKING_FORMATS, THINKING_LEVELS } from './catalog.ts'
+import { catalogProvider, MODALITIES, resolveRouteModels, SUPPORTED_THINKING_FORMATS, THINKING_LEVELS } from './catalog.ts'
 import type {
   PiAiCompatProfile,
   PiAiModality,
@@ -75,6 +75,14 @@ export interface PiAiProviderProfile {
   api?: string
   /** Endpoint for this route's models; defaults to the installed catalog's endpoint. */
   baseURL?: string
+  /**
+   * IDEalize fork: the installed provider whose catalog this route serves,
+   * when the route key is not that provider's own. A key gateway fronts a
+   * provider at its own address, and its route keeps every model's context
+   * window, efforts and protocol by naming the provider here with `baseURL`
+   * pointing at the gateway. Absent means the route key itself.
+   */
+  catalog?: string
   /**
    * This route's model catalog. Omission serves the installed catalog for the
    * route unchanged; an explicit list replaces it, each entry defaulting its
@@ -234,6 +242,7 @@ const profile = z.object({
   displayName: z.string(),
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
+  catalog: z.string(),
   models: z.array(modelProfile),
   modelOverrides: z.dict(modelOverride),
   compat: compatProfile,
@@ -312,6 +321,9 @@ export function resolveProfiles(
     if (source.baseURL !== undefined && source.baseURL.length === 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty baseURL`)
     }
+    if (source.catalog !== undefined && catalogProvider(source.catalog) === undefined) {
+      throw new Error(`llm-pi-ai: provider "${provider}" names catalog "${source.catalog}", which the installed catalog does not ship`)
+    }
     if (source.displayName !== undefined && source.displayName.length === 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty displayName`)
     }
@@ -338,6 +350,7 @@ export function resolveProfiles(
     const displayName = source.displayName ?? provider
     const catalog = resolveRouteModels({
       provider,
+      ...source.catalog === undefined ? {} : { catalog: source.catalog },
       ...source.api === undefined ? {} : { api: source.api },
       ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
       ...source.models === undefined ? {} : { models: source.models },
@@ -360,6 +373,7 @@ export function resolveProfiles(
       configuredMaxTokens: catalog.configuredMaxTokens,
       piProvider: buildProvider({
         provider,
+        ...source.catalog === undefined ? {} : { catalog: source.catalog },
         displayName,
         ...source.api === undefined ? {} : { api: source.api },
         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },

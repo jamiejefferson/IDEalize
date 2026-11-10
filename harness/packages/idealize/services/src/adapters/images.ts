@@ -48,6 +48,11 @@ export interface ImagesBackendOptions {
   name: string
   /** API origin including its version segment, no trailing slash. */
   baseUrl: string
+  /**
+   * Where the keyless model list is read, when it is not {@link baseUrl}: a key gateway
+   * generates through itself and lists from the provider.
+   */
+  catalogUrl?: string
   /** Per-request timeout in milliseconds. */
   timeoutMs: number
   /** The key the person pastes under Brains: its display name and credential environment name. */
@@ -230,7 +235,7 @@ export function createImagesBackend(options: ImagesBackendOptions): ImagesBacken
       // models never became selectable (JJ, 1 Sep 2026: "open router key
       // doesn't seem to have registered for that").
       credentialConfigured = await options.resolveApiKey().then(key => key !== undefined && key !== '', () => false)
-      const response = await fetchImpl(`${options.baseUrl}/models`, {
+      const response = await fetchImpl(`${options.catalogUrl ?? options.baseUrl}/models`, {
         signal: AbortSignal.timeout(options.timeoutMs),
       })
       if (!response.ok) {

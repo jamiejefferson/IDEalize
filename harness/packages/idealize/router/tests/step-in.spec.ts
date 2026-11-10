@@ -115,6 +115,18 @@ describe('choosing a stand-in', () => {
       expect(choice).toMatchObject({ kind: 'offer', reason: 'other-company' })
     })
 
+    it('treats a key gateway\'s route as the company it fronts, both ways', async () => {
+      const gatewayClaude: Candidate = { provider: 'gateway-anthropic', model: 'claude-sonnet-5-5', label: 'Sonnet via gateway', price: { input: 3, output: 15 } }
+      const directClaude: Candidate = { provider: 'anthropic', model: 'claude-sonnet-5-5', label: 'Sonnet', price: { input: 3, output: 15 } }
+      expect(await chooseStandIn(input({ tried: [], failed: { provider: 'gateway-anthropic', model: 'claude-sonnet-5-5' }, code: 'SERVER', candidates: [directClaude] }), noWindow))
+        .toMatchObject({ kind: 'use', to: { provider: 'anthropic' } })
+      expect(await chooseStandIn(input({ tried: [], failed: { provider: 'anthropic', model: 'claude-sonnet-5-5' }, code: 'QUOTA', candidates: [gatewayClaude] }), noWindow))
+        .toMatchObject({ kind: 'use', to: { provider: 'gateway-anthropic' } })
+      const gatewayRouter: Candidate = { provider: 'gateway-openrouter', model: '~openai/gpt-5.5', label: 'GPT via gateway', price: { input: 1, output: 4 } }
+      expect(await chooseStandIn(input({ tried: [], failed: { provider: 'anthropic', model: 'claude-sonnet-5-5' }, code: 'QUOTA', candidates: [gatewayRouter] }), noWindow))
+        .toMatchObject({ kind: 'offer', reason: 'other-company' })
+    })
+
     it('treats ChatGPT’s sign-in as the same company as OpenAI', async () => {
       const gpt: Candidate = { provider: 'openai', model: 'gpt-5.6', label: 'GPT', price: { input: 1, output: 2 } as never }
       const choice = await chooseStandIn(input({ tried: [], failed: { provider: 'openai-codex', model: 'gpt-5.6-luna' }, code: 'AUTH', candidates: [gpt] }), noWindow)

@@ -356,6 +356,18 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       return typeof signedIn?.access === 'string' && signedIn.access !== '' ? signedIn.access : undefined
     }
 
+    /**
+     * Where Jev is asked and with which key: the person's own OpenRouter key at OpenRouter, else a key gateway that
+     * fronts OpenRouter. The gateway is the person's own setting, so it is used as given.
+     */
+    const jevTarget = async (configuredUrl: string | undefined): Promise<{ key: string | undefined; url: string }> => {
+      const key = await openRouterKey()
+      if (key !== undefined) return { key, url: jevAddress(configuredUrl) }
+      const gateway = await (routeCtx.get('idealizeGateway') as { decisions?: () => Promise<{ url: string; key: string } | undefined> } | undefined)
+        ?.decisions?.().catch(() => undefined)
+      return gateway ?? { key: undefined, url: jevAddress(configuredUrl) }
+    }
+
     const weights = (): Weights => {
       const models = routeCtx.settings.get(MODELS_NS) as Partial<Weights> | undefined
       return { cost: models?.cost ?? 34, speed: models?.speed ?? 33, intelligence: models?.intelligence ?? 33 }
@@ -620,7 +632,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         }
         const settings = current()
         const record = foldBrainRecord(agent.session.events)
-        const key = settings.useJev === false ? undefined : await openRouterKey()
+        const jev = settings.useJev === false ? undefined : await jevTarget(settings.jevUrl)
         const result = await routeTurn({
           resolved, routed, lastSwitchAt,
           message: asked.message, hasImages: asked.hasImages,
@@ -637,7 +649,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
             ? undefined
             : (message, brain) => askJev(
               requestFor(message, brain === undefined ? undefined : { name: brain.id, instructions: brain.instructions }),
-              { key, url: jevAddress(settings.jevUrl), timeoutMs: settings.jevTimeoutMs ?? JEV_TIMEOUT_MS },
+              { key: jev?.key, url: jev?.url ?? jevAddress(settings.jevUrl), timeoutMs: settings.jevTimeoutMs ?? JEV_TIMEOUT_MS },
             ),
           contextWindow: async candidate =>
             (await routeCtx.llm.resolveModelInfo(candidate.provider, candidate.model)).context?.contextWindow,
@@ -719,10 +731,10 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       const brief = (asked.data.source as { brief?: unknown }).brief
       const askText = typeof brief === 'string' ? brief : textOf(asked.data.content)
       if (replyText === '' || askText === '') return
-      const key = await openRouterKey()
+      const { key, url } = await jevTarget(settings.jevUrl)
       if (key === undefined) return
       const seen = events.length
-      const check = await checkReply(askText, replyText, { key, url: jevAddress(settings.jevUrl) })
+      const check = await checkReply(askText, replyText, { key, url })
       if (!saidItCannot(check)) return
       // The person wrote again while Jev read, so the offer would answer a turn that has moved on.
       if (agent.session.events.slice(seen).some(event => event.type === 'user/message')) return
@@ -792,7 +804,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         if (!hasStarsFor(file, kind) || settings.useJev === false) return stored
         const tags = readableTags(kind, choice.hasReference)
         const read = await readPrompt(choice.prompt, kind, tags, {
-          key: await openRouterKey(), url: jevAddress(settings.jevUrl), timeoutMs: settings.jevTimeoutMs ?? JEV_TIMEOUT_MS,
+          ...await jevTarget(settings.jevUrl), timeoutMs: settings.jevTimeoutMs ?? JEV_TIMEOUT_MS,
         })
         if (read.failure !== undefined) lastJevFailure = { failure: read.failure, at: new Date().toISOString() }
         if (read.reading === undefined || read.reading.confidence < MEDIA_CONFIDENCE) return stored
@@ -877,7 +889,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
           weights: weights(),
           brains: settings.brains ?? {},
           shippedBrains: SHIPPED_CRITERIA,
-          jev: { keyed: (await openRouterKey()) !== undefined, lastFailure: lastJevFailure },
+          jev: { keyed: (await jevTarget(undefined)).key !== undefined, lastFailure: lastJevFailure },
           families: table.map(row => ({ family: row.family, speed: row.speed, scores: row.scores, yours: !SHIPPED_SCORES.includes(row) })),
           candidates: (await usable()).length,
           refused: Object.keys(refusals ?? {}),

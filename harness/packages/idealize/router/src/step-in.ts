@@ -123,8 +123,10 @@ const COMPANY_OF_ROUTE: Readonly<Record<string, string>> = {
  * (`~anthropic/claude-haiku-latest`), and any other route answers for itself.
  */
 const companyOf = (route: { provider: string; model: string }): string => {
-  if (route.provider === 'openrouter') return route.model.replace(/^~/u, '').split('/')[0] ?? route.provider
-  return COMPANY_OF_ROUTE[route.provider] ?? route.provider
+  // A key gateway's route reaches the same company as the route it fronts.
+  const provider = route.provider.startsWith('gateway-') ? route.provider.slice('gateway-'.length) : route.provider
+  if (provider === 'openrouter') return route.model.replace(/^~/u, '').split('/')[0] ?? provider
+  return COMPANY_OF_ROUTE[provider] ?? provider
 }
 
 /**

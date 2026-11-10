@@ -33,6 +33,8 @@ function stubApi(): OnboardingApi {
   return {
     loadAgents: vi.fn(async () => ({ claudeCode: { installed: true, path: '/usr/local/bin/claude' }, openrouter: { connected: false } })),
     connectOpenRouter: vi.fn(async () => ({ ok: true }) as const),
+    loadGateway: vi.fn(async () => false),
+    connectGateway: vi.fn(async () => ({ ok: true }) as const),
     probeFolder: vi.fn(async () => ({ ok: true }) as const),
     orient: vi.fn(async () => ({ ok: true }) as const),
   }

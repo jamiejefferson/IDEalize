@@ -189,7 +189,7 @@ function stubFetch(respond: (url: string) => Response): { calls: FetchCall[]; fe
 
 function backendWith(
   respond: (url: string) => Response, apiKey = 'sk-test',
-  extra: { cached?: readonly GenModelInfo[]; onCatalog?: (models: readonly GenModelInfo[]) => void } = {},
+  extra: { cached?: readonly GenModelInfo[]; onCatalog?: (models: readonly GenModelInfo[]) => void; catalogUrl?: string } = {},
 ) {
   const { calls, fetchImpl } = stubFetch(respond)
   const backend = createImagesBackend({
@@ -251,6 +251,16 @@ describe('createImagesBackend', () => {
     const described = backend.describe()
     expect(described.map(descriptor => descriptor.artefact).sort()).toEqual(['audio', 'image', 'video'])
     expect(described.every(descriptor => descriptor.availability === 'available')).toBe(true)
+  })
+
+  it('reads its model list from the catalogue address when one is given, and generates at its own', async () => {
+    const { backend, calls } = backendWith(
+      url => (url.endsWith('/models') ? Response.json(LIVE_BODY) : new Response('{}')),
+      'sk-test',
+      { catalogUrl: 'https://public.test/api/v1' },
+    )
+    await backend.refresh()
+    expect(calls.map(call => call.url)).toEqual(['https://public.test/api/v1/models'])
   })
 
   it('goes back to no-credential when the key has been cleared', async () => {

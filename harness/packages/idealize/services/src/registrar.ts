@@ -48,6 +48,7 @@ function backendFor(
     id: row.id,
     name: row.name,
     baseUrl: row.baseUrl.replace(/\/+$/, ''),
+    ...row.catalogUrl === undefined ? {} : { catalogUrl: row.catalogUrl.replace(/\/+$/, '') },
     timeoutMs: options.timeoutMs,
     credential: { displayName: row.name, env: row.apiKeyEnv },
     resolveApiKey: async () => (await ctx.credentials.resolve(ref))?.value,
@@ -80,19 +81,34 @@ function backendFor(
  * @param options - home, timings, the rows to register, and a test fetch.
  */
 export function registerMediaServices(ctx: Context, options: RegistrarOptions): void {
-  for (const row of options.rows ?? MEDIA_SERVICES) {
-    const backend = backendFor(ctx, row, options)
-    ctx.effect(() => ctx.generation.register(backend), `idealize-services: ${row.id} backend`)
-    const refresh = (): void => {
-      backend.refresh().catch((error: unknown) => {
-        ctx.logger.warn(`idealize-services: ${row.id} catalogue refresh failed: ${error instanceof Error ? error.message : String(error)}`)
-      })
-    }
-    ctx.effect(() => {
-      refresh()
-      if (options.refreshMinutes === 0) return () => {}
-      const timer = setInterval(refresh, options.refreshMinutes * 60_000)
-      return () => { clearInterval(timer) }
-    }, `idealize-services: ${row.id} catalogue refresh`)
+  for (const row of options.rows ?? MEDIA_SERVICES) registerMediaRow(ctx, row, options)
+}
+
+/**
+ * Register one media service's backend and keep its catalogue fresh, until the
+ * returned function removes both. The key gateway adds and drops its rows this
+ * way as the gateway's list of services changes.
+ * @param ctx - a context carrying `generation`, `credentials` and a logger.
+ * @param row - the service.
+ * @param options - home, timings and a test fetch.
+ * @returns a function that unregisters the backend and stops its refresh.
+ */
+export function registerMediaRow(ctx: Context, row: MediaServiceRow, options: RegistrarOptions): () => void {
+  const backend = backendFor(ctx, row, options)
+  const unregister = ctx.effect(() => ctx.generation.register(backend), `idealize-services: ${row.id} backend`)
+  const refresh = (): void => {
+    backend.refresh().catch((error: unknown) => {
+      ctx.logger.warn(`idealize-services: ${row.id} catalogue refresh failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }
+  const stop = ctx.effect(() => {
+    refresh()
+    if (options.refreshMinutes === 0) return () => {}
+    const timer = setInterval(refresh, options.refreshMinutes * 60_000)
+    return () => { clearInterval(timer) }
+  }, `idealize-services: ${row.id} catalogue refresh`)
+  return () => {
+    void stop()
+    void unregister()
   }
 }

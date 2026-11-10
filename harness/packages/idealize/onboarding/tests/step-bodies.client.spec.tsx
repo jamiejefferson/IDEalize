@@ -42,6 +42,8 @@ interface FetchTable {
   brainsMedia?: unknown
   /** GET /idealize/terminal/launches; absent means the route does not exist (a plain browser). */
   terminalLaunches?: unknown
+  /** GET /idealize/brains/gateway; reassignable so a connect can change the re-poll. */
+  gateway?: unknown
   /** Per-path POST response (default 200 { ok: true }). */
   posts?: Record<string, { status: number; body: unknown }>
 }
@@ -55,6 +57,7 @@ function mockFetch(table: FetchTable) {
     '/idealize/activity/agents': () => table.activityAgents,
     '/idealize/brains/media': () => table.brainsMedia,
     '/idealize/terminal/launches': () => table.terminalLaunches,
+    '/idealize/brains/gateway': () => table.gateway,
   }
   // The wizard only ever fetches plain string paths with JSON bodies; the
   // `typeof fetch` boundary cast localizes that narrowing.
@@ -125,6 +128,33 @@ describe('the agents step body', () => {
     expect(document.querySelector('[data-agent-path]')?.textContent).toBe('/usr/local/bin/claude')
   })
 
+  it('lets a key gateway alone unlock Continue, and shows the gateway\'s refusal', async () => {
+    const table: FetchTable = {
+      agents: DISCONNECTED,
+      gateway: { configured: false, connected: false, services: [] },
+      posts: { '/idealize/brains/gateway': { status: 401, body: { error: 'Key not recognised.' } } },
+    }
+    const { calls } = mount({}, table)
+    await flush()
+    expect(continueButton().hasAttribute('disabled')).toBe(true)
+    fireEvent.change(document.querySelector('[data-gateway-address]') as Element, { target: { value: 'https://gateway.test' } })
+    fireEvent.change(document.querySelector('[data-gateway-key]') as Element, { target: { value: 'gw-1' } })
+    fireEvent.click(document.querySelector('[data-gateway-connect]') as Element)
+    await flush()
+    expect(document.querySelector('[data-gateway-error]')?.textContent).toBe('Key not recognised.')
+    expect(continueButton().hasAttribute('disabled')).toBe(true)
+
+    table.posts = { '/idealize/brains/gateway': { status: 200, body: { configured: true, connected: true, services: [] } } }
+    table.gateway = { configured: true, connected: true, services: [] }
+    fireEvent.click(document.querySelector('[data-gateway-connect]') as Element)
+    await flush()
+    await flush()
+    expect(continueButton().hasAttribute('disabled')).toBe(false)
+    const sent = calls.filter(call => call.method === 'POST' && call.path === '/idealize/brains/gateway')
+    expect(sent.map(call => call.body)).toEqual([{ address: 'https://gateway.test', key: 'gw-1' }, { address: 'https://gateway.test', key: 'gw-1' }])
+    expect(sent[0]?.headers['x-idealize-auth']).toBe('1')
+  })
+
   it('says that OpenRouter reads each message, and that a local model skips it', async () => {
     mount({}, { agents: DISCONNECTED })
     await flush()
@@ -145,7 +175,7 @@ describe('the agents step body', () => {
     await flush()
 
     fireEvent.change(document.querySelector('[data-agent-key]')!, { target: { value: 'sk-or-bad' } })
-    fireEvent.click(screen.getByText(en['agents.openrouter.connect']))
+    fireEvent.click((document.querySelector('[data-agent-connect]') as HTMLElement))
     await flush()
     expect(document.querySelector('[data-agent-error]')?.textContent).toContain('rejected')
     expect(continueButton().hasAttribute('disabled')).toBe(true)
@@ -157,7 +187,7 @@ describe('the agents step body', () => {
     await flush()
 
     fireEvent.change(document.querySelector('[data-agent-key]')!, { target: { value: 'sk-or-good' } })
-    fireEvent.click(screen.getByText(en['agents.openrouter.connect']))
+    fireEvent.click((document.querySelector('[data-agent-connect]') as HTMLElement))
     table.agents = { claudeCode: { installed: false }, openrouter: { connected: true } }
     await flush()
 

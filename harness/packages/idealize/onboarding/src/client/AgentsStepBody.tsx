@@ -1,8 +1,9 @@
 /**
  * The agents step body: one card per provider the wizard can connect —
- * Claude Code CLI (detected through the host route) and OpenRouter (a key
- * field). Continue waits until at least one provider is connected; connections persist at connect time, so the step
- * itself has nothing to save on Continue.
+ * Claude Code CLI (detected through the host route), OpenRouter (a key
+ * field) and a key gateway (an organisation's address and key). Continue waits
+ * until at least one provider is connected; connections persist at connect
+ * time, so the step itself has nothing to save on Continue.
  */
 import { useEffect, useState } from 'react'
 import type { OnboardingKey } from './locales.ts'
@@ -36,9 +37,13 @@ export function AgentsStepBody({ api, t, onReadyChange, registerCommit }: StepBo
   const [key, setKey] = useState('')
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [gateway, setGateway] = useState(false)
+  const [gatewayDraft, setGatewayDraft] = useState({ address: '', key: '' })
+  const [gatewayError, setGatewayError] = useState<string | null>(null)
 
   const refresh = (): void => {
     api.loadAgents().then(setState, () => { setLoadFailed(true) })
+    api.loadGateway().then(setGateway, () => { setGateway(false) })
   }
   useEffect(() => {
     registerCommit(null)
@@ -46,7 +51,7 @@ export function AgentsStepBody({ api, t, onReadyChange, registerCommit }: StepBo
     // Mount-only: the step re-polls the host on every entry.
   }, [])
 
-  const connected = state !== null && (state.claudeCode.installed || state.openrouter.connected)
+  const connected = state !== null && (state.claudeCode.installed || state.openrouter.connected || gateway)
   useEffect(() => { onReadyChange(connected) }, [connected, onReadyChange])
 
   const connect = (): void => {
@@ -63,6 +68,23 @@ export function AgentsStepBody({ api, t, onReadyChange, registerCommit }: StepBo
     }, () => {
       setBusy(false)
       setSaveError(t('agents.openrouter.unreachable'))
+    })
+  }
+
+  const connectGateway = (): void => {
+    setBusy(true)
+    setGatewayError(null)
+    api.connectGateway(gatewayDraft.address.trim(), gatewayDraft.key.trim()).then((outcome) => {
+      setBusy(false)
+      if (!outcome.ok) {
+        setGatewayError(outcome.error)
+        return
+      }
+      setGatewayDraft({ address: '', key: '' })
+      refresh()
+    }, () => {
+      setBusy(false)
+      setGatewayError(t('agents.gateway.unreachable'))
     })
   }
 
@@ -124,6 +146,50 @@ export function AgentsStepBody({ api, t, onReadyChange, registerCommit }: StepBo
               : state.openrouter.connected
                 ? t('agents.openrouter.replace')
                 : t('agents.openrouter.connect')}
+          </button>
+        )}
+      </div>
+      <div className={css.card} data-agent-card="gateway">
+        <span className={css.glyph} data-connected={gateway ? '' : undefined}>
+          {gateway ? '✓' : '○'}
+        </span>
+        <div className={css.cardBody}>
+          <span className={css.cardTitle}>{t('agents.gateway.title')}</span>
+          <span className={css.cardSub}>{t('agents.gateway.sub')}</span>
+          {gateway && <span className={css.cardHint}>{t('agents.openrouter.connected')}</span>}
+          {!gateway && (
+            <>
+              <input
+                className={css.input}
+                type="url"
+                placeholder={t('agents.gateway.address')}
+                aria-label={t('agents.gateway.address')}
+                value={gatewayDraft.address}
+                onChange={(event) => { setGatewayDraft({ ...gatewayDraft, address: event.target.value }) }}
+                data-gateway-address
+              />
+              <input
+                className={css.input}
+                type="password"
+                placeholder={t('agents.gateway.key')}
+                aria-label={t('agents.gateway.key')}
+                value={gatewayDraft.key}
+                onChange={(event) => { setGatewayDraft({ ...gatewayDraft, key: event.target.value }) }}
+                data-gateway-key
+              />
+            </>
+          )}
+          {gatewayError !== null && <p className={css.error} data-gateway-error>{gatewayError}</p>}
+        </div>
+        {!gateway && (
+          <button
+            type="button"
+            className={css.secondary}
+            disabled={busy || gatewayDraft.address.trim() === '' || gatewayDraft.key.trim() === ''}
+            onClick={connectGateway}
+            data-gateway-connect
+          >
+            {busy ? t('nav.busy') : t('agents.openrouter.connect')}
           </button>
         )}
       </div>

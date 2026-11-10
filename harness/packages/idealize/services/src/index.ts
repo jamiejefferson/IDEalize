@@ -23,6 +23,7 @@ import { chatProfileOf, recordedKeyEnv, type ChatRoute } from './chat-profile.ts
 import { installServicesRoute, chatKeyEnv } from './routes.ts'
 import { registerMediaServices } from './registrar.ts'
 import { applyEndpoints, MEDIA_SERVICES } from './media-directory.ts'
+import { GATEWAY_PREFIX, installGateway } from './gateway.ts'
 import type { ChatCandidate, MediaCandidate } from './join.ts'
 
 /** The OAuth face `@idealize/provider-pack` publishes, when it is composed. */
@@ -36,7 +37,9 @@ export * from './join.ts'
 export * from './media-directory.ts'
 export { chatKeyEnv, installServicesRoute, KEYS_FILE_FORMAT } from './routes.ts'
 export type { ServicesRuntime } from './routes.ts'
-export { registerMediaServices } from './registrar.ts'
+export { registerMediaRow, registerMediaServices } from './registrar.ts'
+export { chatRoutesFor, gatewayAddress, gatewayDecisionsUrl, GATEWAY_KEY_ENV, GATEWAY_PREFIX, GATEWAY_URL_ENV, mediaRowsFor, readMe, statusOf } from './gateway.ts'
+export type { GatewayFace, GatewayMe, GatewayService, GatewayStatus } from './gateway.ts'
 export { SHIPPED_PRICE_CURRENCY, shippedTokenPrices } from './shipped-prices.ts'
 export { chatFactKey, chatFacts, CONTROL_IDS, controlsFromInputs, GOOD_AT_TERMS, mediaFacts, withModelFacts } from './model-facts.ts'
 export type { ControlInput, FactKind, GoodAtTerm, ModelFacts, ShippedFacts } from './model-facts.ts'
@@ -103,13 +106,17 @@ export const inject = ['llm', 'generation', 'settings', 'credentials', 'webServe
  * @param config - generation timings and catalogue refresh cadence.
  */
 export function apply(ctx: Context, config: Config): void {
-  registerMediaServices(ctx, {
+  const registrar = {
     home: resolveDshHome(),
     timeoutMs: config.requestTimeoutMs ?? 600_000,
     pollIntervalMs: config.pollIntervalMs ?? 2_000,
     refreshMinutes: config.catalogueRefreshMinutes ?? 60,
-    rows: applyEndpoints(MEDIA_SERVICES, config.mediaEndpoints ?? {}),
-  })
+  }
+  registerMediaServices(ctx, { ...registrar, rows: applyEndpoints(MEDIA_SERVICES, config.mediaEndpoints ?? {}) })
+
+  // The key gateway adds its own routes and backends; they are listed under its own row, not as services.
+  const gateway = installGateway(ctx, { home: registrar.home, registrar })
+  ctx.effect(() => ctx.provide('idealizeGateway', gateway))
 
   // A chat route's profile lives where the adapter that owns the route keeps
   // it, which the directory entry names (see ./chat-profile.ts).
@@ -130,7 +137,8 @@ export function apply(ctx: Context, config: Config): void {
     // OPENAI_CODEX_API_KEY was sent as a ChatGPT token and every turn on the
     // route failed "Failed to extract accountId from token").
     const keyless = new Set(offers.filter(row => row.keyless === true).map(row => row.id))
-    const rows = await Promise.all(ctx.llm.listConfigurableProviders().map(async (entry) => {
+    const routes = ctx.llm.listConfigurableProviders().filter(entry => !entry.provider.startsWith(GATEWAY_PREFIX))
+    const rows = await Promise.all(routes.map(async (entry) => {
       // The route may already name a credential; a route yet to be configured
       // resolves the name this plugin would store, so a key pasted through the
       // models page shows as connected here too.
@@ -156,7 +164,7 @@ export function apply(ctx: Context, config: Config): void {
   // What a service makes comes from its descriptors, not from its catalogue: a
   // service that has not fetched its models yet — a first run, an offline
   // start — still makes what it makes, and the Add list has to say so.
-  const media = (): MediaCandidate[] => ctx.generation.credentials().map(row => ({
+  const media = (): MediaCandidate[] => ctx.generation.credentials().filter(row => !row.backend.startsWith(GATEWAY_PREFIX)).map(row => ({
     backend: row.backend,
     displayName: row.displayName,
     env: row.env,
@@ -202,5 +210,6 @@ export function apply(ctx: Context, config: Config): void {
     recordChatKeyEnv,
     forgetChatKeyEnv,
     refreshBackend: id => ctx.generation.refreshBackend(id),
+    connectGateway: (address, key) => gateway.connect(address, key),
   })
 }
