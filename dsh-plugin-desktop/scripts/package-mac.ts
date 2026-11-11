@@ -1,5 +1,5 @@
 /**
- * Build an unsigned universal macOS DMG on a native macOS host: the CI smoke
+ * Build an unsigned Apple silicon (arm64) macOS DMG on a native macOS host: the CI smoke
  * by default, or with `--public` the artifact the public release ships. The
  * two are the same build with different output directories, because IDEalize
  * V1 ships self-signed (no Apple Developer ID; the installer clears the
@@ -12,7 +12,7 @@ import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { withoutMacReleaseSecrets } from './release-preflight.ts'
-import { prepareInstalledMacUniversalRuntime } from './mac-universal.ts'
+import { prepareInstalledMacRuntime } from './mac-arm64.ts'
 
 /** Injectable native macOS packaging boundary used by focused tests. */
 export interface MacSmokePackageOptions {
@@ -32,7 +32,7 @@ export interface MacSmokePackageOptions {
   readonly outputDir: string
   /** Remove only the dedicated generated smoke output before packaging. */
   readonly resetOutput: () => void
-  /** Validate and prepare both architecture-specific runtime trees. */
+  /** Validate and prepare the arm64 runtime tree. */
   readonly prepareRuntime: () => void
   /** Absolute electron-builder CLI module. */
   readonly builderCli: string
@@ -85,12 +85,12 @@ function defaultOptions(): MacSmokePackageOptions {
     desktopRoot,
     outputDir,
     resetOutput: () => rmSync(outputDir, { recursive: true, force: true }),
-    prepareRuntime: () => prepareInstalledMacUniversalRuntime(desktopRoot),
+    prepareRuntime: () => prepareInstalledMacRuntime(desktopRoot),
     builderCli: require.resolve('electron-builder/cli.js'),
     verifier: fileURLToPath(new URL('./verify-mac-smoke.ts', import.meta.url)),
     nodeExecutable: process.execPath,
     verifySignature: () => {
-      const app = resolve(outputDir, 'mac-universal', 'IDEalize V1.app')
+      const app = resolve(outputDir, 'mac-arm64', 'IDEalize V1.app')
       run('codesign', ['--verify', '--deep', '--strict', app], desktopRoot, process.env)
     },
     run,
@@ -103,8 +103,8 @@ function defaultOptions(): MacSmokePackageOptions {
  *
  * The signed and notarized release stays a manual step on a credentialed
  * machine; this smoke exists so macOS packaging regressions fail in CI before
- * a manual release. The universal target exercises both Intel and Apple
- * Silicon packaging in one artifact.
+ * a manual release. The app ships for Apple silicon only (JJ, 11 Nov 2026),
+ * so the target is arm64.
  * @param options - Injectable process and command boundaries.
  */
 export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions()): void {
@@ -126,7 +126,7 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
   const cleanEnvironment = withoutMacReleaseSecrets(options.env)
   const publicBuild = options.outputDir.endsWith('mac-public')
   options.log(publicBuild
-    ? 'Building the ad-hoc signed universal macOS DMG the public release ships; the installer clears its quarantine flag.'
+    ? 'Building the ad-hoc signed Apple silicon macOS DMG the public release ships; the installer clears its quarantine flag.'
     : 'Building an unsigned macOS DMG smoke; signing and notarization are release-only steps.')
   options.run(
     'corepack',
@@ -142,7 +142,7 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
       options.builderCli,
       '--mac',
       'dmg',
-      '--universal',
+      '--arm64',
       '--publish',
       'never',
       '--config.mac.notarize=false',

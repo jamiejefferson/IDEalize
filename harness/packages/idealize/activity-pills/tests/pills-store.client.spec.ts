@@ -7,14 +7,16 @@ function roster(defaultId = 'standard') {
   }))
 }
 
-function api(defaultId?: string): PillsApi & { selected: unknown[]; updated: unknown[]; models: unknown[] } {
+function api(defaultId?: string): PillsApi & { selected: unknown[]; updated: unknown[]; models: unknown[]; replaced: unknown[] } {
   const selected: unknown[] = []
   const updated: unknown[] = []
   const models: unknown[] = []
+  const replaced: unknown[] = []
   return {
     selected,
     updated,
     models,
+    replaced,
     sessions: {
       selectModel: vi.fn(async (payload: unknown) => {
         models.push(payload)
@@ -35,8 +37,12 @@ function api(defaultId?: string): PillsApi & { selected: unknown[]; updated: unk
         updated.push(payload)
         return { result: { ok: true as const, value: {} } }
       }),
+      replace: vi.fn(async (payload: unknown) => {
+        replaced.push(payload)
+        return { result: { ok: true as const, value: {} } }
+      }),
     },
-  } as unknown as PillsApi & { selected: unknown[]; updated: unknown[]; models: unknown[] }
+  } as unknown as PillsApi & { selected: unknown[]; updated: unknown[]; models: unknown[]; replaced: unknown[] }
 }
 
 describe('ActivityPillsController', () => {
@@ -87,6 +93,8 @@ describe('ActivityPillsController', () => {
     await controller.select('coding')
     expect(wire.selected).toEqual([{ sessionId: 's1', agentPreset: 'coding' }])
     expect(wire.models).toEqual([{ sessionId: 's1', provider: 'openrouter', model: 'fable' }])
+    // The brain's model becomes what new chats start on.
+    expect(wire.replaced).toEqual([{ ns: 'agent-default-model', section: { provider: 'openrouter', model: 'fable' } }])
     await controller.select('admin')
     expect(wire.selected).toHaveLength(2)
     expect(wire.models).toHaveLength(1)

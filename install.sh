@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # One-command install / update for IDEalize V1 on macOS.
 #
+# Needs a Mac with Apple silicon.
+#
 # Fetches the latest GitHub release, checks it was signed by the IDEalize
 # release certificate, replaces any existing copy in /Applications, retires the
 # original IDEalize (V0) app if it is still installed, clears the macOS
@@ -30,6 +32,17 @@ REQUIREMENT='identifier "ai.projject.idealize.v1" and certificate root = H"39aa0
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "!! IDEalize V1 runs on macOS; this installer cannot help on $(uname -s)." >&2
+  exit 1
+fi
+
+# IDEalize ships for Apple silicon only. This check runs before anything is
+# downloaded or removed, so an Intel Mac keeps whatever copy it has. A Terminal
+# running under Rosetta reports x86_64 on an Apple silicon Mac, and
+# sysctl.proc_translated tells the two apart.
+if [ "$(uname -m)" = "x86_64" ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || /usr/sbin/sysctl -n sysctl.proc_translated 2>/dev/null || true)" != "1" ]; then
+  echo "!! IDEalize needs a Mac with Apple silicon (an M1 chip or newer). This Mac has an" >&2
+  echo "   Intel chip, so nothing was downloaded or installed. If IDEalize is already on" >&2
+  echo "   this Mac, that copy has not changed." >&2
   exit 1
 fi
 

@@ -75,9 +75,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # macOS-only universal packaging smoke on a real macOS runner: the signed
+  # macOS-only Apple silicon packaging smoke on a real macOS runner: the signed
   # release is built manually on a credentialed machine, so an unsigned DMG
-  # here catches Intel and Apple Silicon packaging regressions before a manual
+  # here catches packaging regressions before a manual
   # release. No signing secrets ever reach this job.
   desktop-macos:
     runs-on: macos-latest

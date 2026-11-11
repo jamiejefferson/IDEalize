@@ -624,14 +624,10 @@ export interface ApiProxyDefaults {
    */
   defaultModelSelection: () => ModelSelection
   /**
-   * Record a selection as the new default. Either absent, or a closure that
-   * may itself decline — the gateway plugin always passes one, and it no-ops
-   * when the deployment mounts no settings provider or when the write races
-   * service teardown. A switch then stays process-local. A rejection is
-   * reported and swallowed: the switch already applies to its own session,
-   * and undoing it because storage failed would be the worse outcome.
+   * IDEalize fork: the live model that replaced a retired one on a route, or
+   * nothing when the model is still served. Absent when no adapter retires models.
    */
-  saveDefaultModelSelection?: (selection: ModelSelection) => Promise<void>
+  modelReplacement?: (provider: string, model: string) => string | undefined
   /** Default project directory for new sessions whose create request carries no cwd. */
   cwd: string
   /** Native open-with-default-application; injectable for carrier tests. */
@@ -1093,8 +1089,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES
   /** The seed model each create/resume declares; re-read so it never goes stale. */
   const agentOptions = (): AgentOptions => {
-    const { provider, model } = defaults.defaultModelSelection()
+    const { provider, model } = serving(defaults.defaultModelSelection())
     return { provider, model }
+  }
+  /**
+   * A selection saved against a model its route has retired moves to the
+   * replacement. The saved thinking level is dropped with it, because the
+   * replacement keeps its own levels and takes its default.
+   */
+  function serving(selection: ModelSelection): ModelSelection {
+    const replacement = defaults.modelReplacement?.(selection.provider, selection.model)
+    return replacement === undefined ? selection : { provider: selection.provider, model: replacement }
   }
   type WebModelSelectionRef = ModelSelectionRef & { current: ModelSelection }
   const selections = new WeakMap<Agent, WebModelSelectionRef>()
@@ -1144,14 +1149,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // Incrementally folded by the session, so a per-step read costs
         // O(new events) rather than a rescan.
         const logged = agent.session.requestHeader()?.config
-        if (logged === undefined) return defaults.defaultModelSelection()
-        return {
+        if (logged === undefined) return serving(defaults.defaultModelSelection())
+        return serving({
           provider: logged.provider,
           model: logged.model,
           ...logged.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: logged.reasoningEffort },
-        }
+        })
       },
       set current(next: ModelSelection) {
         picked = next
@@ -2273,14 +2278,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 ? {}
                 : { reasoningEffort: resolved.reasoningEffort },
             }
+            // The pick belongs to this session alone. The default that new
+            // chats start on has its own controls (JJ, 11 Nov 2026: "each
+            // chat should be able to use a different model").
             selectionFor(found.agent).current = selected
-            try {
-              await defaults.saveDefaultModelSelection?.(selected)
-            } catch (error: unknown) {
-              ctx.logger.warn(
-                `api-proxy: the model switch applies to this session but was not saved as the default: ${String(error)}`,
-              )
-            }
             return ok(request, { selected: { ...selected } })
           } catch (error: unknown) {
             return err(request, {

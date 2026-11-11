@@ -60,6 +60,10 @@ export interface OpenRouterModelDetail {
   tools?: boolean
   /** Whether the model reasons before it answers. */
   reasoning?: boolean
+  /** What the model writes: `text`, `image`, `audio`. */
+  outputModalities?: string[]
+  /** The most tokens one answer may hold, when the directory states it. */
+  maxOutput?: number
 }
 
 /** What the price cache file holds. */
@@ -143,6 +147,13 @@ function detailFrom(raw: unknown): OpenRouterModelDetail | undefined {
     const kept = modalities.filter((one): one is string => typeof one === 'string' && MODALITIES.includes(one))
     if (kept.length > 0) detail.inputModalities = [...new Set(kept)]
   }
+  const outputs = (row.architecture as { output_modalities?: unknown } | undefined)?.output_modalities ?? row.outputModalities
+  if (Array.isArray(outputs)) {
+    const kept = outputs.filter((one): one is string => typeof one === 'string' && one !== '')
+    if (kept.length > 0) detail.outputModalities = [...new Set(kept)]
+  }
+  const maxOutput = (row.top_provider as { max_completion_tokens?: unknown } | undefined)?.max_completion_tokens ?? row.maxOutput
+  if (typeof maxOutput === 'number' && Number.isInteger(maxOutput) && maxOutput > 0) detail.maxOutput = maxOutput
   if (Array.isArray(row.supported_parameters)) {
     const parameters = row.supported_parameters.filter((one): one is string => typeof one === 'string')
     detail.tools = parameters.includes('tools')
@@ -252,6 +263,7 @@ export function writeOpenRouterPriceCache(
  * @param options.fetchImpl - the fetch to use (tests inject one).
  * @param options.maxAgeMs - how old a cache may be before it is refreshed; 0 disables fetching.
  * @param options.now - the current instant (ms).
+ * @param options.force - read the directory however fresh the cache is; an app start asks this way.
  * @returns the prices with their read time, or undefined.
  */
 export async function refreshOpenRouterPrices(options: {
@@ -259,13 +271,14 @@ export async function refreshOpenRouterPrices(options: {
   fetchImpl: typeof fetch
   maxAgeMs: number
   now: number
+  force?: boolean
 }): Promise<OpenRouterPriceCache | undefined> {
   const cached = readOpenRouterPriceCache(options.home)
   if (options.maxAgeMs <= 0) return cached
   // A cache written before the browser read details is refreshed once, so
   // the browser does not wait a day to describe OpenRouter's models.
   const fresh = cached !== undefined && cached.details !== undefined && options.now - Date.parse(cached.fetchedAt) < options.maxAgeMs
-  if (fresh) return cached
+  if (fresh && options.force !== true) return cached
   try {
     const response = await options.fetchImpl(OPENROUTER_MODELS_URL, { signal: AbortSignal.timeout(15_000) })
     if (!response.ok) return cached
@@ -330,4 +343,46 @@ export function parsePriceBody(body: unknown): { ok: true; write: PriceWrite } |
     return { ok: false, error: 'price must carry input, output, cacheRead and cacheWrite as non-negative numbers per million tokens' }
   }
   return { ok: true, write: { provider, model, price: parsed } }
+}
+
+/** Output assumed for a model whose directory row states no ceiling. */
+const DEFAULT_MAX_OUTPUT = 32_768
+
+/** A chat model the directory lists, in the fields the chat adapter's live list takes. */
+export interface OpenRouterLiveModel {
+  id: string
+  name: string
+  vision: boolean
+  reasoning: boolean
+  contextWindow: number
+  maxTokens: number
+  cost: TokenPrice
+}
+
+/**
+ * The directory's chat models, for the chat route's live list: a model that
+ * takes tools, writes text only, and states its context window and price. The
+ * shipped catalogue keeps the same tool rule, so the two lists agree on what
+ * a chat model is; picture and sound models stay with the media services.
+ * @param cache - the directory as last read.
+ * @returns the models, in the directory's order.
+ */
+export function openRouterLiveModels(cache: OpenRouterPriceCache | undefined): OpenRouterLiveModel[] {
+  const models: OpenRouterLiveModel[] = []
+  for (const [id, detail] of Object.entries(cache?.details ?? {})) {
+    const cost = cache?.prices[id]
+    if (cost === undefined || detail.tools !== true || detail.contextLength === undefined) continue
+    const outputs = detail.outputModalities
+    if (outputs === undefined || outputs.length !== 1 || outputs[0] !== 'text') continue
+    models.push({
+      id,
+      name: detail.name ?? id,
+      vision: detail.inputModalities?.includes('image') === true,
+      reasoning: detail.reasoning === true,
+      contextWindow: detail.contextLength,
+      maxTokens: Math.min(detail.maxOutput ?? DEFAULT_MAX_OUTPUT, detail.contextLength),
+      cost,
+    })
+  }
+  return models
 }

@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readdirSync, rmdirSync, statSync } from 'node:
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MACOS_UNIVERSAL_NATIVE_ENTRIES } from './mac-universal.ts'
+import { MACOS_ARM64_NATIVE_ENTRIES } from './mac-arm64.ts'
 
 /** Injectable filesystem and command boundaries for smoke verification. */
 export interface MacSmokeVerificationOptions {
@@ -114,7 +114,6 @@ export function verifyMacSmoke(
     ) {
       throw new Error(`packaged application has an invalid main executable: ${executablePath}`)
     }
-    options.run('lipo', [executablePath, '-verify_arch', 'x86_64'])
     options.run('lipo', [executablePath, '-verify_arch', 'arm64'])
 
     const appAsarPath = join(appPath, 'Contents', 'Resources', 'app.asar')
@@ -127,19 +126,19 @@ export function verifyMacSmoke(
     }
 
     const unpackedRoot = `${appAsarPath}.unpacked`
-    for (const entry of MACOS_UNIVERSAL_NATIVE_ENTRIES) {
-      const nativePath = join(unpackedRoot, entry.path)
+    for (const entry of MACOS_ARM64_NATIVE_ENTRIES) {
+      const nativePath = join(unpackedRoot, entry)
       if (!options.exists(nativePath)) {
-        throw new Error(`universal application is missing ${nativePath}`)
+        throw new Error(`packaged application is missing ${nativePath}`)
       }
       const nativeStat = options.stat(nativePath)
       if (!nativeStat.isFile || nativeStat.size === 0) {
-        throw new Error(`universal application has an invalid native file: ${nativePath}`)
+        throw new Error(`packaged application has an invalid native file: ${nativePath}`)
       }
-      if (entry.path.endsWith('/spawn-helper') && (nativeStat.mode & 0o111) === 0) {
-        throw new Error(`universal application has a non-executable node-pty helper: ${nativePath}`)
+      if (entry.endsWith('/spawn-helper') && (nativeStat.mode & 0o111) === 0) {
+        throw new Error(`packaged application has a non-executable node-pty helper: ${nativePath}`)
       }
-      options.run('lipo', [nativePath, '-verify_arch', entry.arch])
+      options.run('lipo', [nativePath, '-verify_arch', 'arm64'])
     }
   } catch (cause) {
     failure = cause

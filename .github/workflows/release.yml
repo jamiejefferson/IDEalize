@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a v<version> tag builds the universal macOS DMG and publishes it on a
+# Pushing a v<version> tag builds the Apple silicon macOS DMG and publishes it on a
 # GitHub Release. The Windows version ships from the PC team's fork
 # (JJ, 6 Nov 2026), so no Windows installer is built here. The
 # Release is born a pre-release, so `releases/latest` (the update checker, the
@@ -82,7 +82,7 @@ jobs:
       - name: The shipped app carries the certificate
         run: |
           set -euo pipefail
-          app="dsh-plugin-desktop/dist/mac-public/mac-universal/IDEalize V1.app"
+          app="dsh-plugin-desktop/dist/mac-public/mac-arm64/IDEalize V1.app"
           codesign --verify --deep --strict "${app}"
           codesign -d -r- "${app}" 2>&1 | grep -i "= H\"${IDEALIZE_MAC_SIGN_IDENTITY}\""
       - name: Name the assets

@@ -50,6 +50,9 @@ export type { QueueBackend, QueueBackendOptions, ServiceAuth } from './adapters/
 export { createImagesBackend } from './adapters/images.ts'
 export type { ImagesBackend, ImagesBackendOptions } from './adapters/images.ts'
 export { readCatalogCache, readInputSchemaCache, writeCatalogCache, writeInputSchemaCache } from './adapters/catalog-cache.ts'
+// The chat adapter's live model list, passed on so a package that reads a directory need not depend on the adapter.
+export { setLiveCatalog } from '@deepseek-ai/dsh-llm-pi-ai'
+export type { LiveCatalogModel } from '@deepseek-ai/dsh-llm-pi-ai'
 export {
   coerceBody, coerceLiteral, enumRetryValues, EXCLUDED_INPUTS, humaniseLabel, inputFieldsFrom, literalsFromMessage, parseInputSchema,
 } from './adapters/input-schema.ts'

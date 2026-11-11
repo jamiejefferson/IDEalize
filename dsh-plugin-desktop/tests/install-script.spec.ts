@@ -13,6 +13,10 @@ afterEach(() => {
 })
 
 interface Scenario {
+  /** What `uname -m` prints; an Apple silicon Mac by default. */
+  readonly machine?: string
+  /** What `sysctl -n sysctl.proc_translated` prints; `1` under Rosetta. */
+  readonly translated?: string
   readonly codesignStatus?: number
   readonly sums?: string | null
 }
@@ -37,7 +41,9 @@ function install(scenario: Scenario): { status: number | null; stderr: string; s
     writeFileSync(join(bin, name), `#!/bin/bash\necho "${name} $*" >> "${log}"\n${body}\n`)
     chmodSync(join(bin, name), 0o755)
   }
-  stub('uname', 'echo Darwin')
+  stub('uname', `if [ "$1" = -m ]; then echo ${scenario.machine ?? 'arm64'}; else echo Darwin; fi`)
+  stub('sysctl', `echo ${scenario.translated ?? '0'}`)
+  stub('curl', 'exec /usr/bin/curl "$@"')
   stub('hdiutil', `if [ "$1" = attach ]; then
   while [ $# -gt 0 ]; do if [ "$1" = -mountpoint ]; then mp="$2"; fi; shift; done
   mkdir -p "$mp/IDEalize V1.app/Contents"
@@ -109,6 +115,22 @@ describe.runIf(process.platform === 'darwin')('install.sh', () => {
 
   it('refuses a checksum file that does not name the image', () => {
     expectUntouched(install({ sums: `${'a'.repeat(64)}  something-else.dmg\n` }))
+  })
+
+  it('stops on an Intel Mac before it downloads or removes anything', () => {
+    const run = install({ sums: GOOD_SUMS, machine: 'x86_64', translated: '0' })
+    expectUntouched(run)
+    expect(run.stderr).toContain('IDEalize needs a Mac with Apple silicon')
+    expect(run.stderr).toContain('that copy has not changed')
+    expect(run.stderr).not.toContain('\u2014')
+    expect(run.calls.some(call => call.startsWith('curl '))).toBe(false)
+    expect(run.calls.some(call => call.startsWith('hdiutil '))).toBe(false)
+  })
+
+  it('installs on an Apple silicon Mac whose Terminal runs under Rosetta', () => {
+    const run = install({ sums: GOOD_SUMS, machine: 'x86_64', translated: '1' })
+    expect(run.status).toBe(0)
+    expect(existsSync(join(run.app, 'Contents', 'new-copy'))).toBe(true)
   })
 
   it('carries on to the certificate check when the release has no checksum file', () => {

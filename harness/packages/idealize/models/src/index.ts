@@ -59,7 +59,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { chatFacts, serviceName, SHIPPED_PRICE_CURRENCY, shippedTokenPrices } from '@idealize/services'
+import { chatFacts, GATEWAY_PREFIX, serviceName, setLiveCatalog, SHIPPED_PRICE_CURRENCY, shippedTokenPrices } from '@idealize/services'
 
 import { createEngineKeyReader } from './engine-keys.ts'
 import { emptyGenerationPeriods, FAL_PROVIDER, foldGenerations, generationRows, refreshFalUsage } from './generations.ts'
@@ -67,7 +67,10 @@ import type { FalUsageCache } from './generations.ts'
 import { modelsPage } from './models-page.ts'
 import { choose, defaultIsStranded, freeUsable } from './policy.ts'
 import type { FreetokensFacts, PolicyDecision } from './policy.ts'
-import { effectivePrices, OPENROUTER_PROVIDER, parsePriceBody, readOpenRouterPriceCache, refreshOpenRouterPrices } from './prices.ts'
+import {
+  effectivePrices, OPENROUTER_PROVIDER, openRouterLiveModels, parsePriceBody, readOpenRouterPriceCache, refreshOpenRouterPrices,
+} from './prices.ts'
+import type { OpenRouterPriceCache } from './prices.ts'
 import { costBreakdown, modelRows } from './pricing.ts'
 import type { CostBreakdown, SubscriptionPlan, TokenPrice, TokenPriceTable } from './pricing.ts'
 import { categoryOf, emptyUsagePeriods, foldUsage } from './usage.ts'
@@ -79,10 +82,12 @@ export type {
   CostBreakdown, CostTotals, ModelCostRow, SubscriptionPlan, SubscriptionPlanTable, TokenPrice, TokenPriceTable,
 } from './pricing.ts'
 export {
-  effectivePrices, OPENROUTER_MODELS_URL, OPENROUTER_PROVIDER, openRouterDetails, openRouterPrices, parsePriceBody,
+  effectivePrices, OPENROUTER_MODELS_URL, OPENROUTER_PROVIDER, openRouterDetails, openRouterLiveModels, openRouterPrices, parsePriceBody,
   readOpenRouterPriceCache, refreshOpenRouterPrices, writeOpenRouterPriceCache,
 } from './prices.ts'
-export type { OpenRouterModelDetail, OpenRouterPriceCache, PricedModel, PricedTable, PriceSource, PriceWrite } from './prices.ts'
+export type {
+  OpenRouterLiveModel, OpenRouterModelDetail, OpenRouterPriceCache, PricedModel, PricedTable, PriceSource, PriceWrite,
+} from './prices.ts'
 export {
   emptyGenerationPeriods, FAL_PROVIDER, FAL_USAGE_URL, falUsageLines, foldGenerations, generationRows,
   readFalUsageCache, refreshFalUsage, writeFalUsageCache,
@@ -129,6 +134,10 @@ export function createFreetokensProbe(ctx: Pick<Context, 'settings' | 'credentia
 
 const NS = settingsNamespace('idealize-models')
 const LLM_NS = settingsNamespace('llm-pi-ai')
+
+/** How long after the app starts OpenRouter's directory is read, and how long until the one retry. */
+const LIVE_LIST_AFTER_MS = 5_000
+const LIVE_LIST_RETRY_MS = 60_000
 /** Written by @idealize/freetokens when it provisions the embedded engine. */
 const FREETOKENS_ADMIN_PASSWORD_ENV = 'FREETOKENS_ADMIN_PASSWORD'
 const EVALUATE_EVERY_MS = 180_000
@@ -506,6 +515,17 @@ export function apply(ctx: Context, config: ModelsConfig): void {
     })
 
     /**
+     * Hand the directory to the chat adapter, so the picker lists what OpenRouter serves today: its new chat
+     * models join, and a shipped model it no longer lists leaves.
+     */
+    const publishLive = (cache: OpenRouterPriceCache | undefined): OpenRouterPriceCache | undefined => {
+      if (cache === undefined) return cache
+      const listed = [...Object.keys(cache.prices), ...Object.keys(cache.details ?? {})]
+      setLiveCatalog(OPENROUTER_PROVIDER, openRouterLiveModels(cache), listed)
+      return cache
+    }
+
+    /**
      * OpenRouter's published prices, when they apply: the route has a stored
      * key, and costs are shown in USD, which is what OpenRouter prices in. A
      * disconnected route or another currency prices nothing automatically.
@@ -521,8 +541,50 @@ export function apply(ctx: Context, config: ModelsConfig): void {
       if (typeof apiKeyEnv !== 'string') return undefined
       const key = await webCtx.credentials.resolve(credentialRef(apiKeyEnv)).catch(() => undefined)
       if (key === undefined) return undefined
-      return refreshOpenRouterPrices({ home: resolveDshHome(), fetchImpl: fetch, maxAgeMs: refreshMinutes * 60_000, now })
+      const maxAgeMs = refreshMinutes * 60_000
+      return publishLive(await refreshOpenRouterPrices({ home: resolveDshHome(), fetchImpl: fetch, maxAgeMs, now }))
     }
+
+    /**
+     * OpenRouter's directory, read at every start. The list the app ships
+     * stops at its build date, so a model OpenRouter added since is missing
+     * from the picker until this read lands; the last read on disk fills the
+     * picker straight away, and the fresh one replaces it. Only a home that
+     * uses OpenRouter asks: its own key, or a key gateway that fronts it.
+     */
+    webCtx.effect(() => {
+      let stopped = false
+      publishLive(readOpenRouterPriceCache(resolveDshHome()))
+      const usesOpenRouter = async (): Promise<boolean> => {
+        const profiles = llmProfiles()
+        if (profiles[`${GATEWAY_PREFIX}${OPENROUTER_PROVIDER}`] !== undefined) return true
+        const apiKeyEnv = profiles[OPENROUTER_PROVIDER]?.apiKeyEnv
+        if (typeof apiKeyEnv !== 'string') return false
+        return await webCtx.credentials.resolve(credentialRef(apiKeyEnv)).catch(() => undefined) !== undefined
+      }
+      const check = async (): Promise<boolean> => {
+        const refreshMinutes = current().openRouterPriceRefreshMinutes ?? 1440
+        if (stopped || refreshMinutes <= 0 || !await usesOpenRouter()) return false
+        const read = await refreshOpenRouterPrices({
+          home: resolveDshHome(), fetchImpl: fetch, maxAgeMs: refreshMinutes * 60_000, now: Date.now(), force: true,
+        })
+        if (!stopped) publishLive(read)
+        return true
+      }
+      // A gateway's routes join a moment after the app starts, so a start that
+      // found no OpenRouter route asks once more.
+      let second: ReturnType<typeof setTimeout> | undefined
+      const first = setTimeout(() => {
+        void check().then((asked) => {
+          if (!asked && !stopped) second = setTimeout(() => { void check().catch(() => false) }, LIVE_LIST_RETRY_MS)
+        }, () => {})
+      }, LIVE_LIST_AFTER_MS)
+      return () => {
+        stopped = true
+        clearTimeout(first)
+        clearTimeout(second)
+      }
+    }, 'idealize-models: OpenRouter live list')
 
     /**
      * The prices the shipped catalogue publishes for the chat routes this home

@@ -314,6 +314,22 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('moves a chat saved against a retired model onto its replacement, and drops the saved thinking level', async () => {
+    const { ctx, sessionId } = await harness({
+      provider: 'deepseek-official',
+      model: 'private-preview',
+      reasoningEffort: ReasoningEffortId('max'),
+    })
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      modelReplacement: (provider, model) => provider === 'deepseek-official' && model === 'private-preview' ? 'deepseek-reasoner' : undefined,
+      cwd: '/tmp',
+    })
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+    await ctx.fiber.dispose()
+  })
+
   it('accepts an advisory-unlisted model, rejects an unavailable provider, and switches only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
     const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
@@ -420,39 +436,18 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
-  it('saves an accepted selection as the default and survives a storage failure', async () => {
+  it('keeps an accepted selection to its own session and leaves the default alone', async () => {
     const { ctx, sessionId } = await harness()
-    const saved: unknown[] = []
-    let reject = false
-    const api = createApiProxy(ctx, {
-      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
-      saveDefaultModelSelection: (selection) => {
-        saved.push(selection)
-        return reject ? Promise.reject(new Error('read-only document')) : Promise.resolve()
-      },
-      cwd: '/tmp',
-    })
+    const stored = { provider: 'deepseek-official', model: 'deepseek-chat' }
+    const api = createApiProxy(ctx, { defaultModelSelection: () => stored, cwd: '/tmp' })
 
     expectValue(await api.sessions.selectModel(request({
       sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
     })))
-    expect(saved).toEqual([
-      { provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max' },
-    ])
-
-    // A refused selection never becomes anyone's default.
-    await api.sessions.selectModel(request({ sessionId, provider: 'missing', model: 'model' }))
-    expect(saved).toHaveLength(1)
-
-    // Storage failing is not the selection failing: the switch already applies
-    // to this session, so the call still succeeds.
-    reject = true
-    const stillAccepted = expectValue(await api.sessions.selectModel(request({
-      sessionId, provider: 'deepseek-official', model: 'deepseek-chat',
-    })))
-    expect(stillAccepted.selected).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
-      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max' })
+    // The default new chats start on is the one that was stored.
+    expect(stored).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
     await ctx.fiber.dispose()
   })
 

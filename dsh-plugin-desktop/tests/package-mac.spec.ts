@@ -67,7 +67,7 @@ describe('macOS DMG smoke packaging', () => {
         '/repo/node_modules/electron-builder/cli.js',
         '--mac',
         'dmg',
-        '--universal',
+        '--arm64',
         '--publish',
         'never',
         '--config.mac.notarize=false',

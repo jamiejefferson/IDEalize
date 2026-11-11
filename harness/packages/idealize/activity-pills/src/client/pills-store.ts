@@ -81,6 +81,8 @@ const READY: PillAvailability = { model: null, state: 'ready' }
 
 /** The agent-preset settings namespace on the host wire (restated; dsh-agent-presets owns it). */
 const AGENT_PRESET_SETTINGS_NS = 'agent-presets'
+/** The default-model settings namespace (restated; dsh-agent-default-model owns it). */
+const AGENT_DEFAULT_MODEL_SETTINGS_NS = 'agent-default-model'
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -181,6 +183,20 @@ export class ActivityPillsController {
             this.set({ busy: null, error: response.result.error.message })
             return
           }
+        }
+      }
+      // New chats open on this brain, so they start on its model too. The
+      // host no longer turns every chat's model pick into the default, so
+      // this write is the one that moves it.
+      const brainModel = this.store.getSnapshot().pills.find(pill => pill.id === id)?.availability.model ?? null
+      if (brainModel !== null) {
+        const saved = await this.api.settings.replace({
+          ns: AGENT_DEFAULT_MODEL_SETTINGS_NS,
+          section: { provider: brainModel.provider, model: brainModel.model },
+        })
+        if (!saved.result.ok) {
+          this.set({ busy: null, error: saved.result.error.message })
+          return
         }
       }
       if (this.store.getSnapshot().defaultId !== id) {

@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  effectivePrices, OPENROUTER_MODELS_URL, openRouterDetails, openRouterPrices, parsePriceBody, readOpenRouterPriceCache,
-  refreshOpenRouterPrices, writeOpenRouterPriceCache,
+  effectivePrices, OPENROUTER_MODELS_URL, openRouterDetails, openRouterLiveModels, openRouterPrices, parsePriceBody,
+  readOpenRouterPriceCache, refreshOpenRouterPrices, writeOpenRouterPriceCache,
 } from '../src/prices.ts'
 
 const made: string[] = []
@@ -216,5 +216,53 @@ describe('parsePriceBody', () => {
     expect(parsePriceBody({ provider: 'anthropic', model: 'claude', price: { input: 3, output: 15 } }).ok).toBe(false)
     expect(parsePriceBody({ provider: 'anthropic', model: 'claude', price: { input: -1, output: 15, cacheRead: 0, cacheWrite: 0 } }).ok).toBe(false)
     expect(parsePriceBody({ provider: 'anthropic', model: 'claude', price: { input: '3', output: 15, cacheRead: 0, cacheWrite: 0 } }).ok).toBe(false)
+  })
+})
+
+describe('the directory read an app start asks for', () => {
+  const NOW = Date.UTC(2026, 10, 11, 15, 0)
+  const row = (id: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id, name: `Name of ${id}`, context_length: 200_000, pricing: { prompt: '0.000001', completion: '0.000004' },
+    architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] },
+    top_provider: { max_completion_tokens: 64_000 }, supported_parameters: ['tools', 'reasoning'], ...extra,
+  })
+  const ok = (body: unknown): Response => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+
+  it('reads the directory however fresh the cache is when forced', async () => {
+    const dir = home()
+    writeOpenRouterPriceCache(dir, { old: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }, NOW - 30_000, {})
+    const fetchImpl = vi.fn(() => Promise.resolve(ok({ data: [row('new/model')] })))
+    const read = await refreshOpenRouterPrices({ home: dir, fetchImpl, maxAgeMs: 86_400_000, now: NOW, force: true })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(Object.keys(read?.prices ?? {})).toEqual(['new/model'])
+    expect(read?.details?.['new/model']).toMatchObject({ outputModalities: ['text'], maxOutput: 64_000 })
+    // What was written reads back whole, so the next start fills the picker before its own read lands.
+    expect(openRouterLiveModels(readOpenRouterPriceCache(dir))).toEqual(openRouterLiveModels(read))
+  })
+
+  it('lists chat models only: tools, text out, a stated window and price', async () => {
+    const dir = home()
+    const fetchImpl = vi.fn(() => Promise.resolve(ok({
+      data: [
+        row('chat/plain'),
+        row('chat/no-ceiling', { top_provider: {}, context_length: 16_000, architecture: { input_modalities: ['text'], output_modalities: ['text'] } }),
+        row('picture/maker', { architecture: { input_modalities: ['text'], output_modalities: ['image', 'text'] } }),
+        row('chat/no-tools', { supported_parameters: ['temperature'] }),
+        row('chat/no-window', { context_length: undefined }),
+        { ...row('chat/no-price'), pricing: undefined },
+      ],
+    })))
+    const read = await refreshOpenRouterPrices({ home: dir, fetchImpl, maxAgeMs: 60_000, now: NOW })
+    expect(openRouterLiveModels(read)).toEqual([
+      {
+        id: 'chat/plain', name: 'Name of chat/plain', vision: true, reasoning: true, contextWindow: 200_000, maxTokens: 64_000,
+        cost: { input: 1, output: 4, cacheRead: 1, cacheWrite: 1 },
+      },
+      {
+        id: 'chat/no-ceiling', name: 'Name of chat/no-ceiling', vision: false, reasoning: true, contextWindow: 16_000, maxTokens: 16_000,
+        cost: { input: 1, output: 4, cacheRead: 1, cacheWrite: 1 },
+      },
+    ])
+    expect(openRouterLiveModels(undefined)).toEqual([])
   })
 })

@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-desktop",
-  "version": "1.0.24",
+  "version": "1.0.25",
   "description": "IDEalize: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "license": "MIT",
   "publishConfig": {
@@ -321,9 +321,18 @@
       "category": "public.app-category.developer-tools",
       "hardenedRuntime": true,
       "icon": "build/app-icon-mac.png",
-      "mergeASARs": false,
       "notarize": true,
-      "x64ArchFiles": "**/node_modules/{node-pty/prebuilds/darwin-*/**,node-addon-require-builtin-darwin-*/**,@vscode/ripgrep-darwin-*/**,@img/sharp-darwin-*/**,@img/sharp-libvips-darwin-*/**,@koromix/koffi-darwin-*/**,onnxruntime-node/bin/napi-v6/darwin/**}",
+      "files": [
+        "build/app-icon.png",
+        "build/app-icon-mac.png",
+        "build/tray-icon.svg",
+        "build/tray-icon*.png",
+        "cordis.patch.yml",
+        "lib/**",
+        "package.json",
+        "!node_modules/node-pty/build/**",
+        "!**/node_modules/{node-pty/prebuilds/darwin-x64,node-addon-require-builtin-darwin-x64,@vscode/ripgrep-darwin-x64,@img/sharp-darwin-x64,@img/sharp-libvips-darwin-x64,@koromix/koffi-darwin-x64}/**"
+      ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Powell listens while you hold it or press Control-Option-Space, and sends that audio to a cloud service to turn it into text.",
         "NSAppleEventsUsageDescription": "A tool you or an agent runs inside IDEalize is asking to control this app."

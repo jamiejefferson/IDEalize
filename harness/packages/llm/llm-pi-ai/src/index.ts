@@ -62,9 +62,10 @@ import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigu
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { CredentialStore } from '@earendil-works/pi-ai'
 import { PiAiAdapter } from './adapter.ts'
-import { catalogProviderIds, catalogProviderOffersOAuth, catalogProviderTakesApiKey } from './catalog.ts'
+import { catalogProviderIds, catalogProviderOffersOAuth, catalogProviderTakesApiKey, retiredReplacements } from './catalog.ts'
 import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
+import { onLiveCatalogChange } from './catalog-addendum.ts'
 import { discoverModels } from './discovery.ts'
 
 export { PiAiAdapter } from './adapter.ts'
@@ -81,7 +82,8 @@ export type {
   ResolvedPiAiProviderProfile,
 } from './config.ts'
 export { supportedProtocols } from './provider.ts'
-export { catalogAddendum } from './catalog-addendum.ts'
+export { catalogAddendum, closestLiveModel, onLiveCatalogChange, setLiveCatalog } from './catalog-addendum.ts'
+export type { LiveCatalogModel } from './catalog-addendum.ts'
 
 export const name = 'llm-pi-ai'
 export const inject = ['llm']
@@ -177,6 +179,29 @@ export function apply(ctx: Context, config: Config): void {
     return next
   }
   profiles()
+  // IDEalize fork: a route's live directory adds models after this plugin
+  // mounted, so the resolved profiles are rebuilt when it changes. Routes and
+  // retry policies are untouched; only each route's model list moves.
+  ctx.effect(() => onLiveCatalogChange(() => {
+    const previous = memoized
+    try {
+      memoized = undefined
+      profiles()
+    } catch (error) {
+      memoized = previous
+      ctx.logger.error('llm-pi-ai: keeping the previous model lists after a refused live catalogue')
+      ctx.logger.error(error)
+    }
+  }), 'llm-pi-ai: live catalogue')
+
+  // IDEalize fork: a chat saved against a retired model asks here for the
+  // live model that replaced it, so its picker names the model now answering.
+  ctx.provide('idealizeModelReplacement', {
+    of: (provider: string, model: string): string | undefined => {
+      const profile = profiles().get(provider)
+      return profile === undefined ? undefined : retiredReplacements(profile.catalog ?? provider).get(model)
+    },
+  })
 
   const resolveApiKey = async (
     provider: string,

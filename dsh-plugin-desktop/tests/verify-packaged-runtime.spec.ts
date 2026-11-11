@@ -5,7 +5,7 @@ import AdmZip from 'adm-zip'
 import {
   afterPack,
   REQUIRED_PACKAGED_RUNTIME_ENTRIES,
-  REQUIRED_MACOS_UNIVERSAL_ENTRIES,
+  REQUIRED_MACOS_ENTRIES,
   REQUIRED_UNPACKED_PACKAGE_SPECIFIERS,
   REQUIRED_UNPACKED_RUNTIME_ENTRIES,
   REQUIRED_WINDOWS_X64_NODE_PTY_ENTRIES,
@@ -20,7 +20,7 @@ import {
   type PackagedRuntimeContext,
   type PackagedDiagnosticWorkerLauncher,
 } from '../scripts/verify-packaged-runtime.ts'
-import { FORBIDDEN_MACOS_UNIVERSAL_ENTRIES } from '../scripts/mac-universal.ts'
+import { FORBIDDEN_MACOS_ENTRIES } from '../scripts/mac-arm64.ts'
 
 function context(
   appOutDir: string,
@@ -125,8 +125,9 @@ describe('packaged desktop runtime verification', () => {
   ])('inspects the %s app.asar path', (platform, expectedPath) => {
     const list = vi.fn<ArchiveLister>(() => completeArchiveEntries(platform === 'win32' ? '\\' : '/'))
 
-    const exists = vi.fn<FileProbe>(() => true)
     const unpackedRoot = `${expectedPath}.unpacked`
+    const exists = vi.fn<FileProbe>(filename => !FORBIDDEN_MACOS_ENTRIES
+      .some(entry => filename === join(unpackedRoot, entry)))
     const resolvePackage = vi.fn<PackageResolver>(completePackageResolver(unpackedRoot))
 
     verifyPackagedRuntime(context('/build', platform), list, exists, resolvePackage)
@@ -137,7 +138,9 @@ describe('packaged desktop runtime verification', () => {
     expect(resolvePackagedUnpackedRoot(context('/build', platform))).toBe(unpackedRoot)
     expect(exists).toHaveBeenCalledTimes(
       REQUIRED_UNPACKED_RUNTIME_ENTRIES.length
-        + (platform === 'win32' ? REQUIRED_WINDOWS_X64_NODE_PTY_ENTRIES.length : 0)
+        + (platform === 'win32'
+          ? REQUIRED_WINDOWS_X64_NODE_PTY_ENTRIES.length
+          : REQUIRED_MACOS_ENTRIES.length + FORBIDDEN_MACOS_ENTRIES.length)
         + completeArchiveEntries().length,
     )
     expect(resolvePackage.mock.calls.map(([specifier]) => specifier))
@@ -149,10 +152,10 @@ describe('packaged desktop runtime verification', () => {
       .toThrow('unsupported Electron afterPack platform "mas"')
   })
 
-  it('requires both CPU variants from a universal macOS runtime', () => {
-    const runtimeContext = context('/build', 'darwin', 4)
+  it('requires the arm64 native files from a macOS runtime', () => {
+    const runtimeContext = context('/build', 'darwin', 3)
     const unpackedRoot = resolvePackagedUnpackedRoot(runtimeContext)
-    const missing = 'node_modules/@vscode/ripgrep-darwin-x64/bin/rg'
+    const missing = 'node_modules/@vscode/ripgrep-darwin-arm64/bin/rg'
 
     expect(() => verifyPackagedRuntime(
       runtimeContext,
@@ -161,7 +164,7 @@ describe('packaged desktop runtime verification', () => {
       completePackageResolver(unpackedRoot),
     )).toThrow(`missing required physical entries: ${missing}`)
 
-    const exists = vi.fn<FileProbe>(filename => !FORBIDDEN_MACOS_UNIVERSAL_ENTRIES
+    const exists = vi.fn<FileProbe>(filename => !FORBIDDEN_MACOS_ENTRIES
       .some(entry => filename === join(unpackedRoot, entry)))
     verifyPackagedRuntime(
       runtimeContext,
@@ -171,8 +174,8 @@ describe('packaged desktop runtime verification', () => {
     )
     expect(exists).toHaveBeenCalledTimes(
       REQUIRED_UNPACKED_RUNTIME_ENTRIES.length
-        + REQUIRED_MACOS_UNIVERSAL_ENTRIES.length
-        + FORBIDDEN_MACOS_UNIVERSAL_ENTRIES.length
+        + REQUIRED_MACOS_ENTRIES.length
+        + FORBIDDEN_MACOS_ENTRIES.length
         + completeArchiveEntries().length,
     )
   })
@@ -188,19 +191,22 @@ describe('packaged desktop runtime verification', () => {
     )).toThrow(`missing ASAR-declared physical entries: ${missing}`)
   })
 
-  it('rejects a host-architecture node-pty build from a universal app', () => {
-    const runtimeContext = context('/build', 'darwin', 4)
+  it.each([
+    'node_modules/node-pty/build/Release/pty.node',
+    'node_modules/@vscode/ripgrep-darwin-x64/bin/rg',
+    'node_modules/node-pty/prebuilds/darwin-x64/pty.node',
+  ])('rejects %s from a macOS app', (forbidden) => {
+    const runtimeContext = context('/build', 'darwin', 3)
     const unpackedRoot = resolvePackagedUnpackedRoot(runtimeContext)
-    const forbidden = FORBIDDEN_MACOS_UNIVERSAL_ENTRIES[0]
 
     expect(() => verifyPackagedRuntime(
       runtimeContext,
       () => completeArchiveEntries(),
       filename => filename === join(unpackedRoot, forbidden)
-        || !FORBIDDEN_MACOS_UNIVERSAL_ENTRIES
+        || !FORBIDDEN_MACOS_ENTRIES
           .some(entry => filename === join(unpackedRoot, entry)),
       completePackageResolver(unpackedRoot),
-    )).toThrow(`contains host-architecture build output: ${forbidden}`)
+    )).toThrow(`the Apple silicon app must not carry: ${forbidden}`)
   })
 
   it.each([

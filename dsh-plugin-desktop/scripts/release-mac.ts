@@ -9,7 +9,7 @@ import {
   assertMacReleaseReady,
   withoutMacReleaseSecrets,
 } from './release-preflight.ts'
-import { prepareInstalledMacUniversalRuntime } from './mac-universal.ts'
+import { prepareInstalledMacRuntime } from './mac-arm64.ts'
 
 /** Injectable release boundary used by focused tests. */
 export interface MacReleaseOptions {
@@ -34,7 +34,7 @@ export interface MacReleaseOptions {
   ) => void
   /** Report non-secret release progress. */
   readonly log: (message: string) => void
-  /** Validate and prepare both architecture-specific runtime trees. */
+  /** Validate and prepare the arm64 runtime tree. */
   readonly prepareRuntime: () => void
 }
 
@@ -70,7 +70,7 @@ function defaultReleaseOptions(): MacReleaseOptions {
     listCodeSigningIdentities,
     run,
     log: message => console.log(message),
-    prepareRuntime: () => prepareInstalledMacUniversalRuntime(desktopRoot),
+    prepareRuntime: () => prepareInstalledMacRuntime(desktopRoot),
   }
 }
 
@@ -96,7 +96,7 @@ export function releaseMac(options: MacReleaseOptions = defaultReleaseOptions())
   options.resetOutput()
   options.prepareRuntime()
   options.run('yarn', [
-    'exec', 'electron-builder', '--mac', 'dmg', '--universal',
+    'exec', 'electron-builder', '--mac', 'dmg', '--arm64',
     '--config.forceCodeSigning=true', '--config.mac.notarize=true',
     '--config.npmRebuild=false',
     `--config.directories.output=${options.outputDir}`,

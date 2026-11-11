@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
+import { FORBIDDEN_MACOS_ENTRIES } from '../scripts/mac-arm64.ts'
 import { QUICK_ACTION_NAME } from '../src/finder-quick-action.ts'
 import { PROJECT_SWITCH, requestFromArgv } from '../src/idealize-url.ts'
 
@@ -31,7 +32,7 @@ const manifest = JSON.parse(readFileSync(new URL('package.json', packageRoot), '
       mergeASARs?: unknown
       notarize?: unknown
       target?: unknown
-      x64ArchFiles?: unknown
+      files?: unknown
     }
     win?: { icon?: unknown; target?: unknown; artifactName?: unknown }
     nsis?: Record<string, unknown>
@@ -343,7 +344,6 @@ describe('published package surface', () => {
       '!node_modules/node-pty/build/**',
     ])
     expect(manifest.build?.mac?.icon).toBe('build/app-icon-mac.png')
-    expect(manifest.build?.mac?.mergeASARs).toBe(false)
     expect(manifest.build?.win?.icon).toBe('build/app-icon.png')
     expect(manifest.build?.win?.target).toEqual([{
       target: 'nsis',
@@ -437,17 +437,24 @@ describe('published package surface', () => {
     expect(manifest.build?.afterPack).toBe('./scripts/after-pack.ts')
     expect(manifest.build?.mac).toEqual(expect.objectContaining({
       hardenedRuntime: true,
-      mergeASARs: false,
       notarize: true,
       target: ['dir'],
-      x64ArchFiles: expect.stringContaining('node-pty/prebuilds/darwin-*'),
     }))
-    // onnxruntime-node ships one macOS slice per install (arm64 on this Mac),
-    // so the universal merge is told those files are per-arch rather than
-    // refusing the identical copy it finds in both builds.
-    expect(manifest.build?.mac).toEqual(expect.objectContaining({
-      x64ArchFiles: expect.stringContaining('onnxruntime-node/bin/napi-v6/darwin/**'),
-    }))
+    // The Mac app ships for Apple silicon only (JJ, 11 Nov 2026): nothing asks
+    // for a two-CPU merge, and the Intel copies of the native modules stay out.
+    expect(manifest.build?.mac).not.toHaveProperty('x64ArchFiles')
+    expect(manifest.build?.mac).not.toHaveProperty('mergeASARs')
+    // Electron Builder reads `mac.files` in place of `files`, so the Mac list
+    // repeats the shared one and adds the single Intel exclusion.
+    const macFiles = (manifest.build?.mac as { files?: readonly string[] } | undefined)?.files ?? []
+    expect(macFiles.slice(0, -1)).toEqual(manifest.build?.files)
+    const intelExclusion = macFiles.at(-1) ?? ''
+    expect(intelExclusion.startsWith('!**/node_modules/{')).toBe(true)
+    for (const entry of FORBIDDEN_MACOS_ENTRIES.filter(entry => entry.includes('x64'))) {
+      const folder = /^node_modules\/((?:@[^/]+\/)?[^/]+-darwin-x64|node-pty\/prebuilds\/darwin-x64)\//u.exec(entry)?.[1]
+      expect(folder).toBeDefined()
+      expect(intelExclusion).toContain(folder)
+    }
     expect(manifest.build?.files).toContain('!node_modules/node-pty/build/**')
     expect(manifest.devDependencies?.['@electron/asar']).toBe('3.4.1')
   })

@@ -23,7 +23,7 @@ import type {
   Provider,
   ThinkingLevelMap,
 } from '@earendil-works/pi-ai'
-import { catalogAddendum } from './catalog-addendum.ts'
+import { catalogAddendum, closestLiveModel, retiredModels } from './catalog-addendum.ts'
 
 /**
  * Pricing for a model the installed catalog does not describe. The harness
@@ -187,6 +187,24 @@ export function catalogModels(provider: string): Map<string, Model<Api>> {
   const installed = new Map(models.map(model => [model.id, model]))
   for (const model of catalogAddendum(provider, new Set(installed.keys()))) installed.set(model.id, model)
   return installed
+}
+
+/**
+ * The shipped models a route's live directory no longer lists, each with the
+ * live model that takes its place. The picker drops the retired ids, and a
+ * chat or setting saved against one is served by its replacement.
+ * @param provider - installed provider whose catalog is read.
+ * @returns retired id to replacement id; a retired model with no replacement maps to nothing.
+ */
+export function retiredReplacements(provider: string): Map<string, string | undefined> {
+  const shipped = catalogModels(provider)
+  const retired = retiredModels(provider, shipped.keys())
+  if (retired.size === 0) return new Map()
+  const serving = [...shipped.values()].filter(model => !retired.has(model.id))
+  return new Map([...retired].map((id) => {
+    const model = shipped.get(id)
+    return [id, model === undefined ? undefined : closestLiveModel(model, serving)?.id]
+  }))
 }
 
 /**
@@ -455,6 +473,16 @@ export interface RouteCatalog {
 }
 
 /**
+ * The catalog models a route serves by default: the shipped ones its live
+ * directory still lists. An override naming a retired model stays valid
+ * configuration and simply has nothing left to reshape.
+ */
+function servedDefaults(source: string, defaults: ReadonlyMap<string, Model<Api>>): Model<Api>[] {
+  const retired = retiredModels(source, defaults.keys())
+  return [...defaults.values()].filter(model => !retired.has(model.id))
+}
+
+/**
  * Materialize one route's catalog by merging the installed catalog defaults
  * under the configured entries. A route with no configured `models` serves the
  * installed catalog unchanged, which is what keeps an existing
@@ -499,7 +527,7 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   // the same path with the same diagnostics and request-default semantics.
   const entries: readonly PiAiModelProfile[] = configured.length > 0
     ? configured
-    : [...defaults.values()].map(model => ({ id: model.id, ...overrides[model.id] }))
+    : servedDefaults(source, defaults).map(model => ({ id: model.id, ...overrides[model.id] }))
   if (entries.length === 0) {
     invalid(provider, 'resolves no models; the installed catalog does not describe this route, so its models'
       + ' must be listed in configuration')

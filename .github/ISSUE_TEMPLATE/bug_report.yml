@@ -43,8 +43,6 @@ body:
         - Windows 10 x64
         - Windows ARM64
         - macOS Apple Silicon
-        - macOS Intel
-        - macOS Universal package / macOS 通用安装包
         - Linux
         - Other or unsupported / 其他或未支持平台
     validations:

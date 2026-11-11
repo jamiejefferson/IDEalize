@@ -51,7 +51,7 @@ import type {
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf, TimeoutReason } from '@deepseek-ai/dsh-timeout'
 import { assertKeyMayGoTo, isReachable } from './address.ts'
-import { catalogProvider } from './catalog.ts'
+import { catalogProvider, retiredReplacements } from './catalog.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { DEFAULT_FIRST_BYTE_CHECK_MS, FIRST_BYTE_CODE, watchForFirstByte } from './first-byte.ts'
@@ -259,12 +259,21 @@ export class PiAiAdapter extends LlmAdapter {
 
   /** The configured descriptor for one exact route/model pair within one snapshot. */
   private modelOf(snapshot: PiAiSnapshot, provider: string, model: string): Model<Api> {
-    this.profileOf(snapshot, provider)
+    const profile = this.profileOf(snapshot, provider)
+    // A chat or setting saved against a model the route's directory has since
+    // retired is answered by the closest model the route serves today.
     const resolved = snapshot.models.getModel(provider, model)
+      ?? this.replacementOf(snapshot, provider, profile.catalog ?? provider, model)
     if (resolved === undefined) {
       throw new LlmError(`pi-ai provider "${provider}" has no configured model "${model}"`, 'UNKNOWN_MODEL')
     }
     return resolved
+  }
+
+  /** The live model standing in for a retired one on this route, when the route still serves it. */
+  private replacementOf(snapshot: PiAiSnapshot, provider: string, source: string, model: string): Model<Api> | undefined {
+    const replacement = retiredReplacements(source).get(model)
+    return replacement === undefined ? undefined : snapshot.models.getModel(provider, replacement)
   }
 
   override providerInfo(provider: string): LlmProviderInfo {
