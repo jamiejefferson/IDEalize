@@ -36,6 +36,21 @@ describe('choosing a stand-in', () => {
     expect(await chooseStandIn(input({}), noWindow)).toMatchObject({ kind: 'use', to: { provider: 'freetokens' } })
   })
 
+  it('takes a key gateway model before a sign-in model the account may not run', async () => {
+    // JJ, 11 Nov 2026: an empty free tier walked GPT-5.4 mini, GPT-5.4 and GPT-5.5, none of which a ChatGPT
+    // sign-in serves, and the turn failed while the gateway stood connected.
+    const viaGateway: Candidate = { provider: 'gateway-openrouter', model: '~anthropic/claude-haiku-latest', label: 'Haiku', price: { input: 1, output: 5 } }
+    const choice = await chooseStandIn(input({ failed: free, tried: [], candidates: [luna, viaGateway] }), noWindow)
+    expect(choice).toMatchObject({ kind: 'use', to: { provider: 'gateway-openrouter' } })
+  })
+
+  it('leaves the whole route when a stand-in on it could not be reached', async () => {
+    const one: Candidate = { provider: 'gateway-openrouter', model: '~anthropic/claude-haiku-latest', label: 'Haiku', price: { input: 1, output: 5 } }
+    const two: Candidate = { provider: 'gateway-openrouter', model: '~deepseek/deepseek-v4-flash-latest', label: 'Flash', price: { input: 1, output: 2 } }
+    const choice = await chooseStandIn(input({ failed: one, code: 'TRANSPORT', tried: [free], candidates: [two, luna], offerOnly: true }), noWindow)
+    expect(choice).toMatchObject({ kind: 'use', to: { model: 'gpt-5.6-luna' } })
+  })
+
   it('keeps the route open when only the model was busy', async () => {
     const choice = await chooseStandIn(input({ code: 'RATE_LIMIT', candidates: [luna, opus] }), noWindow)
     expect(choice).toMatchObject({ kind: 'use', to: { model: 'gpt-5.6-luna' } })
@@ -46,6 +61,18 @@ describe('choosing a stand-in', () => {
     const choice = await chooseStandIn(input({ candidates: [luna, opus] }), noWindow)
     expect(choice).toMatchObject({ kind: 'use', to: { model: 'claude-opus-5-5' } })
     expect(stepInRationale('Free tokens', 'MISSING_CREDENTIAL', choice as never)).toMatch(/took the turn\. .* is a paid model\.$/)
+  })
+
+  it('tries a connected key gateway before any direct key, and says where the turn went', async () => {
+    // JJ's Free tokens chat fell to three direct Codex models on 11 Nov 2026 with a healthy gateway connected.
+    const gatewayClaude: Candidate = { provider: 'gateway-anthropic', model: 'claude-sonnet-5-5', label: 'Sonnet via gateway', price: { input: 3, output: 15 } }
+    const choice = await chooseStandIn(input({ failed: { provider: 'freetokens', model: 'auto' }, tried: [], candidates: [luna, opus, gatewayClaude] }), noWindow)
+    expect(choice).toMatchObject({ kind: 'use', to: { provider: 'gateway-anthropic' } })
+    expect(stepInRationale('Free tokens', 'MISSING_CREDENTIAL', choice as never))
+      .toBe('Free tokens has no keys, so Sonnet via gateway took the turn. It runs through your organisation\'s key gateway.')
+    // With the gateway model already tried, the direct keys answer.
+    expect(await chooseStandIn(input({ failed: gatewayClaude, code: 'SERVER', tried: [{ provider: 'freetokens', model: 'auto' }], candidates: [luna, opus, gatewayClaude] }), noWindow))
+      .toMatchObject({ kind: 'use', to: { provider: 'anthropic' } })
   })
 
   describe('moving a chat to another company', () => {

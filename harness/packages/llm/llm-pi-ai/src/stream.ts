@@ -44,13 +44,21 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 // wrapper a bare `terminated`, so we are left pattern-matching terse words here.
 // If pi-ai ever forwards the original Error (or a fetch/dispatcher hook that lets
 // us capture the cause ourselves), classify on `code`/`cause` instead of text.
+/**
+ * The free-tokens engine's answer when no key it holds could serve the request. Its tally also counts routes
+ * whose model was too small for the prompt, and that wording alone reads as a full context window.
+ */
+function engineHoldsNoKey(message: string): boolean {
+  return /\brouting_exhausted\b/.test(message) && /no usable key configured/.test(message) && !/rate-limited or on cooldown/.test(message)
+}
+
 function classifyPiAiError(message: string): string {
   // pi-ai's wording when a route has no key or sign-in to send, before any request leaves the machine.
   if (/^(?:No API key for provider|Provider is not configured)\b/.test(message)) return 'MISSING_CREDENTIAL'
   // The free-tokens engine's wording when it holds no key that could serve the request. It sends a 429 when
   // some routes lacked a capability, yet waiting cures nothing unless a route reports a cooldown as well.
   if (/\bno_providers_configured\b/.test(message)) return 'MISSING_CREDENTIAL'
-  if (/\brouting_exhausted\b/.test(message) && /no usable key configured/.test(message) && !/rate-limited or on cooldown/.test(message)) return 'MISSING_CREDENTIAL'
+  if (engineHoldsNoKey(message)) return 'MISSING_CREDENTIAL'
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
   if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
@@ -89,7 +97,9 @@ export function mapStopReason(message: AssistantMessage, contextWindow?: number)
   const harnessOverflow = message.stopReason === 'error'
     && message.errorMessage !== undefined
     && isContextWindowExceededError(message.errorMessage)
-  if (piAiOverflow || harnessOverflow) {
+  // An engine with no key counts its too-small routes in the same sentence; compacting the chat would cure nothing.
+  const noKey = message.stopReason === 'error' && message.errorMessage !== undefined && engineHoldsNoKey(message.errorMessage)
+  if ((piAiOverflow || harnessOverflow) && !noKey) {
     return {
       kind: 'error',
       failure: {

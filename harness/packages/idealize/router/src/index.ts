@@ -94,7 +94,7 @@ import {
   addMark, isRatingKind, isStars, isTag, RATING_TAGS, ratingsOf, readRatings, setStars, standing, TASK_TAG, updateRatings,
 } from './ratings.ts'
 import type { RatingKind, RatingsFile } from './ratings.ts'
-import { noteRefusal, readRefusals, routeKey } from './refused.ts'
+import { forgetGatewayRefusals, noteRefusal, readRefusals, REFUSAL_SPAN, refusalCause, routeKey, sitsOut } from './refused.ts'
 import type { Refusals } from './refused.ts'
 import { routeTurn } from './route.ts'
 import { canStepIn, chooseStandIn, FREE_LABEL, MAX_STAND_INS, stepInRationale } from './step-in.ts'
@@ -334,6 +334,8 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
     let freeEmpty = false
     const isFreeEmpty = (): boolean => freeEmpty
     let refusals: Refusals | undefined
+    /** The connected key gateway the refusals were last checked against. */
+    let gatewaySeen: string | undefined
     /** The ratings as last read or written; every write goes through {@link rate}. */
     let ratings: RatingsFile | undefined
     const currentRatings = async (): Promise<RatingsFile> => (ratings ??= await readRatings(home))
@@ -419,8 +421,12 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         const prices = shippedTokenPrices(provider)
         if (prices !== undefined) shipped[provider] = prices
       }
-      const prices = effectivePrices(user, readOpenRouterPriceCache(home)?.prices, shipped)
-      cached = { at: Date.now(), candidates: candidatesFrom(routes, prices) }
+      const directory = readOpenRouterPriceCache(home)
+      const prices = effectivePrices(user, directory?.prices, shipped)
+      const live = directory === undefined
+        ? undefined
+        : new Set([...Object.keys(directory.prices), ...Object.keys(directory.details ?? {})])
+      cached = { at: Date.now(), candidates: candidatesFrom(routes, prices, live) }
       return cached.candidates
     }
 
@@ -428,8 +434,15 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
     const usable = async (): Promise<Candidate[]> => {
       refusals ??= await readRefusals(home)
       const live = refusals
+      // A gateway at a new address or under a new key starts with a clean record.
+      const gateway = (routeCtx.get('idealizeGateway') as { status?: () => { connected?: boolean; address?: string; last4?: string } } | undefined)?.status?.()
+      const identity = gateway?.connected === true && gateway.address !== undefined ? `${gateway.address}|${gateway.last4 ?? ''}` : undefined
+      if (identity !== undefined && identity !== gatewaySeen) {
+        gatewaySeen = identity
+        await forgetGatewayRefusals(home, live, identity)
+      }
       const now = Date.now()
-      return (await candidates()).filter(candidate => (live[routeKey(candidate)] ?? 0) <= now)
+      return (await candidates()).filter(candidate => !sitsOut(live, candidate, now))
     }
 
     /** Whether this chat is one the router routes this turn. */
@@ -463,14 +476,15 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
      */
     const stepIn = async (agent: Agent, routed: RoutedTurn, failure: { code: string; message: string }): Promise<boolean> => {
       const standIns = routed.standIns ?? 0
-      if (standIns >= MAX_STAND_INS) return false
       const failed = routed.use
       const tried = [...routed.tried ?? [], failed]
       // A stand-in that failed sits out like a routed model that failed, unless it only refused this chat's history.
+      // The last stand-in a turn may try is noted too, or the next turn opens on the same dead model.
       if (standIns > 0 && failure.code !== 'INVALID_REQUEST') {
         refusals ??= await readRefusals(home)
-        await noteRefusal(home, refusals, failed, failure.code === 'RATE_LIMIT' ? 'rate-limited' : 'refused')
+        await noteRefusal(home, refusals, failed, refusalCause(failure.code))
       }
+      if (standIns >= MAX_STAND_INS) return false
       // A sign-in or key that went is a change the cached route list has not seen.
       cached = undefined
       const settings = current()
@@ -688,9 +702,9 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         }, { ignorable: true })
         routedTurns.set(agent, { ...routed, use: routed.resolved, fellBack: true, tried: [...routed.tried ?? [], routed.use] })
         refusals ??= await readRefusals(home)
-        const cause = failure.code === 'RATE_LIMIT' ? 'rate-limited' : 'refused'
+        const cause = refusalCause(failure.code)
         await noteRefusal(home, refusals, routed.use, cause)
-        routeCtx.logger.warn(`idealize-router: ${routeKey(routed.use)} failed (${failure.code}: ${failure.message}); the turn returns to ${routeKey(routed.resolved)} and the router leaves that model alone for ${cause === 'rate-limited' ? 'an hour' : 'a week'}`)
+        routeCtx.logger.warn(`idealize-router: ${routeKey(routed.use)} failed (${failure.code}: ${failure.message}); the turn returns to ${routeKey(routed.resolved)} and ${REFUSAL_SPAN[cause]}`)
         return { kind: 'retry' }
       }
       // The chat's own model failed, or a stand-in did. The retry policy and compaction answer first, so the router
@@ -893,7 +907,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
           jev: { keyed: (await jevTarget(undefined)).key !== undefined, lastFailure: lastJevFailure },
           families: table.map(row => ({ family: row.family, speed: row.speed, scores: row.scores, yours: !SHIPPED_SCORES.includes(row) })),
           candidates: (await usable()).length,
-          refused: Object.keys(refusals ?? {}),
+          refused: Object.entries(refusals ?? {}).filter(entry => entry[1] > Date.now()).map(entry => entry[0]),
         })
       })
 

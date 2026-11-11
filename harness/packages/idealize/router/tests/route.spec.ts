@@ -23,6 +23,20 @@ const noWindow = { contextWindow: () => Promise.resolve(undefined) }
 const jevSays = (confidence: number) => () => Promise.resolve({ reading: { task: 'code', difficulty: 'hard', confidence, source: 'jev' } as const, ms: 200 })
 
 describe('the candidate list', () => {
+  it('leaves out a model OpenRouter has retired, on the direct route and through a gateway', () => {
+    const models = [{ id: 'anthropic/claude-3-haiku' }, { id: 'anthropic/claude-haiku-4.5' }]
+    const live = new Set(['anthropic/claude-haiku-4.5'])
+    const list = candidatesFrom([
+      { provider: 'openrouter', auth: 'apiKey', models },
+      { provider: 'gateway-openrouter', auth: 'apiKey', models },
+      { provider: 'anthropic', auth: 'apiKey', models: [{ id: 'claude-3-haiku' }] },
+    ], {}, live)
+    expect(list.map(candidate => `${candidate.provider}/${candidate.model}`))
+      .toEqual(['openrouter/anthropic/claude-haiku-4.5', 'gateway-openrouter/anthropic/claude-haiku-4.5', 'anthropic/claude-3-haiku'])
+    // With no copy of the directory the shipped list stands.
+    expect(candidatesFrom([{ provider: 'openrouter', auth: 'apiKey', models }], {}, new Set())).toHaveLength(2)
+  })
+
   it('leaves out batch-only variants, which refuse a chat call', () => {
     const list = candidatesFrom([{ provider: 'openrouter', auth: 'apiKey', models: [{ id: 'openai/gpt-5-nano:batch' }, { id: 'openai/gpt-5-nano' }, { id: 'google/gemma:free' }] }], {})
     expect(list.map(candidate => candidate.model)).toEqual(['openai/gpt-5-nano', 'google/gemma:free'])

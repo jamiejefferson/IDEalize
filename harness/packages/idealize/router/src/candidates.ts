@@ -39,11 +39,17 @@ function priceOf(route: ConnectedRoute, model: string, prices: PriceTable): Pric
  * The candidate list.
  * @param routes - the connected routes and their models.
  * @param prices - the effective price table.
+ * @param openRouterLive - the model ids OpenRouter's own directory lists today, when the app holds a copy.
  * @returns one candidate per model; the free-tokens route is a single candidate, because its engine chooses the provider per call.
  */
-export function candidatesFrom(routes: readonly ConnectedRoute[], prices: PriceTable): Candidate[] {
+export function candidatesFrom(routes: readonly ConnectedRoute[], prices: PriceTable, openRouterLive?: ReadonlySet<string>): Candidate[] {
   const candidates: Candidate[] = []
   for (const route of routes) {
+    // The route's model list ships with the app and outlives the models: OpenRouter answered 404 for
+    // Claude 3 Haiku on 11 Nov 2026, two months after retiring it. Its live directory says which remain.
+    const retired = openRouterLive !== undefined && openRouterLive.size > 0 && route.provider.replace(/^gateway-/u, '') === 'openrouter'
+      ? (id: string): boolean => !openRouterLive.has(id)
+      : (): boolean => false
     if (route.provider === FREE_PROVIDER) {
       const first = route.models[0]
       if (first !== undefined) candidates.push({ provider: FREE_PROVIDER, model: first.id, label: 'Free tokens', price: 'free', images: false })
@@ -52,6 +58,7 @@ export function candidatesFrom(routes: readonly ConnectedRoute[], prices: PriceT
     for (const model of route.models) {
       // OpenRouter lists batch-only variants beside each model, and they answer a chat call with a 404.
       if (model.id.endsWith(':batch')) continue
+      if (retired(model.id)) continue
       candidates.push({
         provider: route.provider,
         model: model.id,

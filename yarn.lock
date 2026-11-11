@@ -2363,7 +2363,7 @@ __metadata:
 
 "@deepseek-ai/dsh-llm-pi-ai@file:./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.1.0-rc.7
-  resolution: "@deepseek-ai/dsh-llm-pi-ai@file:./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz::hash=5e8226&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-llm-pi-ai@file:./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz#./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz::hash=e7e8e4&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/schemastery": "npm:^3.18.1"
     "@earendil-works/pi-ai": "npm:^0.85.1"
@@ -2376,7 +2376,7 @@ __metadata:
     "@deepseek-ai/dsh-llm": ^0.1.0-rc.7
     "@deepseek-ai/dsh-settings": ^0.1.0-rc.7
     "@deepseek-ai/dsh-timeout": ^0.1.0-rc.7
-  checksum: 10c0/a390c1e5ab0bcf016f35629ecb2a14e10489ef5695ae6ed0e48b00ff6597d4bf1123a6f17bd466822ca4f9a72bc6cbbf23a011633c93708633ec4aed0c645b89
+  checksum: 10c0/fc7a7371356fae5e1c8b89cecd31ea583673bd2127ba85f73a37e70fc59ac41766e86ca7bef56d227a94c77a659d6334d9694271b92daaa8b13c3f958e34d165
   languageName: node
   linkType: hard
 
@@ -4869,7 +4869,7 @@ __metadata:
 
 "@idealize/router@file:./vendor/idealize/idealize-router-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/router@file:./vendor/idealize/idealize-router-1.0.0-dev.0.tgz#./vendor/idealize/idealize-router-1.0.0-dev.0.tgz::hash=b5e458&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/router@file:./vendor/idealize/idealize-router-1.0.0-dev.0.tgz#./vendor/idealize/idealize-router-1.0.0-dev.0.tgz::hash=d5ca06&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/cordis": "npm:^4.0.1"
     "@deepseek-ai/dsh-agent": "npm:^0.1.0-rc.7"
@@ -4890,7 +4890,7 @@ __metadata:
     zod: "npm:^4.4.3"
   peerDependencies:
     "@deepseek-ai/dsh-invariants": ^0.1.0-rc.7
-  checksum: 10c0/086592ebe8b07147874bf923096829d16505bd2fc22a6c7f09f71f4c9c993ace77e3ba6b160bd9782a975f364764e9933eb04ded5ba8e9f5f5893f5a3c7055e0
+  checksum: 10c0/e7bdb89de76c1c2a49cb68d25d80f8a25a3f4e5b509ea082fc3122093b38aaefd3b4ab82d97d5efa377e03426029fa3f3731000b43bd3486b74981a1087af19b
   languageName: node
   linkType: hard
 

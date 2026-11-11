@@ -844,6 +844,12 @@ describe('mapStopReason / mapUsage', () => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: noneAtAll }))).toMatchObject({ failure: { code: 'MISSING_CREDENTIAL' } })
   })
 
+  it('does not read an engine with no key as a full context window because some routes were too small', () => {
+    // JJ, 11 Nov 2026: "hello" to an empty free tier showed CONTEXT_WINDOW_EXCEEDED and started a compaction.
+    const noKeys = '429: {"message":"All models exhausted: 198 routes checked (95 no usable key configured, 3 prompt too large for the model, 100 model lacks tool-calling). Add more API keys or wait for rate limits to reset.","type":"rate_limit_error","code":"routing_exhausted"}'
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: noKeys }))).toMatchObject({ failure: { code: 'MISSING_CREDENTIAL' } })
+  })
+
   it('still reads the engine as busy when a route is on cooldown', () => {
     const busy = '429: {"message":"All models exhausted: 201 routes checked (40 rate-limited or on cooldown, 60 no usable key configured, 101 model lacks tool-calling).","code":"routing_exhausted"}'
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: busy }))).toMatchObject({ failure: { code: 'RATE_LIMIT' } })

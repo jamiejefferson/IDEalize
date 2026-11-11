@@ -11,7 +11,7 @@
  * model facts.
  */
 
-import { losesContext, score } from './decide.ts'
+import { losesContext, score, viaGateway } from './decide.ts'
 import type { Candidate, Scored, Weights } from './decide.ts'
 import type { Standing } from './ratings.ts'
 import type { ScoreRow } from './score-table.ts'
@@ -40,10 +40,11 @@ const CANNOT_ANSWER: Readonly<Record<string, string>> = {
 
 /**
  * The failures that rule out every model on the route: the first four are about
- * the account. The last reaches here only from a stand-in, and says the route will
- * not take this chat's history, which its other models would refuse just the same.
+ * the account. The last two reach here only from a stand-in: one says the route will
+ * not take this chat's history, which its other models would refuse just the same,
+ * and the other that the route's address did not answer, whichever model was asked.
  */
-const ROUTE_WIDE = new Set(['MISSING_CREDENTIAL', 'NO_ADAPTER', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'INVALID_REQUEST'])
+const ROUTE_WIDE = new Set(['MISSING_CREDENTIAL', 'NO_ADAPTER', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'INVALID_REQUEST', 'TRANSPORT'])
 
 /**
  * Whether a failure is one the router steps in for. A dropped connection and a
@@ -165,9 +166,13 @@ export async function chooseStandIn(
     .filter(candidate => candidate.known)
     .sort((a, b) => b.total - a.total)
 
-  const order = input.preferFree
+  const byPrice = input.preferFree
     ? [...ranked.filter(candidate => candidate.price === 'free'), ...ranked.filter(candidate => candidate.price !== 'free')]
     : ranked
+  // A connected key gateway goes first, as it does for a routed turn: the organisation pays, and its key is the
+  // one known to work. A sign-in's catalogue lists models the account cannot run, and a rescue walked three of
+  // those while the gateway stood ready (11 Nov 2026).
+  const order = [...byPrice.filter(viaGateway), ...byPrice.filter(candidate => !viaGateway(candidate))]
   let tooSmall: Scored | undefined
   let elsewhere: Scored | undefined
   for (const candidate of order) {
@@ -196,6 +201,9 @@ export function stepInRationale(failedLabel: string, code: string, choice: Exclu
   const empty = failedLabel === FREE_LABEL && code === 'MISSING_CREDENTIAL'
   const cause = `${failedLabel} ${empty ? 'has no keys' : CANNOT_ANSWER[code] ?? 'could not answer'}`
   if (choice.kind !== 'use') return `${cause}.`
-  const paid = typeof choice.to.price === 'object' ? ` ${choice.to.label} is a paid model.` : ''
-  return `${cause}, so ${choice.to.label} took the turn.${paid}`
+  // The organisation behind a gateway pays for its models, so the person is told where the turn went.
+  const note = viaGateway(choice.to)
+    ? ' It runs through your organisation\'s key gateway.'
+    : typeof choice.to.price === 'object' ? ` ${choice.to.label} is a paid model.` : ''
+  return `${cause}, so ${choice.to.label} took the turn.${note}`
 }
