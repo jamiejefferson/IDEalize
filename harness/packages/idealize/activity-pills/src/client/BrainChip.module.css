@@ -332,10 +332,18 @@
 
 /* The full-width line above the composer: what the app just did, or what the
    brain is missing, with the one action that answers it. */
+/* The line keeps the dock cards' width (the to-do, goal and queue cards):
+   the column less its side clearance and the dock inset, capped at the input
+   card's width less the inset. Without it the line ran to both edges of the
+   column (feedback 957e9b92, 13 Nov 2026). */
 .notice {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 12px;
+  margin: 0 auto;
+  width: calc(100% - 2 * var(--dsh-composer-side-clearance, 16px) - 4 * var(--dsh-composer-dock-inset, 8px));
+  max-width: calc(var(--dsh-composer-card-max-width, 780px) - 4 * var(--dsh-composer-dock-inset, 8px));
   padding: 8px 12px;
   border: 1px solid var(--dsw-alias-border-l2, rgba(31, 35, 40, 0.12));
   border-radius: 12px;

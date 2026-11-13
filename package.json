@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-desktop",
-  "version": "1.0.26",
+  "version": "1.0.27",
   "private": true,
   "description": "IDEalize desktop product workspace",
   "license": "MIT",
@@ -38,6 +38,7 @@
     "@deepseek-ai/dsh-llm-pi-ai@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-llm-pi-ai-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-web-frontend@npm:0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-web-frontend-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-web-frontend@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-web-frontend-0.1.0-rc.7.tgz",
+    "@deepseek-ai/dsh-client-connection@npm:0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-client-connection-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-client-runtime@npm:0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-client-runtime-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-host-webserver@npm:0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-host-webserver-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-host-webserver@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-host-webserver-0.1.0-rc.7.tgz",
@@ -49,6 +50,7 @@
     "@deepseek-ai/dsh-settings-file@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-settings-file-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-host-apiproxy@npm:0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-host-apiproxy-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-host-apiproxy@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-host-apiproxy-0.1.0-rc.7.tgz",
+    "@deepseek-ai/dsh-client-connection@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-client-connection-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-client-runtime@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-client-runtime-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-client-ui-agent-preset@npm:0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-client-ui-agent-preset-0.1.0-rc.7.tgz",
     "@deepseek-ai/dsh-client-ui-agent-preset@npm:^0.1.0-rc.7": "file:./vendor/idealize/deepseek-ai-dsh-client-ui-agent-preset-0.1.0-rc.7.tgz",
