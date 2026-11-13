@@ -252,9 +252,9 @@ declare module '@deepseek-ai/cordis' {
     /**
      * A terminal agent started or stopped working, from its shell's output.
      * @mode emit
-     * @param change - the terminal's id and whether it is working now.
+     * @param change - the terminal's id, the chat it belongs to, and whether it is working now.
      */
-    'idealize/terminal-activity': (change: { id: string; working: boolean }) => void
+    'idealize/terminal-activity': (change: { id: string; sessionId?: string; working: boolean }) => void
   }
 }
 
@@ -530,15 +530,20 @@ export function apply(ctx: Context, config?: Config): void {
     })
   }
   const deliveries = new TerminalDeliveries()
+  /** The chat a terminal belongs to, for the left panel's working and finished marks. */
+  const sessionOf = (id: string): { sessionId?: string } => {
+    const session = chats.get(id)?.session
+    return session === undefined ? {} : { sessionId: session }
+  }
   const openedListeners = new Set<(sessionId: string) => void>()
   const activity = new TerminalActivity({
     onQuiet: (id) => { nudges.quiet(id) },
     onWorking: (id) => {
       deliveries.working(id)
-      ctx.emit('idealize/terminal-activity', { id, working: true })
+      ctx.emit('idealize/terminal-activity', { id, ...sessionOf(id), working: true })
     },
     onDone: (id, ranForMs, cut) => {
-      ctx.emit('idealize/terminal-activity', { id, working: false })
+      ctx.emit('idealize/terminal-activity', { id, ...sessionOf(id), working: false })
       // A run this host interrupted is not the agent finishing a piece of
       // work, so it neither chimes nor answers a delivered line.
       if (cut) return

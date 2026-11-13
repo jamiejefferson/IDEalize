@@ -72,6 +72,8 @@ type SessionListMutation =
   | { kind: 'upsert'; summary: SessionSummary }
   | { kind: 'remove'; sessionId: SessionId }
   | { kind: 'status'; sessionId: SessionId; running: boolean }
+  /** A terminal agent's run: marks the row and leaves the blank bit alone. */
+  | { kind: 'working'; sessionId: SessionId; running: boolean }
   | { kind: 'activity'; sessionId: SessionId; updatedAt: number }
   /** Local first-send flip: the sender clears blank without waiting for a host frame. */
   | { kind: 'engaged'; sessionId: SessionId }
@@ -120,6 +122,12 @@ export class SessionManager {
    * on select and session-removed, re-armed by the next completion).
    */
   private readonly completedNotifications = new Set<SessionId>()
+  /**
+   * Chats whose terminal agent is working now (`host/session-working`). The
+   * host's session list knows nothing of a terminal's run, so a list pull
+   * would otherwise clear the row's working mark and raise a false finished one.
+   */
+  private readonly terminalWorking = new Set<SessionId>()
   /** Last-observed running bits per session; the true→false edge here arms {@link completedNotifications}. */
   private readonly prevRunning = new Map<SessionId, boolean>()
   /** Per-session projection value stores, retained independently of instance arrival (the
@@ -459,7 +467,9 @@ export class SessionManager {
           for (const s of baseline) {
             if (!this.prevRunning.has(s.sessionId)) this.prevRunning.set(s.sessionId, s.running)
           }
-          let summaries = baseline
+          let summaries = baseline.map(summary => this.terminalWorking.has(summary.sessionId) && !summary.running
+            ? { ...summary, running: true }
+            : summary)
           for (const mutation of mutations) {
             summaries = applyMutation(summaries, mutation)
             this.summaries = summaries
@@ -475,7 +485,8 @@ export class SessionManager {
             const session = this.sessions.get(s.sessionId)
             if (session === undefined) continue
             session.handleBlank(s.blank)
-            session.handleRunning(s.running)
+            // A terminal's run is the row's to show; the chat's own agent did not start.
+            session.handleRunning(s.running && !this.terminalWorking.has(s.sessionId))
           }
           // Seed each row's projection baseline into the per-session value
           // store (cold titles surface without opening the session). Per-key
@@ -871,6 +882,14 @@ export class SessionManager {
         this.updateCatalogActivity(frame.sessionId, frame.running)
         return
       }
+      case 'host/session-working': {
+        // The row only: the chat's own agent did not run, so its composer and
+        // blank bit stay as they are.
+        if (frame.working) this.terminalWorking.add(frame.sessionId)
+        else this.terminalWorking.delete(frame.sessionId)
+        this.recordMutation({ kind: 'working', sessionId: frame.sessionId, running: frame.working })
+        return
+      }
       case 'host/agent-error': {
         this.sessions.get(frame.sessionId)?.handleAgentError(frame.message)
         return // not reflected in the list
@@ -890,6 +909,8 @@ export class SessionManager {
    * request with its live rpcId.
   */
   handleDisconnected(): void {
+    // A terminal's finish may be lost with the connection; the next list pull is the truth.
+    this.terminalWorking.clear()
     if (this.pendingInteractions.size > 0) {
       this.pendingInteractions.clear()
       this.notifier.markDirty()
@@ -1116,6 +1137,10 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
       return summaries.map(summary => summary.sessionId === mutation.sessionId
         && (summary.running !== mutation.running || (mutation.running && summary.blank))
         ? { ...summary, running: mutation.running, blank: summary.blank && !mutation.running }
+        : summary)
+    case 'working':
+      return summaries.map(summary => summary.sessionId === mutation.sessionId && summary.running !== mutation.running
+        ? { ...summary, running: mutation.running }
         : summary)
     case 'activity':
       return summaries.map(summary => summary.sessionId === mutation.sessionId

@@ -307,6 +307,20 @@ describe('search', () => {
 })
 
 describe('host frame routing', () => {
+  it('marks a terminal chat working then finished on its row, and leaves the chat itself blank and idle', () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api, fakeRemote())
+    manager.handleHostEnvelope({ rpcId: 't1' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } })
+    const session = manager.get(S1)
+
+    manager.handleHostEnvelope({ rpcId: 't2' as never, payload: { type: 'host/session-working', sessionId: S1, working: true } })
+    expect(manager.getListSnapshot().items[0]).toMatchObject({ running: true, blank: true, completed: false })
+    expect(session.getSnapshot().running).toBe(false)
+
+    manager.handleHostEnvelope({ rpcId: 't3' as never, payload: { type: 'host/session-working', sessionId: S1, working: false } })
+    expect(manager.getListSnapshot().items[0]).toMatchObject({ running: false, blank: true, completed: true })
+  })
+
   it('adds/removes/flips sessions from host frames and keeps removed instances resident', async () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api, fakeRemote())

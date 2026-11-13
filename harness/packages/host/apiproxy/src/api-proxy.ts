@@ -3526,6 +3526,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ctx.on('agent/status', ({ agent, status }: { agent: Agent; status: AgentStatus }) => {
             queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
           }),
+          // IDEalize fork: a Terminal chat's agent is another program in a pty and
+          // raises no agent/status, so its row showed neither working nor finished
+          // (feedback e91e2bdd, 12 Nov 2026). The terminal plugin reads it from the shell.
+          (ctx.on as (name: string, listener: (change: { sessionId?: string; working: boolean }) => void) => () => void)(
+            'idealize/terminal-activity',
+            ({ sessionId, working }) => {
+              if (sessionId === undefined) return
+              queue.push(frame({ type: 'host/session-working', sessionId: sessionId as SessionId, working }))
+            },
+          ),
           ctx.on('agent/error', ({ agent, error }: { agent: Agent; error: unknown }) => {
             queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: errorChain(error) }))
           }),

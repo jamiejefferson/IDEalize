@@ -516,6 +516,7 @@ describe('events frame schemas', () => {
       { type: 'host/session-added', sessionId: 's', blank: true },
       { type: 'host/session-removed', sessionId: 's' },
       { type: 'host/session-status', sessionId: 's', running: true },
+      { type: 'host/session-working', sessionId: 's', working: true },
       { type: 'host/agent-error', sessionId: 's', message: 'boom' },
       { type: 'host/workspace-changed', workspace: {
         workspaceId: 'w', path: '/w', title: 'w', sessionIds: [],

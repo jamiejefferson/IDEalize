@@ -386,6 +386,40 @@ describe('ConversationRoot resident composer', () => {
     expect(outlet?.style.getPropertyValue('--dsh-session-header-height')).toBe('')
   })
 
+  it('watches the title strip by its border box, so a padding change re-measures the space under it', () => {
+    // A terminal chat's strip loses bottom padding and keeps its content; a
+    // content-box observer misses that.
+    const observed: (ResizeObserverOptions | undefined)[] = []
+    class Recording {
+      observe(_target: Element, options?: ResizeObserverOptions): void { observed.push(options) }
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal('ResizeObserver', Recording)
+    try {
+      mount(conversationSnapshot())
+      expect(observed).toContainEqual({ box: 'border-box' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('divides the drawn title strip height by the column zoom, so a larger text size leaves no band under it', () => {
+    // A chat text size of 20 zooms the column by 1.25. The strip's rectangle
+    // is its drawn size and the padding is laid out inside the zoom, so the
+    // undivided height left a white bar above a terminal (12 Nov 2026).
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 100 } as DOMRect)
+    Object.defineProperty(HTMLElement.prototype, 'currentCSSZoom', { configurable: true, get: () => 1.25 })
+    try {
+      const b = mount(conversationSnapshot())
+      const root = b.view.container.querySelector<HTMLElement>('[data-phase]')
+      expect(root?.style.getPropertyValue('--dsh-session-header-height')).toBe('80px')
+    } finally {
+      rect.mockRestore()
+      Reflect.deleteProperty(HTMLElement.prototype, 'currentCSSZoom')
+    }
+  })
+
   it('sticky composer seat wraps the whole overlay chain, not only the fallback stack', () => {
     const b = mount(conversationSnapshot(), undefined, undefined, { overlayTakeover: true })
     const seat = b.view.container.querySelector('[data-composer-seat]')

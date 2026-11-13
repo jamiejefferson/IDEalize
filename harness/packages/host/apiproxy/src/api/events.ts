@@ -136,6 +136,12 @@ export type HostFrame =
   }
   | { type: 'host/session-removed'; sessionId: SessionId }
   | { type: 'host/session-status'; sessionId: SessionId; running: boolean }
+  /**
+   * IDEalize fork: a chat's terminal agent started or stopped working. Unlike
+   * session-status it says nothing about the chat's own agent, so a client
+   * marks the row and leaves the composer and the blank bit alone.
+   */
+  | { type: 'host/session-working'; sessionId: SessionId; working: boolean }
   | { type: 'host/agent-error'; sessionId: SessionId; message: string }
   | { type: 'host/workspace-changed'; workspace: WorkspaceView }
   | { type: 'host/workspace-removed'; workspaceId: WorkspaceView['workspaceId'] }

@@ -94,19 +94,30 @@ export function ConversationSessionHeader({
     // Sounds grids started under the title, 9 Oct 2026).
     const root = header?.closest<HTMLElement>(`.${css.root}`) ?? header?.parentElement
     if (header === null || root === null || root === undefined) return
+    // The rectangle comes back at its drawn size and the padding it feeds is
+    // laid out inside the column's own zoom (a deployment's text size setting
+    // zooms the column), so the height is divided back by that zoom. Without
+    // it a column at 1.25 left a quarter of the strip's height empty under
+    // the title: a white bar above a terminal (JJ, 12 Nov 2026).
     const write = (): void => {
-      root.style.setProperty('--dsh-session-header-height', `${String(Math.round(header.getBoundingClientRect().height))}px`)
+      const zoom = (root as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom ?? 1
+      const height = header.getBoundingClientRect().height / (zoom > 0 ? zoom : 1)
+      root.style.setProperty('--dsh-session-header-height', `${String(Math.round(height))}px`)
     }
     write()
     // jsdom and older embedders ship no ResizeObserver; the first measure stands there.
     if (typeof ResizeObserver === 'undefined') return
+    // The border box, not the default content box: a terminal chat's strip
+    // keeps its content and loses 16px of bottom padding, which a content-box
+    // observer never reports, so the space under it stayed 16px too tall.
     const observer = new ResizeObserver(write)
-    observer.observe(header)
+    observer.observe(header, { box: 'border-box' })
     return () => {
       observer.disconnect()
       root.style.removeProperty('--dsh-session-header-height')
     }
-  }, [])
+    // Measured again when the view changes, for embedders with no ResizeObserver.
+  }, [viewId])
 
   useEffect(() => { setEditing(false) }, [sessionId])
 

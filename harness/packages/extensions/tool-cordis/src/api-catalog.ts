@@ -2975,10 +2975,10 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'idealize/terminal-activity',
     mode: 'emit',
-    signature: '\'idealize/terminal-activity\': (change: { id: string; working: boolean }) => void',
+    signature: '\'idealize/terminal-activity\': (change: { id: string; sessionId?: string; working: boolean }) => void',
     summary: 'A terminal agent started or stopped working, from its shell\'s output.',
     description: 'A terminal agent started or stopped working, from its shell\'s output.',
-    parameters: [{ name: 'change', description: 'the terminal\'s id and whether it is working now.' }],
+    parameters: [{ name: 'change', description: 'the terminal\'s id, the chat it belongs to, and whether it is working now.' }],
   },
   {
     name: 'llm/adapters-updated',
