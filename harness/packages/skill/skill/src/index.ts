@@ -120,6 +120,22 @@ export interface SkillViewOptions extends SkillLookupOptions {
 }
 
 /**
+ * Narrows one view of the catalog after layers and ranks have chosen each
+ * name's winner. The registry calls every registered filter on each
+ * `snapshot()`, `list()`, and `get()`, outside the catalog cache, so a filter
+ * may answer from state the registry cannot observe. A filter returns a subset
+ * of the summaries it received, in the order received, and must not throw: a
+ * thrown error or rejected promise fails the read that called it.
+ * @param skills - the winning summaries still visible to this view, sorted by name.
+ * @param options - the view options of the read, including the viewing scope.
+ * @returns the summaries this view keeps.
+ */
+export type SkillViewFilter = (
+  skills: readonly SkillSummary[],
+  options: SkillViewOptions,
+) => readonly SkillSummary[] | Promise<readonly SkillSummary[]>
+
+/**
  * Return whether a skill may be advertised to and loaded by a model.
  * @param skill - skill metadata carrying resolved invocation controls.
  * @returns whether the policy permits model invocation.
@@ -374,6 +390,8 @@ export class SkillRegistry extends Service {
    */
   private readonly reportedDuplicates = new Set<string>()
   private nextProviderOrder = 0
+  /** View filters in registration order; every read applies each one. */
+  private readonly filters = new Set<SkillViewFilter>()
   /** Stable identities for cache keys; scope keys are opaque identity-compared objects. */
   private readonly scopeIds = new WeakMap<ScopeKey, number>()
   private nextScopeId = 1
@@ -468,6 +486,27 @@ export class SkillRegistry extends Service {
   }
 
   /**
+   * Register a view filter. Every later `snapshot()`, `list()`, and `get()`
+   * passes its winning summaries through each registered filter in
+   * registration order, whatever layer the summaries came from, so a consumer
+   * cannot list or load a skill a filter removed. Filters apply to every
+   * viewing scope and decide per call from the view options they receive.
+   * Registration and disposal invalidate catalog caches and emit `skills/change`.
+   * @param filter - the borrowed filter function.
+   * @returns the exact Cordis effect disposer that removes this filter.
+   */
+  registerFilter(filter: SkillViewFilter): () => void {
+    return this.ctx.effect(() => {
+      this.filters.add(filter)
+      this.invalidateCache()
+      return () => {
+        this.filters.delete(filter)
+        this.invalidateCache()
+      }
+    }, 'skills.registerFilter()')
+  }
+
+  /**
    * List invocation-neutral skill summaries for a workspace. Consumers apply
    * model or user invocation policy at their operational boundary. Lookup
    * options and provider candidates are readonly same-process values borrowed
@@ -488,10 +527,11 @@ export class SkillRegistry extends Service {
    */
   async snapshot(options: SkillViewOptions = {}): Promise<SkillCatalogSnapshot> {
     const collected = await this.collect(options)
+    const skills = [...collected.entries.values()]
+      .map(entry => toSummary(entry.candidate))
+      .sort(compareSkillSummary)
     return {
-      skills: [...collected.entries.values()]
-        .map(entry => toSummary(entry.candidate))
-        .sort(compareSkillSummary),
+      skills: [...await this.applyFilters(skills, options)],
       complete: collected.cacheable,
     }
   }
@@ -511,6 +551,7 @@ export class SkillRegistry extends Service {
     throwIfAborted(options.signal)
     const match = collected.entries.get(name)
     if (match === undefined) return undefined
+    if ((await this.applyFilters([toSummary(match.candidate)], options)).length === 0) return undefined
     const definition = await waitWithAbort(
       match.provider.get(match.candidate, options),
       options.signal,
@@ -522,6 +563,13 @@ export class SkillRegistry extends Service {
       return undefined
     }
     return definition
+  }
+
+  /** Pass one view's winning summaries through every registered filter, in registration order. */
+  private async applyFilters(skills: readonly SkillSummary[], options: SkillViewOptions): Promise<readonly SkillSummary[]> {
+    let visible = skills
+    for (const filter of this.filters) visible = await filter(visible, options)
+    return visible
   }
 
   private async collect(options: SkillViewOptions): Promise<CollectResult> {

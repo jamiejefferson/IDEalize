@@ -36,6 +36,8 @@ function stubApi(): OnboardingApi {
     loadGateway: vi.fn(async () => false),
     connectGateway: vi.fn(async () => ({ ok: true }) as const),
     probeFolder: vi.fn(async () => ({ ok: true }) as const),
+    loadWeeklyReview: vi.fn(async () => false),
+    acceptWeeklyReview: vi.fn(async () => ({ ok: true }) as const),
     orient: vi.fn(async () => ({ ok: true }) as const),
   }
 }

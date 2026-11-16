@@ -45,6 +45,8 @@ interface HarnessOptions {
   posts?: Record<string, { status: number; body: unknown }>
   picked?: string | null
   agents?: AgentsState
+  /** The weekly review offer the host reports (default: not accepted). */
+  review?: { accepted: boolean; enabled: boolean }
 }
 
 function mount(seed: OnboardingSeedLike | undefined, options: HarnessOptions = {}) {
@@ -65,7 +67,9 @@ function mount(seed: OnboardingSeedLike | undefined, options: HarnessOptions = {
     if (method === 'GET') {
       const payload = path === '/idealize/onboarding/agents'
         ? options.agents ?? { claudeCode: { installed: true, path: '/usr/local/bin/claude' }, openrouter: { connected: false } }
-        : { providers: [], agents: [], presets: [] }
+        : path === '/idealize/setup/weekly-review'
+          ? options.review ?? { accepted: false, enabled: false }
+          : { providers: [], agents: [], presets: [] }
       return { ok: true, status: 200, json: () => Promise.resolve(payload) } as unknown as Response
     }
     const post = posts[path] ?? { status: 200, body: { ok: true } }
@@ -100,9 +104,77 @@ const typePath = async (path: string): Promise<void> => {
 }
 
 const FOLDERS_SEED: OnboardingSeedLike = { steps: { agents: 'done' } }
+const DOCS_SEED: OnboardingSeedLike = { steps: { agents: 'done', 'projects-folder': 'done' } }
 const FINISH_SEED: OnboardingSeedLike = {
   steps: { agents: 'done', 'projects-folder': 'skipped', 'documentation-folder': 'skipped', 'skills-folder': 'skipped' },
 }
+
+describe('the weekly review offer', () => {
+  const acceptCalls = (calls: RecordedCall[]): RecordedCall[] => calls
+    .filter(call => call.path === '/idealize/setup/weekly-review' && call.method === 'POST')
+  const tick = (): HTMLInputElement => document.querySelector<HTMLInputElement>('[data-weekly-review-accept]')!
+
+  it('appears once the documentation folder passes its probe, unticked, and is left off unless ticked', async () => {
+    const { calls, writes } = mount(DOCS_SEED)
+    await flush()
+    expect(document.querySelector('[data-weekly-review]')).toBeNull()
+
+    await typePath('/Users/jj/Vault')
+    expect(tick().checked).toBe(false)
+    expect(screen.getByText(en['review.offer'])).toBeTruthy()
+    expect(screen.getByText(en['review.hint'])).toBeTruthy()
+
+    fireEvent.click(continueButton())
+    await flush()
+    expect(acceptCalls(calls)).toEqual([])
+    expect(writes.steps).toMatchObject({ 'documentation-folder': 'done' })
+  })
+
+  it('is accepted on Continue when ticked', async () => {
+    const { calls, writes } = mount(DOCS_SEED)
+    await flush()
+    await typePath('/Users/jj/Vault')
+    fireEvent.click(tick())
+    fireEvent.click(continueButton())
+    await flush()
+    expect(acceptCalls(calls)).toEqual([{ path: '/idealize/setup/weekly-review', method: 'POST', body: { accept: true } }])
+    expect(writes.steps).toMatchObject({ 'documentation-folder': 'done' })
+  })
+
+  it('shows the host\'s refusal in place and holds the step until the box is cleared', async () => {
+    const posts = { '/idealize/setup/weekly-review': { status: 400, body: { ok: false, error: 'The schedule is not part of this build.' } } }
+    const { writes } = mount(DOCS_SEED, { posts })
+    await flush()
+    await typePath('/Users/jj/Vault')
+    fireEvent.click(tick())
+    fireEvent.click(continueButton())
+    await flush()
+    expect(document.querySelector('[data-weekly-review-error]')?.textContent).toBe('The schedule is not part of this build.')
+    expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('documentation-folder')
+
+    fireEvent.click(tick())
+    fireEvent.click(continueButton())
+    await flush()
+    expect(writes.steps).toMatchObject({ 'documentation-folder': 'done' })
+  })
+
+  it('says so when the review is already on, and offers nothing on the other folder steps', async () => {
+    const { calls } = mount(DOCS_SEED, { review: { accepted: true, enabled: true } })
+    await flush()
+    await typePath('/Users/jj/Vault')
+    expect(document.querySelector('[data-weekly-review-on]')?.textContent).toBe(en['review.on'])
+    expect(document.querySelector('[data-weekly-review-accept]')).toBeNull()
+    fireEvent.click(continueButton())
+    await flush()
+    expect(acceptCalls(calls)).toEqual([])
+    cleanup()
+
+    mount(FOLDERS_SEED)
+    await flush()
+    await typePath('/Users/jj/Projects')
+    expect(document.querySelector('[data-weekly-review]')).toBeNull()
+  })
+})
 
 describe('the folder step bodies', () => {
   it('gates Continue on a live probe and renders the refusal verbatim', async () => {

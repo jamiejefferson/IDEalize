@@ -8,6 +8,18 @@ Each `insert` row mounts one `@idealize/*` plugin under its `idealize-*` id: the
 
 Three rows patch upstream plugins' `config` instead of inserting: `llm-pi-ai` gains the pre-seeded `openai-codex` route (ChatGPT subscription through Codex OAuth, deferring to the stored OAuth credential because it names no `apiKeyEnv`), `system-prompt` gains the IDEalize persona quoted below, and the remaining config rows are read from the comments beside them in the patch file. The settings document overrides every composition default here.
 
+## Measuring the tool budget
+
+[`scripts/tool-budget.mts`](scripts/tool-budget.mts) prints, for each launchable space and each brain the space offers, how many tools the chat's request carries and how many characters their schemas take. It boots this profile in one process with a temporary home, starts each chat through `session.create` and `POST /idealize/spaces/select` as the browser does, and reads the tools from the prompt assembly the agent loop sends. A second table covers the presets no space offers. The run needs a built tree and uses no key, no network and no window:
+
+```sh
+corepack pnpm run build
+node --import tsx/esm packages/idealize/bundle-idealize/scripts/tool-budget.mts          # the two tables
+node --import tsx/esm packages/idealize/bundle-idealize/scripts/tool-budget.mts --names  # plus each distinct tool set's names
+```
+
+The report disables the `idealize-mcp-paper` and `idealize-mcp-hatch` rows, because their tool lists come from apps installed on the machine and the Hatch row would start the installed app's launcher. Both rows sit on the host plane, so a shipped chat's request carries those servers' tools on top of the printed count. A Terminal row measures the chat's own agent, which never sends a request: the command-line agent the shell launches uses its own tools.
+
 ## Model Experience
 
 ### The IDEalize persona

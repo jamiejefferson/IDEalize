@@ -53,6 +53,10 @@
 # in setup and the Files pane's Skills tab. The folder comes from the settings document's `idealize-skills:`
 # section (skillsFolder); its skills join the host skill registry's global
 # layer, which every agent's catalogue and `skill.list` read.
+# The same row narrows that folder to the skills a brain's preset.yml lists,
+# lists a project's playbooks/ folder for chats in that project, and carries
+# the skill_learning tool, its standing prompt line and the fold-learnings
+# skill (knowledge and playbooks scope, 16 Nov 2026).
 - insert:
     - id: idealize-skills
       name: '@idealize/skills'

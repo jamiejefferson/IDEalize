@@ -5,7 +5,7 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -62,6 +62,8 @@ async function mount(options: {
   home?: string
   notifierThrows?: unknown
   projects?: Record<string, string[]>
+  /** The documentation folder `@idealize/doc-policy` reports; null stands for a policy with no folder set. */
+  documentation?: string | null
 } = {}) {
   const root = options.home ?? await mkdtemp(join(tmpdir(), 'idealize-cron-routes-'))
   if (options.home === undefined) roots.push(root)
@@ -118,6 +120,11 @@ async function mount(options: {
         ? undefined
         : { attachSession: async (id: string) => { projects[path]!.push(id) } },
     } as never)
+  }
+
+  if (options.documentation !== undefined) {
+    const documentation = options.documentation
+    ctx.provide('docPolicy', { folder: () => documentation ?? undefined } as never)
   }
 
   if (options.notifierThrows !== undefined) {
@@ -255,6 +262,43 @@ describe('what a fire runs', () => {
       body: reminder({ remind: true, prompt: '', cwd: '/Users/someone' }),
     })
     expect(reminderOnly.status).toBe(200)
+  })
+
+  it('runs a chat in the documentation folder itself, and nowhere else outside a project', async () => {
+    // The weekly review's workspace (JJ, 16 Nov 2026): the folder is no project, and the fence lets it through alone.
+    const vault = await realpath(await mkdtemp(join(tmpdir(), 'idealize-cron-vault-')))
+    roots.push(vault)
+    const { ctx, call } = await mount({ projects: { '/work/demo': [] }, documentation: vault })
+    const started: unknown[] = []
+    ctx.on('idealize/cron-run-started', (task, sessionId) => { started.push([task.name, sessionId]) })
+    const save = (cwd: string) => call('/idealize/cron/tasks', {
+      method: 'POST',
+      body: reminder({ name: 'Weekly review', remind: false, prompt: 'Review.', cwd }),
+    })
+    const saved = await save(vault)
+    expect(saved.status).toBe(200)
+    const run = (await call('/idealize/cron/run-now', { query: `?id=${String(saved.json().id)}` })).json()
+    expect(run.status).toBe('ok')
+    expect(started).toEqual([['Weekly review', run.sessionId]])
+    // A folder inside it is not the documentation folder.
+    expect(JSON.stringify((await save(join(vault, 'Projects'))).json())).toMatch(/not a project the person has opened/)
+  })
+
+  it('refuses the documentation folder when it is the home folder or holds it, or when none is set', async () => {
+    const vault = await realpath(await mkdtemp(join(tmpdir(), 'idealize-cron-vault-')))
+    roots.push(vault)
+    const refusedIn = async (documentation: string | null, cwd: string, home: string): Promise<boolean> => {
+      vi.stubEnv('HOME', home)
+      const { call } = await mount({ projects: { '/work/demo': [] }, documentation })
+      const answer = await call('/idealize/cron/tasks', { method: 'POST', body: reminder({ remind: false, prompt: 'Review.', cwd }) })
+      return answer.status >= 400
+    }
+    expect(await refusedIn(vault, vault, vault)).toBe(true)
+    expect(await refusedIn(vault, vault, join(vault, 'someone'))).toBe(true)
+    expect(await refusedIn('/', '/', join(vault, 'someone'))).toBe(true)
+    expect(await refusedIn(null, vault, '/nowhere/home')).toBe(true)
+    // A documentation folder that is not there yet is judged by its spelling, as a task folder is.
+    expect(await refusedIn('/nowhere/vault', '/nowhere/vault', '/nowhere/home')).toBe(false)
   })
 
   it('confines a scheduled chat, tells it why, and has nothing to say when nothing was stopped', async () => {

@@ -123,6 +123,11 @@ export const zh = {
   'sched.approval.reminds': '这只会向你发送一条通知，不运行任何内容。',
   'sched.approval.approve': '批准',
   'sched.approval.remove': '移除',
+  'sched.review.title': '每周文档检查',
+  'sched.review.note': '每周一 08:00，智能体会在 {folder} 中为你当周改动过的笔记补上缺少的信息和链接，'
+    + '然后在 Reference/Weekly Reviews 写一份简短报告。它不会重命名或删除任何笔记。',
+  'sched.review.accept': '开启',
+  'sched.review.hide': '不再显示',
   'sched.repeat.once': '仅一次',
   'sched.sent.once': '{date} {time}，仅一次',
   'sched.once.aria': '日期和时间',
@@ -257,6 +262,11 @@ export const en: Record<ScheduleKey, string> = {
   'sched.approval.reminds': 'This sends you a notification and runs nothing else.',
   'sched.approval.approve': 'Approve',
   'sched.approval.remove': 'Remove',
+  'sched.review.title': 'Weekly documentation review',
+  'sched.review.note': 'Every Monday at 08:00 an agent adds missing details and links to the notes you changed that week in {folder}, '
+    + 'then writes a short report to Reference/Weekly Reviews. It never renames or deletes a note.',
+  'sched.review.accept': 'Switch on',
+  'sched.review.hide': 'Hide this',
   'sched.repeat.once': 'Once',
   'sched.sent.once': 'Once, {date} at {time}',
   'sched.once.aria': 'Date and time',

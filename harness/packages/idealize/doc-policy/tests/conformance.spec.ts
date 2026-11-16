@@ -18,6 +18,8 @@ describe('classification of canonical paths', () => {
   it.each([
     ['Projects/acme/_index.md', 'project-index'],
     ['Projects/acme/notes.md', 'project-note'],
+    ['Projects/acme/log.md', 'project-log'],
+    ['Projects/acme/research/log.md', 'project-note'],
     ['Decisions/2026-03-04-use-db-push.md', 'decision'],
     ['Reference/reviews/2026-08-01.md', 'reference'],
     ['People/jane.md', 'person'],
@@ -54,6 +56,34 @@ describe('approved examples validate clean', () => {
 
   it('a canonically named decision file has zero findings', () => {
     expect(validateDoc('Decisions/2026-03-04-use-db-push.md', 'decision', fixture('decision-entry.md'))).toEqual([])
+  })
+})
+
+describe('a note outside a project index owns its type and status', () => {
+  it.each([
+    ['Projects/casa/listing-12.md', 'project-note'],
+    ['Reference/market.md', 'reference'],
+    ['People/jane.md', 'person'],
+    ['Decisions/2026-03-04-use-db-push.md', 'decision'],
+  ] as const)('%s with status: shortlist and type: listing has zero findings', (path, kind) => {
+    const note = '---\nproject: casa\ntype: listing\nstatus: shortlist\ncreated: 2026-03-04\n---\n# Listing\n'
+    expect(validateDoc(path, kind, note)).toEqual([])
+  })
+
+  it('the same status in a project index is still outside the closed list', () => {
+    const index = fixture('index-frontmatter.md').replace(/^status:.*$/m, 'status: shortlist')
+    expect(validateDoc('Projects/casa/_index.md', 'project-index', index).map(finding => finding.rule)).toEqual(['invalid-status'])
+  })
+})
+
+describe('a vault written to the earlier ruleset stays valid', () => {
+  it('an index with no description and a session log section has zero findings', () => {
+    const earlier = [
+      '---', 'project: acme', 'status: active', 'type: index', 'repo: /repo/acme', 'live:',
+      'created: 2026-01-15', 'last_touched: 2026-02-01', 'tags: []', '---', '# acme', '',
+      '## Session log', '', '### 2026-02-01 (main)', '- `a1b2c3d` 2026-02-01 First change', '',
+    ].join('\n')
+    expect(validateDoc('Projects/acme/_index.md', 'project-index', earlier)).toEqual([])
   })
 })
 
@@ -98,7 +128,7 @@ describe('mutated examples are rejected by the matching rule', () => {
   })
 
   it('checks nothing beyond placement for the kinds that carry no frontmatter schema', () => {
-    for (const kind of ['project-note', 'reference', 'person', 'template', 'meta', 'unmanaged'] as const) {
+    for (const kind of ['project-log', 'project-note', 'reference', 'person', 'template', 'meta', 'unmanaged'] as const) {
       expect(validateDoc('Reference/anything.md', kind, 'no frontmatter here')).toEqual([])
     }
   })

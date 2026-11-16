@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { RULESET_VERSION, fingerprintFolder, parseNotePointers, projectNoteFor, projectNotes, scaffoldVault, scanFolder } from '../src/index.ts'
+import { INDEX_OVERSIZE_CHARS, RULESET_VERSION, fingerprintFolder, parseNotePointers, projectNoteFor, projectNotes, scaffoldVault, scanFolder } from '../src/index.ts'
 
 async function scratchVault(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'idealize-doc-policy-scan-'))
@@ -177,5 +177,57 @@ describe('parseNotePointers', () => {
 
   it('reads a frontmatter block whose lines are not all fields', () => {
     expect(parseNotePointers('---\n# a comment line\n\nrepo: /repo/acme\n---\n')).toEqual({ repo: '/repo/acme' })
+  })
+})
+
+describe('the advisory findings: stale and index-oversize', () => {
+  const NOW = new Date('2026-11-16T10:00:00Z')
+
+  it('flags a note past stale_after, an index over 6,000 characters, and a malformed date, and reports the next expiry', async () => {
+    const vault = await scratchVault()
+    await scaffoldVault(vault)
+    await mkdir(join(vault, 'Projects', 'acme'), { recursive: true })
+    const index = projectNoteFor('acme', '/repo/acme', '2026-08-24')
+    await writeFile(join(vault, 'Projects', 'acme', '_index.md'), `${index}\n${'x'.repeat(INDEX_OVERSIZE_CHARS)}\n`)
+    await mkdir(join(vault, 'Projects', 'small'), { recursive: true })
+    await writeFile(join(vault, 'Projects', 'small', '_index.md'), projectNoteFor('small', '/repo/small', '2026-08-24'))
+    const fm = (lines: string): string => `---\n${lines}\n---\n# Note\n`
+    await writeFile(join(vault, 'Reference', 'expired.md'), fm('type: research\nstatus: reviewed\ndescription: Pricing as of spring.\nstale_after: 2026-06-01T00:00:00Z'))
+    await writeFile(join(vault, 'Reference', 'expires-now.md'), fm('stale_after: 2026-11-16T10:00:00Z'))
+    await writeFile(join(vault, 'Reference', 'later.md'), fm('stale_after: 2027-03-01T00:00:00Z'))
+    await writeFile(join(vault, 'Reference', 'sooner.md'), fm('stale_after: 2026-12-01T00:00:00+00:00'))
+    await writeFile(join(vault, 'Reference', 'broken.md'), fm('stale_after: 01/06/2026'))
+    await writeFile(join(vault, 'Projects', 'acme', 'big-note.md'), `# Big\n${'y'.repeat(INDEX_OVERSIZE_CHARS)}\n`)
+
+    const result = await scanFolder(vault, NOW)
+    expect(result.at).toBe('2026-11-16T10:00:00.000Z')
+    expect(result.findings.map(finding => [finding.path, finding.rule, finding.severity]).sort()).toEqual([
+      ['Projects/acme/_index.md', 'index-oversize', 'warning'],
+      ['Reference/broken.md', 'invalid-stale-after', 'warning'],
+      ['Reference/expired.md', 'stale', 'warning'],
+      ['Reference/expires-now.md', 'stale', 'warning'],
+    ])
+    expect(result.findings.find(finding => finding.rule === 'stale')?.message).toContain('2026-06-01T00:00:00Z')
+    expect(result.findings.find(finding => finding.rule === 'index-oversize')?.message).toMatch(/is \d+ characters, over 6000/)
+    expect(result.nextStaleAt).toBe(Date.parse('2026-12-01T00:00:00Z'))
+
+    const expired = result.docs.find(doc => doc.path === 'Reference/expired.md')
+    expect(expired).toMatchObject({
+      type: 'research', status: 'reviewed', description: 'Pricing as of spring.', staleAt: Date.parse('2026-06-01T00:00:00Z'),
+    })
+    const broken = result.docs.find(doc => doc.path === 'Reference/broken.md')
+    expect(broken).not.toHaveProperty('staleAt')
+    expect(broken).not.toHaveProperty('type')
+  })
+
+  it('a vault with none of the new fields raises neither finding and names no expiry', async () => {
+    const vault = await scratchVault()
+    await scaffoldVault(vault)
+    await mkdir(join(vault, 'Projects', 'acme'), { recursive: true })
+    await writeFile(join(vault, 'Projects', 'acme', '_index.md'), projectNoteFor('acme', '/repo/acme', '2026-08-24'))
+    await writeFile(join(vault, 'Projects', 'acme', 'listing.md'), '---\nproject: acme\ntype: listing\nstatus: shortlist\n---\n# Listing\n')
+    const result = await scanFolder(vault)
+    expect(result.findings).toEqual([])
+    expect(result).not.toHaveProperty('nextStaleAt')
   })
 })

@@ -184,7 +184,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/idealize/generate': { kind: 'indirect', reason: 'The generation seam, media presets and routes register nothing model-facing; the generate_* tools of @idealize/gen-tools render dispatch outcomes.' },
   'packages/idealize/onboarding': { kind: 'none', reason: 'The first-run wizard writes settings, credentials and brain model choices through host routes; the configured brains own every model-facing effect.' },
   'packages/idealize/services': { kind: 'none', reason: 'The list joins the chat-route and generation-backend registries and stores API keys; the routes and backends those keys authenticate own every model-visible request.' },
-  'packages/idealize/setup': { kind: 'none', reason: 'The plugin stores folder aliases and orientation seeds; @idealize/doc-policy owns the documentation context the seeded folder feeds.' },
   'packages/idealize/ui-launch': { kind: 'none', reason: 'Browser-only opening-sequence overlay and stylesheet; registers nothing model-facing.' },
   'packages/idealize/ui-gallery': { kind: 'indirect', reason: 'The aspect and count controls write a trailing tag into the user draft, which reaches the model as ordinary user-message text; the view registers nothing model-facing.' },
   'packages/idealize/ui-schedule': { kind: 'indirect', reason: 'Create-with-chat sends one seeded user message into a session made for it; the pane registers no tool or prompt contribution.' },

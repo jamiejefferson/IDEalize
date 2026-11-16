@@ -32,6 +32,7 @@
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
@@ -43,6 +44,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-fs-local": "workspace:^",
+    "@deepseek-ai/dsh-fs-observation-policy": "workspace:^",
+    "@deepseek-ai/dsh-tool-fs": "workspace:^",
     "@deepseek-ai/dsh-storage": "workspace:^",
     "@deepseek-ai/dsh-storage-json": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^"

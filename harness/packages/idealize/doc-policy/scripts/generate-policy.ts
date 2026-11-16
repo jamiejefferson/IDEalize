@@ -39,9 +39,12 @@ function drift(what: string): never {
 }
 
 // Canonical directories: top-level directories of the checkout, excluding
-// repository plumbing (dot-directories, scripts/). Sorted for stability.
+// repository plumbing (dot-directories, scripts/) and Agents/, the canonical
+// repository's own inter-agent message tree, which CONVENTIONS.md does not
+// name as part of a vault. Sorted for stability.
+const NOT_VAULT_STRUCTURE = ['scripts', 'Agents']
 const dirs = readdirSync(checkout)
-  .filter(entry => !entry.startsWith('.') && entry !== 'scripts')
+  .filter(entry => !entry.startsWith('.') && !NOT_VAULT_STRUCTURE.includes(entry))
   .filter(entry => statSync(join(checkout, entry)).isDirectory())
   .sort()
 if (!dirs.includes('Projects') || !dirs.includes('templates')) drift('Projects/ or templates/ missing')
@@ -76,6 +79,18 @@ for (const line of templateFrontmatter.split('\n')) {
 if (!required.includes('status') || !required.includes('last_touched')) {
   drift('template frontmatter lost status/last_touched')
 }
+
+// Optional fields any note may carry: the top-level keys of the YAML example
+// under the "Optional fields on any note" heading in CONVENTIONS.md.
+const optionalBlock = /^### Optional fields on any note\n[\s\S]*?```yaml\n([\s\S]*?)\n```/m.exec(conventions)?.[1]
+if (optionalBlock === undefined) drift('"Optional fields on any note" example not found in CONVENTIONS.md')
+const noteOptional = optionalBlock.split('\n')
+  .map(line => /^([a-z_]+):/.exec(line)?.[1])
+  .filter((field): field is string => field !== undefined)
+for (const field of ['description', 'generated', 'verified', 'stale_after', 'sources']) {
+  if (!noteOptional.includes(field)) drift(`optional note field \`${field}\` missing from CONVENTIONS.md`)
+}
+if (!optional.includes('description')) drift('template frontmatter lost the optional description line')
 
 // Stale-active threshold: "no update in N days" in CONVENTIONS.md (the
 // phrase may wrap across a source line break).
@@ -133,7 +148,10 @@ export const PROJECT_INDEX_REQUIRED_FIELDS = [${list(required)}] as const
 /** Frontmatter fields a project \`_index.md\` may carry empty. */
 export const PROJECT_INDEX_OPTIONAL_FIELDS = [${list(optional)}] as const
 
-/** The closed \`status\` vocabulary. */
+/** Optional frontmatter fields any note may carry, the project index included (Open Knowledge Format 0.2 names). */
+export const NOTE_OPTIONAL_FIELDS = [${list(noteOptional)}] as const
+
+/** The closed \`status\` vocabulary of a project \`_index.md\`; any other note carries any status. */
 export const STATUS_VOCABULARY = [${list(statuses)}] as const
 
 /** Absolute ISO dates only — the vault convention for every date field. */

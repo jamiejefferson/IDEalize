@@ -103,6 +103,15 @@ describe('copying a preset', () => {
       .toMatchObject({ description: '只做检索。' })
   })
 
+  it('keeps the source skills list on the copy', async () => {
+    await seedPreset(userRoot, 'source', { metadata: 'name: 源模式\nskills:\n  - release-notes\n' })
+
+    await ctx.agentPresets.copy('source', 'mine')
+
+    expect((await ctx.agentPresets.list()).find(preset => preset.id === 'mine'))
+      .toMatchObject({ skills: ['release-notes'] })
+  })
+
   it('stores the display name the author supplied', async () => {
     await ctx.agentPresets.copy('standard', 'mine', '我的模式')
 

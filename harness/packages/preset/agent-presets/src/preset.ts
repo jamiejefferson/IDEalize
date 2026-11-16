@@ -31,6 +31,8 @@ export interface AgentPreset {
   readonly description?: string
   /** Declared position within its group; absent sorts after those that declare one. */
   readonly order?: number
+  /** Skill names the preset's metadata lists; absent when it lists none. A deployment plugin applies the list. */
+  readonly skills?: readonly string[]
   /**
    * Why this preset cannot compose a session, absent when it can. A broken
    * preset stays on the roster — hiding it would leave its directory blocking

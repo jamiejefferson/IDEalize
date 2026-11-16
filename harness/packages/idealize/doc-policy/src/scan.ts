@@ -12,6 +12,10 @@ import { join } from 'node:path'
 import { classifyPath, validateDoc } from './classify.ts'
 import type { DocKind, Finding } from './classify.ts'
 import { CANONICAL_DIRS, CANONICAL_ROOT_FILES, RULESET_VERSION } from './policy/ruleset.ts'
+import { isStale, parseInstant, readTrust } from './trust.ts'
+
+/** Length past which a project `_index.md` raises `index-oversize`: the share of the session-start notice an index is given. */
+export const INDEX_OVERSIZE_CHARS = 6_000
 
 /** One document the scan indexes for retrieval. */
 export interface IndexedDoc {
@@ -23,6 +27,14 @@ export interface IndexedDoc {
   title: string
   /** Complete document text. */
   text: string
+  /** Frontmatter `type`, as the writer wrote it. */
+  type?: string
+  /** Frontmatter `status`, as the writer wrote it. */
+  status?: string
+  /** Frontmatter `description`: one sentence on what the note holds. */
+  description?: string
+  /** The note's `stale_after` instant in epoch milliseconds, when it carries a readable one. */
+  staleAt?: number
 }
 
 /** Complete result of one folder scan. */
@@ -35,6 +47,8 @@ export interface ScanResult {
   findings: Finding[]
   /** Every managed Markdown document, ready for indexing. */
   docs: IndexedDoc[]
+  /** The earliest `stale_after` still ahead of the scan, in epoch milliseconds: the instant this result stops being current. */
+  nextStaleAt?: number
 }
 
 interface Entry {
@@ -111,11 +125,15 @@ function titleOf(relPath: string, text: string): string {
 }
 
 /**
- * Scan one documentation folder against the canonical structure.
+ * Scan one documentation folder against the canonical structure. Beside the
+ * structural and per-document rules it raises two advisory warnings: `stale`
+ * for a note past its `stale_after`, and `index-oversize` for a project
+ * `_index.md` longer than {@link INDEX_OVERSIZE_CHARS} characters.
  * @param folder - absolute path of the configured documentation folder.
+ * @param now - the instant `stale_after` is compared with.
  * @returns findings and the indexable document set, stamped with the policy version.
  */
-export async function scanFolder(folder: string): Promise<ScanResult> {
+export async function scanFolder(folder: string, now: Date = new Date()): Promise<ScanResult> {
   const findings: Finding[] = []
   const paths: string[] = []
   const root = await entriesOf(folder)
@@ -165,6 +183,7 @@ export async function scanFolder(folder: string): Promise<ScanResult> {
   }
 
   const docs: IndexedDoc[] = []
+  let nextStaleAt: number | undefined
   for (const relPath of paths) {
     let text: string
     try {
@@ -177,13 +196,44 @@ export async function scanFolder(folder: string): Promise<ScanResult> {
     }
     const kind = classifyPath(relPath)
     findings.push(...validateDoc(relPath, kind, text))
-    docs.push({ path: relPath, kind, title: titleOf(relPath, text), text })
+    const trust = readTrust(text)
+    const staleAt = trust.staleAfter === undefined ? undefined : parseInstant(trust.staleAfter)
+    if (isStale(trust, now.getTime())) {
+      findings.push({
+        path: relPath,
+        rule: 'stale',
+        severity: 'warning',
+        message: `the note is past its \`stale_after\` (${String(trust.staleAfter)}); confirm it is still right or update it`,
+      })
+    } else if (staleAt !== undefined && (nextStaleAt === undefined || staleAt < nextStaleAt)) {
+      nextStaleAt = staleAt
+    }
+    if (kind === 'project-index' && text.length > INDEX_OVERSIZE_CHARS) {
+      findings.push({
+        path: relPath,
+        rule: 'index-oversize',
+        severity: 'warning',
+        message: `project _index.md is ${String(text.length)} characters, over ${String(INDEX_OVERSIZE_CHARS)}; `
+          + 'move long sections into notes beside it so a chat can read the index whole',
+      })
+    }
+    docs.push({
+      path: relPath,
+      kind,
+      title: titleOf(relPath, text),
+      text,
+      ...trust.type === undefined ? {} : { type: trust.type },
+      ...trust.status === undefined ? {} : { status: trust.status },
+      ...trust.description === undefined ? {} : { description: trust.description },
+      ...staleAt === undefined ? {} : { staleAt },
+    })
   }
 
   return {
-    at: new Date().toISOString(),
+    at: now.toISOString(),
     policyVersion: RULESET_VERSION.id,
     findings,
     docs,
+    ...nextStaleAt === undefined ? {} : { nextStaleAt },
   }
 }

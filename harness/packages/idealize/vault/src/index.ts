@@ -7,16 +7,22 @@
  *
  * - on `session/flush` (throttled), finds the project note whose `repo:`
  *   matches the session's git toplevel and appends commit evidence since the
- *   note's own `last_touched`, advancing the date — no commits, no write, and
+ *   note's own `last_touched` to the project's `log.md`, advancing the note's
+ *   date — no commits, no write, and
  *   failures are logged, never thrown into session teardown; a successful
  *   append triggers a docPolicy rescan so the index stays fresh (DOC-06);
+ * - on the same flush, compares the repository's uncommitted files with the
+ *   reading taken when the chat was first seen, and keeps one line in `log.md`
+ *   for a chat that changed files and committed nothing (`./uncommitted.ts`);
  * - on the same flush, rewrites the chat's Markdown copy under the project
  *   note's folder (`sessions/`), so the conversation outlives the app's own log
  *   and any model can be handed it (`sessionFiles`, on unless switched off);
  * - serves `GET` and `POST /idealize/vault/settings` (loopback only): the
  *   `sessionFiles` switch the Files panel's documentation views show;
  * - serves `GET /idealize/vault/reconcile` (loopback only): notes whose repos
- *   moved ahead of them.
+ *   moved ahead of them;
+ * - serves `POST /idealize/vault/migrate-log` (loopback only): moves one
+ *   note's legacy `## Session log` section into its `log.md`, when a person asks.
  *
  * Settings section `idealize-vault` keeps the projects root (`projectsRoot`);
  * the documentation folder is docPolicy's `idealize-docs` section.
@@ -25,21 +31,29 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { realpath } from 'node:fs/promises'
-import { basename, dirname } from 'node:path'
+import { readFile, realpath, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, relative, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { gitToplevel, noteForRepo } from '@idealize/doc-policy'
-import { appendSessionLog, commitsSince, reconcile } from './notes.ts'
-import { writeTranscript } from './transcript.ts'
+import { appendSessionLog, commitsSince, migrateSessionLog, reconcile } from './notes.ts'
+import type { ProjectNote } from '@idealize/doc-policy'
+import { logPathFor, newLog, readLog } from './log.ts'
+import { transcriptTail, writeTranscript } from './transcript.ts'
+import { changedSince, recordUncommitted, uncommittedLine, workingState } from './uncommitted.ts'
+import type { WorkingState } from './uncommitted.ts'
 import type { TranscriptMessage } from './transcript.ts'
 
-export { appendSessionLog, commitsSince, reconcile } from './notes.ts'
-export type { CommitLine, StaleNote } from './notes.ts'
-export { SESSIONS_DIR, transcriptOf, writeTranscript } from './transcript.ts'
+export { appendSessionLog, commitsSince, migrateSessionLog, quotedSubject, reconcile } from './notes.ts'
+export type { CommitLine, LogMigration, StaleNote } from './notes.ts'
+export { LEGACY_LOG_HEADING, LEGACY_LOG_POINTER, addToLog, legacyLog, logPathFor, newLog, readLog } from './log.ts'
+export type { LegacyLog } from './log.ts'
+export { UNCOMMITTED_MARK, changedSince, recordUncommitted, uncommittedLine, workingState } from './uncommitted.ts'
+export type { UncommittedEntry, WorkingState } from './uncommitted.ts'
+export { SESSIONS_DIR, transcriptOf, transcriptTail, writeTranscript } from './transcript.ts'
 export type { TranscriptInput, TranscriptMessage } from './transcript.ts'
 
 export const name = 'idealize-vault'
@@ -69,6 +83,17 @@ function today(): string {
   return `${now.getFullYear()}-${month}-${day}`
 }
 
+/**
+ * Where a folder sits inside a repository.
+ * @param repo - the repository toplevel, through realpath.
+ * @param folder - any folder.
+ * @returns the folder's path relative to the repository with `/` separators, or `undefined` when it is outside.
+ */
+async function insideRepo(repo: string, folder: string): Promise<string | undefined> {
+  const real = await realpath(folder)
+  return real.startsWith(`${repo}${sep}`) ? relative(repo, real).split(sep).join('/') : undefined
+}
+
 export function apply(ctx: Context, config: VaultConfig): void {
   let current: () => VaultConfig = () => ({ ...config })
   installSettingsSection(ctx, NS, Config, config, {
@@ -78,15 +103,19 @@ export function apply(ctx: Context, config: VaultConfig): void {
     onChange: () => {},
   })
 
-  /** The chat's Markdown copy, rewritten whole from the log. */
-  const documentChat = async (session: Session, projectFolder: string, project: string): Promise<void> => {
+  const titleOf = (session: Session): string | undefined => {
+    const titled = session.events.findLast(event => (event.type as string) === 'session/title') as { data?: { title?: unknown } } | undefined
+    return typeof titled?.data?.title === 'string' && titled.data.title !== '' ? titled.data.title : undefined
+  }
+
+  /** The chat's Markdown copy, rewritten whole from the log; answers the path written. */
+  const documentChat = async (session: Session, projectFolder: string, project: string): Promise<string | undefined> => {
     const events = session.events
-    const titled = events.findLast(event => (event.type as string) === 'session/title') as { data?: { title?: unknown } } | undefined
     const brain = events.findLast(event => (event.type as string) === 'idealize/brain') as { data?: { brain?: unknown } } | undefined
     const first = events[0] as { time?: number } | undefined
-    await writeTranscript(projectFolder, {
+    return writeTranscript(projectFolder, {
       sessionId: String(session.header.id),
-      title: typeof titled?.data?.title === 'string' && titled.data.title !== '' ? titled.data.title : undefined,
+      title: titleOf(session),
       started: new Date(first?.time ?? Date.now()).toISOString(),
       project,
       brain: typeof brain?.data?.brain === 'string' ? brain.data.brain : undefined,
@@ -94,7 +123,45 @@ export function apply(ctx: Context, config: VaultConfig): void {
     })
   }
 
-  /** The commit-evidence append for one closing session. */
+  // The working tree as each chat was first seen, and the line written for it since.
+  const watches = new WeakMap<Session, { before: WorkingState; line?: string }>()
+
+  /**
+   * One line in the project's log for a chat that changed files and committed nothing.
+   * Answers whether the log changed.
+   */
+  const documentUncommitted = async (
+    session: Session,
+    note: ProjectNote,
+    now: WorkingState,
+    transcript: string | undefined,
+  ): Promise<boolean> => {
+    const watch = watches.get(session)
+    if (watch === undefined) {
+      watches.set(session, { before: now })
+      return false
+    }
+    // A commit since the first reading is recorded as a commit, and the files it left are that commit's business.
+    if (now.head !== watch.before.head) return false
+    const changed = changedSince(watch.before, now)
+    if (changed === 0) return false
+    const logPath = logPathFor(note.path)
+    const line = uncommittedLine(titleOf(session), changed, transcript === undefined ? undefined : relative(dirname(logPath), transcript).split(sep).join('/'))
+    if (line === watch.line) return false
+    const log = await readLog(logPath) ?? newLog(note.path, await readFile(note.path, 'utf8'), today())
+    const next = recordUncommitted(log, {
+      day: today(),
+      line,
+      previous: watch.line,
+      marker: transcript === undefined ? undefined : transcriptTail(String(session.header.id)),
+    })
+    watch.line = line
+    if (next === undefined) return false
+    await writeFile(logPath, next)
+    return true
+  }
+
+  /** The documentation one save of a chat produces: its copy, its commits, and its uncommitted work. */
   const documentClose = async (session: Session): Promise<void> => {
     const folder = ctx.docPolicy.folder()
     const cwd = session.header.cwd
@@ -105,22 +172,30 @@ export function apply(ctx: Context, config: VaultConfig): void {
     if (root === undefined) return
     const note = await noteForRepo(folder, root)
     if (note === undefined) return
+    // Read before anything else here runs, so the first reading is as close to the chat's start as a save allows.
+    const working = toplevel === undefined
+      ? undefined
+      : await workingState(toplevel, await insideRepo(toplevel, folder)).catch((error: unknown) => {
+        ctx.logger.warn(`idealize-vault: uncommitted changes were not read: ${String(error)}`)
+        return undefined
+      })
+    let transcript: string | undefined
     if (current().sessionFiles !== false) {
       // `Projects/<name>/_index.md` files under its own folder; a single-file note gets a folder of its name.
       const projectFolder = basename(note.path) === '_index.md' ? dirname(note.path) : note.path.replace(/\.md$/, '')
       // The copy is a convenience; a chat it cannot write still gets its commit evidence.
-      await documentChat(session, projectFolder, root).catch((error: unknown) => {
+      transcript = await documentChat(session, projectFolder, root).catch((error: unknown) => {
         ctx.logger.warn(`idealize-vault: the chat's Markdown copy was not written: ${String(error)}`)
+        return undefined
       })
     }
     if (toplevel === undefined) return
     const commits = await commitsSince(toplevel, note.lastTouched)
     const appended = await appendSessionLog(note, commits, today())
-    if (appended.length > 0) {
-      ctx.logger.info(`idealize-vault: appended ${appended.length} commit(s) to ${note.path}`)
-      // Managed documentation changed: refresh the docs index (DOC-06).
-      await ctx.docPolicy.scan()
-    }
+    if (appended.length > 0) ctx.logger.info(`idealize-vault: appended ${appended.length} commit(s) to ${logPathFor(note.path)}`)
+    const noted = working !== undefined && await documentUncommitted(session, note, working, transcript)
+    // Managed documentation changed: refresh the docs index (DOC-06).
+    if (appended.length > 0 || noted) await ctx.docPolicy.scan()
   }
 
   // Evidence starts on `session/flush`, not `session/disposed`: dispose is
@@ -213,6 +288,46 @@ export function apply(ctx: Context, config: VaultConfig): void {
         },
       }),
       'idealize-vault: session files setting',
+    )
+  })
+
+  // The one write here that a person starts: nothing calls it on a schedule or from a session event.
+  ctx.inject(['webServer'], (migrateCtx) => {
+    migrateCtx.effect(
+      () => migrateCtx.webServer.register({
+        kind: 'exact',
+        path: '/idealize/vault/migrate-log',
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          const answer = (status: number, body: unknown): void => {
+            res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+          }
+          const host = (req.headers.host ?? '').replace(/:\d+$/, '')
+          if (host !== '127.0.0.1' && host !== 'localhost' && host !== '[::1]') return answer(403, { error: 'loopback only' })
+          if (req.method !== 'POST') return answer(405, { error: 'POST only' })
+          if (req.headers['x-idealize-auth'] !== '1') return answer(403, { error: 'missing x-idealize-auth header' })
+          const folder = ctx.docPolicy.folder()
+          if (folder === undefined) return answer(409, { error: 'no documentation folder is set' })
+          const chunks: Buffer[] = []
+          for await (const chunk of req) chunks.push(chunk as Buffer)
+          let note: unknown
+          try {
+            note = (JSON.parse(Buffer.concat(chunks).toString('utf8')) as { note?: unknown } | null)?.note
+          } catch {
+            // A body that is not JSON names no note; the check below answers it.
+          }
+          if (typeof note !== 'string') return answer(400, { error: 'note must be the path of a project _index.md' })
+          // Only a project index inside the documentation folder is ever rewritten, whatever path the request names.
+          const target = await realpath(note).catch(() => undefined)
+          const projects = await realpath(join(folder, 'Projects')).catch(() => undefined)
+          if (target === undefined || projects === undefined || basename(target) !== '_index.md' || dirname(dirname(target)) !== projects) {
+            return answer(404, { error: 'no project _index.md at that path in the documentation folder' })
+          }
+          const migration = await migrateSessionLog(target, today())
+          if (migration.moved > 0) await ctx.docPolicy.scan()
+          answer(200, migration)
+        },
+      }),
+      'idealize-vault: migrate-log endpoint',
     )
   })
 

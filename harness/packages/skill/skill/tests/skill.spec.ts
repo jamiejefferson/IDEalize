@@ -764,6 +764,46 @@ describe('SkillRegistry registry', () => {
     expect(changes).toBe(5)
   })
 
+  it('passes every read through the registered view filters and restores the catalog when one is disposed', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const provider = new MemoryProvider([
+      memorySkill('alpha', 'Alpha', 10),
+      memorySkill('beta', 'Beta', 10),
+      memorySkill('gamma', 'Gamma', 10),
+    ])
+    ctx.skills.registerProvider(() => provider)
+    let changes = 0
+    ctx.on('skills/change', () => { changes += 1 })
+    const viewer = {}
+    const seen: unknown[] = []
+
+    const disposeFirst = ctx.skills.registerFilter((skills, options) => {
+      seen.push(options.scope)
+      return options.scope === viewer ? skills.filter(skill => skill.name !== 'alpha') : skills
+    })
+    const disposeSecond = ctx.skills.registerFilter(async skills => skills.filter(skill => skill.name !== 'gamma'))
+    expect(changes).toBe(2)
+
+    expect((await ctx.skills.list({ scope: viewer })).map(skill => skill.name)).toEqual(['beta'])
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['alpha', 'beta'])
+    expect(seen).toEqual([viewer, undefined])
+    // The loader refuses what the catalog hides, without asking the provider for the body.
+    expect(await ctx.skills.get('alpha', { scope: viewer })).toBeUndefined()
+    expect(await ctx.skills.get('gamma')).toBeUndefined()
+    expect((await ctx.skills.get('beta', { scope: viewer }))?.content).toBe('beta body.')
+    // Filters run outside the catalog cache: five reads, one discovery per viewing scope.
+    expect(provider.listCalls).toBe(2)
+
+    disposeSecond()
+    expect(changes).toBe(3)
+    expect((await ctx.skills.snapshot({ scope: viewer })).skills.map(skill => skill.name)).toEqual(['beta', 'gamma'])
+    disposeFirst()
+    expect(changes).toBe(4)
+    expect((await ctx.skills.list({ scope: viewer })).map(skill => skill.name)).toEqual(['alpha', 'beta', 'gamma'])
+    expect((await ctx.skills.get('alpha', { scope: viewer }))?.content).toBe('alpha body.')
+  })
+
   it('reports a shadowed duplicate once, however often the catalog is rebuilt', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillRegistry)

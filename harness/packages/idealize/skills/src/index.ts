@@ -6,25 +6,37 @@
  * chat's + menu. This plugin owns the folder: settings section
  * `idealize-skills` keeps `skillsFolder`. The folder holds `.skill` packages
  * (zip archives with a SKILL.md at the root, the format skills are shared
- * in), directly or in one level of subfolders, one per model (JJ, later on
- * 15 Sep: "i need subdirectories for the models to use"); anything else,
- * including unpacked copies of the same skills, is ignored (JJ: "the folders
- * in skills should be ignored as they aren't the actual skill files - they're
- * the unpackaged skills"). While the folder is a readable directory the
- * plugin unpacks each package into `unpackFolder` (one subfolder per package,
- * under the package's own subfolder name when it has one, re-extracted when
- * the package's size or mtime changes, removed when the package goes) and
- * mounts one `skill-filesystem` provider over the unpack folder and each of
- * its subfolders (`includeDefaultRoots: false`, watching) into the host
- * skill registry's global layer, which every agent's catalogue and
- * `skill.list` read. The registry keeps one skill per name, so a name that
- * appears in two subfolders resolves to the first subfolder by name. The
- * skills folder itself is watched, so a package dropped in or replaced
- * reaches the catalogue without a restart. A changed folder or a new
- * subfolder re-mounts the provider; an unset or unreadable folder mounts
+ * in) and unpacked skill folders (a folder holding a SKILL.md, the layout
+ * Claude Code and Codex keep), directly or in one level of subfolders, one per
+ * model (JJ, 15 Sep 2026: "i need subdirectories for the models to use"). An
+ * unpacked folder is accepted when no package beside it has the same name;
+ * the package wins a clash (JJ, 16 Nov 2026, narrowing the 15 Sep rule that
+ * ignored every unpacked folder). While the folder is a readable directory
+ * the plugin stages each package and each accepted folder under
+ * `unpackFolder` (one subfolder each, under the source subfolder's name when
+ * it has one, staged again when the source changes, removed when the source
+ * goes) and mounts one `skill-filesystem` provider over the unpack folder and
+ * each of its subfolders (`includeDefaultRoots: false`, watching) into the
+ * host skill registry's global layer. The registry keeps one skill per name,
+ * so a name that appears in two subfolders resolves to the first subfolder by
+ * name. The skills folder itself is watched, so a package or folder dropped
+ * in or replaced reaches the catalogue without a restart. A changed folder or
+ * a new subfolder re-mounts the provider; an unset or unreadable folder mounts
  * nothing. The `idealizeSkills` service answers the folder's catalogue,
- * grouped by subfolder, package by package, for the composer's skill
- * selector.
+ * grouped by subfolder, for the composer's skill selector.
+ *
+ * Two more registrations decide which skills one chat is offered. A registry
+ * view filter keeps, for a chat whose brain's `preset.yml` carries a `skills`
+ * list, only the listed skills of the person's folder ({@link brainSkillFilter}).
+ * A second provider lists the `playbooks/` folder of the chat's project inside
+ * the documentation folder ({@link PlaybooksProvider}).
+ *
+ * The plugin also closes the loop from use back to the skill. The
+ * `skill_learning` tool appends what an agent learned about a skill to
+ * `Reference/playbook-learnings/<skill>.md` in the documentation folder, a
+ * standing prompt line says when to call it, and the `fold-learnings` skill
+ * shipped in this package's `skills/` directory drafts a revision from those
+ * lines for the person to review.
  *
  * `@idealize/setup` writes the folder when the `skills` alias is captured;
  * `@idealize/ui-bar`'s Files pane shows the folder as its Skills tab and its
@@ -34,8 +46,9 @@
  */
 
 import { watch as watchDirectory, type FSWatcher } from 'node:fs'
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, sep } from 'node:path'
+import { createHash } from 'node:crypto'
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, relative, sep } from 'node:path'
 import type { Context, Fiber } from '@deepseek-ai/cordis'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import z from '@deepseek-ai/schemastery'
@@ -44,6 +57,25 @@ import { parse as parseYaml } from 'yaml'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
+import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@idealize/doc-policy'
+import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-tools'
+import { brainSkillFilter } from './brain-filter.ts'
+import {
+  BUILT_IN_SKILLS_PROVIDER_NAME, builtInSkillsDir, LEARNINGS_GUIDANCE, LEARNINGS_SECTION_NAME, LEARNINGS_SECTION_ORDER, skillLearningTool,
+} from './learnings.ts'
+import { PLAYBOOKS_FOLDER, PlaybooksProvider, projectRootOf } from './playbooks.ts'
+
+export { brainSkillFilter, presetOfScope } from './brain-filter.ts'
+export {
+  appendLearning, BUILT_IN_SKILLS_PROVIDER_NAME, builtInSkillsDir, LEARNING_MAX_LENGTH, learningAuthor, LEARNINGS_FOLDER,
+  LEARNINGS_GUIDANCE, LEARNINGS_SECTION_NAME, LEARNINGS_SECTION_ORDER, SKILL_LEARNING_TOOL, skillLearningTool,
+} from './learnings.ts'
+export type { LearningInput, LearningRecord } from './learnings.ts'
+export {
+  PLAYBOOK_RANK, PLAYBOOK_SOURCE, PLAYBOOKS_FOLDER, PLAYBOOKS_PROVIDER_NAME, PlaybooksProvider, projectRootOf,
+} from './playbooks.ts'
 
 export const name = 'idealize-skills'
 
@@ -54,9 +86,9 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** One package in the catalogue: what its manifest says, or its file name when the manifest cannot be read. */
+/** One package or unpacked folder in the catalogue: what its manifest says, or its file name when the manifest cannot be read. */
 export interface CatalogueSkill {
-  /** The package's file name without its extension. */
+  /** The package's file name without its extension, or the unpacked folder's name. */
   readonly package: string
   /** The manifest's `name`, or the package name when the manifest is missing or unreadable. */
   readonly name: string
@@ -70,14 +102,14 @@ export interface CatalogueSkill {
 export interface CatalogueGroup {
   /** The subfolder name; empty for packages directly in the skills folder. */
   readonly folder: string
-  /** The folder's packages, sorted by name. */
+  /** The folder's packages and accepted unpacked folders, sorted by name. */
   readonly skills: readonly CatalogueSkill[]
 }
 
-/** The service face: the folder's packages as they sit on disk, whether or not the registry accepted them. */
+/** The service face: the folder's packages and accepted unpacked folders as they sit on disk, whether or not the registry accepted them. */
 export interface IdealizeSkillsService {
   /**
-   * The catalogue: packages in the skills folder first, then each subfolder by name.
+   * The catalogue: the skills folder's own entries first, then each subfolder by name.
    * @returns the groups; empty when no folder is set or readable.
    */
   catalogue(): Promise<readonly CatalogueGroup[]>
@@ -94,7 +126,10 @@ export const SKILLS_PROVIDER_NAME = 'idealize-skills'
 /** The file extension of a skill package: a zip archive with a SKILL.md at its root. */
 export const SKILL_PACKAGE_EXTENSION = '.skill'
 
-/** The marker file an unpacked package carries: the source package's size and mtime, so an unchanged package is not re-extracted. */
+/** The manifest file that makes a folder or an archive a skill. */
+const MANIFEST_FILE = 'SKILL.md'
+
+/** The marker file a staged skill carries: its source's change key, so an unchanged source is not staged again. */
 const PACKAGE_MARKER = '.package'
 
 /** How long the folder watcher waits after the last change before re-syncing. */
@@ -102,9 +137,9 @@ const WATCH_SETTLE_MS = 300
 
 /** Plugin config, mirrored by the `idealize-skills` settings section. */
 export interface SkillsConfig {
-  /** Absolute directory holding the person's `.skill` packages. */
+  /** Absolute directory holding the person's `.skill` packages and unpacked skill folders. */
   skillsFolder?: string
-  /** Where the packages are unpacked for the provider to read; `<dsh home>/idealize/skill-packages` when unset. */
+  /** Where packages are unpacked and folders copied for the provider to read; `<dsh home>/idealize/skill-packages` when unset. */
   unpackFolder?: string
 }
 
@@ -122,15 +157,17 @@ export function resolveUnpackFolder(config: SkillsConfig): string {
   return config.unpackFolder !== undefined && config.unpackFolder !== '' ? config.unpackFolder : dshHomePath('idealize', 'skill-packages')
 }
 
-/** One `.skill` package in the folder. */
+/** One skill source in the folder: a `.skill` package or an accepted unpacked folder. */
 interface SkillPackage {
-  /** The subfolder it sits in; empty for a package directly in the skills folder. */
+  /** The subfolder it sits in; empty for a source directly in the skills folder. */
   readonly group: string
-  /** The subfolder name it unpacks to: the file name without its extension. */
+  /** The subfolder name it is staged under: the package's file name without its extension, or the folder's name. */
   readonly id: string
   readonly path: string
-  /** `size:mtimeMs`, the re-extraction key. */
+  /** The change key: `size:mtimeMs` for a package, a digest of every file's path, size and mtime for a folder. */
   readonly key: string
+  /** Whether the source is a zip archive to unpack or a folder to copy. */
+  readonly kind: 'archive' | 'folder'
 }
 
 /** Folder-name order: case-insensitive, so `Codex` and `claude` sort together; names differing by case alone fall back to plain order. */
@@ -140,9 +177,14 @@ function compareNames(a: string, b: string): number {
   return a.localeCompare(b, undefined, { sensitivity: 'base' }) || a.localeCompare(b)
 }
 
-/** Where a package unpacks to. */
+/** Where a source is staged. */
 function unpackTarget(unpackFolder: string, pkg: Pick<SkillPackage, 'group' | 'id'>): string {
   return pkg.group === '' ? join(unpackFolder, pkg.id) : join(unpackFolder, pkg.group, pkg.id)
+}
+
+/** Whether a path names a file. */
+async function isFile(path: string): Promise<boolean> {
+  return await stat(path).then(info => info.isFile(), () => false)
 }
 
 /** The `.skill` packages directly inside one directory (other files ignored). */
@@ -152,24 +194,62 @@ async function packagesIn(directory: string, group: string): Promise<SkillPackag
     if (!entry.isFile() || !entry.name.toLowerCase().endsWith(SKILL_PACKAGE_EXTENSION)) continue
     const path = join(directory, entry.name)
     const info = await stat(path)
-    packages.push({ group, id: entry.name.slice(0, -SKILL_PACKAGE_EXTENSION.length), path, key: `${info.size}:${info.mtimeMs}` })
+    packages.push({
+      group, id: entry.name.slice(0, -SKILL_PACKAGE_EXTENSION.length), path, key: `${info.size}:${info.mtimeMs}`, kind: 'archive',
+    })
   }
   return packages
 }
 
+/** A folder's change key: a digest over every file's relative path, size and mtime, so any edit inside it stages the folder again. */
+async function folderKey(directory: string): Promise<string> {
+  const lines: string[] = []
+  for (const entry of await readdir(directory, { withFileTypes: true, recursive: true })) {
+    if (!entry.isFile()) continue
+    const path = join(entry.parentPath, entry.name)
+    const info = await stat(path)
+    lines.push(`${relative(directory, path)}:${info.size}:${info.mtimeMs}`)
+  }
+  return `folder:${createHash('sha256').update(lines.sort().join('\n')).digest('hex')}`
+}
+
 /**
- * The `.skill` packages in the folder and in each of its visible subfolders,
- * the folder's own first, then the subfolders by name. Deeper folders and
- * everything that is not a package are ignored.
+ * The skill sources in the folder and in each of its visible subfolders: the
+ * folder's own packages, then its unpacked skill folders, then each subfolder
+ * by name with its packages before its unpacked folders. A visible folder
+ * holding a SKILL.md and no package is an unpacked skill; any other visible
+ * folder directly in the skills folder is a subfolder of skills. An unpacked
+ * folder is left out when a package beside it carries its name (compared
+ * without case, because both would be staged under that name). Deeper folders
+ * and everything else are ignored.
  */
 async function listPackages(folder: string): Promise<SkillPackage[]> {
-  const packages = await packagesIn(folder, '')
-  const groups = (await readdir(folder, { withFileTypes: true }))
+  const own = await packagesIn(folder, '')
+  const unpacked: SkillPackage[] = []
+  const grouped: SkillPackage[] = []
+  const visible = async (directory: string): Promise<string[]> => (await readdir(directory, { withFileTypes: true }))
     .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
     .map(entry => entry.name)
     .sort(compareNames)
-  for (const group of groups) packages.push(...await packagesIn(join(folder, group), group))
-  return packages
+  /** Adds `directory/name` to `into` when it is an unpacked skill no package in `beside` names. */
+  const accept = async (
+    directory: string, group: string, name: string, beside: readonly SkillPackage[], into: SkillPackage[],
+  ): Promise<void> => {
+    const path = join(directory, name)
+    if (beside.some(pkg => pkg.id.toLowerCase() === name.toLowerCase()) || !await isFile(join(path, MANIFEST_FILE))) return
+    into.push({ group, id: name, path, key: await folderKey(path), kind: 'folder' })
+  }
+  for (const name of await visible(folder)) {
+    const directory = join(folder, name)
+    const packages = await packagesIn(directory, name)
+    if (packages.length === 0 && await isFile(join(directory, MANIFEST_FILE))) {
+      await accept(folder, '', name, own, unpacked)
+      continue
+    }
+    grouped.push(...packages)
+    for (const child of await visible(directory)) await accept(directory, name, child, packages, grouped)
+  }
+  return [...own, ...unpacked, ...grouped]
 }
 
 /**
@@ -182,7 +262,7 @@ async function listPackages(folder: string): Promise<SkillPackage[]> {
  */
 export function packageFiles(archive: Uint8Array): ReadonlyMap<string, Uint8Array> | undefined {
   const entries = unzipSync(archive)
-  const manifests = Object.keys(entries).filter(key => basename(key) === 'SKILL.md' && !key.endsWith('/'))
+  const manifests = Object.keys(entries).filter(key => basename(key) === MANIFEST_FILE && !key.endsWith('/'))
   const root = manifests.map(key => dirname(key)).filter(dir => dir === '.' || !dir.includes('/')).sort((a, b) => a.length - b.length)[0]
   if (root === undefined) return undefined
   const prefix = root === '.' ? '' : `${root}/`
@@ -199,25 +279,45 @@ export function packageFiles(archive: Uint8Array): ReadonlyMap<string, Uint8Arra
 
 /** What a sync leaves behind. */
 export interface SyncResult {
-  /** The packages that could not be unpacked, with the reason. */
+  /** The packages and folders that could not be staged, with the reason. */
   readonly failures: readonly { id: string; reason: string }[]
-  /** The subfolders holding at least one package, by name: the provider's roots beside the unpack folder itself. */
+  /** The subfolders holding at least one skill source, by name: the provider's roots beside the unpack folder itself. */
   readonly groups: readonly string[]
 }
 
-/** Whether a directory is an unpacked package of ours (carries the marker). */
+/** Whether a directory is a staged skill of ours (carries the marker). */
 async function owned(directory: string): Promise<boolean> {
   return await stat(join(directory, PACKAGE_MARKER)).then(() => true, () => false)
 }
 
 /**
- * Bring the unpack folder in step with the packages: extract new or changed
- * packages, leave unchanged ones alone, and remove unpacked subfolders whose
- * package is gone. Only subfolders carrying the marker are ever removed; a
- * group folder goes once it holds nothing and its source subfolder has no
- * packages.
- * @param folder - the skills folder holding the `.skill` packages.
- * @param unpackFolder - where each package unpacks to, one subfolder per package.
+ * Write one source's files under `target`: a folder is copied whole, a package is unpacked.
+ * @returns the reason nothing usable was written, or undefined on success.
+ */
+async function stage(pkg: SkillPackage, target: string): Promise<string | undefined> {
+  if (pkg.kind === 'folder') {
+    await cp(pkg.path, target, { recursive: true, dereference: true })
+    return undefined
+  }
+  const files = packageFiles(new Uint8Array(await readFile(pkg.path)))
+  if (files === undefined) return 'no SKILL.md in the package'
+  for (const [path, data] of files) {
+    const file = join(target, path)
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, data)
+  }
+  return undefined
+}
+
+/**
+ * Bring the unpack folder in step with the skills folder: stage new or changed
+ * packages and accepted unpacked folders, leave unchanged ones alone, and
+ * remove staged subfolders whose source is gone. Only subfolders carrying the
+ * marker are ever removed; a group folder goes once it holds nothing and its
+ * source subfolder has no skill sources. A source that cannot be staged leaves
+ * no partial copy behind.
+ * @param folder - the skills folder holding the `.skill` packages and unpacked skill folders.
+ * @param unpackFolder - where each source is staged, one subfolder each.
  * @returns the failures and the group folders in use.
  */
 export async function syncPackages(folder: string, unpackFolder: string): Promise<SyncResult> {
@@ -232,21 +332,16 @@ export async function syncPackages(folder: string, unpackFolder: string): Promis
     const current = await readFile(marker, 'utf8').catch(() => undefined)
     if (current === pkg.key) continue
     await rm(target, { recursive: true, force: true })
-    let files: ReadonlyMap<string, Uint8Array> | undefined
+    let reason: string | undefined
     try {
-      files = packageFiles(new Uint8Array(await readFile(pkg.path)))
+      reason = await stage(pkg, target)
     } catch (error) {
-      failures.push({ id: pkg.id, reason: error instanceof Error ? error.message : String(error) })
-      continue
+      reason = error instanceof Error ? error.message : String(error)
     }
-    if (files === undefined) {
-      failures.push({ id: pkg.id, reason: 'no SKILL.md in the package' })
+    if (reason !== undefined) {
+      await rm(target, { recursive: true, force: true })
+      failures.push({ id: pkg.id, reason })
       continue
-    }
-    for (const [relative, data] of files) {
-      const path = join(target, relative)
-      await mkdir(dirname(path), { recursive: true })
-      await writeFile(path, data)
     }
     await writeFile(marker, pkg.key)
   }
@@ -257,8 +352,8 @@ export async function syncPackages(folder: string, unpackFolder: string): Promis
       if (!wanted.has(`/${entry.name}`)) await rm(directory, { recursive: true, force: true })
       continue
     }
-    // A group folder: prune the packages it no longer holds, then the folder
-    // itself once nothing is left and the source subfolder has no packages.
+    // A group folder: prune the skills it no longer holds, then the folder
+    // itself once nothing is left and the source subfolder has no skill sources.
     for (const sub of await readdir(directory, { withFileTypes: true })) {
       const target = join(directory, sub.name)
       if (sub.isDirectory() && !wanted.has(`${entry.name}/${sub.name}`) && await owned(target)) await rm(target, { recursive: true, force: true })
@@ -285,19 +380,19 @@ function manifestFields(raw: string): { name: string; description: string } | un
 }
 
 /**
- * The folder's catalogue from the packages on disk and their unpacked
- * manifests: the folder's own packages first (`folder` empty), then each
- * subfolder by name, each group's packages sorted by name. A package whose
- * unpacked manifest is missing or unreadable is listed by its file name with
- * `manifest: false`.
+ * The folder's catalogue from the skill sources on disk and their staged
+ * manifests: the folder's own entries first (`folder` empty), then each
+ * subfolder by name, each group's entries sorted by name. A source whose
+ * staged manifest is missing or unreadable is listed by its file or folder
+ * name with `manifest: false`.
  * @param folder - the skills folder.
- * @param unpackFolder - where the packages are unpacked.
- * @returns the groups, omitting a subfolder without packages.
+ * @param unpackFolder - where the sources are staged.
+ * @returns the groups, omitting a subfolder without skill sources.
  */
 export async function readCatalogue(folder: string, unpackFolder: string): Promise<CatalogueGroup[]> {
   const byGroup = new Map<string, CatalogueSkill[]>()
   for (const pkg of await listPackages(folder)) {
-    const raw = await readFile(join(unpackTarget(unpackFolder, pkg), 'SKILL.md'), 'utf8').catch(() => undefined)
+    const raw = await readFile(join(unpackTarget(unpackFolder, pkg), MANIFEST_FILE), 'utf8').catch(() => undefined)
     const fields = raw === undefined ? undefined : manifestFields(raw)
     const skill: CatalogueSkill = fields === undefined
       ? { package: pkg.id, name: pkg.id, description: '', manifest: false }
@@ -336,6 +431,44 @@ export function apply(ctx: Context, config: SkillsConfig): void {
     },
   }), 'idealize-skills: idealizeSkills')
 
+  // A brain's `skills` list narrows the folder's skills for chats on that brain.
+  ctx.inject(['skills', 'agentPresets'], (fctx) => {
+    fctx.skills.registerFilter(brainSkillFilter(fctx, SKILLS_PROVIDER_NAME))
+  })
+
+  // The playbooks of the chat's project, found through the documentation folder.
+  ctx.inject(['skills', 'docPolicy'], (pctx) => {
+    let provider!: PlaybooksProvider
+    pctx.skills.registerProvider((control) => {
+      provider = new PlaybooksProvider(pctx, control, async (cwd) => {
+        const found = await pctx.docPolicy.projectFolder(await projectRootOf(cwd))
+        return found === undefined ? undefined : join(found.path, PLAYBOOKS_FOLDER)
+      })
+      return provider
+    })
+    pctx.effect(() => async () => { await provider.dispose() }, 'idealize-skills: playbooks watchers')
+  })
+
+  // The skills this package ships, read from its own `skills/` directory.
+  ctx.inject(['skills'], (bctx) => {
+    bctx.plugin(SkillFileSystem, {
+      providerName: BUILT_IN_SKILLS_PROVIDER_NAME,
+      includeDefaultRoots: false,
+      bundledSkillDir: builtInSkillsDir(),
+      watch: false,
+    })
+  })
+
+  // Learnings: the tool that records one, and the standing line that says when.
+  ctx.inject(['skills', 'docPolicy', 'tools', 'systemPrompt'], (lctx) => {
+    lctx.tools.register(skillLearningTool(lctx))
+    lctx.effect(() => lctx.systemPrompt.section({
+      name: LEARNINGS_SECTION_NAME,
+      order: LEARNINGS_SECTION_ORDER,
+      text: LEARNINGS_GUIDANCE,
+    }), 'idealize-skills: learnings prompt section')
+  })
+
   ctx.inject(['skills'], (sctx) => {
     let mounted: { folder: string; roots: string; fiber: Fiber } | undefined
     let watcher: { folder: string; handle: FSWatcher; timer: NodeJS.Timeout | undefined } | undefined
@@ -358,9 +491,10 @@ export function apply(ctx: Context, config: SkillsConfig): void {
       await fiber.dispose()
     }
 
-    // Package changes inside the folder or its subfolders re-sync after a
-    // short settle; the mounted provider watches the unpack folders itself
-    // and refreshes the catalogue from what the sync wrote.
+    // Changes to a package or an unpacked folder, in the folder or its
+    // subfolders, re-sync after a short settle; the mounted provider watches
+    // the unpack folders itself and refreshes the catalogue from what the
+    // sync wrote.
     const watchFolder = (folder: string): void => {
       if (watcher?.folder === folder) return
       stopWatching()
@@ -386,7 +520,7 @@ export function apply(ctx: Context, config: SkillsConfig): void {
       }
       const unpackFolder = resolveUnpackFolder(source())
       const { failures, groups } = await syncPackages(folder, unpackFolder)
-      for (const failure of failures) sctx.logger.warn(`idealize-skills: package "${failure.id}" skipped: ${failure.reason}`)
+      for (const failure of failures) sctx.logger.warn(`idealize-skills: "${failure.id}" skipped: ${failure.reason}`)
       // The unpack folder first, then each group folder by name: the registry
       // keeps the first root's skill when a name repeats.
       const customSkillDirs = [unpackFolder, ...groups.map(group => join(unpackFolder, group))]

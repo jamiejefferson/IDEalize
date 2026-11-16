@@ -15,9 +15,12 @@ export const name = 'idealize-skills-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the plugin mounts one filesystem skill provider for the
- * stored folder and nothing else; which skills that folder holds is the
- * provider's own discovery, and the settings value is validated at its schema.
+ * No runtime invariant: the plugin mounts filesystem skill providers over the
+ * staged skills folder, a project's playbooks and its own shipped skills,
+ * registers one registry view filter, and appends learnings through one tool.
+ * Which skills those folders hold is the providers' own discovery, the
+ * settings value is validated at its schema, and the append-only rule of a
+ * learnings file is a property of each write that no event stream reports.
  */
 const install: InvariantInstaller = () => {}
 

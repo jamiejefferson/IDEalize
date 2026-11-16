@@ -1137,6 +1137,11 @@
     },
     {
       "doc": "docs/subsystems/skills.md",
+      "symbol": "SkillViewFilter",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/skills.md",
       "symbol": "SkillResourceBase",
       "source": "packages/skill/skill/src/index.ts"
     },

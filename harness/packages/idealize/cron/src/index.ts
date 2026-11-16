@@ -38,6 +38,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { resolve, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -84,6 +85,15 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'idealize/cron-changed'(): void
+    /**
+     * A scheduled task's chat was created and has not been given its
+     * instructions yet. A plugin that limits what one task's chat may do
+     * starts here; `idealize/cron-run` for the same task ends it.
+     * @mode emit
+     * @param task - The task definition that fired.
+     * @param sessionId - The session the run executes in.
+     */
+    'idealize/cron-run-started'(task: CronTask, sessionId: string): void
   }
 }
 
@@ -426,7 +436,26 @@ export class IdealizeCron extends Service {
     const canonical = await realpath(cwd).catch(() => resolve(cwd))
     const inside = (root: string): boolean => canonical === root || canonical.startsWith(root + sep)
     const roots = [...registry.list().map(workspace => workspace.path), resolveDshHome()]
-    if (!roots.some(inside)) throw new Error(`task folder '${cwd}' is not a project the person has opened`)
+    if (roots.some(inside)) return
+    if (canonical === await this.documentationFolder()) return
+    throw new Error(`task folder '${cwd}' is not a project the person has opened`)
+  }
+
+  /**
+   * The documentation folder, as a folder a scheduled chat may run in: the
+   * weekly review's workspace (JJ, 16 Nov 2026). Only the folder itself counts,
+   * and never when it is the home folder or holds it, which is the case the
+   * fence exists for. Read from `@idealize/doc-policy`, probed so the scheduler
+   * takes no dependency on it.
+   * @returns the canonical folder, or undefined when none is set or it is refused.
+   */
+  private async documentationFolder(): Promise<string | undefined> {
+    const policy = (this.ctx as unknown as { get(name: string): unknown }).get('docPolicy') as { folder?: () => string | undefined } | undefined
+    const folder = policy?.folder?.()
+    if (folder === undefined) return undefined
+    const canonical = await realpath(folder).catch(() => resolve(folder))
+    const home = await realpath(homedir()).catch(() => resolve(homedir()))
+    return home === canonical || home.startsWith(canonical.endsWith(sep) ? canonical : canonical + sep) ? undefined : canonical
   }
 
   /**
@@ -474,6 +503,7 @@ export class IdealizeCron extends Service {
       },
     })
     await this.fileUnderProject(sessionId, task.cwd)
+    this.ctx.emit('idealize/cron-run-started', task, String(sessionId))
     await agent.whenIdle()
     // Nobody watches a scheduled chat, and the person may have ticked Full access
     // for the chats they run themselves (JJ, 4 Nov 2026). Read by shape: the method

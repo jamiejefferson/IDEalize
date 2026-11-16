@@ -16,6 +16,8 @@ Schedule was a `schedule` tab in the conversation view ring. It returned to the 
 
 **What is waiting for approval.** An entry a chat adds through `calendar_add` stays paused until the person approves it once (JJ, 9 Oct 2026). A section above every grain lists these with the rule, the instructions and the folder they would run in, or says it only sends a notification, with Approve and Remove. The entry also sits on its day with a NEEDS APPROVAL badge, dimmed like any paused task. Editing or dragging it leaves it waiting. Approve calls `POST /idealize/cron/approve`; the host's reason shows under the list when it refuses, such as a one-off whose time has passed.
 
+**The weekly documentation review, as a suggestion.** While a documentation folder is chosen and the calendar holds no review entry, a section above every grain names the review, says what it does and where it runs, and offers **Switch on** and **Hide this** (JJ, 16 Nov 2026: "put it in the Idealize schedule"). The pane reads `GET /idealize/setup/weekly-review` after each task load and shows the row only when the answer has a `folder` and `accepted` is false; a build without `@idealize/setup` answers 404 and shows nothing. Switch on posts `{accept: true}` to the same route, which saves an ordinary weekly entry (Monday 08:00), and the host's reason shows under the row when it refuses. Hide this stores `idealize-schedule:weekly-review-hidden` in the window's `localStorage`, the pane's one stored value; deleting the entry later brings the suggestion back for a person who has not hidden it.
+
 **The task editor.** Name, run time and time zone (or date and time for Once), repeat rule, the instructions the agent runs each time (blank for a reminder that only notifies), the model, the folder the run executes in, and the NOTIFY toggle for a desktop notification at each fire (fixed on for a reminder), with the next run stated in the footer and Delete behind a confirm.
 
 **Create-with-chat.** A real agent session in the task's folder turns a plain-language description into a draft carried as a fenced JSON block; the draft card shows what will be created, the composer refines it, and **Edit fields** hands the same draft to the editor.
@@ -51,7 +53,7 @@ The drawer unmounts a closed pane, so the view's position lives in a plugin-owne
 | An open editor and its half-typed draft | yes | no |
 | The task list | refetched on mount and on each `cron-changed` / `cron-run` feed event | n/a |
 
-Nothing persists to storage: the grain, like the navigated day, lives in the store and resets to the Day lane on relaunch.
+The view's position never persists to storage: the grain, like the navigated day, lives in the store and resets to the Day lane on relaunch. The one stored value is the hidden weekly review suggestion.
 
 ## Load states
 

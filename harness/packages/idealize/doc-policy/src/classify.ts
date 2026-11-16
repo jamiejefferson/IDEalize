@@ -6,6 +6,8 @@
  */
 
 import { parseFrontmatter } from './frontmatter.ts'
+import { PROJECT_LOG_FILE } from './project-log.ts'
+import { validateTrust } from './trust.ts'
 import {
   CANONICAL_ROOT_FILES,
   DECISION_FILE_RE,
@@ -17,6 +19,7 @@ import {
 /** Document kinds the canonical structure recognizes. */
 export type DocKind =
   | 'project-index'
+  | 'project-log'
   | 'project-note'
   | 'decision'
   | 'reference'
@@ -51,6 +54,7 @@ export function classifyPath(relPath: string): DocKind {
   switch (head) {
     case 'Projects':
       if (segments.length === 3 && segments[2] === '_index.md') return 'project-index'
+      if (segments.length === 3 && segments[2] === PROJECT_LOG_FILE) return 'project-log'
       return segments.length >= 3 ? 'project-note' : 'unmanaged'
     case 'Decisions':
       return 'decision'
@@ -66,13 +70,20 @@ export function classifyPath(relPath: string): DocKind {
 }
 
 /**
- * Validate one managed document against the packaged rules.
+ * Validate one managed document against the packaged rules. A document of
+ * any kind is also checked for the optional trust fields it carries
+ * (`generated`, `verified`, `stale_after`, `sources`); those findings are
+ * warnings, and a note without the fields raises none.
  * @param relPath - vault-relative path, `/`-separated.
  * @param kind - the path's classification.
  * @param content - complete document text.
  * @returns findings for every violated rule (empty when conformant).
  */
 export function validateDoc(relPath: string, kind: DocKind, content: string): Finding[] {
+  return [...validateKind(relPath, kind, content), ...validateTrust(relPath, content)]
+}
+
+function validateKind(relPath: string, kind: DocKind, content: string): Finding[] {
   switch (kind) {
     case 'project-index':
       return validateProjectIndex(relPath, content)
@@ -80,7 +91,9 @@ export function validateDoc(relPath: string, kind: DocKind, content: string): Fi
       return validateDecisionFile(relPath)
     // Supporting notes, reference material, people, templates, and root meta
     // files carry no closed frontmatter schema in the canonical ruleset;
-    // structural placement (already classified) is their whole check.
+    // structural placement (already classified) is their whole check. Their
+    // `type` and `status` belong to the writer: any value is accepted and kept.
+    case 'project-log':
     case 'project-note':
     case 'reference':
     case 'person':

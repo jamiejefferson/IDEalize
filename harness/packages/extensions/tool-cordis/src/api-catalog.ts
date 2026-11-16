@@ -616,7 +616,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'async terminalKnowledge(cwd: string): Promise<string>',
         description: 'The documentation rule for a command-line agent the built-in terminal launches in `cwd`. `@idealize/ui-terminal` probes for this method and appends the text to the agent\'s prompt, because such an agent reads no harness prompt and no session-start notice.',
         parameters: [{ name: 'cwd', description: 'the shell\'s working directory.' }],
-        returns: 'the guidance, naming the project\'s note when the folder holds one.',
+        returns: 'the guidance; when the folder holds the project\'s note, it names the note and ends with the project\'s map.',
       },
       {
         signature: 'async projectFolder(projectPath: string): Promise<ProjectDocsFolder | undefined>',
@@ -1059,12 +1059,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'idealizeSkills',
-    summary: 'The service face: the folder\'s packages as they sit on disk, whether or not the registry accepted them.',
-    description: 'The service face: the folder\'s packages as they sit on disk, whether or not the registry accepted them.',
+    summary: 'The service face: the folder\'s packages and accepted unpacked folders as they sit on disk, whether or not the registry accepted them.',
+    description: 'The service face: the folder\'s packages and accepted unpacked folders as they sit on disk, whether or not the registry accepted them.',
     methods: [
       {
         signature: 'catalogue(): Promise<readonly CatalogueGroup[]>',
-        description: 'The catalogue: packages in the skills folder first, then each subfolder by name.',
+        description: 'The catalogue: the skills folder\'s own entries first, then each subfolder by name.',
         parameters: [],
         returns: 'the groups; empty when no folder is set or readable.',
       },
@@ -1941,6 +1941,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Register a borrowed readonly runtime skill into the calling context\'s layer. Project entries outrank runtime entries, which outrank user entries, within one layer. Same-name runtime entries in one layer are first-wins; a duplicate logs a warning and receives a no-op disposer so it cannot remove the winner.',
         parameters: [{ name: 'skill', description: 'the skill definition input; omitted invocation and provider fields receive defaults.' }],
         returns: 'the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.',
+      },
+      {
+        signature: 'registerFilter(filter: SkillViewFilter): () => void',
+        description: 'Register a view filter. Every later `snapshot()`, `list()`, and `get()` passes its winning summaries through each registered filter in registration order, whatever layer the summaries came from, so a consumer cannot list or load a skill a filter removed. Filters apply to every viewing scope and decide per call from the view options they receive. Registration and disposal invalidate catalog caches and emit `skills/change`.',
+        parameters: [{ name: 'filter', description: 'the borrowed filter function.' }],
+        returns: 'the exact Cordis effect disposer that removes this filter.',
       },
       {
         signature: 'async list(options: SkillViewOptions = {}): Promise<SkillSummary[]>',
@@ -2963,6 +2969,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'One scheduled run finished (any status); the host bridge forwards it to the shell\'s notification feed.',
     description: 'One scheduled run finished (any status); the host bridge forwards it to the shell\'s notification feed.',
     parameters: [{ name: 'run', description: 'The recorded run: status, timing, and the session it ran in.' }, { name: 'task', description: 'The task definition that fired.' }],
+  },
+  {
+    name: 'idealize/cron-run-started',
+    mode: 'emit',
+    signature: '\'idealize/cron-run-started\'(task: CronTask, sessionId: string): void',
+    summary: 'A scheduled task\'s chat was created and has not been given its instructions yet.',
+    description: 'A scheduled task\'s chat was created and has not been given its instructions yet. A plugin that limits what one task\'s chat may do starts here; `idealize/cron-run` for the same task ends it.',
+    parameters: [{ name: 'task', description: 'The task definition that fired.' }, { name: 'sessionId', description: 'The session the run executes in.' }],
   },
   {
     name: 'idealize/studio-event',

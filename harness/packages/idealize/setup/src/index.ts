@@ -22,6 +22,9 @@
  * - `POST /idealize/setup/project-docs` — `{project, path}`: choose one
  *   project's documentation folder; an empty `path` returns the project to
  *   the folder the documentation vault resolves for it.
+ * - `GET  /idealize/setup/weekly-review` — the weekly review offer as it stands.
+ * - `POST /idealize/setup/weekly-review` — `{accept: true}`: the person accepts
+ *   the offer; the weekly calendar entry is saved (`./review.ts`).
  *
  * @module @idealize/setup
  */
@@ -40,9 +43,29 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import type {} from '@idealize/doc-policy'
 import { probeFolder } from './probe.ts'
 import type { AliasAccessState } from './probe.ts'
+import { installWeeklyReview } from './review.ts'
 
 export { probeFolder } from './probe.ts'
 export type { AliasAccessState, FolderProbe } from './probe.ts'
+export {
+  ANY_DEPTH,
+  BUNDLED_SKILLS_PROVIDER_NAME,
+  bundledSkillsDir,
+  DEFAULT_NEVER_EDIT_FOLDERS,
+  folderRuleProblem,
+  matchingFolderRule,
+  resolveReviewFolders,
+  REVIEW_DAY,
+  REVIEW_SETTINGS_NAMESPACE,
+  REVIEW_SKILL_NAME,
+  REVIEW_TASK_NAME,
+  REVIEW_TIME,
+  reviewPrompt,
+  reviewSchedule,
+  ReviewSettingsSchema,
+  WeeklyReview,
+} from './review.ts'
+export type { ReviewFolders, ReviewOffer, ReviewSettings } from './review.ts'
 
 /** Cordis plugin name. */
 export const name = 'idealize-setup'
@@ -221,6 +244,12 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/** Construction options; the plugin body passes them. */
+export interface WorkspaceAliasesOptions {
+  /** Runs after a `documentation` write seeded doc-policy and its scan settled; an accepted weekly review follows the folder here. */
+  documentationSeeded?: () => Promise<void>
+}
+
 /**
  * The workspace-alias seam (`ctx.workspaceAliases`) plus the orientation
  * flow behind the `/idealize/setup` routes.
@@ -244,8 +273,9 @@ export class WorkspaceAliases extends Service {
   /**
    * @param ctx - the plugin context; the settings section registers when a
    * settings provider is composed and detaches with it.
+   * @param options - what the plugin body asks to hear about.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, private readonly options: WorkspaceAliasesOptions = {}) {
     super(ctx, 'workspaceAliases')
     ctx.inject(['settings'], (sctx) => {
       const scope = sctx.settings.register(NS, SetupSettingsSchema)
@@ -476,6 +506,7 @@ export class WorkspaceAliases extends Service {
         this.ctx.logger.warn(error)
       }
     }
+    await this.options.documentationSeeded?.()
   }
 }
 
@@ -537,7 +568,38 @@ export function parseOrientationRequest(body: Record<string, unknown>): Orientat
  * @param ctx - host plugin context.
  */
 export function apply(ctx: Context): void {
-  ctx.plugin(WorkspaceAliases)
+  const review = installWeeklyReview(ctx)
+  ctx.plugin(WorkspaceAliases, { documentationSeeded: () => review.sync() })
+
+  ctx.inject(['webServer'], (webCtx) => {
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/idealize/setup/weekly-review',
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          if (refuse(req, res)) return
+          sendJson(res, 200, await review.offer())
+          return
+        }
+        if (refuse(req, res, true)) return
+        const body = parseObjectBody(await readBody(req))
+        if (!body.ok) {
+          sendJson(res, 400, { ok: false, error: body.error })
+          return
+        }
+        if (body.value.accept !== true) {
+          sendJson(res, 400, { ok: false, error: 'accept must be true; the weekly review is switched off in the Schedule pane' })
+          return
+        }
+        try {
+          sendJson(res, 200, { ok: true, offer: await review.accept() })
+        } catch (error) {
+          /* v8 ignore next -- every refusal the review or the calendar raises is an Error; the cast only types a thrown non-Error. */
+          sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    }), 'idealize-setup: weekly review route')
+  })
 
   ctx.inject(['workspaceAliases', 'webServer'], (webCtx) => {
     const aliases = webCtx.workspaceAliases

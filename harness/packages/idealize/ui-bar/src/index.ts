@@ -63,6 +63,11 @@ const DESKTOP_NS = settingsNamespace('dsh-desktop')
 type ShellMode = 'compatibility' | 'advanced'
 
 /** The desktop shell's narrow action face, present only under the Electron host. */
+/** The one `@idealize/doc-policy` method this package probes for; no import, so a composition without it still loads. */
+interface DocPolicyLike {
+  markChecked?: (path: string) => Promise<{ ok: true; by: string; at: string } | { ok: false; reason: string }>
+}
+
 interface DesktopActionsLike {
   openTerminal(): void
   /** Move a path to the OS trash (Electron's `shell.trashItem`); absent on older shells. */
@@ -310,6 +315,29 @@ export function apply(ctx: Context): void {
       return insideRoots(resolved, roots) ? resolved : undefined
     }
 
+    /**
+     * The documentation fence: the documentation folder plus each project's
+     * chosen documentation folder, the folders the Documentation views show.
+     * Symlinks resolve before the check.
+     */
+    const docsFencedPath = async (raw: string): Promise<string | undefined> => {
+      const aliases = webCtx.get('workspaceAliases')
+      if (aliases === undefined) return undefined
+      const folders = [(await aliases.resolve('documentation'))?.path, ...Object.values(aliases.chosenProjectDocumentation())]
+      const roots: string[] = []
+      let resolved: string
+      try {
+        resolved = await realpath(fromHome(raw))
+        for (const folder of folders) {
+          if (folder !== undefined) roots.push(await realpath(folder))
+        }
+      } catch {
+        // A path or a documentation folder that is gone fences nothing.
+        return undefined
+      }
+      return insideRoots(resolved, roots) ? resolved : undefined
+    }
+
     /** Directory entries, dotfiles hidden, directories first. */
     const listEntries = async (target: string): Promise<FileEntry[]> => {
       const listed = await readdir(target, { withFileTypes: true })
@@ -554,6 +582,28 @@ export function apply(ctx: Context): void {
       const copied = await copyName(target)
       await cp(target, copied, { recursive: true, errorOnExist: true, force: false })
       sendJson(res, 200, { ok: true, path: copied })
+    })
+
+    /**
+     * Mark as checked: add the user to a documentation note's `verified`
+     * list. `@idealize/doc-policy` owns the field and writes it; this route
+     * confines the path to the folders the Documentation views show.
+     */
+    register('/idealize/bar/mark-checked', true, async (req, res) => {
+      const body = JSON.parse(await readBody(req)) as { path?: unknown }
+      const target = typeof body.path === 'string' ? await docsFencedPath(body.path) : undefined
+      if (target === undefined) {
+        sendJson(res, 403, { error: 'path outside the documentation folders' })
+        return
+      }
+      const policy = (webCtx as unknown as { get(name: string): unknown }).get('docPolicy') as DocPolicyLike | undefined
+      if (typeof policy?.markChecked !== 'function') {
+        sendJson(res, 501, { error: 'documentation policy is not composed' })
+        return
+      }
+      const result = await policy.markChecked(target)
+      if (result.ok) sendJson(res, 200, { ok: true, by: result.by, at: result.at })
+      else sendJson(res, 422, { error: result.reason })
     })
 
     /** Move a fenced entry into a fenced folder (a drag between the trees). */

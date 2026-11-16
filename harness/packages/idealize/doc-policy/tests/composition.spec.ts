@@ -65,6 +65,20 @@ describe('doc-policy real composition', () => {
     expect(value.hits.map(hit => hit.path)).toEqual(['Projects/acme/_index.md'])
     expect(value.hits[0]!.snippet).toContain('heliotrope')
 
+    // Word search through the tool: every word in any order, where the phrase finds nothing.
+    const search = async (args: Record<string, unknown>): Promise<string[]> => {
+      const found = await ctx.tools.execute({
+        signal: new AbortController().signal, callId: CallId(`docs-search-${JSON.stringify(args)}`), name: 'docs_search', arguments: args,
+      })
+      if (found.isError) throw new Error('expected docs_search success')
+      return (found.value as { hits: Array<{ path: string }> }).hits.map(hit => hit.path)
+    }
+    expect(await search({ query: 'pigment heliotrope' })).toEqual([])
+    expect(await search({ query: 'pigment heliotrope', match: 'all' })).toEqual(['Projects/acme/_index.md'])
+    expect(await search({ query: 'heliotrope unicorn', match: 'any' })).toEqual(['Projects/acme/_index.md'])
+    expect(await search({ query: 'heliotrope pigment', match: 'phrase' })).toEqual(['Projects/acme/_index.md'])
+    expect((await ctx.docPolicy.search('pigment heliotrope', 5, 'all')).map(hit => hit.path)).toEqual(['Projects/acme/_index.md'])
+
     // DOC-04/07: the scan history landed in the storage domain with its policy version.
     const domain = ctx.storageDomain.get('idealize_docs')
     expect(domain).toBeDefined()
@@ -114,6 +128,52 @@ describe('doc-policy real composition', () => {
     expect(second?.docCount).toBe((first?.docCount ?? 0) + 1)
     expect(scans.size).toBe(recordedAfterFirst + 1)
     expect((await ctx.docPolicy.search('copper patina', 5)).map(hit => hit.path)).toEqual(['Reference/verdigris.md'])
+  }, 30_000)
+
+  it('docs_search labels a stale note and ranks it last, and a scan reruns when a note passes its stale_after', async () => {
+    root = await mkdtemp(join(tmpdir(), 'idealize-doc-policy-stale-'))
+    const vault = join(root, 'vault')
+    await mkdir(join(vault, 'Reference'), { recursive: true })
+    const soon = new Date(Date.now() + 400).toISOString()
+    await writeFile(
+      join(vault, 'Reference', 'prices-old.md'),
+      `---\ntype: research\nstatus: reviewed\ndescription: Supplier prices from spring.\nstale_after: 2026-01-01T00:00:00Z\n---\n# Old\n\n${'verdigris pigment price '.repeat(5)}\n`,
+    )
+    await writeFile(join(vault, 'Reference', 'prices-new.md'), `---\nstale_after: ${soon}\n---\n# New\n\nThe verdigris pigment price this month.\n`)
+    await writeFile(join(vault, 'Reference', 'plain.md'), '# Plain\n\nA verdigris pigment price with no frontmatter.\n')
+    const ctx = new Context()
+    context = ctx
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(docPolicy, { documentationFolder: vault })
+
+    const first = await ctx.docPolicy.scan()
+    expect(first?.findings.map(finding => [finding.path, finding.rule])).toEqual([['Reference/prices-old.md', 'stale']])
+    expect(await ctx.docPolicy.scan()).toBe(first)
+
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId: CallId('docs-search-stale'),
+      name: 'docs_search',
+      arguments: { query: 'verdigris pigment price' },
+    })
+    if (result.isError) throw new Error('expected docs_search success')
+    const value = result.value as { hits: Array<{ path: string; stale?: boolean; type?: string; status?: string; description?: string }> }
+    expect(value.hits.at(-1)).toMatchObject({
+      path: 'Reference/prices-old.md', stale: true, type: 'research', status: 'reviewed', description: 'Supplier prices from spring.',
+    })
+    const lines = result.content.map(block => (block.type === 'text' ? block.text : '')).join('').split('\n')
+    expect(lines).toHaveLength(3)
+    expect(lines.at(-1))
+      .toMatch(/^Reference\/prices-old\.md \[type: research; status: reviewed; stale\] — Supplier prices from spring\. — /)
+    expect(lines.some(line => line.startsWith('Reference/plain.md — '))).toBe(true)
+
+    // No file changes, yet the second note passes its stale_after: the next scan runs and reports it.
+    await new Promise(resolve => setTimeout(resolve, 450))
+    const second = await ctx.docPolicy.scan()
+    expect(second).not.toBe(first)
+    expect(second?.findings.map(finding => finding.path).sort()).toEqual(['Reference/prices-new.md', 'Reference/prices-old.md'])
+    expect(docPolicy.renderHit({ path: 'a.md', kind: 'reference', title: 'A', snippet: 'text', stale: true })).toBe('a.md [stale] — text')
   }, 30_000)
 
   it('lets a session flush return before its rescan finishes, and settles the rescan at disposal', async () => {

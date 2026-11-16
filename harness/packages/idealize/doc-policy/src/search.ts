@@ -3,8 +3,8 @@
  * an in-memory SQLite FTS5 table rebuilt on every scan. Derived, disposable
  * data — nothing here persists, so there is no schema versioning or file
  * management; the authoritative content stays on disk in the user's folder.
- * MATCH input follows the session-query-sqlite posture: caller text is quoted
- * as one phrase so FTS5 query syntax stays inert data.
+ * MATCH input follows the session-query-sqlite posture: caller text is always
+ * quoted, as one phrase or word by word, so FTS5 query syntax stays inert data.
  */
 
 import type { DatabaseSync } from 'node:sqlite'
@@ -27,6 +27,28 @@ export interface DocsSearchHit {
   title: string
   /** Whitespace-normalized excerpt around the first match. */
   snippet: string
+  /** The note's frontmatter `type`, when it carries one. */
+  type?: string
+  /** The note's frontmatter `status`, when it carries one. */
+  status?: string
+  /** The note's frontmatter `description`, when it carries one. */
+  description?: string
+  /** Present and true when the note is past its `stale_after`. */
+  stale?: boolean
+}
+
+/** Statuses that mark a note as no longer current; hits carrying one rank below the rest. */
+const RETIRED_STATUSES = ['deprecated', 'archived'] as const
+
+interface Row {
+  path: string
+  kind: string
+  title: string
+  marked: string
+  type: string
+  status: string
+  description: string
+  stale: number
 }
 
 /** Strip NUL and reserved marker characters before text enters FTS5. */
@@ -37,9 +59,32 @@ function sanitize(text: string): string {
     .replaceAll(MARK_END, '�')
 }
 
+/**
+ * How a query's words are matched: `phrase` finds the words together in the
+ * order given, `all` finds notes holding every word in any order, `any` finds
+ * notes holding at least one.
+ */
+export type DocsMatch = 'phrase' | 'all' | 'any'
+
+/** Every match mode, in the order the tool schema lists them. */
+export const DOCS_MATCH_MODES: readonly DocsMatch[] = ['phrase', 'all', 'any']
+
 /** Quote caller text as one FTS5 phrase so query syntax remains inert data. */
 function quotePhrase(query: string): string {
   return `"${query.replaceAll('"', '""')}"`
+}
+
+/**
+ * The FTS5 MATCH expression for a whitespace-normalized query. In `all` and
+ * `any` each word is quoted on its own and the quoted words are joined with
+ * the operator, so an operator, a quote or a `*` the caller typed is searched
+ * for as text. A word with no letter or digit holds nothing FTS5 indexes and
+ * is left out; a query made only of such words is matched as a phrase.
+ */
+function matchExpression(normalized: string, match: DocsMatch): string {
+  const words = match === 'phrase' ? [] : [...new Set(normalized.split(' ').filter(word => /[\p{L}\p{N}]/u.test(word)))]
+  if (words.length === 0) return quotePhrase(normalized)
+  return words.map(quotePhrase).join(match === 'all' ? ' AND ' : ' OR ')
 }
 
 /** Whitespace-normalized excerpt of at most {@link SNIPPET_CHARS} characters, centered on the first match. */
@@ -86,6 +131,10 @@ export class DocsIndex {
           path UNINDEXED,
           kind UNINDEXED,
           title UNINDEXED,
+          type UNINDEXED,
+          status UNINDEXED,
+          description UNINDEXED,
+          stale_at UNINDEXED,
           tokenize = 'unicode61'
         )
       `)
@@ -104,9 +153,15 @@ export class DocsIndex {
     db.exec('BEGIN')
     try {
       db.exec('DELETE FROM docs')
-      const insert = db.prepare('INSERT INTO docs (text, path, kind, title) VALUES (?, ?, ?, ?)')
+      const insert = db.prepare(
+        'INSERT INTO docs (text, path, kind, title, type, status, description, stale_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
       for (const doc of docs) {
-        insert.run(sanitize(doc.text), doc.path, doc.kind, sanitize(doc.title))
+        insert.run(
+          sanitize(doc.text), doc.path, doc.kind, sanitize(doc.title),
+          sanitize(doc.type ?? ''), sanitize(doc.status ?? ''), sanitize(doc.description ?? ''),
+          doc.staleAt === undefined ? '' : String(doc.staleAt),
+        )
       }
       db.exec('COMMIT')
     } catch (error) {
@@ -126,32 +181,38 @@ export class DocsIndex {
   }
 
   /**
-   * Phrase-match the corpus.
-   * @param query - caller text; treated as one literal phrase.
+   * Search the corpus. Notes whose status is `deprecated` or
+   * `archived`, and notes past their `stale_after`, rank below every other
+   * hit; within each group the best match comes first.
+   * @param query - caller text; never read as FTS5 syntax.
    * @param limit - maximum hits.
+   * @param options - how to match and when.
+   * @param options.match - `phrase` (the default), `all` or `any`.
+   * @param options.now - the instant `stale_after` is compared with, in epoch milliseconds.
    * @returns best-first hits with snippets.
    */
-  async search(query: string, limit: number): Promise<DocsSearchHit[]> {
+  async search(query: string, limit: number, options: { match?: DocsMatch; now?: number } = {}): Promise<DocsSearchHit[]> {
+    const { match = 'phrase', now = Date.now() } = options
     const normalized = sanitize(query.trim().replace(/\s+/gu, ' '))
     if (normalized === '') return []
     const db = await this.ensure()
     const rows = db.prepare(`
-      SELECT path, kind, title, highlight(docs, 0, ?, ?) AS marked
+      SELECT path, kind, title, type, status, description, highlight(docs, 0, ?, ?) AS marked,
+        (stale_at <> '' AND CAST(stale_at AS INTEGER) <= ?) AS stale
       FROM docs
       WHERE docs MATCH ?
-      ORDER BY rank
+      ORDER BY (stale OR lower(status) IN (${RETIRED_STATUSES.map(status => `'${status}'`).join(', ')})), rank
       LIMIT ?
-    `).all(MARK_START, MARK_END, quotePhrase(normalized), limit) as unknown as Array<{
-      path: string
-      kind: string
-      title: string
-      marked: string
-    }>
+    `).all(MARK_START, MARK_END, now, matchExpression(normalized, match), limit) as unknown as Row[]
     return rows.map(row => ({
       path: row.path,
       kind: row.kind,
       title: row.title,
       snippet: makeSnippet(row.marked),
+      ...row.type === '' ? {} : { type: row.type },
+      ...row.status === '' ? {} : { status: row.status },
+      ...row.description === '' ? {} : { description: row.description },
+      ...row.stale === 1 ? { stale: true } : {},
     }))
   }
 

@@ -289,6 +289,17 @@ describe('POST /idealize/activity/agent composes by space', () => {
     expect(retro.persona).toBe('Heavy film grain.')
   })
 
+  it('keeps the skill list a brain\'s preset.yml holds when a save rewrites the file', async () => {
+    const { port, presets } = await boot()
+    await post(port, AGENT, { name: 'Notes', model: null, instructions: '', spaces: ['chat'] })
+    const metadata = join(presets, 'notes', 'preset.yml')
+    await writeFile(metadata, `${await readFile(metadata, 'utf8')}skills:\n  - release-notes\n`)
+
+    await post(port, AGENT, { id: 'notes', name: 'Field notes', model: null, instructions: 'Be brief.' })
+
+    expect(load(await readFile(metadata, 'utf8'))).toMatchObject({ name: 'Field notes', skills: ['release-notes'] })
+  })
+
   it('lists Free in Chat alone: no command-line agent plays the free-tokens route in the terminal', async () => {
     const { port } = await boot()
     const agents = JSON.parse((await get(port, '/idealize/activity/agents')).body) as { agents: { id: string; spaces: string[] }[] }

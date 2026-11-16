@@ -87,6 +87,28 @@ Skill names are kebab-case (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). The local provider ac
 type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
 ```
 
+## View filters
+
+`ctx.skills.registerFilter(filter)` narrows what one view of the catalog shows after layers and ranks have chosen each name's winner. The registry applies every filter to `snapshot()`, `list()`, and `get()`, so the session catalog, the `skill` tool, a `/name` gesture, and `skill.list` agree on the same set.
+
+```ts type-equiv
+/**
+ * Narrows one view of the catalog after layers and ranks have chosen each
+ * name's winner. The registry calls every registered filter on each
+ * `snapshot()`, `list()`, and `get()`, outside the catalog cache, so a filter
+ * may answer from state the registry cannot observe. A filter returns a subset
+ * of the summaries it received, in the order received, and must not throw: a
+ * thrown error or rejected promise fails the read that called it.
+ * @param skills - the winning summaries still visible to this view, sorted by name.
+ * @param options - the view options of the read, including the viewing scope.
+ * @returns the summaries this view keeps.
+ */
+type SkillViewFilter = (
+  skills: readonly SkillSummary[],
+  options: SkillViewOptions,
+) => readonly SkillSummary[] | Promise<readonly SkillSummary[]>
+```
+
 ## Summaries, candidates, and complete definitions
 
 `SkillSummary` is the registry's invocation-neutral summary shape. Consumers choose which entries and fields to render; the model session catalog uses only model-invocable `name` and `description`, never the body or absolute file path. `SkillInvocationPolicy` normalizes the two independent invocation controls into positive booleans, and every resolved summary, candidate, and definition carries it without turning arbitrary frontmatter into the domain model.
@@ -244,17 +266,17 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.idealizeSkills` — `IdealizeSkillsService`
 
-The service face: the folder's packages as they sit on disk, whether or not the registry accepted them.
+The service face: the folder's packages and accepted unpacked folders as they sit on disk, whether or not the registry accepted them.
 
 ```ts cordis-catalog
 /**
- * The catalogue: packages in the skills folder first, then each subfolder by name.
+ * The catalogue: the skills folder's own entries first, then each subfolder by name.
  * @returns the groups; empty when no folder is set or readable.
  */
 catalogue(): Promise<readonly CatalogueGroup[]>
 ```
 
-Source: [`packages/idealize/skills/src/index.ts:78`](../../packages/idealize/skills/src/index.ts)
+Source: [`packages/idealize/skills/src/index.ts:110`](../../packages/idealize/skills/src/index.ts)
 
 <a id="ctxskills--skillregistry"></a>
 
@@ -288,6 +310,18 @@ registerProvider(create: (control: SkillProviderControl) => SkillProvider): () =
 register(skill: SkillRegistration): () => void
 
 /**
+ * Register a view filter. Every later `snapshot()`, `list()`, and `get()`
+ * passes its winning summaries through each registered filter in
+ * registration order, whatever layer the summaries came from, so a consumer
+ * cannot list or load a skill a filter removed. Filters apply to every
+ * viewing scope and decide per call from the view options they receive.
+ * Registration and disposal invalidate catalog caches and emit `skills/change`.
+ * @param filter - the borrowed filter function.
+ * @returns the exact Cordis effect disposer that removes this filter.
+ */
+registerFilter(filter: SkillViewFilter): () => void
+
+/**
  * List invocation-neutral skill summaries for a workspace. Consumers apply
  * model or user invocation policy at their operational boundary. Lookup
  * options and provider candidates are readonly same-process values borrowed
@@ -318,7 +352,7 @@ async snapshot(options: SkillViewOptions = {}): Promise<SkillCatalogSnapshot>
 async get(name: string, options: SkillViewOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Source: [`packages/skill/skill/src/index.ts:357`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:373`](../../packages/skill/skill/src/index.ts)
 
 <a id="skills-events"></a>
 
@@ -341,5 +375,5 @@ A skill provider, runtime contribution, or provider-backed catalog may have chan
 'skills/change'(): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:297`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:313`](../../packages/skill/skill/src/index.ts)
 <!-- END GENERATED cordis-surface -->

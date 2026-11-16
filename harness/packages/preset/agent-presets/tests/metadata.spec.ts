@@ -78,6 +78,17 @@ describe('reading display metadata', () => {
     expect(await readPresetMetadata(await presetDir('order: .inf\n'))).toEqual({})
   })
 
+  it('reads a skills list, trimming names and dropping entries that are not names', async () => {
+    const dir = await presetDir('skills:\n  - " release-notes "\n  - 7\n  - ""\n  - triage\n')
+
+    expect(await readPresetMetadata(dir)).toEqual({ skills: ['release-notes', 'triage'] })
+  })
+
+  it('keeps an empty skills list apart from an absent one, and ignores a value that is not a list', async () => {
+    expect(await readPresetMetadata(await presetDir('name: a\nskills: []\n'))).toEqual({ name: 'a', skills: [] })
+    expect(await readPresetMetadata(await presetDir('name: a\nskills: release-notes\n'))).toEqual({ name: 'a' })
+  })
+
   it('cannot carry identity or trust', async () => {
     const dir = await presetDir('name: mine\nid: standard\ntrust: system\n')
 
@@ -103,6 +114,13 @@ describe('rendering display metadata', () => {
     expect(renderPresetMetadata({ name: '极简模式' })).toBe('name: 极简模式\n')
     // Description without a name is legal too: the picker falls back to the id.
     expect(renderPresetMetadata({ description: '只做检索。' })).toBe('description: 只做检索。\n')
+  })
+
+  it('stores a skills list, an empty one included, and round-trips it', async () => {
+    expect(renderPresetMetadata({ name: 'a', skills: ['release-notes', 'triage'] })).toBe('name: a\nskills:\n  - release-notes\n  - triage\n')
+    const rendered = renderPresetMetadata({ skills: [] })
+    expect(rendered).toBe('skills: []\n')
+    expect(await readPresetMetadata(await presetDir(rendered))).toEqual({ skills: [] })
   })
 
   it('renders nothing when there is nothing to store', () => {

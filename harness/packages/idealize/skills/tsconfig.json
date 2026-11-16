@@ -27,6 +27,27 @@
       "path": "../../skill/skill-filesystem"
     },
     {
+      "path": "../../core/scope"
+    },
+    {
+      "path": "../../preset/agent-presets"
+    },
+    {
+      "path": "../doc-policy"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../spaces"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

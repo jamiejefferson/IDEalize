@@ -128,6 +128,68 @@ async function approveTask(id: string): Promise<string | undefined> {
   return body.error ?? `approve ${String(response.status)}`
 }
 
+/** Where the pane remembers that the person hid the weekly review suggestion. */
+const REVIEW_HIDDEN_KEY = 'idealize-schedule:weekly-review-hidden'
+
+/** The weekly documentation review as `@idealize/setup` reports it. */
+interface ReviewOffer {
+  /** The documentation folder the review would run in; absent until one is chosen. */
+  folder?: string
+  /** Whether the calendar already holds the review's entry. */
+  accepted?: boolean
+}
+
+/**
+ * Whether the person hid the suggestion in this window's storage.
+ * @returns true when hidden; false when storage is unavailable.
+ */
+function reviewHidden(): boolean {
+  try {
+    return localStorage.getItem(REVIEW_HIDDEN_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** Remember that the person hid the suggestion; a refusal from storage hides it for this mount only. */
+function hideReview(): void {
+  try {
+    localStorage.setItem(REVIEW_HIDDEN_KEY, '1')
+  } catch {
+    // Storage is unavailable; the component state still hides the row.
+  }
+}
+
+/**
+ * The folder the weekly review would run in, when the suggestion applies: a
+ * documentation folder is chosen, the calendar holds no review entry, and the
+ * person has not hidden the row.
+ * @returns the folder, or undefined when there is nothing to suggest (including a build without the setup routes).
+ */
+async function readReviewFolder(): Promise<string | undefined> {
+  if (reviewHidden()) return undefined
+  try {
+    const response = await fetch('/idealize/setup/weekly-review')
+    if (!response.ok) return undefined
+    const offer = await response.json() as ReviewOffer
+    return offer.accepted === true ? undefined : offer.folder
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The person switches the weekly review on, which saves its calendar entry.
+ * @returns the host's reason when it refused, or undefined when the entry was saved.
+ */
+async function acceptReview(): Promise<string | undefined> {
+  const init = { method: 'POST', headers: HEADERS, body: JSON.stringify({ accept: true }) }
+  const response = await fetch('/idealize/setup/weekly-review', init)
+  if (response.ok) return undefined
+  const body = await response.json() as { error?: string }
+  return body.error ?? `weekly review ${String(response.status)}`
+}
+
 function toDraft(task: TaskView): TaskDraft {
   return {
     id: task.id,
@@ -164,6 +226,8 @@ export function ScheduleView(props: ScheduleViewProps) {
   const [drag, setDrag] = useState<Drag | null>(null)
   const [moved, setMoved] = useState<string | undefined>(undefined)
   const [approvalError, setApprovalError] = useState<string | undefined>(undefined)
+  const [reviewFolder, setReviewFolder] = useState<string | undefined>(undefined)
+  const [reviewError, setReviewError] = useState<string | undefined>(undefined)
   // Set when a press travelled past the slop, so the click that follows the release does not open the editor.
   const dragged = useRef(false)
   const lane = useRef<HTMLDivElement>(null)
@@ -172,6 +236,7 @@ export function ScheduleView(props: ScheduleViewProps) {
     try {
       setTasks(await readTasks())
       setLoad({ status: 'ready' })
+      setReviewFolder(await readReviewFolder())
     } catch (error) {
       setLoad({ status: 'failed', cause: error instanceof Error ? error.message : String(error) })
     }
@@ -522,6 +587,44 @@ export function ScheduleView(props: ScheduleViewProps) {
             </div>
           ))}
           {approvalError !== undefined && <p className={css.approvalError} role="alert">{approvalError}</p>}
+        </section>
+      )}
+
+      {/* The weekly documentation review, for a person who set up before it
+          existed or passed it by at setup. Switching it on saves an ordinary
+          calendar entry, which is changed and switched off like any other. */}
+      {reviewFolder !== undefined && (
+        <section className={css.approvals} aria-label={t('sched.review.title')} data-schedule-review="">
+          <h3 className={css.approvalsTitle}>{t('sched.review.title')}</h3>
+          <p className={css.approvalsNote}>{t('sched.review.note', { folder: reviewFolder })}</p>
+          <div className={css.approvalActions}>
+            <button
+              type="button"
+              className={css.approvalButton}
+              data-schedule-review-accept=""
+              onClick={() => {
+                void acceptReview().then(async (refused) => {
+                  setReviewError(refused)
+                  await refresh()
+                })
+              }}
+            >
+              {t('sched.review.accept')}
+            </button>
+            <button
+              type="button"
+              className={css.approvalButton}
+              data-schedule-review-hide=""
+              onClick={() => {
+                hideReview()
+                setReviewError(undefined)
+                setReviewFolder(undefined)
+              }}
+            >
+              {t('sched.review.hide')}
+            </button>
+          </div>
+          {reviewError !== undefined && <p className={css.approvalError} role="alert">{reviewError}</p>}
         </section>
       )}
 

@@ -551,7 +551,7 @@ export function apply(ctx: Context, config: Config): void {
         const spaces = placement.spaces ?? presetSpaces(id, rolePresets(webCtx), (current().spaces ?? {})[id])
         const generating = mediaCompositionFor(spaces, name, instructions)
         let composition: string
-        let metadata: { description?: string; order?: number } = {}
+        let metadata: { description?: string; order?: number; skills?: readonly string[] } = {}
         if (existing !== undefined) {
           if (!editable(existing.path)) {
             sendJson(res, 400, { error: `"${id}" is a shipped preset; copy it before editing` })
@@ -561,6 +561,9 @@ export function apply(ctx: Context, config: Config): void {
           metadata = {
             ...existing.description === undefined ? {} : { description: existing.description },
             ...existing.order === undefined ? {} : { order: existing.order },
+            // The brain's skill list (`@idealize/skills` applies it) is not
+            // edited here, so a save writes back the list the file held.
+            ...existing.skills === undefined ? {} : { skills: existing.skills },
           }
           if (generating !== undefined) {
             if (!isGenerationOnlyComposition(composition)) composition = generating

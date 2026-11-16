@@ -4,6 +4,10 @@
  * route — the verdict renders verbatim and Continue engages only on a
  * successful probe of the current path. An existing `idealize-setup` alias
  * pre-fills the field, so a returning user confirms in one tap.
+ *
+ * The documentation step also offers the weekly review once its folder passes
+ * the probe (JJ, 16 Nov 2026). The box starts unticked; Continue accepts the
+ * offer only when the person ticked it, and a refusal renders in place.
  */
 import { useEffect, useRef, useState } from 'react'
 import type { StepBodyProps } from './AgentsStepBody.tsx'
@@ -37,6 +41,10 @@ export function FolderStepBody(props: FolderStepBodyProps) {
   const [manual, setManual] = useState(false)
   const [probe, setProbe] = useState<ProbeVerdict | null>(null)
   const probeToken = useRef(0)
+  const offersReview = alias === 'documentation'
+  const [reviewOn, setReviewOn] = useState(false)
+  const [wantsReview, setWantsReview] = useState(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
 
   useEffect(() => {
     registerCommit(null)
@@ -46,6 +54,26 @@ export function FolderStepBody(props: FolderStepBodyProps) {
     }
     // Mount-only pre-fill from the existing setup aliases.
   }, [])
+
+  useEffect(() => {
+    if (!offersReview) return
+    api.loadWeeklyReview().then(setReviewOn, () => { setReviewOn(false) })
+    // Mount-only: the step re-reads the offer on every entry.
+  }, [])
+
+  useEffect(() => {
+    if (!offersReview) return
+    registerCommit(wantsReview && !reviewOn
+      ? async () => {
+        setReviewError(null)
+        const outcome = await api.acceptWeeklyReview()
+        if (!outcome.ok) setReviewError(outcome.error)
+        return outcome.ok
+      }
+      : null)
+    return () => { registerCommit(null) }
+    // The commit follows the tick; the api identity is stable.
+  }, [wantsReview, reviewOn])
 
   useEffect(() => {
     if (value === '') {
@@ -111,6 +139,27 @@ export function FolderStepBody(props: FolderStepBodyProps) {
       )}
       {probe?.state === 'failed' && probe.path === value && (
         <p className={css.error} data-folder-error>{probe.reason}</p>
+      )}
+      {offersReview && ready && (
+        <div className={css.offer} data-weekly-review>
+          {reviewOn
+            ? <p className={css.hint} data-weekly-review-on>{t('review.on')}</p>
+            : (
+              <>
+                <label className={css.check}>
+                  <input
+                    type="checkbox"
+                    checked={wantsReview}
+                    onChange={(event) => { setWantsReview(event.target.checked) }}
+                    data-weekly-review-accept
+                  />
+                  {t('review.offer')}
+                </label>
+                <p className={css.hint}>{t('review.hint')}</p>
+              </>
+            )}
+          {reviewError !== null && <p className={css.error} data-weekly-review-error>{reviewError}</p>}
+        </div>
       )}
     </div>
   )

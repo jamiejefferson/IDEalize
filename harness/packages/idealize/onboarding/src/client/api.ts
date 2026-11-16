@@ -1,6 +1,6 @@
 /**
  * The wizard's route client: typed fetches over the host's onboarding,
- * models, activity, and media routes. Pure fetch wrappers — no cordis, no
+ * setup, models, activity, and media routes. Pure fetch wrappers — no cordis, no
  * React — so the step bodies and their specs share one wire mapping. Every
  * mutation carries the `x-idealize-auth` header the host fences demand.
  * @module @idealize/onboarding/client/api
@@ -50,6 +50,17 @@ export interface OnboardingApi {
    * @returns ok, or the host's plain-language probe refusal.
    */
   probeFolder(alias: 'projectsRoot' | 'documentation' | 'skills', path: string): Promise<SaveOutcome>
+  /**
+   * Whether the weekly documentation review is already on.
+   * @returns true when the person accepted it and its calendar entry is switched on; false when the host cannot say.
+   */
+  loadWeeklyReview(): Promise<boolean>
+  /**
+   * Accept the weekly documentation review: the host saves its calendar entry
+   * in the documentation folder.
+   * @returns ok, or the host's plain refusal.
+   */
+  acceptWeeklyReview(): Promise<SaveOutcome>
   /**
    * Run the orientation: probe + persist both folders, create the first
    * project, seed and scan the documentation vault.
@@ -121,6 +132,11 @@ export function createOnboardingApi(fetchFn: typeof fetch = fetch): OnboardingAp
       if (response.ok && payload.ok === true) return { ok: true }
       return { ok: false, error: payload.failure?.reason ?? payload.error ?? `The route answered HTTP ${String(response.status)}` }
     },
+
+    loadWeeklyReview: () => get<{ accepted?: boolean; enabled?: boolean }>('/idealize/setup/weekly-review')
+      .then(offer => offer.accepted === true && offer.enabled === true, () => false),
+
+    acceptWeeklyReview: () => post('/idealize/setup/weekly-review', { accept: true }),
 
     async orient(body) {
       let response: Response

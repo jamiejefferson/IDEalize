@@ -10,10 +10,14 @@
   "references": [
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
+    { "path": "../../fs/fs" },
     { "path": "../../host/webserver" },
     { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../settings/settings" },
+    { "path": "../../skill/skill" },
+    { "path": "../../skill/skill-filesystem" },
     { "path": "../../workspace/workspace" },
+    { "path": "../cron" },
     { "path": "../doc-policy" }
   ]
 }

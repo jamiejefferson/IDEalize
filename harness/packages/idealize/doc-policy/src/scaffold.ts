@@ -11,6 +11,8 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   CANONICAL_DIRS,
+  NOTE_OPTIONAL_FIELDS,
+  PROJECT_INDEX_OPTIONAL_FIELDS,
   PROJECT_INDEX_REQUIRED_FIELDS,
   PROJECT_INDEX_TEMPLATE,
   RULESET_VERSION,
@@ -28,13 +30,15 @@ export function conventionsText(): string {
 
 Canonical IDEalize documentation ruleset ${RULESET_VERSION.id}.
 
-- One project, one folder under Projects/, anchored by its \`_index.md\`. A project folder without an index is invisible to tooling; the index is the contract.
+- One project, one folder under Projects/, anchored by its \`_index.md\`. A project folder without an index is invisible to tooling.
 - Folders: ${CANONICAL_DIRS.join(', ')}. Decisions/ holds cross-project decisions (\`YYYY-MM-DD-topic.md\`); Reference/ holds durable material not scoped to one project; People/ holds who's who.
-- \`_index.md\` frontmatter carries ${PROJECT_INDEX_REQUIRED_FIELDS.map(field => `\`${field}\``).join(', ')} (plus optional \`repo\`, \`live\`, \`tags\`). The \`repo:\` pointer (absolute path to the working checkout) is what lets tools verify a claim instead of believing it.
-- \`status\` is one of ${STATUS_VOCABULARY.join(' | ')}, and it must be allowed to be wrong — a vault where everything says active carries no information.
+- \`_index.md\` frontmatter carries ${PROJECT_INDEX_REQUIRED_FIELDS.map(field => `\`${field}\``).join(', ')} (plus optional ${PROJECT_INDEX_OPTIONAL_FIELDS.map(field => `\`${field}\``).join(', ')}). The \`repo:\` pointer (absolute path to the working checkout) is what lets tools verify a claim instead of believing it.
+- In a project \`_index.md\`, \`status\` is one of ${STATUS_VOCABULARY.join(' | ')}, and it must be allowed to be wrong: a vault where everything says active carries no information. Other notes carry any \`status\`, and the writer chooses \`type\`; keep values you don't recognise.
+- Optional on any note: ${NOTE_OPTIONAL_FIELDS.map(field => `\`${field}\``).join(', ')}. \`description\` is one sentence, shown in lists and search. IDEalize writes \`generated\`. Add a \`human:\` entry to \`verified\` only when the user confirms the note. Date-times carry a UTC offset.
 - Decisions are append-only and dated (\`### YYYY-MM-DD — Title\`). Reverse a decision by appending a new entry that names the one it supersedes; never edit history.
-- Dates are absolute ISO (YYYY-MM-DD), never "yesterday" or "last week".
-- The session log at the foot of a project note records commit evidence; IDEalize appends to it automatically when a session ends with commits. Do not write \`last_touched\` or \`## Session log\` by hand.
+- Dates are absolute ISO (YYYY-MM-DD), never "last week".
+- The session log is \`log.md\` beside \`_index.md\`. IDEalize writes it when a session ends with commits; do not write it by hand.
+- IDEalize writes \`last_touched\` on project notes that carry \`repo:\`, from commit evidence. On vault-only projects (no \`repo:\`), the session that did the work sets it at session close, and the weekly review may set it.
 - Store what cannot be derived. Anything reconstructible from git, and any secret, stays out; record where a credential lives, never its value.
 `
 }
@@ -48,7 +52,8 @@ export function agentsText(): string {
 
 - Read CONVENTIONS.md before writing.
 - Projects/<name>/_index.md is each project's single source of truth for status and open threads; update it when work lands.
-- \`last_touched\` and \`## Session log\` are maintained automatically from commit evidence — never write them by hand.
+- IDEalize writes the session log, \`log.md\` beside each \`_index.md\`, from commit evidence. Leave it alone.
+- IDEalize writes \`last_touched\` on project notes that carry \`repo:\`, from commit evidence. On vault-only projects (no \`repo:\`), the session that did the work sets it at session close, and the weekly review may set it.
 - Decisions are append-only. Reference/ holds durable external material.
 - A note is a claim, not a fact: verify against the repo before presenting it as current, and never invent an entry you did not observe.
 `

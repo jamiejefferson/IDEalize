@@ -357,6 +357,26 @@ One scheduled run finished (any status); the host bridge forwards it to the shel
 
 Source: [`packages/idealize/cron/src/index.ts:75`](../../packages/idealize/cron/src/index.ts)
 
+<a id="idealizecron-run-started--emit"></a>
+
+#### `idealize/cron-run-started` — emit
+
+A scheduled task's chat was created and has not been given its instructions yet. A plugin that limits what one task's chat may do starts here; `idealize/cron-run` for the same task ends it.
+
+```ts cordis-catalog
+/**
+ * A scheduled task's chat was created and has not been given its
+ * instructions yet. A plugin that limits what one task's chat may do
+ * starts here; `idealize/cron-run` for the same task ends it.
+ * @mode emit
+ * @param task - The task definition that fired.
+ * @param sessionId - The session the run executes in.
+ */
+'idealize/cron-run-started'(task: CronTask, sessionId: string): void
+```
+
+Source: [`packages/idealize/cron/src/index.ts:96`](../../packages/idealize/cron/src/index.ts)
+
 <a id="idealizestudio-event--emit"></a>
 
 #### `idealize/studio-event` — emit

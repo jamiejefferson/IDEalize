@@ -5497,6 +5497,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
+      '@deepseek-ai/dsh-fs':
+        specifier: workspace:^
+        version: link:../../fs/fs
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
@@ -5525,6 +5528,12 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@deepseek-ai/dsh-fs-local':
+        specifier: workspace:^
+        version: link:../../fs/fs-local
+      '@deepseek-ai/dsh-fs-observation-policy':
+        specifier: workspace:^
+        version: link:../../fs/fs-observation-policy
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
@@ -5534,6 +5543,9 @@ importers:
       '@deepseek-ai/dsh-storage-json':
         specifier: workspace:^
         version: link:../../storage/storage-json
+      '@deepseek-ai/dsh-tool-fs':
+        specifier: workspace:^
+        version: link:../../fs/tool-fs
 
   packages/idealize/feedback:
     dependencies:
@@ -6208,6 +6220,9 @@ importers:
 
   packages/idealize/setup:
     dependencies:
+      '@deepseek-ai/dsh-skill-filesystem':
+        specifier: workspace:^
+        version: link:../../skill/skill-filesystem
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -6215,6 +6230,12 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-fs':
+        specifier: workspace:^
+        version: link:../../fs/fs
+      '@deepseek-ai/dsh-fs-local':
+        specifier: workspace:^
+        version: link:../../fs/fs-local
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
@@ -6227,6 +6248,9 @@ importers:
       '@deepseek-ai/dsh-settings-file':
         specifier: workspace:^
         version: link:../../settings/settings-file
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
       '@deepseek-ai/dsh-storage':
         specifier: workspace:^
         version: link:../../storage/storage
@@ -6239,6 +6263,9 @@ importers:
       '@deepseek-ai/dsh-workspace':
         specifier: workspace:^
         version: link:../../workspace/workspace
+      '@idealize/cron':
+        specifier: workspace:^
+        version: link:../cron
       '@idealize/doc-policy':
         specifier: workspace:^
         version: link:../doc-policy
@@ -6257,9 +6284,18 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent-presets':
+        specifier: workspace:^
+        version: link:../../preset/agent-presets
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:^
         version: link:../../util/home-paths
+      '@deepseek-ai/dsh-scope':
+        specifier: workspace:^
+        version: link:../../core/scope
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
       '@deepseek-ai/dsh-settings':
         specifier: workspace:^
         version: link:../../settings/settings
@@ -6269,9 +6305,21 @@ importers:
       '@deepseek-ai/dsh-skill-filesystem':
         specifier: workspace:^
         version: link:../../skill/skill-filesystem
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
+      '@idealize/doc-policy':
+        specifier: workspace:^
+        version: link:../doc-policy
+      '@idealize/spaces':
+        specifier: workspace:^
+        version: link:../spaces
       fflate:
         specifier: ^0.8.2
         version: 0.8.3
@@ -6279,9 +6327,30 @@ importers:
         specifier: ^2.4.2
         version: 2.9.0
     devDependencies:
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent-spine-demo':
+        specifier: workspace:^
+        version: link:../../examples/agent-spine-demo
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-llm-replay':
+        specifier: workspace:^
+        version: link:../../test-support/llm-replay
+      '@deepseek-ai/dsh-loader-smoke':
+        specifier: workspace:^
+        version: link:../../test-support/loader-smoke
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: workspace:^
+        version: link:../../session/session-persistence-jsonl
       '@deepseek-ai/dsh-settings-file':
         specifier: workspace:^
         version: link:../../settings/settings-file
@@ -12398,10 +12467,12 @@ packages:
 
   '@modelcontextprotocol/server-everything@2026.7.4':
     resolution: {integrity: sha512-ydMW/M6rk9tK23b+U38trsNLHhd5eF+ntiv2Vr+RPMDhbiKY/IKrZU25ukvSXVPUBvy7TxTPWpeV4KcYcXg72w==}
+    deprecated: 'Date-based versions are no longer published. This package has resumed semantic versioning at 1.0.0: install the latest version.'
     hasBin: true
 
   '@modelcontextprotocol/server-filesystem@2026.7.10':
     resolution: {integrity: sha512-Mmjg4anFBD5OzbPnGJOA0jPPN8645ERhQk38HQLpSenx1ox9bfdPkmAzUnNjeQtqQGFLtKe13J20RtLBmUKMZA==}
+    deprecated: 'Date-based versions are no longer published. This package has resumed semantic versioning at 1.0.0: install the latest version.'
     hasBin: true
 
   '@napi-rs/wasm-runtime@1.1.5':
@@ -13348,6 +13419,9 @@ packages:
   '@smithy/core@3.24.7':
     resolution: {integrity: sha512-KoUi4M1f3BG6kzN1FnCwL7oyFptTbyBJKjR6yhSib+JHRdUmM1o+VwsFtJ66NZCkCzVfJMWRHJNo0R0jznp0Pg==}
     engines: {node: '>=18.0.0'}
+    deprecated: |-
+      Deprecated due to a bug in custom logger data redaction. Upgrade to the latest version. If you used a custom logger with this
+        version, review your logs and rotate any credentials or other secrets. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/credential-provider-imds@4.3.9':
     resolution: {integrity: sha512-ZlfJ/4Fa3jYb+3eaohPfG9utX9HmdhFNcFtpoGAhUhdynAOmGXtmigbi7eEiONKM+ykHw8RwKuDEb85Lx7t7fA==}

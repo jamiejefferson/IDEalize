@@ -60,6 +60,8 @@ The plugin injects `modelsSettingsSection`, `trajectorySection`, `scheduleSectio
 - `GET /idealize/bar/files[?path=]`: the workspace roots, or a directory's entries fenced to the registered workspace roots plus the captured alias folders (realpath prefix check).
 - `GET /idealize/bar/skills`: the skills folder's catalogue from `ctx.idealizeSkills` (`groups`, each `folder` and its `skills` with `name`, `description` and `invocable`), where `invocable` is whether the host skill registry lists that name as user-invocable from the provider `@idealize/skills` mounts; empty `groups` without the service, and nothing invocable without a registry.
 - `GET /idealize/bar/aliases`: the Files pane's four alias-backed folder sets (`tabs`) with their live access state, plus `projectDocs`, one entry per registered project naming its documentation folder, how it was decided (`chosen`, `note`, `name`) and its access state (`unset` while there is none). The listing fence includes every chosen documentation folder. The skills tab browses the `skills` alias, the folder `@idealize/skills` mounts into every chat's skill catalogue.
+- `POST /idealize/bar/mark-checked` (`{ path }`): the Files pane's "Mark as checked". The path must resolve inside the documentation folder or a project's chosen documentation folder (403 otherwise); the route then asks `ctx.docPolicy.markChecked`, probed without an import, to add the user to the note's `verified` list, and answers `{ ok, by, at }`, 422 with the reason when the file is not Markdown or cannot be read, or 501 in a composition without `@idealize/doc-policy`. The menu offers the action on a Markdown file inside a documentation view only.
+- The Files pane's "Move session log to log.md" sits on a project's `_index.md` in the documentation views and posts `{ note }` to `@idealize/vault`'s `POST /idealize/vault/migrate-log`. The pane then says the log moved, that the note had no session log to move, or that the move failed. Nothing calls that route without this click.
 - `GET /idealize/bar/browse[?path=]`: the browse pane's listing, fenced to home plus the workspace roots plus the alias folders.
 - `GET /idealize/bar/file?path=`: file content for the viewer as a size-capped JSON envelope; `GET /idealize/bar/raw?path=`: raw image bytes for the viewer's image tags, image extensions only; both under the home-plus-roots fence.
 - `POST /idealize/bar/minimode`: collapse the main window to the Askbar through the desktop shell's `collapseToBar` action; 409 without a shell that has the bar. `POST /idealize/bar/terminal`: open the desktop shell's terminal when its action service is composed. `POST /idealize/bar/reveal`: reveal a fenced path in the Finder. `POST /idealize/bar/open`: open a fenced file in its default application through `/usr/bin/open` (macOS only, 409 elsewhere); 422 for a folder, a file macOS would run (`.command`, `.app`, `.scpt` and their kin, or an extension-less executable) and a type no application claims. `POST /idealize/bar/create`: create one file or folder inside a fenced parent, the name a single validated path component. `POST /idealize/bar/write`: overwrite a fenced text file, refused with 409 when its size no longer matches the `expectedSize` the editor loaded. `POST /idealize/bar/rename` (one validated component, 409 on a taken name), `/duplicate` (`name copy`, `name copy 2`, …, folders recursively), `/move` (into a fenced folder, never into itself, 409 on a taken name) and `/trash` (the desktop shell's `trashItem` action when composed, else the Finder on macOS with its one-time automation prompt; the item can be put back). Every path resolves through the home-plus-roots fence.
@@ -99,6 +101,20 @@ The length of the path inside one user message; zero until the user submits.
 #### KV Cache effect
 
 Append-only, as part of an ordinary user turn.
+
+### Mark as checked
+
+#### What the model sees
+
+Nothing from this package. The action writes the user's entry into the note's `verified` field on disk; a model sees it when it next reads the note. `@idealize/doc-policy` documents the field.
+
+#### Token effect
+
+One line in the note's frontmatter per person who checked it, read only when a model reads the note.
+
+#### KV Cache effect
+
+None: the action changes a file, never a prompt or a tool schema.
 
 ## Known Limitations and Deferred Work
 

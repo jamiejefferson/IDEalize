@@ -14,11 +14,12 @@ The registry is host+per-scope layered over [`@deepseek-ai/dsh-scope`](../../cor
 - `ctx.skills.snapshot({ cwd?, signal?, scope? })` Returns the invocation-neutral `{ skills, complete }` observation for the viewing scope's merged layers. `complete` is false when any provider rejects or explicitly reports incomplete discovery, or when a second catalog revision races the bounded retry; candidates supplied by that observation remain in this result, which is never cached.
 - `ctx.skills.list({ cwd?, signal?, scope? })` Borrows the readonly view options, then returns every winning summary for the current workspace, merged across the global layer and the viewing scope's chain and sorted by name. Consumers apply `isModelInvocable(skill)` or `isUserInvocable(skill)` at their own boundary.
 - `ctx.skills.get(name, { cwd?, signal?, scope? })` Uses the same readonly options and winning candidate for discovery and loading, rechecks cancellation after discovery or a cache hit, races provider loading against the signal, validates the loaded definition, then returns it regardless of invocation policy.
+- `ctx.skills.registerFilter(filter): () => void` Registers a `SkillViewFilter`: a function that receives one view's winning summaries with the view options and returns the subset that view keeps. Every `snapshot()`, `list()`, and `get()` applies each filter in registration order, after layers and ranks have chosen each name's winner and outside the catalog cache, so a `get()` for a name a filter removed returns `undefined` without asking the provider for the body. A filter must not throw; a thrown error or rejected promise fails the read. Registration and disposal invalidate catalog caches and emit `skills/change`.
 - `ctx.skills.register(skill): () => void` Registers a readonly runtime embedded skill into the calling context's layer, adding the all-invocable policy and `provider: "runtime"` when omitted. Same-name runtime registrations in one layer are first-wins: a duplicate logs a warning and gets a no-op disposer. Successful registrations return the exact Cordis disposer for ordered composite teardown.
 
 ### Events
 
-- `skills/change` is an unfiltered invalidation notification emitted after a provider or runtime contribution is registered or disposed and after an active provider's registration control invalidates. It carries no catalog or diff: each consumer refetches `snapshot()` with its own lookup options. Listener throws and rejected promises are logged and cannot veto the registry mutation or starve later listeners.
+- `skills/change` is an unfiltered invalidation notification emitted after a provider, runtime contribution, or view filter is registered or disposed and after an active provider's registration control invalidates. It carries no catalog or diff: each consumer refetches `snapshot()` with its own lookup options. Listener throws and rejected promises are logged and cannot veto the registry mutation or starve later listeners.
 
 ### Config
 
@@ -71,6 +72,7 @@ No direct prompt effect. The named consumer owns the durable initial catalog and
 
 ## Known Limitations and Deferred Work
 
+- **Filters are not scoped or observed** — every registered filter sees every view and runs on every read; a filter whose answer changes without a registry mutation emits no `skills/change`, so a consumer that caches a snapshot refetches only at its next read.
 - **Invalidation is provider-driven** — the registry has no TTL and cannot infer that an arbitrary remote source changed; each mutable provider must retain and call its registration-scoped `invalidate()` capability from its own observation mechanism.
 - **Providers are queried sequentially** — one slow cooperative provider delays every provider registered after it; cancellation stops the caller's wait but cannot terminate work an uncooperative provider keeps running.
 - **Incomplete observations are not retained** — rejected providers are omitted and explicitly supplied candidates remain available only to the current lookup; the registry owns neither a last-good catalog nor per-provider diagnostics.

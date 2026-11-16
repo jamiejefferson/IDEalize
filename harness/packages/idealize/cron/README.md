@@ -12,7 +12,11 @@ A one-off reminder an agent adds, which only shows a notification, arms at once 
 
 A task with a prompt runs a chat, so it must sit in an opened project or the app's own folder whether or not it also notifies; `remind` no longer skips that check. It is checked when the task is saved, when it is approved and again at each fire.
 
+One folder outside every project passes the same check: the documentation folder `@idealize/doc-policy` reports (`ctx.docPolicy.folder()`), which is the weekly review's workspace (JJ, 16 Nov 2026). Only the folder itself passes, and a folder inside it is refused like any other. A documentation folder that is the home folder, or holds it, is refused, because that is the case the check exists for.
+
 ## What a scheduled chat may touch
+
+Each fire emits `idealize/cron-run-started(task, sessionId)` once the run's chat exists and before the chat receives its instructions, so a plugin that limits what one entry's chat may do can start with the session id; `idealize/cron-run` for the same task ends it. `@idealize/setup` uses the pair to keep the weekly review's chat out of its never-edit folders.
 
 Every scheduled chat, whoever made the entry, runs in `workspace-write` (JJ, 4 Nov 2026): `runAgent` calls `confineStartedChat` in `@deepseek-ai/dsh-permission-presets`, whose `CONFINE_STARTED_CHATS` is the switch. It also stops waiting on approvals, because an approval nobody answers would hang the run; anything that needs one is refused at once. The chat is told so in a plugin notice before its instructions. When its log shows a denied file or a refused action, the run ends as an error with a plain sentence as its detail and raises the same sentence as a notification. Windows stays as it was until JJ decides otherwise.
 

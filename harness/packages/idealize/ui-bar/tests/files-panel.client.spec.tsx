@@ -103,7 +103,8 @@ function stubFetch(routes: Routes): void {
     if (url === '/idealize/vault/settings') {
       return Promise.resolve(jsonResponse({ sessionFiles: (body as { sessionFiles?: boolean } | undefined)?.sessionFiles ?? true }))
     }
-    const operation = /^\/idealize\/bar\/(rename|duplicate|move|trash)$/.exec(url)
+    if (url === '/idealize/vault/migrate-log') return Promise.resolve(routes.operate('migrate-log', body as Record<string, string>))
+    const operation = /^\/idealize\/bar\/(rename|duplicate|move|trash|mark-checked)$/.exec(url)
     if (operation !== null) return Promise.resolve(routes.operate(operation[1]!, body as Record<string, string>))
     throw new Error(`unrouted fetch: ${url}`)
   }))
@@ -916,6 +917,60 @@ describe('FilesPanel', () => {
     fireEvent.click(await view.findByRole('menuitem', { name: 'Duplicate' }))
     expect(await view.findByText('Could not duplicate.')).toBeTruthy()
     expect(fetchCalls.find(call => call.url === '/idealize/bar/duplicate')?.body).toEqual({ path: '/w/proj/notes.md' })
+  })
+
+  it('marks a documentation note as checked from the menu, and offers it nowhere else', async () => {
+    const { view } = mount({}, {
+      listing: path => jsonResponse({ path, entries: [{ name: 'notes.md', kind: 'file' }, { name: 'logo.png', kind: 'file' }] }),
+    })
+    // A project file is not a documentation note.
+    await view.findByText('notes.md')
+    fireEvent.contextMenu(view.getByText('notes.md'))
+    await view.findByRole('menuitem', { name: 'Duplicate' })
+    expect(view.queryByRole('menuitem', { name: 'Mark as checked' })).toBeNull()
+    fireEvent.click(view.getByRole('menuitem', { name: 'Copy path' }))
+
+    await openAllDocumentation(view)
+    await waitFor(() => { expect(fetchCalls.some(call => call.url === '/idealize/bar/files?path=%2Fv')).toBe(true) })
+    // Only Markdown carries frontmatter to mark.
+    fireEvent.contextMenu(await view.findByText('logo.png'))
+    await view.findByRole('menuitem', { name: 'Duplicate' })
+    expect(view.queryByRole('menuitem', { name: 'Mark as checked' })).toBeNull()
+    fireEvent.click(view.getByRole('menuitem', { name: 'Copy path' }))
+
+    fireEvent.contextMenu(view.getByText('notes.md'))
+    fireEvent.click(await view.findByRole('menuitem', { name: 'Mark as checked' }))
+    expect(await view.findByText('Marked as checked')).toBeTruthy()
+    expect(fetchCalls.find(call => call.url === '/idealize/bar/mark-checked')?.body).toEqual({ path: '/v/notes.md' })
+  })
+
+  it('says so when the host cannot mark a note as checked', async () => {
+    const { view } = mount({}, { operate: route => (route === 'mark-checked' ? jsonResponse({ error: 'unreadable' }, 422) : jsonResponse({ ok: true })) })
+    await openAllDocumentation(view)
+    await waitFor(() => { expect(fetchCalls.some(call => call.url === '/idealize/bar/files?path=%2Fv')).toBe(true) })
+    fireEvent.contextMenu(await view.findByText('notes.md'))
+    fireEvent.click(await view.findByRole('menuitem', { name: 'Mark as checked' }))
+    expect(await view.findByText('Could not mark as checked.')).toBeTruthy()
+  })
+
+  it('moves a project index\'s session log on request, and says what happened', async () => {
+    const indexListing = (path: string): Response => jsonResponse({ path, entries: [{ name: '_index.md', kind: 'file' }, { name: 'notes.md', kind: 'file' }] })
+    const answers: Response[] = [jsonResponse({ moved: 3, log: '/v/log.md' }), jsonResponse({ moved: 0, log: '/v/log.md' }), jsonResponse({ error: 'gone' }, 404)]
+    const { view } = mount({}, { listing: indexListing, operate: () => answers.shift() ?? Promise.reject(new Error('offline')) as unknown as Response })
+    await openAllDocumentation(view)
+    await waitFor(() => { expect(fetchCalls.some(call => call.url === '/idealize/bar/files?path=%2Fv')).toBe(true) })
+    // Only a project's index carries the old section.
+    fireEvent.contextMenu(await view.findByText('notes.md'))
+    await view.findByRole('menuitem', { name: 'Mark as checked' })
+    expect(view.queryByRole('menuitem', { name: 'Move session log to log.md' })).toBeNull()
+    fireEvent.click(view.getByRole('menuitem', { name: 'Copy path' }))
+
+    for (const said of ['Session log moved to log.md', 'This note has no session log to move.', 'Could not move the session log.', 'Could not move the session log.']) {
+      fireEvent.contextMenu(view.getByText('_index.md'))
+      fireEvent.click(await view.findByRole('menuitem', { name: 'Move session log to log.md' }))
+      expect(await view.findByText(said)).toBeTruthy()
+    }
+    expect(fetchCalls.find(call => call.url === '/idealize/vault/migrate-log')?.body).toEqual({ note: '/v/_index.md' })
   })
 
   it('moves to Trash on the second click only, and the menu stays up in between', async () => {

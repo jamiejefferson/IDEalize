@@ -1,0 +1,47 @@
+# Keyless assembled composition for the skill-learning snapshot: the real
+# Loader, a real documentation service over a folder inside the run's own temp
+# directory, the skill registry with its catalogue and loader, and a replayed
+# model that calls `skill_learning` once. Nothing here can reach a real
+# documentation folder: the harness points the run's cwd and DSH_HOME at a
+# temp directory it creates and removes.
+
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: none
+
+- id: replay
+  name: '@deepseek-ai/dsh-llm-replay'
+  config:
+    file: !!js process.env.DSH_SNAPSHOT_FILE
+    overrideFile: !!js process.env.DSH_SNAPSHOT_OVERRIDE
+    providers:
+      - id: learning-replay
+        name: Learning replay
+        models:
+          - id: replay-model
+            contextWindow: 128000
+
+- id: doc-policy
+  name: '@idealize/doc-policy'
+  config:
+    documentationFolder: !!js process.cwd() + '/vault'
+
+- id: skills
+  name: '@idealize/skills'
+
+- id: agent
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    agents:
+      - id: main
+        provider: learning-replay
+        model: replay-model
+        cwd: !!js process.cwd()
+    workspaceContext: false
+    toolBash: false
+    toolJobs: false
+    goals: false
+    persona: |
+      You are the snapshot agent.

@@ -27,31 +27,42 @@
   "files": [
     "lib/*.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "skills/**/*.md"
   ],
+  "dependencies": {
+    "@deepseek-ai/dsh-skill-filesystem": "workspace:^"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-settings": "workspace:^",
+    "@deepseek-ai/dsh-skill": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
+    "@idealize/cron": "workspace:^",
     "@idealize/doc-policy": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-fs": "workspace:^",
+    "@deepseek-ai/dsh-fs-local": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-settings": "workspace:^",
     "@deepseek-ai/dsh-settings-file": "workspace:^",
+    "@deepseek-ai/dsh-skill": "workspace:^",
     "@deepseek-ai/dsh-storage": "workspace:^",
     "@deepseek-ai/dsh-storage-domain": "workspace:^",
     "@deepseek-ai/dsh-storage-json": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
+    "@idealize/cron": "workspace:^",
     "@idealize/doc-policy": "workspace:^",
-    "@idealize/vault": "workspace:^",
     "@idealize/skills": "workspace:^",
+    "@idealize/vault": "workspace:^",
     "@types/node": "^22.20.0"
   }
 }

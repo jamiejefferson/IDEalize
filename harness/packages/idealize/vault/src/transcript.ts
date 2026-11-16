@@ -13,6 +13,7 @@
 import { mkdir, readdir, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+/** The folder, inside a project's documentation folder, that holds each chat's Markdown copy. */
 export const SESSIONS_DIR = 'sessions'
 /** A chat with no title yet is filed under this word and renamed once the title arrives. */
 const UNTITLED = 'chat'
@@ -27,6 +28,7 @@ export interface TranscriptMessage {
   source: { kind: string; provider?: string; model?: string; brief?: unknown; senderLabel?: unknown }
 }
 
+/** One chat, as {@link transcriptOf} reads it. */
 export interface TranscriptInput {
   sessionId: string
   title?: string | undefined
@@ -100,6 +102,16 @@ export function transcriptOf(input: TranscriptInput): string | undefined {
   return `${front.join('\n')}\n# ${input.title ?? 'Untitled chat'}\n\n${note}\n\n${body.join('\n')}`
 }
 
+/**
+ * The end of a chat's file name: the last eight letters and digits of its id.
+ * The title in the name can change; this part finds the chat's file again.
+ * @param sessionId - the chat's id.
+ * @returns the name's ending, from the hyphen to `.md`.
+ */
+export function transcriptTail(sessionId: string): string {
+  return `-${sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(-8)}.md`
+}
+
 const slug = (title: string | undefined): string =>
   (title ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || UNTITLED
 
@@ -117,7 +129,7 @@ export async function writeTranscript(projectFolder: string, input: TranscriptIn
   if (text === undefined) return undefined
   const dir = join(projectFolder, SESSIONS_DIR)
   await mkdir(dir, { recursive: true })
-  const tail = `-${input.sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(-8)}.md`
+  const tail = transcriptTail(input.sessionId)
   const existing = (await readdir(dir)).find(name => name.endsWith(tail))
   const wanted = `${input.started.slice(0, 10)}-${slug(input.title)}${tail}`
   let name = existing ?? wanted

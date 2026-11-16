@@ -74,3 +74,22 @@
   color: var(--dsw-alias-state-error-primary);
   margin: 0;
 }
+
+/* The documentation step's weekly review offer: one tick box and what it does. */
+.offer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.12));
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary, #24292f);
+  cursor: pointer;
+}

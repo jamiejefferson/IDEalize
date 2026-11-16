@@ -1,6 +1,6 @@
 {
   "name": "@idealize/skills",
-  "description": "IDEalize skills folder: the person's own folder of .skill packages as product settings (idealize-skills.skillsFolder), unpacked and registered into the host skill registry so every chat can reference them",
+  "description": "IDEalize skills: the person's own folder of .skill packages and unpacked skill folders as product settings (idealize-skills.skillsFolder), registered into the host skill registry; a brain's skill list and a project's playbooks decide which skills one chat is offered",
   "version": "1.0.0-dev.0",
   "private": true,
   "repository": {
@@ -26,16 +26,24 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "skills/**/*.md"
   ],
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-agent-presets": "workspace:^",
     "@deepseek-ai/dsh-home-paths": "workspace:^",
+    "@deepseek-ai/dsh-scope": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-settings": "workspace:^",
     "@deepseek-ai/dsh-skill": "workspace:^",
     "@deepseek-ai/dsh-skill-filesystem": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
+    "@idealize/doc-policy": "workspace:^",
+    "@idealize/spaces": "workspace:^",
     "fflate": "^0.8.2",
     "yaml": "^2.4.2"
   },
@@ -43,7 +51,14 @@
     "@deepseek-ai/dsh-invariants": "workspace:^"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis-plugin-include": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+    "@deepseek-ai/dsh-agent-spine-demo": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-llm-replay": "workspace:^",
+    "@deepseek-ai/dsh-loader-smoke": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
     "@deepseek-ai/dsh-settings-file": "workspace:^"
   }
 }

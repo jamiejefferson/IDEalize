@@ -2,6 +2,7 @@
 project: SHORT-NAME
 status: active
 type: index
+description:
 repo:
 live:
 created: YYYY-MM-DD
@@ -17,7 +18,7 @@ One or two lines: what this is, and who it's for.
 
 Where the project is now, in a short paragraph. What is live, what is in flight,
 what is blocked and on whom. Update when the situation genuinely shifts, not every
-session — the session log below already records the small movements.
+session. The session log in `log.md` already records the small movements.
 
 ## Open threads
 
@@ -42,7 +43,7 @@ Things that will cost someone an hour because the code doesn't reveal them.
 
 - ⚠️ Specific, falsifiable trap
 
-## Session log
+## Log
 
-Maintained automatically by `scripts/session-close.py`. Commits land here with
-their short hashes; nothing else should be written in this section by hand.
+The session log is [log.md](log.md), beside this note. Tools write commits there
+with their short hashes, so this note stays short.

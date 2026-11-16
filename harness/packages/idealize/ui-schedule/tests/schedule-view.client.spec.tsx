@@ -781,3 +781,88 @@ describe('editing a one-off', () => {
     expect(view.container.querySelector('[data-schedule-task="builds"]')?.getAttribute('data-tone')).toBe('paused')
   })
 })
+
+describe('the weekly documentation review suggestion', () => {
+  /** Answers the task list and the setup package's review route; `offer` is what a GET returns. */
+  function stubReview(offer: () => Response, accept: () => Response = () => new Response('{"ok":true}', { status: 200 })) {
+    const posts: string[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: { method?: string; body?: string }) => {
+      if (url.startsWith('/idealize/cron/tasks')) return Promise.resolve(new Response('[]', { status: 200 }))
+      if (url.startsWith('/idealize/setup/weekly-review') && init?.method === 'POST') {
+        posts.push(init.body ?? '')
+        return Promise.resolve(accept())
+      }
+      if (url.startsWith('/idealize/setup/weekly-review')) return Promise.resolve(offer())
+      return Promise.resolve(new Response('not found', { status: 404 }))
+    }))
+    return posts
+  }
+  const open = (accepted: boolean, folder: string | null = '/Users/jj/Notes') =>
+    new Response(JSON.stringify({ accepted, ...folder === null ? {} : { folder } }), { status: 200 })
+
+  it('offers the review with its folder, and switching it on saves the entry and removes the row', async () => {
+    let accepted = false
+    const posts = stubReview(() => open(accepted), () => {
+      accepted = true
+      return new Response('{"ok":true}', { status: 200 })
+    })
+    const { view } = mount()
+    await view.findByRole('button', { name: 'Switch on' })
+    const row = view.container.querySelector('[data-schedule-review]')!
+    expect(row.textContent).toContain('Weekly documentation review')
+    expect(row.textContent).toContain('the notes you changed that week in /Users/jj/Notes')
+    fireEvent.click(view.getByRole('button', { name: 'Switch on' }))
+    await waitFor(() => { expect(view.container.querySelector('[data-schedule-review]')).toBeNull() })
+    expect(posts).toEqual(['{"accept":true}'])
+  })
+
+  it('shows the host’s reason when it refuses, and a bare status when it gives none', async () => {
+    let body = '{"ok":false,"error":"Choose a documentation folder first. The weekly review runs in it."}'
+    stubReview(() => open(false), () => new Response(body, { status: 400 }))
+    const { view } = mount()
+    fireEvent.click(await view.findByRole('button', { name: 'Switch on' }))
+    expect((await view.findByRole('alert')).textContent).toBe('Choose a documentation folder first. The weekly review runs in it.')
+    body = '{}'
+    fireEvent.click(view.getByRole('button', { name: 'Switch on' }))
+    await waitFor(() => { expect(view.getByRole('alert').textContent).toBe('weekly review 400') })
+  })
+
+  it('stays hidden once the person hides it, across a remount', async () => {
+    stubReview(() => open(false))
+    const first = mount()
+    fireEvent.click(await first.view.findByRole('button', { name: 'Hide this' }))
+    expect(first.view.container.querySelector('[data-schedule-review]')).toBeNull()
+    first.view.unmount()
+    const second = mount()
+    await waitFor(() => { expect(second.view.queryByText('Loading the schedule…')).toBeNull() })
+    expect(second.view.container.querySelector('[data-schedule-review]')).toBeNull()
+  })
+
+  it('hides for this mount when storage refuses, and offers again without storage', async () => {
+    stubReview(() => open(false))
+    const refuse = (): never => { throw new Error('storage is blocked') }
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(refuse)
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(refuse)
+    const { view } = mount()
+    fireEvent.click(await view.findByRole('button', { name: 'Hide this' }))
+    expect(view.container.querySelector('[data-schedule-review]')).toBeNull()
+    get.mockRestore()
+    set.mockRestore()
+  })
+
+  it('offers nothing when the review is on, no folder is chosen, the route is absent, or the read fails', async () => {
+    for (const offer of [
+      () => open(true),
+      () => open(false, null),
+      () => new Response('not found', { status: 404 }),
+      (): Response => { throw new Error('offline') },
+    ]) {
+      stubReview(offer)
+      const { view } = mount()
+      await waitFor(() => { expect(view.queryByText('Loading the schedule…')).toBeNull() })
+      await act(async () => { await Promise.resolve() })
+      expect(view.container.querySelector('[data-schedule-review]')).toBeNull()
+      view.unmount()
+    }
+  })
+})

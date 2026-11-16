@@ -910,6 +910,38 @@ export function FilesPanel({
   const duplicateEntry = useCallback((path: string) => {
     void operate('duplicate', { path }, 'files.duplicated', 'files.duplicateFailed', [parentOf(path)])
   }, [operate])
+  // Mark as checked: the host adds the user to the note's `verified` list.
+  // Offered on a Markdown file inside a documentation folder only.
+  const isDocumentationNote = useCallback((path: string): boolean => /\.md$/i.test(path)
+    && [...rootsOfView('documentation'), ...rootsOfView('projectDocs')].some(root => isBeneath(root.path, path)), [rootsOfView])
+  const markChecked = useCallback((path: string) => {
+    void operate('mark-checked', { path }, 'files.markedChecked', 'files.markCheckedFailed', [])
+  }, [operate])
+  // Move session log: `@idealize/vault` moves a project index's old
+  // `## Session log` section into the project's `log.md`. Offered on a
+  // project's `_index.md` only, and it runs only on this click.
+  const isProjectIndex = useCallback(
+    (path: string): boolean => /(^|\/)_index\.md$/.test(path) && isDocumentationNote(path),
+    [isDocumentationNote],
+  )
+  const moveSessionLog = useCallback(async (path: string): Promise<void> => {
+    try {
+      const response = await fetch('/idealize/vault/migrate-log', {
+        method: 'POST',
+        headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' },
+        body: JSON.stringify({ note: path }),
+      })
+      if (!response.ok) {
+        setStatus({ level: 'error', text: t('files.moveLogFailed') })
+        return
+      }
+      const { moved } = await response.json() as { moved: number }
+      setStatus({ level: 'info', text: t(moved > 0 ? 'files.movedLog' : 'files.noLogToMove') })
+      setRefresh(previous => ({ paths: [parentOf(path)], nonce: (previous?.nonce ?? 0) + 1 }))
+    } catch {
+      setStatus({ level: 'error', text: t('files.moveLogFailed') })
+    }
+  }, [t])
   const moveEntry = useCallback((path: string, parent: string) => {
     // Both folders in one signal: the file leaves one and joins the other.
     void operate('move', { path, parent }, 'files.moved', 'files.moveFailed', [parent, parentOf(path)])
@@ -1398,6 +1430,16 @@ export function FilesPanel({
                 <button type="button" role="menuitem" className={css.menuItem} onClick={() => { addToChat(menu.path); closeMenu() }}>
                   {t('files.addToChat')}
                 </button>
+                {isDocumentationNote(menu.path) && (
+                  <button type="button" role="menuitem" className={css.menuItem} onClick={() => { markChecked(menu.path); closeMenu() }}>
+                    {t('files.markChecked')}
+                  </button>
+                )}
+                {isProjectIndex(menu.path) && (
+                  <button type="button" role="menuitem" className={css.menuItem} onClick={() => { void moveSessionLog(menu.path); closeMenu() }}>
+                    {t('files.moveLog')}
+                  </button>
+                )}
               </>
             )}
             {canReveal && (

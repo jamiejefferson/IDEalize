@@ -70,7 +70,9 @@ afterEach(async () => {
  * realpath-resolved up front so the temp directory's own symlink (macOS puts
  * `/var/folders` behind `/private/var`) cannot be mistaken for a fence bug.
  */
-async function boot(options: { desktopActions?: Record<string, unknown> } = {}) {
+async function boot(
+  options: { desktopActions?: Record<string, unknown>; docPolicy?: Record<string, unknown>; withoutSetup?: boolean } = {},
+) {
   root = await realpath(await mkdtemp(join(tmpdir(), 'idealize-bar-aliases-')))
   const projects = join(root, 'projects')
   const project = join(projects, 'Alpha')
@@ -90,12 +92,13 @@ async function boot(options: { desktopActions?: Record<string, unknown> } = {}) 
   await ctx.plugin(MemorySettings)
   ctx.provide('workspaceRegistry', { list: () => workspaces } as never)
   if (options.desktopActions !== undefined) ctx.provide('desktopActions', options.desktopActions as never)
+  if (options.docPolicy !== undefined) ctx.provide('docPolicy', options.docPolicy as never)
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
-  await ctx.plugin(setup)
+  if (options.withoutSetup !== true) await ctx.plugin(setup)
   await ctx.plugin(uiBar)
 
   const deadline = Date.now() + 5_000
-  while (ctx.settings.get(SETUP_NS) === undefined) {
+  while (options.withoutSetup !== true && ctx.settings.get(SETUP_NS) === undefined) {
     if (Date.now() > deadline) throw new Error('idealize-setup settings section never registered')
     await new Promise(resolve => setTimeout(resolve, 25))
   }
@@ -286,6 +289,58 @@ describe('the listing fence', () => {
 
     const sideways = await fetch(`${origin}/idealize/bar/files?path=${encodeURIComponent(join(docs, 'sideways'))}`)
     expect(sideways.status).toBe(200)
+  }, 30_000)
+
+  it('marks a note as checked inside a documentation folder only, through the documentation policy', async () => {
+    const marked: string[] = []
+    const docPolicy = {
+      markChecked: (path: string) => {
+        marked.push(path)
+        return Promise.resolve(path.endsWith('.md')
+          ? { ok: true, by: 'human:user', at: '2026-11-16T10:00:00Z' }
+          : { ok: false, reason: 'not-markdown' })
+      },
+    }
+    const { ctx, workspaces, projects, project, docs, skills, outside, origin } = await boot({ docPolicy })
+    const post = async (path: string): Promise<{ status: number; body: Record<string, unknown> }> => {
+      const response = await fetch(`${origin}/idealize/bar/mark-checked`, {
+        method: 'POST', headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' }, body: JSON.stringify({ path }),
+      })
+      return { status: response.status, body: await response.json() as Record<string, unknown> }
+    }
+    // Before any folder is chosen nothing is a documentation note.
+    expect((await post(join(docs, 'CONVENTIONS.md'))).status).toBe(403)
+    await captureFirstRun(ctx, workspaces, { project, projects, docs, skills })
+
+    expect(await post(join(docs, 'CONVENTIONS.md'))).toEqual({ status: 200, body: { ok: true, by: 'human:user', at: '2026-11-16T10:00:00Z' } })
+    await writeFile(join(docs, 'logo.png'), '')
+    expect(await post(join(docs, 'logo.png'))).toEqual({ status: 422, body: { error: 'not-markdown' } })
+    // A project file, a file outside every folder, a missing file and a body with no path are refused before the policy is asked.
+    await writeFile(join(project, 'README.md'), '# Alpha\n')
+    expect((await post(join(project, 'README.md'))).status).toBe(403)
+    expect((await post(join(outside, 'secret.txt'))).status).toBe(403)
+    expect((await post(join(docs, 'gone.md'))).status).toBe(403)
+    expect((await fetch(`${origin}/idealize/bar/mark-checked`, {
+      method: 'POST', headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' }, body: '{}',
+    })).status).toBe(403)
+    expect(marked).toEqual([join(docs, 'CONVENTIONS.md'), join(docs, 'logo.png')])
+  }, 30_000)
+
+  it('answers 501 for Mark as checked when the documentation policy is not composed', async () => {
+    const { ctx, workspaces, projects, project, docs, skills, origin } = await boot()
+    await captureFirstRun(ctx, workspaces, { project, projects, docs, skills })
+    const response = await fetch(`${origin}/idealize/bar/mark-checked`, {
+      method: 'POST', headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' }, body: JSON.stringify({ path: join(docs, 'CONVENTIONS.md') }),
+    })
+    expect(response.status).toBe(501)
+  }, 30_000)
+
+  it('refuses Mark as checked in a composition without @idealize/setup, which has no documentation folder to fence', async () => {
+    const bare = await boot({ withoutSetup: true })
+    const refused = await fetch(`${bare.origin}/idealize/bar/mark-checked`, {
+      method: 'POST', headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' }, body: JSON.stringify({ path: join(bare.docs, 'CONVENTIONS.md') }),
+    })
+    expect(refused.status).toBe(403)
   }, 30_000)
 
   it('writes, renames, duplicates and moves inside the fence, and refuses the rest', async () => {
