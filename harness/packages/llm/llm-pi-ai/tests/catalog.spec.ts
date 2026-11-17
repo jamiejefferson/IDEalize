@@ -450,6 +450,29 @@ describe('catalog routes with per-model configuration', () => {
     expect(opus.reasoning?.efforts.map(effort => effort.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
   })
 
+  it('lists Claude Fable 5.2 and Haiku 5.5 from the addendum on the Anthropic route and a gateway that fronts it', async () => {
+    // Both arrived after the installed pi-ai, and Anthropic's route has no live directory to learn them from.
+    const ctx = await harness({
+      providers: {
+        anthropic: { apiKeyEnv: KEY_ENV },
+        'gateway-anthropic': { catalog: 'anthropic', baseURL: 'https://gateway.example/anthropic', apiKeyEnv: KEY_ENV },
+      },
+    })
+
+    for (const route of ['anthropic', 'gateway-anthropic']) {
+      const ids = (await ctx.llm.listModels(route)).map(model => model.id)
+      expect(ids, route).toEqual(expect.arrayContaining(['claude-fable-5-2', 'claude-haiku-5-5']))
+    }
+
+    const fable = await ctx.llm.resolveModelInfo('anthropic', 'claude-fable-5-2')
+    expect(fable.name).toBe('Claude Fable 5.2')
+    expect(fable.context).toEqual({ contextWindow: 1_000_000 })
+    expect(fable.reasoning?.efforts.map(effort => effort.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    const haiku = await ctx.llm.resolveModelInfo('anthropic', 'claude-haiku-5-5')
+    expect(haiku.name).toBe('Claude Haiku 5.5')
+    expect(haiku.context).toEqual({ contextWindow: 1_000_000 })
+  })
+
   it('overrides one catalog model field and defaults the rest from the catalog', async () => {
     const server = await mockServer([])
     const [catalogModel] = getBuiltinModels('deepseek')

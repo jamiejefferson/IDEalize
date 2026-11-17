@@ -10,8 +10,13 @@
  * cache reads $0.20). An installed entry with the same id always wins, so a
  * later pi-ai bump supersedes this list without anyone deleting it.
  *
- * Neither model can turn thinking off (`off: null`): Opus 5.5 and Sonnet 5.5
- * both answer a disabled-thinking request with a 400.
+ * No model here offers thinking off (`off: null`): Opus 5.5, Sonnet 5.5 and
+ * Fable 5.2 answer a disabled-thinking request with a 400.
+ *
+ * Fable 5.2 and Haiku 5.5 (17 Nov 2026) take their figures from Anthropic's
+ * published model table; OpenRouter's directory states the same prices, window
+ * and output ceiling. The OpenRouter route needs no entry for them: its live
+ * directory supplies both.
  *
  * @module dsh-llm-pi-ai/catalog-addendum
  */
@@ -40,6 +45,21 @@ const ADDENDUM: Readonly<Record<string, readonly Model<Api>[]>> = {
       id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', api: 'anthropic-messages', provider: 'anthropic',
       baseUrl: 'https://api.anthropic.com', reasoning: true, thinkingLevelMap: ADAPTIVE_ONLY, input: ['text', 'image'],
       cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }, contextWindow: 1_000_000, maxTokens: 128_000,
+      compat: ANTHROPIC_COMPAT,
+    },
+    // Released 9 Nov 2026. Thinking is always on, at $8 / $40 per MTok.
+    {
+      id: 'claude-fable-5-2', name: 'Claude Fable 5.2', api: 'anthropic-messages', provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com', reasoning: true, thinkingLevelMap: ADAPTIVE_ONLY, input: ['text', 'image'],
+      cost: { input: 8, output: 40, cacheRead: 0.2, cacheWrite: 10 }, contextWindow: 1_000_000, maxTokens: 128_000,
+      compat: ANTHROPIC_COMPAT,
+    },
+    // Haiku 5.5 takes disabled thinking only at effort `high` or below, so `off` stays unoffered here too. Its price
+    // is the rate for prompts up to 100K tokens; longer prompts cost $0.50 / $2.50.
+    {
+      id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', api: 'anthropic-messages', provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com', reasoning: true, thinkingLevelMap: ADAPTIVE_ONLY, input: ['text', 'image'],
+      cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 }, contextWindow: 1_000_000, maxTokens: 128_000,
       compat: ANTHROPIC_COMPAT,
     },
   ],

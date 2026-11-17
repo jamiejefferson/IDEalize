@@ -348,8 +348,26 @@ describe('packageFiles', () => {
       '../evil.md': strToU8('x'),
       'ok/../../evil2.md': strToU8('x'),
       'C:/evil3.md': strToU8('x'),
+      '..\\evil4.md': strToU8('x'),
+      'ok/..\\..\\evil5.md': strToU8('x'),
+      'ok\\..\\..\\evil6.md': strToU8('x'),
+      'C:\\evil7.md': strToU8('x'),
+      '\\\\server\\share\\evil8.md': strToU8('x'),
       'references/fine.md': strToU8('x'),
     }))
     expect([...files!.keys()].sort()).toEqual(['SKILL.md', join('references', 'fine.md')])
+  })
+
+  it('unpacks nothing outside the package folder when an entry names a backslash climb', async () => {
+    root = await mkdtemp(join(tmpdir(), 'idealize-skills-slip-'))
+    const folder = join(root, 'skills')
+    const unpack = join(root, 'unpacked')
+    // From <unpack>/slip/ok, three climbs reach the test root.
+    await writePackage(folder, 'slip', 'slip', { 'ok/..\\..\\..\\planted.md': 'x', 'references/fine.md': 'x' })
+    const result = await skills.syncPackages(folder, unpack)
+    expect(result.failures).toEqual([])
+    await expect(stat(join(root, 'planted.md'))).rejects.toThrow()
+    await expect(stat(join(unpack, 'planted.md'))).rejects.toThrow()
+    await expect(stat(join(unpack, 'slip', 'references', 'fine.md'))).resolves.toBeDefined()
   })
 })

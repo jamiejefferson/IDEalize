@@ -256,7 +256,9 @@ async function listPackages(folder: string): Promise<SkillPackage[]> {
  * The archive entries to write for one package, keyed by their path under
  * the unpack subfolder. The SKILL.md may sit at the archive root or under one
  * top-level folder; entries outside that folder, directory entries, and any
- * path that escapes the subfolder are dropped.
+ * path that escapes the subfolder are dropped. Zip names separate with `/`
+ * only, so a name holding `\` is dropped too: Windows reads it as a separator,
+ * and `..\` inside one `/` segment would otherwise climb out.
  * @param archive - the package bytes.
  * @returns the files, or undefined when the archive holds no SKILL.md.
  */
@@ -268,7 +270,7 @@ export function packageFiles(archive: Uint8Array): ReadonlyMap<string, Uint8Arra
   const prefix = root === '.' ? '' : `${root}/`
   const files = new Map<string, Uint8Array>()
   for (const [key, data] of Object.entries(entries)) {
-    if (key.endsWith('/') || !key.startsWith(prefix)) continue
+    if (key.endsWith('/') || key.includes('\\') || !key.startsWith(prefix)) continue
     const relative = key.slice(prefix.length)
     const segments = relative.split('/')
     if (segments.some(segment => segment === '' || segment === '.' || segment === '..') || /^[a-zA-Z]:/.test(relative)) continue

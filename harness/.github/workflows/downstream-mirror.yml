@@ -1,0 +1,44 @@
+name: Downstream mirror
+
+# Copies every change on main to one branch of a downstream repository, so a
+# version built from this one always has the latest code to merge. The target
+# and its key live in this repository's settings; a copy of this file in any
+# other repository has neither and does nothing.
+#   vars.DOWNSTREAM_REPO     owner/name of the downstream repository
+#   vars.DOWNSTREAM_BRANCH   branch to write there (default: mac)
+#   secrets.DOWNSTREAM_KEY   a deploy key with write access to it
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: downstream-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: vars.DOWNSTREAM_REPO != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Push main downstream
+        env:
+          DOWNSTREAM_KEY: ${{ secrets.DOWNSTREAM_KEY }}
+          DOWNSTREAM_REPO: ${{ vars.DOWNSTREAM_REPO }}
+          DOWNSTREAM_BRANCH: ${{ vars.DOWNSTREAM_BRANCH || 'mac' }}
+        run: |
+          key="$RUNNER_TEMP/downstream_key"
+          install -m 600 /dev/null "$key"
+          printf '%s\n' "$DOWNSTREAM_KEY" > "$key"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git push "git@github.com:${DOWNSTREAM_REPO}.git" "HEAD:refs/heads/${DOWNSTREAM_BRANCH}"
+          rm -f "$key"

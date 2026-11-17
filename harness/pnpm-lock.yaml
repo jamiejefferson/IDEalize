@@ -6177,6 +6177,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-llm-pi-ai':
+        specifier: workspace:^
+        version: link:../../llm/llm-pi-ai
       '@deepseek-ai/dsh-settings':
         specifier: workspace:^
         version: link:../../settings/settings
@@ -6202,9 +6205,6 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-llm-pi-ai':
-        specifier: workspace:^
-        version: link:../../llm/llm-pi-ai
       '@deepseek-ai/dsh-settings-file':
         specifier: workspace:^
         version: link:../../settings/settings-file
