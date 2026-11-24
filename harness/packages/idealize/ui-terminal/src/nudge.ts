@@ -21,8 +21,11 @@
 
 import type { DesktopTerminalLike } from './index.ts'
 
-/** Programs that run a command-line agent: npm-installed CLIs show as `node`. */
-export const AGENT_PROGRAMS: readonly string[] = ['claude', 'codex', 'pi', 'node']
+/**
+ * Programs that run a command-line agent: npm-installed CLIs show as `node`,
+ * and Google's Antigravity CLI 1.5.13 shows as `agy` (read off a real pty, 24 Nov 2026).
+ */
+export const AGENT_PROGRAMS: readonly string[] = ['claude', 'codex', 'pi', 'node', 'agy']
 
 /**
  * Claude Code's native install runs a binary named after its version, so the
@@ -64,9 +67,10 @@ const CONTROL = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B
 
 /**
  * Prompts where Enter picks an answer: a numbered menu with its cursor on an
- * option (Claude Code's `❯ 1. Yes`, Codex's `› 1. Yes`), or a yes/no question.
+ * option (Claude Code's `❯ 1. Yes`, Codex's `› 1. Yes`), a yes/no question, or
+ * Antigravity's folder question ("Do you trust the contents of this project?").
  */
-const CHOICE = /(?:❯|›|▶|>)\s*\d+\.\s|\((?:y\/n|Y\/n|y\/N)\)|\[(?:y\/n|Y\/n|y\/N)\]|Do you want to /u
+const CHOICE = /(?:❯|›|▶|>)\s*\d+\.\s|\((?:y\/n|Y\/n|y\/N)\)|\[(?:y\/n|Y\/n|y\/N)\]|Do you want to |Do you trust /u
 
 /**
  * Whether the bottom of a terminal's output shows a choice waiting for Enter.

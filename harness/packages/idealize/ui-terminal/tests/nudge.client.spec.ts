@@ -77,6 +77,7 @@ describe('TerminalNudges', () => {
       fakeTerminal('vim'),
       fakeTerminal(undefined),
       fakeTerminal('claude', 'Do you want to proceed?\r\n\u001b[1m❯ 1. Yes\u001b[0m\r\n  2. No'),
+      fakeTerminal('agy', 'Do you trust the contents of this project?\r\n> Yes, I trust this folder\r\n  No, exit'),
     ]) {
       expect(nudges.nudge(terminal, 'note')).toBe('held')
       expect(terminal.typed).toEqual([])
@@ -133,6 +134,8 @@ describe('nudge helpers', () => {
     expect(isAgentProgram('2.1.294', 'claude')).toBe(true)
     expect(isAgentProgram('/usr/local/bin/codex', undefined)).toBe(true)
     expect(isAgentProgram('aider', 'aider')).toBe(true)
+    // Antigravity started by hand in a plain shell, where no launch names it.
+    expect(isAgentProgram('/Users/someone/.local/bin/agy', undefined)).toBe(true)
     expect(isAgentProgram('zsh', 'claude')).toBe(false)
     expect(isAgentProgram('vim', undefined)).toBe(false)
   })

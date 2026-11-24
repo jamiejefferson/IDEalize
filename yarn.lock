@@ -5208,7 +5208,7 @@ __metadata:
 
 "@idealize/ui-terminal@file:./vendor/idealize/idealize-ui-terminal-1.0.0-dev.0.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 1.0.0-dev.0
-  resolution: "@idealize/ui-terminal@file:./vendor/idealize/idealize-ui-terminal-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-terminal-1.0.0-dev.0.tgz::hash=5456bf&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@idealize/ui-terminal@file:./vendor/idealize/idealize-ui-terminal-1.0.0-dev.0.tgz#./vendor/idealize/idealize-ui-terminal-1.0.0-dev.0.tgz::hash=795012&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@xterm/addon-fit": "npm:^0.11.0"
     "@xterm/xterm": "npm:6.0.0"
@@ -5229,7 +5229,7 @@ __metadata:
     "@idealize/activity-pills": ^1.0.0-dev.0
     "@idealize/appearance": ^1.0.0-dev.0
     react: ^18.2.0
-  checksum: 10c0/58c2cebbad9c8f2ebae36c15ab48d87b19dc32fd3c1aa3e68586d525b5cd05d5506b708218315cf3834d84857cc4ed0d94d35903c8fa1028d63ed57b7a816bf6
+  checksum: 10c0/dc06003211c66b5f73489168673a4ba49a67640fac3116216f69b16aee9a9a15782c5c2b599a0ace8bcc957f841fa7a2ace2d03e84dbf22527b4d50e04ddcd42
   languageName: node
   linkType: hard
 

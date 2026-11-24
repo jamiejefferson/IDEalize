@@ -128,6 +128,7 @@ export const Config: z<Config> = z.object({
     { id: 'claude-code', label: 'Claude Code', command: 'claude --dangerously-skip-permissions' },
     { id: 'codex', label: 'Codex CLI', command: 'codex' },
     { id: 'gemini', label: 'Gemini CLI', command: 'gemini' },
+    { id: 'antigravity', label: 'Antigravity CLI', command: 'agy' },
     { id: 'kimi', label: 'Kimi CLI', command: 'kimi' },
     { id: 'pi', label: 'Pi', command: 'pi' },
     { id: 'herdr', label: 'Herdr', command: 'herdr' },
