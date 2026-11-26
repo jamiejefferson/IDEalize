@@ -1,19 +1,18 @@
 /**
- * The generation settings strip: one compact control per setting the active
- * space's model takes (a select for an enum, a number input for a number, a
- * checkbox for a switch), on the composer card's tool row (beside the plus and
- * the mode chips), shown while this chat's view ring sits on Images, Video or
- * the Sound Stage. The entry shares the chat view's store (the ui-terminal
- * ModeShortcut pattern), so the strip appears and disappears with the view
- * instead of following every chat in the app.
+ * The Studio controls on the composer card's tool row, shown while this chat's
+ * view ring sits on Image, Video or Sound. The entry shares the chat view's
+ * store (the ui-terminal ModeShortcut pattern), so the controls appear and
+ * disappear with the view instead of following every chat in the app.
  *
- * The strip carries the creation variables and nothing else. It names no
- * model: the space's generation model belongs to its brain and is chosen in
- * the Brains pane, and a picker here stated it a second time beside the
- * composer's own chat-model seat, which in a media space drives only the tool
- * (JJ, 13 Sep 2026: "the model is defined by the brain and therefore doesn't
- * need to be shown. its also shown twice - one of them being wrong"). The
- * sheet retires the chat-model seat on a media view for the same reason.
+ * The row carries the Image, Video, Sound toggle (JJ, 25 Nov 2026) and one
+ * button that names the model and the settings in force. The button opens a
+ * panel with the model that kind runs on and one control per setting that
+ * model takes: a select for an enum, a number input for a number, a checkbox
+ * for a switch. The controls sat on the row itself until 26 Nov 2026, where
+ * they ran past the card's edge and were cut off. The model picker is here
+ * because the person may change the model at any time inside a chat (JJ, 24
+ * Nov 2026); "Auto" leaves the choice to the app. The composer's chat-model
+ * seat stays retired on a media view, so the model is still named once.
  *
  * The fields come from `GET /idealize/generate/inputs?space=`, refetched when
  * the view changes and when the Brains pane raises `idealize:brains-changed`
@@ -28,6 +27,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type React from 'react'
 import type { GenerationField, GenerationInputs, GenerationSelection, GenerationStrip } from './contract.ts'
 import { applySettingsTag, GALLERY_COUNTS, readSettingsTag, valueOf } from './settings-tag.ts'
@@ -69,6 +69,26 @@ export const FALLBACK_FIELDS: Readonly<Record<GenerationView, readonly Generatio
     { name: 'duration', label: 'Length', kind: 'enum', values: ['auto', '5', '15', '30'], default: 'auto' },
   ],
 }
+
+/**
+ * The document event the strip raises when a person picks another kind of
+ * thing to make. `@idealize/ui-bar` owns the chat's durable view record, so it
+ * listens and writes it (restated there: neither package imports the other).
+ */
+export const STUDIO_KIND_EVENT = 'idealize:studio-kind'
+
+/** What {@link STUDIO_KIND_EVENT} carries: the chat and the view it moves to. */
+export interface StudioKindDetail {
+  sessionId: string
+  space: GenerationView
+}
+
+/** The kinds in toggle order, each with its label key. */
+export const STUDIO_KINDS: readonly { space: GenerationView; label: GalleryKey }[] = [
+  { space: 'gallery', label: 'gallery.kind.image' },
+  { space: 'motion', label: 'gallery.kind.video' },
+  { space: 'soundstage', label: 'gallery.kind.sound' },
+]
 
 /**
  * Whether a ring view id is one the strip renders on.
@@ -118,6 +138,124 @@ export async function loadInputs(space: GenerationView): Promise<readonly Genera
   }
 }
 
+/** The host route listing each kind's models and storing the chosen one (restated: the purity gate forbids the value import). */
+export const MEDIA_ROUTE = '/idealize/brains/media'
+
+/** The media preset behind each view (restated from `@idealize/generate`'s `PRESET_BY_SPACE`). */
+export const MEDIA_PRESET_BY_VIEW: Readonly<Record<GenerationView, string>> = { gallery: 'images', motion: 'motion', soundstage: 'sound' }
+
+/** One model a kind can run on, as the strip's picker lists it. */
+export interface StudioModel {
+  backend: string
+  model: string
+  name: string
+  /** What one typical output costs, as the provider publishes it; undefined when it publishes none. */
+  price?: string
+}
+
+/** One kind's models and the stored choice (null while the app picks). */
+export interface StudioModels {
+  chosen: { backend: string; model: string } | null
+  models: readonly StudioModel[]
+}
+
+/** Wire boundary: one catalogue entry as the media route serialised it. */
+function toStudioModel(value: unknown): StudioModel | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const { backend, model } = value as { backend?: unknown; model?: unknown }
+  if (typeof backend !== 'string' || typeof model !== 'object' || model === null) return undefined
+  const { id, name, price } = model as { id?: unknown; name?: unknown; price?: unknown }
+  if (typeof id !== 'string') return undefined
+  const row: StudioModel = { backend, model: id, name: typeof name === 'string' && name !== '' ? name : id }
+  if (typeof price === 'object' && price !== null) {
+    const { unitPrice, unit, currency, perOutput } = price as {
+      unitPrice?: unknown
+      unit?: unknown
+      currency?: unknown
+      perOutput?: { amount?: unknown; output?: unknown }
+    }
+    if (typeof currency === 'string') {
+      if (typeof perOutput?.amount === 'number' && typeof perOutput.output === 'string') {
+        row.price = `${String(perOutput.amount)} ${currency} / ${perOutput.output}`
+      } else if (typeof unitPrice === 'number' && typeof unit === 'string') {
+        row.price = unitPrice === 0 ? '' : `${String(unitPrice)} ${currency} / ${unit}`
+      }
+    }
+  }
+  return row
+}
+
+/**
+ * Fetch one kind's models and the stored choice.
+ * @param space - the view id.
+ * @returns the models in name order, or an empty list when the route is absent or refuses.
+ */
+export async function loadStudioModels(space: GenerationView): Promise<StudioModels> {
+  try {
+    const response = await fetch(MEDIA_ROUTE)
+    if (!response.ok) return { chosen: null, models: [] }
+    const body = await response.json() as { presets?: unknown }
+    const presets = Array.isArray(body.presets) ? body.presets as { id?: unknown; model?: unknown; candidates?: unknown }[] : []
+    const preset = presets.find(one => one.id === MEDIA_PRESET_BY_VIEW[space])
+    if (preset === undefined) return { chosen: null, models: [] }
+    const stored = preset.model as { backend?: unknown; model?: unknown } | null | undefined
+    const chosen = typeof stored?.backend === 'string' && typeof stored.model === 'string'
+      ? { backend: stored.backend, model: stored.model }
+      : null
+    const models = (Array.isArray(preset.candidates) ? preset.candidates : [])
+      .flatMap((entry) => { const row = toStudioModel(entry); return row === undefined ? [] : [row] })
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return { chosen, models }
+  } catch {
+    return { chosen: null, models: [] }
+  }
+}
+
+/**
+ * Store one kind's model, or clear it so the app picks.
+ * @param space - the view id.
+ * @param model - the choice, or null for the app's pick.
+ * @returns whether the route accepted it.
+ */
+export async function storeStudioModel(space: GenerationView, model: { backend: string; model: string } | null): Promise<boolean> {
+  try {
+    const response = await fetch(MEDIA_ROUTE, {
+      method: 'POST',
+      headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ id: MEDIA_PRESET_BY_VIEW[space], model }),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+/** The panel's width in pixels, restated from the stylesheet so its place can keep it on screen. */
+const PANEL_WIDTH = 300
+
+/** How each service is written in the picker; any other backend shows its id. */
+const SERVICE_NAMES: Readonly<Record<string, string>> = { openrouter: 'OpenRouter', fal: 'fal' }
+
+/**
+ * Split a kind's models by the service that runs them, in first-seen order.
+ * A service that lists one name several times keeps the first, because the
+ * picker shows names and two identical rows cannot be told apart.
+ * @param models - the models in name order.
+ * @returns one group per service.
+ */
+export function groupByService(models: readonly StudioModel[]): { backend: string; models: StudioModel[] }[] {
+  const groups: { backend: string; models: StudioModel[] }[] = []
+  for (const model of models) {
+    let group = groups.find(one => one.backend === model.backend)
+    if (group === undefined) {
+      group = { backend: model.backend, models: [] }
+      groups.push(group)
+    }
+    if (!group.models.some(one => one.name === model.name)) group.models.push(model)
+  }
+  return groups
+}
+
 /** Bound translate for the `idealize-gallery` namespace. */
 type Translate = (key: GalleryKey, params?: Record<string, unknown>) => string
 
@@ -152,62 +290,6 @@ function assertNever(value: never): never {
   throw new Error(`unreachable generation field kind: ${String(value)}`)
 }
 
-/** How far an element's content runs past its box. */
-function overflowOf(element: Element): number {
-  return Math.max(0, element.scrollWidth - element.clientWidth)
-}
-
-/**
- * Whether the tool row the strip sits in has less room than its content asks
- * for. The row's leading boxes shrink (`min-width: 0`) while its trailing half
- * does not, so on a narrow window the mode chip's box shrank under its text and
- * the chip overlapped the strip's labels (walk of 7 Sep 2026, 1280px); the row
- * itself never overflows, its siblings do. The strip then stacks each label
- * above its control in small type, which costs no width; a switch keeps its
- * word beside the box.
- *
- * The row is the nearest ancestor with a width: the slot renderer wraps the
- * strip in a box of none, and while the card is not laid out yet every
- * ancestor reads zero, so the row is resolved on every measurement, and the
- * strip watches its own size to measure again once it has one. `needed`
- * remembers the row width the labelled strip asked for (the row plus every
- * sibling's overflow), so the labels return only once the row has grown back to
- * it: measuring the compact strip alone would flip the labels on and off.
- * @param row - the strip's root element, null while a non-media view is active.
- * @param space - the active media view, null while the strip renders nothing; a
- * change re-runs the measurement, since the root element comes and goes with it.
- * @returns the compact flag, false until a measurement says otherwise.
- */
-function useCompact(row: React.RefObject<HTMLDivElement | null>, space: GenerationView | null): boolean {
-  const [compact, setCompact] = useState(false)
-  const needed = useRef(0)
-  useLayoutEffect(() => {
-    const strip = row.current
-    if (space === null || strip === null || typeof ResizeObserver === 'undefined') return
-    const observed = new Set<Element>()
-    const measure = (): void => {
-      let box = strip.parentElement
-      while (box !== null && box.clientWidth === 0) box = box.parentElement
-      if (box === null || box === document.documentElement) return
-      const siblings = [...box.children].filter(child => !child.contains(strip))
-      for (const element of [box, ...siblings]) {
-        if (observed.has(element)) continue
-        observed.add(element)
-        observer.observe(element)
-      }
-      const excess = overflowOf(box) + siblings.reduce((sum, child) => sum + overflowOf(child), 0)
-      if (!compact) needed.current = box.clientWidth + excess
-      setCompact(compact ? box.clientWidth < needed.current : excess > 0)
-    }
-    const observer = new ResizeObserver(measure)
-    observed.add(strip)
-    observer.observe(strip)
-    measure()
-    return () => { observer.disconnect() }
-  }, [row, compact, space])
-  return compact
-}
-
 /**
  * Props the strip reads. Restated structurally: the entry carries a foreign
  * plugin's store, which the typed slot overloads cannot describe.
@@ -215,6 +297,10 @@ function useCompact(row: React.RefObject<HTMLDivElement | null>, space: Generati
 export interface GenerationSettingsProps {
   /** Selector hook over the chat store (the ring's active view lives here). */
   useStore: <T>(selector: (state: { view: string | null }) => T) => T
+  /** The chat store's actions; the kind toggle moves the ring through `setView`. */
+  actions: { setView: (view: string) => void }
+  /** The chat the strip belongs to. */
+  sessionId: string
   /** Selector hook over this session's live input machine state. */
   useInput: <T>(selector: (state: { draft: string; locked?: boolean }) => T) => T
   /** The public input action face; the strip's single write path. */
@@ -228,13 +314,56 @@ export interface GenerationSettingsProps {
  * @param props - composed slot props.
  * @returns the control row, or null while a non-media view is active.
  */
-export function GenerationSettings({ useStore, useInput, inputActions, t }: GenerationSettingsProps) {
+export function GenerationSettings({ useStore, useInput, inputActions, actions, sessionId, t }: GenerationSettingsProps) {
   const view = useStore(state => state.view)
   const draft = useInput(state => state.draft)
   const space = isGenerationView(view) ? view : null
   const [schema, setSchema] = useState<{ space: GenerationView; fields: readonly GenerationField[] } | null>(null)
-  const root = useRef<HTMLDivElement | null>(null)
-  const compact = useCompact(root, space)
+  // Every setting lives in one panel that opens from the chat box. On the row
+  // itself the controls ran past the card's edge and were cut off, so some
+  // could not be seen or reached (JJ, 26 Nov 2026: "lets put controls into a
+  // dropdown panel so you can see and access them all easily").
+  const [open, setOpen] = useState(false)
+  const [place, setPlace] = useState<{ bottom: number; left: number }>({ bottom: 0, left: 0 })
+  const trigger = useRef<HTMLButtonElement | null>(null)
+  const panel = useRef<HTMLDivElement | null>(null)
+
+  // The panel mounts on the document body and opens upward from the trigger:
+  // the chat box sits at the foot of the window and clips what hangs inside it.
+  useLayoutEffect(() => {
+    if (!open) return
+    const measure = (): void => {
+      const box = trigger.current?.getBoundingClientRect()
+      if (box === undefined) return
+      setPlace({
+        bottom: window.innerHeight - box.top + 8,
+        left: Math.max(16, Math.min(box.left, window.innerWidth - PANEL_WIDTH - 16)),
+      })
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => { window.removeEventListener('resize', measure) }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (event: PointerEvent): void => {
+      if (!(event.target instanceof Node)) return
+      if (trigger.current?.contains(event.target) === true || panel.current?.contains(event.target) === true) return
+      setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      setOpen(false)
+      trigger.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
 
   useEffect(() => {
     if (space === null) return
@@ -251,6 +380,37 @@ export function GenerationSettings({ useStore, useInput, inputActions, t }: Gene
       document.removeEventListener(BRAINS_CHANGED_EVENT, load)
     }
   }, [space])
+
+  // This kind's models and the one chosen, read with the schema and again
+  // after a change, so the picker and the settings beside it stay in step.
+  const [catalogue, setCatalogue] = useState<{ space: GenerationView } & StudioModels | null>(null)
+  useEffect(() => {
+    if (space === null) return
+    let live = true
+    const load = (): void => {
+      void loadStudioModels(space).then((next) => {
+        if (live) setCatalogue({ space, ...next })
+      })
+    }
+    load()
+    document.addEventListener(BRAINS_CHANGED_EVENT, load)
+    return () => {
+      live = false
+      document.removeEventListener(BRAINS_CHANGED_EVENT, load)
+    }
+  }, [space])
+
+  const onModel = useCallback((value: string) => {
+    if (space === null) return
+    const slash = value.indexOf('/')
+    const next = value === '' ? null : { backend: value.slice(0, slash), model: value.slice(slash + 1) }
+    void storeStudioModel(space, next).then((stored) => {
+      if (stored) document.dispatchEvent(new CustomEvent(BRAINS_CHANGED_EVENT))
+    })
+  }, [space])
+
+  const chosen = catalogue?.chosen ?? null
+  const chosenKey = chosen === null ? '' : `${chosen.backend}/${chosen.model}`
 
   const fields = schema !== null && schema.space === space && schema.fields.length > 0
     ? schema.fields
@@ -270,11 +430,29 @@ export function GenerationSettings({ useStore, useInput, inputActions, t }: Gene
     write({ ...selection, count: Number(event.target.value) })
   }, [selection, write])
 
+  const onKind = useCallback((next: GenerationView) => {
+    if (next === space) return
+    // The record first, so the chat reopens on this kind after a reload; the
+    // ring second, which is what the person sees change.
+    document.dispatchEvent(new CustomEvent<StudioKindDetail>(STUDIO_KIND_EVENT, { detail: { sessionId, space: next } }))
+    actions.setView(next)
+  }, [actions, sessionId, space])
+
   if (space === null) return null
 
-  // The switches sit together after the other controls, so a compact row can
-  // stack them in one column: box-then-word twice costs the width of one.
-  const switches = fields.filter(field => field.kind === 'boolean')
+  // What the closed trigger says: the model, then each setting that has a value.
+  const chosenName = chosen === null
+    ? t('gallery.settings.auto')
+    : catalogue?.models.find(one => one.backend === chosen.backend && one.model === chosen.model)?.name ?? chosen.model
+  const summary = [
+    chosenName,
+    ...fields.flatMap((field) => {
+      const value = valueOf(field, selection)
+      if (value === '') return []
+      return [field.kind === 'boolean' ? (value === 'true' ? fieldLabel(field, space, t) : '') : optionLabel(field, value, t)]
+    }).filter(part => part !== ''),
+    ...strip.counts !== undefined && selection.count > 1 ? [`× ${String(selection.count)}`] : [],
+  ].join(' · ')
 
   /** One control by the field's kind; the label and the data attributes are shared. */
   const control = (field: GenerationField, value: string): React.ReactNode => {
@@ -302,9 +480,7 @@ export function GenerationSettings({ useStore, useInput, inputActions, t }: Gene
         )
       }
       case 'number':
-        // Input and unit share one box: a compact row stacks the label above
-        // the control, and without this wrapper the unit became a third line
-        // under the field (JJ, 9 Sep 2026).
+        // Input and unit share one box, so the unit stays on the field's line.
         return (
           <span className={css.numberBox}>
             <input
@@ -341,36 +517,95 @@ export function GenerationSettings({ useStore, useInput, inputActions, t }: Gene
 
   return (
     <div
-      ref={root}
       className={css.row}
       data-gen-settings-space={space}
-      {...compact ? { 'data-gen-settings-compact': '' } : {}}
       {...space === GALLERY_VIEW ? { 'data-gallery-settings': '' } : {}}
-      title={t('gallery.settings.hint')}
     >
-      {fields.filter(field => field.kind !== 'boolean').map(field => (
-        <label key={field.name} className={css.control} title={fieldLabel(field, space, t)} data-gen-setting-kind={field.kind}>
-          <span className={css.label}>{fieldLabel(field, space, t)}</span>
-          {control(field, valueOf(field, selection))}
-        </label>
-      ))}
-      {switches.length === 0 ? null : (
-        <span className={css.switches} data-gen-switches="">
-          {switches.map(field => (
-            <label key={field.name} className={css.control} title={fieldLabel(field, space, t)} data-gen-setting-kind={field.kind}>
+      <span className={css.kinds} role="radiogroup" aria-label={t('gallery.kind.label')} data-studio-kinds="">
+        {STUDIO_KINDS.map(kind => (
+          <button
+            key={kind.space}
+            type="button"
+            role="radio"
+            aria-checked={kind.space === space}
+            className={kind.space === space ? css.kindOn : css.kind}
+            data-studio-kind={kind.space}
+            onClick={() => { onKind(kind.space) }}
+          >
+            {t(kind.label)}
+          </button>
+        ))}
+      </span>
+      <button
+        ref={trigger}
+        type="button"
+        className={css.trigger}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label={`${t('gallery.settings.open')}: ${summary}`}
+        title={t('gallery.settings.hint')}
+        data-gen-settings-open=""
+        onClick={() => { setOpen(current => !current) }}
+      >
+        <span className={css.summary} data-gen-settings-summary="">{summary}</span>
+        <svg className={open ? css.chevronOpen : css.chevron} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M2 6.5 5 3.5l3 3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {/* Mounted while closed too, so a setting keeps its control and its value between openings. */}
+      {createPortal(
+        <div
+          ref={panel}
+          className={css.panel}
+          style={place}
+          role="dialog"
+          aria-label={t('gallery.settings.open')}
+          hidden={!open}
+          data-gen-settings-panel={space}
+        >
+          {catalogue !== null && catalogue.space === space && catalogue.models.length > 0 && (
+            <label className={css.control}>
+              <span className={css.label}>{t('gallery.settings.model')}</span>
+              <select
+                className={css.modelSelect}
+                aria-label={t('gallery.settings.model')}
+                value={chosenKey}
+                onChange={(event) => { onModel(event.target.value) }}
+                data-studio-model=""
+              >
+                <option value="">{t('gallery.settings.auto')}</option>
+                {chosenKey !== '' && !catalogue.models.some(one => `${one.backend}/${one.model}` === chosenKey) && (
+                  <option value={chosenKey}>{catalogue.chosen?.model}</option>
+                )}
+                {groupByService(catalogue.models).map(group => (
+                  <optgroup key={group.backend} label={SERVICE_NAMES[group.backend] ?? group.backend}>
+                    {group.models.map(one => (
+                      <option key={`${one.backend}/${one.model}`} value={`${one.backend}/${one.model}`}>
+                        {one.price === undefined || one.price === '' ? one.name : `${one.name} · ${one.price}`}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+          )}
+          {fields.map(field => (
+            <label key={field.name} className={css.control} data-gen-setting-kind={field.kind}>
+              <span className={css.label}>{fieldLabel(field, space, t)}</span>
               {control(field, valueOf(field, selection))}
-              <span className={css.switchLabel}>{fieldLabel(field, space, t)}</span>
             </label>
           ))}
-        </span>
-      )}
-      {strip.counts === undefined ? null : (
-        <label className={css.control} title={t('gallery.settings.count')}>
-          <span className={css.label}>{t('gallery.settings.count')}</span>
-          <select className={css.select} aria-label={t('gallery.settings.count')} value={selection.count} onChange={onCount} data-gen-setting="count" data-gallery-count="">
-            {strip.counts.map(count => <option key={count} value={count}>{count}</option>)}
-          </select>
-        </label>
+          {strip.counts === undefined ? null : (
+            <label className={css.control}>
+              <span className={css.label}>{t('gallery.settings.count')}</span>
+              <select className={css.select} aria-label={t('gallery.settings.count')} value={selection.count} onChange={onCount} data-gen-setting="count" data-gallery-count="">
+                {strip.counts.map(count => <option key={count} value={count}>{count}</option>)}
+              </select>
+            </label>
+          )}
+          <p className={css.hint}>{t('gallery.settings.hint')}</p>
+        </div>,
+        document.body,
       )}
     </div>
   )

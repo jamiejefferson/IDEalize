@@ -42,7 +42,7 @@ describe('status and roster', () => {
     expect(text).toBe([
       'Running: Ada.',
       'Waiting for you: 2 approvals or questions.',
-      'Open tasks:\n• Hero copy (Ada, site): working, needs input\n• Untitled task (Notes, site): queued\n• Plan week (Bo, Studio): paused',
+      'Open tasks:\n• Hero copy (Ada, site): working, needs input\n• Untitled task (Notes, site): queued\n• Plan week (Bo, Agent Coordination): paused',
     ].join('\n\n'))
   })
 
@@ -57,7 +57,7 @@ describe('status and roster', () => {
   })
 
   it('names the Studio timeline and project folders', () => {
-    expect(projectName('studio')).toBe('Studio')
+    expect(projectName('studio')).toBe('Agent Coordination')
     expect(projectName('/work/site')).toBe('site')
   })
 })
@@ -106,7 +106,7 @@ describe('Studio post replies', () => {
   it('stays quiet for a delivery to the coordinator and says when it queued', () => {
     expect(chatPostReply({ kind: 'delivered', target: 's3', project: 'studio', delivery: 'delivered' }, roster)).toBeUndefined()
     expect(chatPostReply({ kind: 'delivered', target: 's3', project: 'studio', delivery: 'queued' }, roster))
-      .toBe('Queued. The Studio coordinator reads it when it is free.')
+      .toBe('Queued. The coordinator reads it when it is free.')
   })
 
   it('confirms a delivery to one agent, or that it waits', () => {
@@ -117,7 +117,7 @@ describe('Studio post replies', () => {
 
   it('explains a coordinator that could not start and a name that did not resolve', () => {
     expect(chatPostReply({ kind: 'no-coordinator', reason: 'No model is set.' }, roster))
-      .toBe('The Studio coordinator could not start, so the message was not sent. No model is set.')
+      .toBe('The coordinator could not start, so the message was not sent. No model is set.')
     expect(chatPostReply({ kind: 'unresolved', token: 'Cy', names: ['Ada', 'Bo'] }, roster)).toBe('Nobody called @Cy is here. Try one of: Ada, Bo.')
     expect(chatPostReply({ kind: 'unresolved', token: 'Cy', names: [] }, roster)).toBe('Nobody called @Cy is here.')
   })

@@ -123,7 +123,6 @@
     "@idealize/spaces": "workspace:^",
     "@idealize/ui-gallery": "workspace:^",
     "@idealize/ui-schedule": "workspace:^",
-    "@idealize/ui-soundstage": "workspace:^",
     "@idealize/ui-studio": "workspace:^",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",

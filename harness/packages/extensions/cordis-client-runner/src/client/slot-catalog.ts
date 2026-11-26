@@ -1164,7 +1164,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-conversation ChatView id \'chat\'',
       '@idealize/ui-gallery GalleryView id \'gallery\'',
       '@idealize/ui-gallery GalleryView id \'motion\'',
-      '@idealize/ui-soundstage SoundstageEntry id \'soundstage\'',
+      '@idealize/ui-gallery GalleryView id \'soundstage\'',
       '@idealize/ui-studio StudioView id \'studio\'',
       '@idealize/ui-terminal TerminalView id \'terminal\'',
     ],
@@ -1786,6 +1786,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     declaredBy: 'an entry in \'root\' (client-ui-layout), so it exists while that entry is mounted',
     occupants: [
       '@idealize/onboarding OnboardingOverlay id \'idealize-onboarding\'',
+      '@idealize/onboarding SimplerSheet id \'idealize-onboarding-simpler\'',
       '@idealize/ui-launch LaunchOverlay id \'idealize-launch\'',
       '@idealize/ui-tour Overlay id \'idealize-tour\'',
     ],

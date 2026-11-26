@@ -1,11 +1,33 @@
 import { describe, expect, it } from 'vitest'
 
-import { criteriaFor, engineWeights, routingHeaderValue, SHIPPED_CRITERIA } from '../src/criteria.ts'
+import { criteriaFor, DEFAULT_LEAN, engineWeights, leanOf, leanWeights, routingHeaderValue, SHIPPED_CRITERIA } from '../src/criteria.ts'
 import type { Criteria } from '../src/criteria.ts'
 
 const app: Criteria = { aggressiveness: 'balanced', weights: { cost: 34, speed: 33, intelligence: 33 } }
 
-describe('a brain’s own criteria', () => {
+describe('the Cheaper to Smarter slider', () => {
+  it('rests at 35 until a person moves it', () => {
+    expect(DEFAULT_LEAN).toBe(35)
+    expect(leanWeights(undefined, 33)).toEqual({ cost: 65, speed: 33, intelligence: 35 })
+  })
+
+  it('weighs cost alone at one end and intelligence alone at the other, and leaves speed where the app set it', () => {
+    expect(leanWeights(0, 20)).toEqual({ cost: 100, speed: 20, intelligence: 0 })
+    expect(leanWeights(100, 20)).toEqual({ cost: 0, speed: 20, intelligence: 100 })
+    expect(leanWeights(70, 0)).toEqual({ cost: 30, speed: 0, intelligence: 70 })
+  })
+
+  it('reads a position as a whole number from 0 to 100, and anything else as unset', () => {
+    expect(leanOf(41.6)).toBe(42)
+    expect(leanOf(-5)).toBe(0)
+    expect(leanOf(250)).toBe(100)
+    expect(leanOf('50')).toBeUndefined()
+    expect(leanOf(Number.NaN)).toBeUndefined()
+    expect(leanWeights(Number.POSITIVE_INFINITY, 33)).toEqual(leanWeights(undefined, 33))
+  })
+})
+
+describe('the criteria earlier versions stored per preset', () => {
   it('a chat without a brain, and a brain with nothing saved or shipped, read the app-wide values', () => {
     expect(criteriaFor({}, undefined, app)).toEqual(app)
     expect(criteriaFor(undefined, 'writing', app)).toEqual(app)

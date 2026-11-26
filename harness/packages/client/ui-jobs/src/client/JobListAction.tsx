@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { JobView } from '@deepseek-ai/dsh-client-runtime/client'
-import { IconChevronDownOutline14, StateDot, useDismissOnOutsidePointer, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutline14, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -9,6 +10,9 @@ import css from './JobListAction.module.css'
 /** Full props for the session-header background-job action. */
 export type JobListActionProps =
   PropsRuntime<'conversation.session.header.actions'> & PropsLocale<typeof NS>
+
+/** The list's width in pixels, restated from the stylesheet so its place can keep it on screen. */
+const MENU_WIDTH = 336
 
 /** Stable empty list so a session with no jobs keeps one array identity. */
 const NO_TASKS: readonly JobView[] = []
@@ -97,11 +101,39 @@ export function JobListAction({ sessionId, useSessions, t }: JobListActionProps)
   const [now, setNow] = useState(() => Date.now())
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLUListElement>(null)
 
   const rows = useMemo(() => ordered(jobs), [jobs])
   const liveCount = useMemo(() => jobs.filter(isLive).length, [jobs])
 
-  useDismissOnOutsidePointer(rootRef, open, setOpen)
+  // IDEalize fork: the list mounts on the document body, at the trigger's
+  // place on screen. The session header fades its lower edge with a mask,
+  // which cut off a list hanging inside it (JJ, 26 Nov 2026: "the 'in
+  // progress' indicator is cut off within the title bar").
+  const [place, setPlace] = useState<{ top: number; left: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!open) return
+    const measure = (): void => {
+      const box = triggerRef.current?.getBoundingClientRect()
+      if (box === undefined) return
+      setPlace({ top: box.bottom + 5, left: Math.max(16, Math.min(box.left, window.innerWidth - MENU_WIDTH - 16)) })
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => { window.removeEventListener('resize', measure) }
+  }, [open])
+
+  // The list sits outside the root, so a press inside either one keeps it open.
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: PointerEvent): void => {
+      if (!(event.target instanceof Node)) return
+      if (rootRef.current?.contains(event.target) === true || menuRef.current?.contains(event.target) === true) return
+      setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    return () => { document.removeEventListener('pointerdown', closeOutside) }
+  }, [open])
 
   // The clock only runs while an open list is showing something that moves.
   useEffect(() => {
@@ -152,9 +184,9 @@ export function JobListAction({ sessionId, useSessions, t }: JobListActionProps)
         <span className={css.count}>{countLabel}</span>
         <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
       </button>
-      {open
-        ? (
-          <ul className={css.menu} aria-label={t('list.aria')}>
+      {open && place !== null
+        ? createPortal(
+          <ul ref={menuRef} className={css.menu} style={place} aria-label={t('list.aria')} data-job-list="">
             {rows.map((job) => {
               const live = isLive(job)
               const elapsed = live ? now - job.startedAt : (job.finishedAt ?? job.startedAt) - job.startedAt
@@ -175,7 +207,8 @@ export function JobListAction({ sessionId, useSessions, t }: JobListActionProps)
                 </li>
               )
             })}
-          </ul>
+          </ul>,
+          document.body,
         )
         : null}
     </div>

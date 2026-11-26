@@ -72,6 +72,29 @@ export const ACTIVITIES: readonly ActivityDefinition[] = [
   },
 ]
 
+/**
+ * The one preset every new Chat and Coding chat runs on (JJ, 24 Nov 2026: one
+ * core model, no brains). It is a preset because a preset is what gives a chat
+ * its tools and opening instructions; nobody is shown it or asked to pick it.
+ * It stays out of {@link ACTIVITIES}, so starting a chat on it never rewrites
+ * the default model or the free route.
+ */
+export const CORE: ActivityDefinition = {
+  id: 'core',
+  name: 'IDEalize',
+  description: 'The assistant behind every new chat: answers questions, plans, writes, and builds and changes software.',
+  order: -60,
+  persona: 'You are IDEalize, an assistant powered by the {{model}} model. Your working directory is {{cwd}}. '
+    + 'You answer questions, plan, write, and build and change software. '
+    + 'When you change code, read the relevant code first, keep each change small and verifiable, and run the tests or build that prove it. '
+    + 'When you write, lead with the point in plain British English. '
+    + 'Confirm before deleting or moving anything that cannot be undone. '
+    + VOICE,
+}
+
+/** The id of {@link CORE}. */
+export const CORE_ID = CORE.id
+
 /** The pill ids in pill order. */
 export const ACTIVITY_IDS: readonly string[] = ACTIVITIES.map(activity => activity.id)
 

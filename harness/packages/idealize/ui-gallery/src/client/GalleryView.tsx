@@ -29,8 +29,9 @@ import { requestReveal } from '@idealize/artefacts/src/client/reveal.ts'
 import { EMPTY_GALLERY_SNAPSHOT } from './definition.ts'
 // Type-only: the LocaleNamespaceMap merge this view's locale seat resolves through.
 import type {} from './locales.ts'
-import { pendingTurns, rowsOfKind } from './contract.ts'
+import { pendingTurns, studioRows } from './contract.ts'
 import type { GalleryArtefact, GalleryArtefactKind, GalleryRow, GalleryTurn } from './contract.ts'
+import { GalleryBackdrop } from './backdrop.tsx'
 import css from './GalleryView.module.css'
 
 /** Registration-side face: the verbs that leave the view. */
@@ -52,9 +53,8 @@ export interface GalleryViewInjected {
 }
 
 /**
- * Which artefact kind this grid shows. The Images space and the Video space
- * are the same grid over the same per-chat source, differing only in what they
- * show and what their empty state says.
+ * Which kind the chat box is set to make. The three media views are one grid
+ * over one per-chat history; the kind decides only what the empty state says.
  */
 export interface GalleryViewKind {
   kind?: GalleryArtefactKind
@@ -129,9 +129,6 @@ function ArtefactMedia({ artefact, alt, large = false }: { artefact: GalleryArte
         <PlayGlyph />
       </>
     )
-  }
-  if (artefact.mediaType.startsWith('audio/')) {
-    return <audio className={css.audio} src={source} controls data-gallery-audio={artefact.id} />
   }
   return <span data-gallery-file={artefact.id}>{artefact.mediaType}</span>
 }
@@ -214,6 +211,44 @@ function DoneTile({ shown, open, setDisposition, t }: {
       {row.note !== undefined && <figcaption className={css.routerNote} data-gallery-router-note="">{row.note}</figcaption>}
     </figure>
   )
+}
+
+/**
+ * One finished sound's tile: what was asked for and a player. A sound has
+ * nothing to enlarge, and a player inside the enlarge button would lose its
+ * clicks to it, so the well is plain and the player works in place.
+ */
+function SoundTile({ shown, setDisposition, t }: {
+  shown: Shown
+  setDisposition: GalleryViewInjected['setDisposition']
+  t: GalleryViewProps['t']
+}) {
+  const { row, artefact } = shown
+  return (
+    <figure className={css.tile} data-gallery-tile="done" data-gallery-sound={artefact.id} data-gallery-archived={artefact.archived ? '' : undefined}>
+      <div className={`${css.well} ${css.soundWell}`}>
+        <p className={css.soundPrompt} title={row.prompt}>{row.prompt}</p>
+        <audio className={css.audio} src={rawUrl(artefact.id)} controls preload="metadata" aria-label={row.prompt} data-gallery-audio={artefact.id} />
+      </div>
+      <div className={css.tileActions} data-gallery-actions="">
+        <RevealButton artefact={artefact} t={t} className={css.tileAction} />
+        <VerdictButton artefact={artefact} setDisposition={setDisposition} t={t} className={css.tileAction} />
+      </div>
+      {row.note !== undefined && <figcaption className={css.routerNote} data-gallery-router-note="">{row.note}</figcaption>}
+    </figure>
+  )
+}
+
+/** One finished artefact's tile, by what it is. */
+function ArtefactTile(props: {
+  shown: Shown
+  open: (shown: Shown) => void
+  setDisposition: GalleryViewInjected['setDisposition']
+  t: GalleryViewProps['t']
+}) {
+  return props.shown.artefact.mediaType.startsWith('audio/')
+    ? <SoundTile shown={props.shown} setDisposition={props.setDisposition} t={props.t} />
+    : <DoneTile {...props} />
 }
 
 /** A chat-like row across the grid: the prompt on the left, the state of the work on the right. */
@@ -382,8 +417,8 @@ type Entry = { seq: number; kind: 'row'; row: GalleryRow } | { seq: number; kind
  */
 export function GalleryView({ useSession, retry, setDisposition, kind = 'image', t }: GalleryViewProps) {
   const snapshot = useSession(state => state.views.get('gallery')) ?? EMPTY_GALLERY_SNAPSHOT
-  // One chat's log carries every generation it ran; this space shows its own.
-  const rows = rowsOfKind(snapshot, kind)
+  // One chat's log carries every generation it ran, and the grid shows them all.
+  const rows = studioRows(snapshot)
   const turns = pendingTurns(snapshot)
   const [enlargedId, setEnlargedId] = useState<string | null>(null)
   const open = useCallback((shown: Shown) => { setEnlargedId(shown.artefact.id) }, [])
@@ -405,6 +440,7 @@ export function GalleryView({ useSession, retry, setDisposition, kind = 'image',
 
   return (
     <div className={css.root} data-gallery-root="" data-gallery-kind={kind}>
+      <GalleryBackdrop />
       {/* No page heading (JJ, 2 Sep 2026): the chat's own title bar names the space; the grid speaks for itself. */}
       {entries.length === 0
         ? (
@@ -425,7 +461,7 @@ export function GalleryView({ useSession, retry, setDisposition, kind = 'image',
               if (row.status === 'failed') return <FailedTile key={row.callId} row={row} t={t} retry={retry} />
               if (row.artefacts.length === 0) return <RunningRow key={row.callId} row={row} t={t} />
               return row.artefacts.filter(artefact => !artefact.archived).map(artefact => (
-                <DoneTile key={artefact.id} shown={{ row, artefact }} open={open} setDisposition={setDisposition} t={t} />
+                <ArtefactTile key={artefact.id} shown={{ row, artefact }} open={open} setDisposition={setDisposition} t={t} />
               ))
             })}
           </div>
@@ -435,7 +471,7 @@ export function GalleryView({ useSession, retry, setDisposition, kind = 'image',
           <summary className={css.archivedSummary}>{t('gallery.archived.fold', { count: archived.length })}</summary>
           <div className={`${css.grid} ${css.archivedGrid}`}>
             {archived.map(shown => (
-              <DoneTile key={shown.artefact.id} shown={shown} open={open} setDisposition={setDisposition} t={t} />
+              <ArtefactTile key={shown.artefact.id} shown={shown} open={open} setDisposition={setDisposition} t={t} />
             ))}
           </div>
         </details>

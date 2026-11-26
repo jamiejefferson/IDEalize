@@ -13,7 +13,7 @@ import { dump, load } from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { ACTIVITY_IDS, type ActivityDefinition } from './activities.ts'
 
-export { ACTIVITIES, ACTIVITY_IDS, FREE_ACTIVITY_ID } from './activities.ts'
+export { ACTIVITIES, ACTIVITY_IDS, CORE, CORE_ID, FREE_ACTIVITY_ID } from './activities.ts'
 export type { ActivityDefinition } from './activities.ts'
 
 /** One parsed composition row: a map carrying a plugin `name`. */

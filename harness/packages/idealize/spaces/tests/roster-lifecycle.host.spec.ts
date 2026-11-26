@@ -169,7 +169,7 @@ async function boot(
   await context.loader.await()
   // Both seeders write their presets in the background once the roster service
   // is up; the roster route reads the same list, so wait for the writes.
-  if (brains) await waitForPresets(context, ['coding', 'gallery', 'soundstage', 'video'])
+  if (brains) await waitForPresets(context, ['coding', 'core', 'gallery', 'soundstage', 'video'])
   return { ctx: context, port: context.webServer.port }
 }
 
@@ -213,17 +213,17 @@ describe('GET /idealize/spaces on a real composition', () => {
     const all = await roster(port)
 
     expect(all.map(space => space.id)).toEqual(['chat', 'terminal', 'gallery', 'soundstage', 'motion'])
-    // The five activity brains work in Chat and four of them in Terminal
-    // (Free's route is a chat route); each media brain works in its own
-    // space. The shipped `standard` composition they all derive from is not a
+    // The core preset and the five activity brains work in Chat, and all but
+    // Free in Terminal (Free's route is a chat route); each media brain works
+    // in its own space. The shipped `standard` composition they all derive from is not a
     // brain and is not counted, so the tiles read what the product offers.
     expect(all.map(space => [space.id, space.brainCount])).toEqual([
-      ['chat', 5], ['terminal', 4], ['gallery', 1], ['soundstage', 1], ['motion', 1],
+      ['chat', 6], ['terminal', 5], ['gallery', 1], ['soundstage', 1], ['motion', 1],
     ])
     expect(entry(all, 'chat').brains.map(brain => brain.name).sort())
-      .toEqual(['Admin', 'Coding', 'Design', 'Free', 'Writing'])
+      .toEqual(['Admin', 'Coding', 'Design', 'Free', 'IDEalize', 'Writing'])
     expect(entry(all, 'terminal').brains.map(brain => brain.name).sort())
-      .toEqual(['Admin', 'Coding', 'Design', 'Writing'])
+      .toEqual(['Admin', 'Coding', 'Design', 'IDEalize', 'Writing'])
     expect(entry(all, 'gallery').brains).toEqual([{ id: 'gallery', name: 'Gallery', default: true }])
     expect(entry(all, 'motion').brains).toEqual([{ id: 'video', name: 'Video', default: true }])
 
@@ -256,8 +256,19 @@ describe('GET /idealize/spaces on a real composition', () => {
     const all = await roster(port)
     // Both named presets leave Chat and Terminal (JJ, 11 Sep 2026: the Studio
     // Coordinator belongs beside the project one under Agent roles).
-    expect(entry(all, 'chat').brains.map(brain => brain.id).sort()).toEqual(['coding', 'free', 'writing'])
-    expect(entry(all, 'terminal').brains.map(brain => brain.id).sort()).toEqual(['coding', 'writing'])
+    expect(entry(all, 'chat').brains.map(brain => brain.id).sort()).toEqual(['coding', 'core', 'free', 'writing'])
+    expect(entry(all, 'terminal').brains.map(brain => brain.id).sort()).toEqual(['coding', 'core', 'writing'])
+  })
+
+  it('makes the core preset what new chats start on, once', async () => {
+    const { ctx } = await boot({ fixture: false })
+    const presets = settingsNamespace('agent-presets')
+    const pills = settingsNamespace('idealize-activity-pills')
+    await vi.waitFor(() => {
+      expect((ctx.settings.get(pills) as { coreAdopted?: boolean }).coreAdopted).toBe(true)
+    })
+    expect((ctx.settings.get(presets) as { default?: string }).default).toBe('core')
+    expect(ctx.agentPresets.defaultId).toBe('core')
   })
 
   it('explains where the terminal runs instead of hiding it, on a composition with no desktop shell', async () => {
@@ -265,14 +276,14 @@ describe('GET /idealize/spaces on a real composition', () => {
     expect((ctx as unknown as { get(name: string): unknown }).get('desktopActions')).toBeUndefined()
 
     const terminal = entry(await roster(port), 'terminal')
-    expect(terminal).toMatchObject({ brainCount: 4, models: 'none', reason: 'desktop-only' })
+    expect(terminal).toMatchObject({ brainCount: 5, models: 'none', reason: 'desktop-only' })
     expect(terminal.recovery).toContain('desktop app')
   })
 
   it('states that no chat model resolves while the deployment configures none', async () => {
     const { port } = await boot({ fixture: false })
     expect(entry(await roster(port), 'chat')).toMatchObject({
-      brainCount: 5,
+      brainCount: 6,
       models: 'none',
       reason: 'no-model',
     })
@@ -295,14 +306,14 @@ describe('GET /idealize/spaces on a real composition', () => {
     // reassigned to Gallery; Terminal loses Free as well; the stored override
     // proves a chat model resolves.
     expect(all.map(space => [space.id, space.brainCount])).toEqual([
-      ['chat', 3], ['terminal', 2], ['gallery', 2], ['soundstage', 1], ['motion', 1],
+      ['chat', 4], ['terminal', 3], ['gallery', 2], ['soundstage', 1], ['motion', 1],
     ])
-    expect(entry(all, 'chat').brains.map(brain => brain.id).sort()).toEqual(['admin', 'coding', 'free'])
+    expect(entry(all, 'chat').brains.map(brain => brain.id).sort()).toEqual(['admin', 'coding', 'core', 'free'])
     // The stored override reaches the brain row that carries it.
     expect(entry(all, 'chat').brains.find(brain => brain.id === 'admin')?.model)
       .toEqual({ provider: 'openai', model: 'gpt-5' })
     // With a shell present the terminal states no refusal of its own.
-    expect(entry(all, 'terminal')).toMatchObject({ id: 'terminal', brainCount: 2, models: 'some' })
+    expect(entry(all, 'terminal')).toMatchObject({ id: 'terminal', brainCount: 3, models: 'some' })
     expect(entry(all, 'terminal').reason).toBeUndefined()
 
     // The developer's own shell may carry the key this brain would read.

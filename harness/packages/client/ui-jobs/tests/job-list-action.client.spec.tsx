@@ -211,6 +211,23 @@ describe('JobListAction dismissal', () => {
     fireEvent.pointerDown(document.body)
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
   })
+
+  it('mounts the list on the document body under the trigger, clear of the header that would cut it off', () => {
+    const { container } = render(<JobListAction {...props([job()])} />)
+    const trigger = screen.getByRole('button')
+    trigger.getBoundingClientRect = () => ({ bottom: 40, left: 2000 }) as DOMRect
+    fireEvent.click(trigger)
+    const list = screen.getByRole('list', { name: zh['list.aria'] })
+    expect(container.contains(list)).toBe(false)
+    expect(list.parentElement).toBe(document.body)
+    // Five pixels under the trigger, and pulled in from the window's right edge.
+    expect(list.style.top).toBe('45px')
+    expect(list.style.left).toBe(`${String(window.innerWidth - 336 - 16)}px`)
+    trigger.getBoundingClientRect = () => ({ bottom: 60, left: 4 }) as DOMRect
+    act(() => { window.dispatchEvent(new Event('resize')) })
+    expect(list.style.top).toBe('65px')
+    expect(list.style.left).toBe('16px')
+  })
 })
 
 describe('JobListAction wire tolerance', () => {

@@ -37,6 +37,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import { ArtefactId } from '@idealize/artefacts'
 import type { ArtefactRecord } from '@idealize/artefacts'
 import { GENERATION_SCHEMA_VERSION, isGenerationError, MEDIA_PRESETS, storedMediaModel } from '@idealize/generate'
+import { speaks } from './sound-purpose.ts'
 import type {
   ActivityModelsSectionFace,
   GenArtefact,
@@ -48,12 +49,18 @@ import type {
 } from '@idealize/generate'
 import type { GenerationChoice, GenerationReroutedData } from './types.ts'
 import { assertWithinCaps, confirmPaidGeneration } from './paid.ts'
+import { approvedModels } from './approved.ts'
 import type { ApprovalFace } from './paid.ts'
 import { createTalkTools, TALK_SECTION } from './talk.ts'
+import { createInspectVideoTool } from './inspect-video.ts'
+import { createSoundtrackTool, STUDIO_SECTION } from './soundtrack.ts'
 
-export { ASK_WHEN_PERSON_TYPED, forgetPaidConfirmation, MAX_COUNT, MAX_SECONDS } from './paid.ts'
+export { MAX_COUNT, MAX_SECONDS } from './paid.ts'
 export type { GenerationChoice, GenerationReroutedData } from './types.ts'
 export { createTalkTools, TALK_SECTION } from './talk.ts'
+export { createInspectVideoTool, frameTimes, INSPECT_TOOL, sheetArguments, videoFacts } from './inspect-video.ts'
+export { createSoundtrackTool, findFfmpeg, joinArguments, SOUNDTRACK_TOOL, STUDIO_SECTION } from './soundtrack.ts'
+export type { SoundtrackDeps } from './soundtrack.ts'
 
 declare module '@deepseek-ai/dsh-jobs' {
   interface JobKindMap {
@@ -201,9 +208,16 @@ const TOOL_SPECS: readonly GenerationToolSpec[] = [
     toolName: 'generate_audio',
     artefact: 'audio',
     description: 'Generate audio from a text prompt. The result is stored as a project artefact '
-      + '(its id stays valid across chats and modes) and the call returns the artefact id, media type, and file path.'
+      + '(its id stays valid across chats and modes) and the call returns the artefact id, media type, and file path. '
+      + 'Set `kind` on every call: a speech model reads the prompt aloud word for word, so music and sound effects must never be sent as speech.'
       + TAG_GUIDE,
     extraParameters: {
+      kind: {
+        type: 'string',
+        enum: ['music', 'sound_effects', 'speech'],
+        description: 'What to make: `music` for a track or soundtrack, `sound_effects` for effects and ambience, '
+          + '`speech` only when the prompt is the exact words to be spoken aloud.',
+      },
       duration_s: { type: 'number', description: 'Optional target duration in seconds, at most 300; passed to the provider as a generation setting.' },
       lyrics: { type: 'string', description: 'Lyrics to sing, for music models that take them; structure tags such as [verse] and [chorus] are allowed. Leave it out for instrumental audio.' },
       options: OPTIONS_PARAMETER,
@@ -218,6 +232,7 @@ interface GenerationToolArgs {
   count?: number
   duration_s?: number
   lyrics?: string
+  kind?: 'music' | 'sound_effects' | 'speech'
   reference_image?: string
   options?: Record<string, JsonValue>
   run_in_background?: boolean
@@ -473,7 +488,20 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
         // model there fails before it starts; the connected ones go first, and
         // only when none can do the work does the full list stay, so the
         // refusal names the missing key.
-        const compatible: GenCatalogEntry[] = ctx.generation.compatible(preset.requiredCapabilities)
+        const face = ctx.get('settings')?.get(ACTIVITY_NS) as ActivityModelsSectionFace | undefined
+        const stored = storedMediaModel(face, preset.id)
+        const every: GenCatalogEntry[] = ctx.generation.compatible(preset.requiredCapabilities)
+        // A speech model reads its prompt aloud, so it only ever serves a call
+        // for speech, and a call for speech only ever runs on one. A call that
+        // names no kind is for speech when the person's own choice is a speech model.
+        const chosen = stored === null
+          ? undefined
+          : every.find(entry => entry.backend === stored.backend && entry.model.id === stored.model)
+        const spoken = args.kind === 'speech' || (args.kind === undefined && chosen !== undefined && speaks(chosen.model))
+        const compatible = spec.artefact === 'audio' ? every.filter(entry => speaks(entry.model) === spoken) : every
+        if (compatible.length === 0 && every.length > 0) {
+          throw new Error(`${spec.toolName}: no connected model makes ${spoken ? 'speech' : 'music or sound effects'}; ask the person to connect one under Models`)
+        }
         const unkeyed = new Set(ctx.generation.credentials().filter(row => !row.connected).map(row => row.backend))
         // A model that starts from a picture (image-to-image, image-to-video)
         // cannot run on a prompt alone, and a prompt-only model would drop the
@@ -491,20 +519,19 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
           throw new Error(`no compatible ${spec.artefact} generation model is available.${recovery}`)
         }
 
-        const face = ctx.get('settings')?.get(ACTIVITY_NS) as ActivityModelsSectionFace | undefined
-        const stored = storedMediaModel(face, preset.id)
         const storedEntry = stored === null
           ? undefined
           : candidates.find(entry => entry.backend === stored.backend && entry.model.id === stored.model)
         // Named to the person when the task runs on a model they did not choose.
         const notes: string[] = []
-        const moved = (from: GenCatalogEntry, to: GenCatalogEntry, reason: string): void => {
+        const moved = (from: GenCatalogEntry, to: GenCatalogEntry, reason: string, cause?: string): void => {
           const data: GenerationReroutedData = {
             presetId: preset.id,
             artefact: spec.artefact,
             stored: { backend: from.backend, model: from.model.id },
             used: { backend: to.backend, model: to.model.id },
             reason,
+            ...cause === undefined ? {} : { cause },
             callId: exec.callId,
           }
           session.append('generation/rerouted', data, { ignorable: true })
@@ -521,9 +548,9 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
         if (needsPicture !== undefined && instead === undefined) {
           throw new Error(reference === undefined
             ? `${spec.toolName}: ${needsPicture.model.name} starts from a picture; pass reference_image, `
-              + 'or ask the person to choose a model that starts from a prompt under Brains'
+              + 'or ask the person to choose a model that starts from a prompt under Models'
             : `${spec.toolName}: no connected ${spec.artefact} model can start from a picture; `
-              + 'ask the person to connect one under Brains, or generate from the prompt alone')
+              + 'ask the person to connect one under Models, or generate from the prompt alone')
         }
         const fallback = instead ?? storedEntry ?? first
         // The router may move this one call to a model the person rated for the work the prompt asks for.
@@ -551,20 +578,26 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
         }
         let notice: string | undefined
         if (stored !== null && storedEntry === undefined) {
-          notice = `the stored ${preset.id} model ${stored.backend}/${stored.model} is unavailable; `
-            + `this task ran on ${entry.backend}/${entry.model.id}`
+          // The person's choice makes the other kind of sound: say so in their words.
+          const otherKind = chosen !== undefined && spec.artefact === 'audio' && speaks(chosen.model) !== spoken
+          const kindReason = `${chosen?.model.name ?? stored.model} ${spoken ? 'does not make speech' : 'reads text aloud'}. `
+            + `Changed to ${entry.model.name} for this ${spoken ? 'speech' : args.kind === 'sound_effects' ? 'sound effect' : 'music'}.`
+          notice = otherKind
+            ? kindReason
+            : `the stored ${preset.id} model ${stored.backend}/${stored.model} is unavailable; this task ran on ${entry.backend}/${entry.model.id}`
           const rerouted: GenerationReroutedData = {
             presetId: preset.id,
             artefact: spec.artefact,
             stored,
             used: { backend: entry.backend, model: entry.model.id },
-            reason: 'the stored model is not in the current compatible catalogue',
+            reason: otherKind ? kindReason : 'the stored model is not in the current compatible catalogue',
+            ...otherKind ? { callId: exec.callId } : {},
           }
           session.append('generation/rerouted', rerouted, { ignorable: true })
         }
 
         const approval = (ctx as unknown as { get(service: string): unknown }).get('approval') as ApprovalFace | undefined
-        await confirmPaidGeneration(approval, { agent, toolName: spec.toolName, callId: exec.callId, signal: exec.signal }, entry)
+        await confirmPaidGeneration(approval, approvedModels(ctx.get('settings')), { agent, toolName: spec.toolName, callId: exec.callId, signal: exec.signal }, entry)
 
         const request: GenerationRequest = {
           schemaVersion: GENERATION_SCHEMA_VERSION,
@@ -598,7 +631,7 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
                   .filter(one => !(accountWide && one.backend === failed.backend))
                 const next = await replacement(failed, pool)
                 if (next === undefined) throw error
-                moved(failed, next, `${failed.model.name} ${why} Changed to ${next.model.name}.`)
+                moved(failed, next, `${failed.model.name} ${why} Changed to ${next.model.name}.`, error instanceof Error ? error.message : String(error))
                 used = next
                 tried.push(next)
               }
@@ -692,7 +725,7 @@ export function createGenerationTools(ctx: Context, config: Config = {}): ToolDe
 }
 
 /**
- * Register the three generation tools.
+ * Register the three generation tools, the soundtrack tool and the chat-to-chat tools.
  * @param ctx - the plugin context.
  * @param config - background-run gating.
  */
@@ -700,10 +733,21 @@ export function apply(ctx: Context, config: Config = {}): void {
   for (const tool of createGenerationTools(ctx, config)) {
     ctx.effect(() => ctx.tools.register(tool), `gen-tools: ${tool.name}`)
   }
+  // A generating chat has no shell, so joining a clip and a sound is a tool of its own.
+  const soundtrack = createSoundtrackTool(ctx)
+  ctx.effect(() => ctx.tools.register(soundtrack), `gen-tools: ${soundtrack.name}`)
+  // It writes a soundtrack's prompt without seeing the clip, so it is given the length and the frames.
+  const inspect = createInspectVideoTool(ctx)
+  ctx.effect(() => ctx.tools.register(inspect), `gen-tools: ${inspect.name}`)
   // A generating chat has no shell, so it reaches other chats through these.
   for (const tool of createTalkTools(ctx)) {
     ctx.effect(() => ctx.tools.register(tool), `gen-tools: ${tool.name}`)
   }
-  const prompt = (ctx as unknown as { get(name: string): unknown }).get('systemPrompt') as { section(section: typeof TALK_SECTION): () => void } | undefined
-  if (prompt !== undefined) ctx.effect(() => prompt.section(TALK_SECTION), 'gen-tools: talk section')
+  const prompt = (ctx as unknown as { get(name: string): unknown }).get('systemPrompt') as {
+    section(section: typeof TALK_SECTION | typeof STUDIO_SECTION): () => void
+  } | undefined
+  if (prompt !== undefined) {
+    ctx.effect(() => prompt.section(TALK_SECTION), 'gen-tools: talk section')
+    ctx.effect(() => prompt.section(STUDIO_SECTION), 'gen-tools: studio section')
+  }
 }

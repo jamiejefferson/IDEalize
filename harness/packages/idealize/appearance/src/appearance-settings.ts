@@ -9,6 +9,11 @@
 
 import z from '@deepseek-ai/schemastery'
 import { isDark, parseHex } from './colour.ts'
+import { PAPER_COLOURS, PAPER_RANGES, type PaperColours, type PaperNumberKey, type PaperTweaks } from './blueprint-paper.ts'
+import {
+  BACKDROP_COLOURS, BACKDROP_RANGES, backdropPaint, STUDIO_BACKDROP_IDS, studioBackdrop, tweakedBackdrop,
+  type BackdropColours, type BackdropNumberKey, type BackdropTweaks, type StudioBackdropPaint,
+} from './studio-backdrop.ts'
 
 /** Settings namespace owned by the appearance plugin. */
 export const APPEARANCE_SETTINGS_NAMESPACE = 'idealize-appearance'
@@ -144,8 +149,15 @@ export function clearSurfaceColours(surface: SurfaceAppearance): SurfaceAppearan
   }
 }
 
-/** Terminal theme ids in V0's panel order (`Theme.terminalThemes`), then V1's Classic pair; the colours live in `terminal-themes.ts`. */
-export const TERMINAL_THEME_IDS = ['linen', 'ink', 'y2k', 'idealize-dark', 'idealize-light', 'solarized-dark', 'classic-dark', 'classic-light'] as const
+/**
+ * Terminal theme ids in V0's panel order (`Theme.terminalThemes`), then V1's
+ * Classic pair and the three blueprint papers; the colours live in
+ * `terminal-themes.ts`.
+ */
+export const TERMINAL_THEME_IDS = [
+  'linen', 'ink', 'y2k', 'idealize-dark', 'idealize-light', 'solarized-dark', 'classic-dark', 'classic-light',
+  'blueprint-cyanotype', 'blueprint-velum', 'blueprint-carbon',
+] as const
 
 /** One of {@link TERMINAL_THEME_IDS}. */
 export type TerminalThemeId = typeof TERMINAL_THEME_IDS[number]
@@ -170,17 +182,20 @@ export interface TerminalAppearanceSettings {
   letterSpacing: number
   /** Padding around the grid in px, 0–80, painted in the terminal ground (V0 `terminalMargin`). */
   margin: number
+  /** The user's adjustments to the blueprint themes' paper, keyed by theme id; each holds only the dials moved. */
+  paper: Record<string, PaperTweaks>
 }
 
-/** The terminal section as it ships (V0 AppearanceDefaults). */
+/** The terminal section as it ships. The theme is Carbon (JJ, 26 Nov 2026); the rest are V0's AppearanceDefaults. */
 export const TERMINAL_DEFAULTS: TerminalAppearanceSettings = Object.freeze({
-  theme: 'linen',
+  theme: 'blueprint-carbon',
   bgHex: '',
   fontName: 'DM Mono',
   fontSize: 14,
   lineSpacing: 1,
   letterSpacing: 0,
   margin: 36,
+  paper: Object.freeze({}),
 })
 
 /**
@@ -192,6 +207,50 @@ export const TERMINAL_DEFAULTS: TerminalAppearanceSettings = Object.freeze({
  */
 export function terminalCustomised(terminal: TerminalAppearanceSettings): boolean {
   return JSON.stringify({ ...terminal, theme: TERMINAL_DEFAULTS.theme }) !== JSON.stringify(TERMINAL_DEFAULTS)
+}
+
+/** What the Studio can be drawn on: the app theme (`none`) or one of the tuned backdrops. */
+export const STUDIO_BACKDROP_CHOICES = ['none', ...STUDIO_BACKDROP_IDS] as const
+
+/** One of {@link STUDIO_BACKDROP_CHOICES}. */
+export type StudioBackdropChoice = typeof STUDIO_BACKDROP_CHOICES[number]
+
+/** The Studio view's own appearance, independent of the app theme. */
+export interface StudioAppearanceSettings {
+  /** The chosen backdrop; `none` leaves the Studio on the app theme. */
+  backdrop: StudioBackdropChoice
+  /** The Studio's text face over a backdrop; empty keeps the interface font. */
+  fontName: string
+  /** The user's adjustments to the backdrops, keyed by backdrop id; each holds only the dials moved. */
+  tweaks: Record<string, BackdropTweaks>
+}
+
+/** The Studio section as it ships: the White backdrop (JJ, 26 Nov 2026). */
+export const STUDIO_DEFAULTS: StudioAppearanceSettings = Object.freeze({
+  backdrop: 'white',
+  fontName: '',
+  tweaks: Object.freeze({}),
+})
+
+/**
+ * Whether the Studio section differs from its defaults. The backdrop *choice*
+ * does not count and Reset keeps it, as the terminal's theme choice is kept.
+ * @param studio - the Studio section.
+ * @returns true when the font or any backdrop adjustment is set.
+ */
+export function studioCustomised(studio: StudioAppearanceSettings): boolean {
+  return JSON.stringify({ ...studio, backdrop: STUDIO_DEFAULTS.backdrop }) !== JSON.stringify(STUDIO_DEFAULTS)
+}
+
+/**
+ * The Studio's backdrop under a settings section, ready to draw.
+ * @param studio - the Studio section.
+ * @returns the paint, or undefined when the Studio stays on the app theme.
+ */
+export function resolveStudioPaint(studio: StudioAppearanceSettings = STUDIO_DEFAULTS): StudioBackdropPaint | undefined {
+  if (studio.backdrop === 'none') return undefined
+  const backdrop = tweakedBackdrop(studioBackdrop(studio.backdrop).backdrop, studio.tweaks[studio.backdrop])
+  return backdropPaint(backdrop, studio.fontName.trim() === '' ? undefined : fontStack(studio.fontName))
 }
 
 /** The global action colour for primary buttons and selection highlights (V0 ActionAppearance). */
@@ -262,6 +321,8 @@ export interface AppearanceSettings {
   action: ActionAppearance
   /** The terminal grid's own appearance. */
   terminal: TerminalAppearanceSettings
+  /** The Studio view's own appearance. */
+  studio: StudioAppearanceSettings
   /** Per-surface overrides. */
   surfaces: Record<SurfaceId, SurfaceAppearance>
   /** Composer card opacity 0.3–1. */
@@ -320,6 +381,7 @@ export const APPEARANCE_DEFAULTS: AppearanceSettings = Object.freeze({
   groundHex: '',
   action: EMPTY_ACTION,
   terminal: TERMINAL_DEFAULTS,
+  studio: STUDIO_DEFAULTS,
   surfaces: Object.freeze({
     sessions: EMPTY_SURFACE,
     files: EMPTY_SURFACE,
@@ -354,6 +416,16 @@ const SurfaceSchema: z<SurfaceAppearance> = z.object({
   scheme: z.union(['', 'light', 'dark']).default(''),
 })
 
+/** One schema field per paper number dial, bounded by {@link PAPER_RANGES}; an absent dial stays absent. */
+const paperNumbers = Object.fromEntries(
+  Object.entries(PAPER_RANGES).map(([key, range]) => [key, z.number().min(range.min).max(range.max)]),
+) as Record<PaperNumberKey, z<number>>
+
+/** One free-text field per paper colour; a value that is not a hex colour is ignored when the paint is resolved. */
+const paperColours = Object.fromEntries(PAPER_COLOURS.map(key => [key, z.string()])) as Record<keyof PaperColours, z<string>>
+
+const PaperTweaksSchema = z.object({ ...paperNumbers, ...paperColours, crease: z.boolean(), grid: z.boolean() }) as z<PaperTweaks>
+
 const TerminalSchema: z<TerminalAppearanceSettings> = z.object({
   theme: z.union([...TERMINAL_THEME_IDS]).default(TERMINAL_DEFAULTS.theme),
   bgHex: z.string().default(''),
@@ -362,6 +434,23 @@ const TerminalSchema: z<TerminalAppearanceSettings> = z.object({
   lineSpacing: z.number().min(1).max(3).default(TERMINAL_DEFAULTS.lineSpacing),
   letterSpacing: z.number().min(-4).max(8).default(TERMINAL_DEFAULTS.letterSpacing),
   margin: z.number().min(0).max(80).default(TERMINAL_DEFAULTS.margin),
+  paper: z.dict(PaperTweaksSchema).default({}),
+})
+
+/** One schema field per backdrop number dial, bounded by {@link BACKDROP_RANGES}; an absent dial stays absent. */
+const backdropNumbers = Object.fromEntries(
+  Object.entries(BACKDROP_RANGES).map(([key, range]) => [key, z.number().min(range.min).max(range.max)]),
+) as Record<BackdropNumberKey, z<number>>
+
+/** One free-text field per backdrop colour; a value that is not a hex colour is ignored when the paint is resolved. */
+const backdropColours = Object.fromEntries(BACKDROP_COLOURS.map(key => [key, z.string()])) as Record<keyof BackdropColours, z<string>>
+
+const BackdropTweaksSchema = z.object({ ...backdropNumbers, ...backdropColours, floor: z.boolean() }) as z<BackdropTweaks>
+
+const StudioSchema: z<StudioAppearanceSettings> = z.object({
+  backdrop: z.union([...STUDIO_BACKDROP_CHOICES]).default(STUDIO_DEFAULTS.backdrop),
+  fontName: z.string().default(''),
+  tweaks: z.dict(BackdropTweaksSchema).default({}),
 })
 
 const ChatTitleSchema: z<ChatTitleAppearance> = z.object({
@@ -388,6 +477,7 @@ export const AppearanceSettingsSchema: z<AppearanceSettings> = z.object({
   groundHex: z.string().default(''),
   action: ActionSchema.default({ ...EMPTY_ACTION }),
   terminal: TerminalSchema.default({ ...TERMINAL_DEFAULTS }),
+  studio: StudioSchema.default({ ...STUDIO_DEFAULTS }),
   surfaces: z.object({
     sessions: SurfaceSchema.default({ ...EMPTY_SURFACE }),
     files: SurfaceSchema.default({ ...EMPTY_SURFACE }),

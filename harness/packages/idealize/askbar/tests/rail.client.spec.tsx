@@ -42,7 +42,7 @@ describe('Rail in the sidebar home', () => {
     expect(rail.getAttribute('data-edge')).toBe('left')
     // The sidebar column presides with its own logo, so the rail carries none.
     expect(view.queryByLabelText('demo — expand the sidebar')).toBeNull()
-    expect(view.getByLabelText('Studio — open it')).toBeTruthy()
+    expect(view.getByLabelText('Agent Coordination — open it')).toBeTruthy()
     // A rule closes the Studio off from the agents under it.
     expect(rail.querySelector('hr')).toBeTruthy()
   })
@@ -73,7 +73,7 @@ describe('Rail in the sidebar home', () => {
     const onOpenMain = vi.fn()
     const onOpenChip = vi.fn()
     const view = render(<Rail view={VIEW} home='sidebar' onOpenMain={onOpenMain} onOpenChip={onOpenChip} t={t} />)
-    fireEvent.click(view.getByLabelText('Studio — open it'))
+    fireEvent.click(view.getByLabelText('Agent Coordination — open it'))
     expect(onOpenMain).toHaveBeenLastCalledWith('studio')
     fireEvent.keyDown(view.getByLabelText('Juno — Needs input'), { key: 'Enter' })
     expect(onOpenChip).toHaveBeenCalledWith(ROSTER.chips[0])
@@ -177,7 +177,7 @@ describe('Rail in the sidebar home', () => {
     act(() => { vi.advanceTimersByTime(100) })
     fireEvent.pointerUp(chip)
     expect(view.getByRole('dialog').getAttribute('data-edge')).toBe('left')
-    fireEvent.click(view.getByText('Open the Studio ↗'))
+    fireEvent.click(view.getByText('Open Agent Coordination ↗'))
     expect(onOpenMain).toHaveBeenCalledWith('studio')
   })
 })
@@ -206,7 +206,7 @@ describe('SidebarRail', () => {
     const { view, openSession, openStudio, expandSidebar } = mount()
     fireEvent.keyDown(view.getByLabelText('Juno — Needs input'), { key: 'Enter' })
     expect(openSession).toHaveBeenCalledWith('s-juno')
-    fireEvent.click(view.getByLabelText('Studio — open it'))
+    fireEvent.click(view.getByLabelText('Agent Coordination — open it'))
     expect(openStudio).toHaveBeenCalledOnce()
     // The column is expanded from the sidebar's own logo, above this seat.
     expect(expandSidebar).not.toHaveBeenCalled()
@@ -217,6 +217,6 @@ describe('SidebarRail', () => {
     expect(view.getByLabelText('Juno — Needs input')).toBeTruthy()
     act(() => { store.set({ project: '/work/other', roster: null, error: null }) })
     expect(view.queryByLabelText('Juno — Needs input')).toBeNull()
-    expect(view.getByLabelText('Studio — open it')).toBeTruthy()
+    expect(view.getByLabelText('Agent Coordination — open it')).toBeTruthy()
   })
 })

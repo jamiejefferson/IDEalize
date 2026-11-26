@@ -71,6 +71,75 @@
   background-color: transparent;
 }
 
+/* A blueprint theme's paper (appearance `blueprint-paper.ts`). The layers sit
+   behind the grid host and take no pointer events. The expressions match the
+   page the three themes were tuned on, so the grid reads as it was tuned. */
+.paper {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Oversized by the blur's reach so softened lines do not fade at the edge. */
+.paperGrid {
+  position: absolute;
+  inset: -6px;
+  background-position: 6px 6px;
+}
+
+/* Fine fractal noise only: a 300px tile whose drawn size is the grain dial. */
+.paperGrain {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='1.8' intercept='-0.4'/%3E%3CfeFuncG type='linear' slope='1.8' intercept='-0.4'/%3E%3CfeFuncB type='linear' slope='1.8' intercept='-0.4'/%3E%3CfeFuncA type='linear' slope='0' intercept='1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+/* One diagonal fold: a light line beside a dark one, fading out either side. */
+.paperCrease {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    112deg,
+    transparent calc(63% - 70px),
+    rgba(255, 255, 255, 0.035) calc(63% - 1px),
+    rgba(255, 255, 255, 0.11) calc(63% - 0.5px),
+    rgba(0, 0, 0, 0.11) calc(63% + 0.5px),
+    rgba(0, 0, 0, 0.035) calc(63% + 1px),
+    transparent calc(63% + 70px)
+  );
+}
+
+/* Over a paper the grid host stacks above the layers, and xterm's scroll
+   element, which carries the theme ground as an inline style, lets the paper
+   through. Text rows take the ink opacity; each run glows in its own colour
+   (`currentColor` in the shadow), so ANSI colours glow in theirs. */
+.root[data-paper] .grid {
+  position: relative;
+}
+
+.root[data-paper] .grid :global(.xterm) :global(.xterm-scrollable-element) {
+  background-color: transparent !important;
+}
+
+.root[data-paper] .grid :global(.xterm-rows) {
+  opacity: var(--idealize-paper-ink-opacity, 1);
+}
+
+.root[data-paper] .grid :global(.xterm-rows) span {
+  text-shadow: var(--idealize-paper-text-shadow, none);
+}
+
+/* A block a program painted in an exact colour (xterm writes those inline; the
+   16 named colours arrive as classes and follow the theme). A wash of the paper
+   over it leaves part of its colour, so a grey panel sinks into the sheet and a
+   red or green one keeps its hue. Selected cells carry the selection colour the
+   same way and are left alone. */
+.root[data-paper] .grid :global(.xterm-rows) span[style*='background-color']:not(:global(.xterm-decoration-top)) {
+  background-image: var(--idealize-paper-block-cover, none);
+}
+
 .notice {
   position: absolute;
   right: 16px;

@@ -12,7 +12,7 @@ import { nameOf, type Keyboard, type RosterRow } from './ports.ts'
 
 /** The reply to `/help`, `/start` and any unknown command. */
 export const HELP_TEXT = [
-  'Send a message and the Studio coordinator gets it, as if you typed it in the Studio chat. Start with @name to reach one agent directly.',
+  'Send a message and the coordinator gets it, as if you typed it in Agent Coordination. Start with @name to reach one agent directly.',
   '/status shows what is running, what is waiting for you, and the open tasks.',
   '/agents lists every agent.',
   '/stop name stops a running agent. It keeps its queued messages.',
@@ -70,7 +70,7 @@ const OPEN_STATE_WORDS: Readonly<Partial<Record<TaskExecutionState, string>>> = 
  * @returns `Studio` for the Studio's own timeline, else the folder name.
  */
 export function projectName(project: string): string {
-  return project === STUDIO_PROJECT ? 'Studio' : basename(project)
+  return project === STUDIO_PROJECT ? 'Agent Coordination' : basename(project)
 }
 
 /**
@@ -181,12 +181,12 @@ export function chatPostReply(post: StudioChatPost, roster: readonly RosterRow[]
   switch (post.kind) {
     case 'delivered': {
       const queued = post.delivery === 'queued'
-      if (post.project === STUDIO_PROJECT) return queued ? 'Queued. The Studio coordinator reads it when it is free.' : undefined
+      if (post.project === STUDIO_PROJECT) return queued ? 'Queued. The coordinator reads it when it is free.' : undefined
       const name = nameOf(roster, post.target)
       return queued ? `Queued for ${name}. Their chat is closed, so it waits until it opens.` : `Sent to ${name}.`
     }
     case 'no-coordinator':
-      return `The Studio coordinator could not start, so the message was not sent. ${post.reason}`
+      return `The coordinator could not start, so the message was not sent. ${post.reason}`
     case 'unresolved':
       return post.names.length === 0
         ? `Nobody called @${post.token} is here.`

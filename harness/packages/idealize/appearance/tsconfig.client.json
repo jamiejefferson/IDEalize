@@ -7,9 +7,11 @@
   },
   "files": [
     "src/appearance-settings.ts",
+    "src/blueprint-paper.ts",
     "src/colour.ts",
     "src/css-modules.d.ts",
     "src/presets.ts",
+    "src/studio-backdrop.ts",
     "src/surface-css.ts",
     "src/terminal-themes.ts",
     "src/client/AppearancePanel.tsx",

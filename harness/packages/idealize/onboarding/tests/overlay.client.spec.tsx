@@ -5,7 +5,8 @@
 // finish step persists done + completedAt and closes after the final burst,
 // and the reduced-motion variant swaps rings for a static tint. The agents
 // step's body gates Continue on a connection, which the stub route client
-// supplies.
+// supplies. Finishing or skipping the wizard records simplerSeen, so a new
+// install never sees the welcome sheet.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -32,6 +33,11 @@ const flush = async (): Promise<void> => { await act(async () => {}) }
 function stubApi(): OnboardingApi {
   return {
     loadAgents: vi.fn(async () => ({ claudeCode: { installed: true, path: '/usr/local/bin/claude' }, openrouter: { connected: false } })),
+    loadLaunches: vi.fn(async () => null),
+    loadFalModelCount: vi.fn(async () => null),
+    connectFal: vi.fn(async () => ({ ok: true }) as const),
+    loadChatFallback: vi.fn(async () => null),
+    align: vi.fn(async () => ({ ok: true, result: {} }) as const),
     connectOpenRouter: vi.fn(async () => ({ ok: true }) as const),
     loadGateway: vi.fn(async () => false),
     connectGateway: vi.fn(async () => ({ ok: true }) as const),
@@ -133,9 +139,11 @@ describe('OnboardingOverlay', () => {
     expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('projects-folder')
   })
 
-  it('Skip this step records the skip without a burst', () => {
+  it('skipping the set-up step records the skip without a burst', async () => {
     const { writes } = mount(undefined)
-    fireEvent.click(screen.getByText(en['skip.step']))
+    await flush()
+    fireEvent.click(screen.getByText(en['skip.keys']))
+    await flush()
     expect(writes.steps).toEqual({ agents: 'skipped' })
     expect(document.querySelector('[data-rainbow-burst]')).toBeNull()
     expect(document.querySelector('[data-onboarding-step]')?.getAttribute('data-onboarding-step')).toBe('projects-folder')
@@ -155,6 +163,8 @@ describe('OnboardingOverlay', () => {
     const { writes, releaseHold } = mount(undefined)
     fireEvent.click(screen.getByText(en['skip.all']))
     expect(writes.done).toBe(true)
+    // The wizard showed the new set-up, so the welcome sheet never follows it.
+    expect(writes.simplerSeen).toBe(true)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(releaseHold).toHaveBeenCalledTimes(1)
   })
@@ -182,6 +192,7 @@ describe('OnboardingOverlay', () => {
     await flush()
     expect(writes.done).toBe(true)
     expect(typeof writes.completedAt).toBe('string')
+    expect(writes.simplerSeen).toBe(true)
     expect(writes.steps).toEqual({
       agents: 'done', 'projects-folder': 'done', 'documentation-folder': 'done', 'skills-folder': 'done', finish: 'done',
     })

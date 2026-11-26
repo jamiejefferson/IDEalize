@@ -145,7 +145,7 @@ export const STUDIO_SENDER_LABEL = 'Studio'
 const STUDIO_SENDER = 'user'
 
 /** The generation tools whose finished turn earns a Studio line when the agent posted none. */
-const GENERATION_TOOLS: ReadonlySet<string> = new Set(['generate_image', 'generate_video', 'generate_audio'])
+const GENERATION_TOOLS: ReadonlySet<string> = new Set(['generate_image', 'generate_video', 'generate_audio', 'add_soundtrack'])
 
 /** The author of the safety-net line; `wakeLine` ignores this author, so the line wakes nobody. */
 const SYSTEM_AUTHOR = 'idealize'

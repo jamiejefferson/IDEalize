@@ -230,7 +230,7 @@ describe('idealize-appearance apply', () => {
   it('terminal settings write, resolve to paint, and reset keeping the theme choice', async () => {
     const b = await bench()
     const face = b.appearance.face()
-    expect(b.appearance.terminalPaint().background).toBe('#F7F5F0')
+    expect(b.appearance.terminalPaint().background).toBe('#272B32')
     face.setTerminal({ theme: 'ink', fontSize: 18, margin: 12 })
     const paint = b.appearance.terminalPaint()
     expect(paint.background).toBe('#17181A')
@@ -243,6 +243,25 @@ describe('idealize-appearance apply', () => {
     expect(b.appearance.terminalPaint().fontSize).toBe(14)
     // The theme *choice* survives the reset (V0's rule).
     expect(b.appearance.terminalPaint().background).toBe('#17181A')
+  })
+
+  it('Studio settings write, resolve to a backdrop, and reset keeping the backdrop choice', async () => {
+    const b = await bench()
+    const face = b.appearance.face()
+    // White is the default backdrop.
+    expect(b.appearance.studioPaint()?.wall).toBe('#D9D9D9')
+    face.setStudio({ backdrop: 'blue', fontName: 'Optima', tweaks: { blue: { wall: '#102030' } } })
+    expect(b.appearance.studioPaint()?.wall).toBe('#102030')
+    expect(b.appearance.studioPaint()?.variables['--idealize-backdrop-font']).toMatch(/^"Optima", /)
+    await vi.waitFor(() => {
+      expect((b.values[APPEARANCE_SETTINGS_NAMESPACE]?.studio as { backdrop: string }).backdrop).toBe('blue')
+    })
+    face.resetSection('studio')
+    // The backdrop *choice* survives the reset; its adjustments and the font go.
+    expect(b.appearance.studioPaint()?.wall).toBe('#024364')
+    expect(b.appearance.studioPaint()?.variables['--idealize-backdrop-font']).toBeUndefined()
+    face.setStudio({ backdrop: 'none' })
+    expect(b.appearance.studioPaint()).toBeUndefined()
   })
 
   it('colours recorded before the scheme field paint only over the theme they were chosen on', async () => {

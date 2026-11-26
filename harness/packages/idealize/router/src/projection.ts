@@ -15,11 +15,12 @@ export type { RoutedModel, RouterEventData, RouterLockEventData, RouterProjectio
 
 const modelSchema = z.object({ provider: z.string(), model: z.string(), label: z.string() })
 const eventSchema = z.object({
-  outcome: z.enum(['switched', 'offer', 'reset']),
+  outcome: z.enum(['switched', 'offer', 'reset', 'declined']),
   at: z.string(),
   from: modelSchema,
   to: modelSchema,
-  reason: z.enum(['needs-payment', 'loses-context', 'other-company', 'said-cannot']).optional(),
+  reason: z.enum(['needs-payment', 'loses-context', 'other-company', 'said-cannot', 'ask']).optional(),
+  dearer: z.boolean().optional(),
   task: z.enum(['code', 'reasoning', 'math', 'writing', 'summarise', 'translate', 'quick']).optional(),
   rationale: z.string().optional(),
   improvement: z.number().optional(),
@@ -35,7 +36,8 @@ export const routerProjectionDefinition: ProjectionDefinition<'router', RouterPr
       return state.locked === event.data.locked ? state : { ...state, locked: event.data.locked }
     }
     if (event.type !== 'idealize/router') return state
-    return { locked: state.locked, ...event.data.outcome === 'reset' ? {} : { last: event.data } }
+    const answered = event.data.outcome === 'reset' || event.data.outcome === 'declined'
+    return { locked: state.locked, ...answered ? {} : { last: event.data } }
   },
   view: state => state,
   stateVersion: 1,
@@ -54,14 +56,15 @@ export function foldLocked(events: readonly SessionEvent[]): boolean {
 /**
  * The switch that still holds, and when the chat last switched.
  * @param events - the session's event log, oldest first.
- * @returns the latest switch unless a reset follows it, and the time of the latest switch or reset.
+ * @returns the latest switch unless a reset follows it, and the time of the latest switch, reset or declined offer.
+ * A declined offer leaves the switch in force and counts for the time, so the router waits before it asks again.
  */
 export function foldRouted(events: readonly SessionEvent[]): { routed?: RouterEventData; lastSwitchAt?: string } {
   let routed: RouterEventData | undefined
   let lastSwitchAt: string | undefined
   for (const event of events) {
     if (event.type !== 'idealize/router' || event.data.outcome === 'offer') continue
-    routed = event.data.outcome === 'switched' ? event.data : undefined
+    if (event.data.outcome !== 'declined') routed = event.data.outcome === 'switched' ? event.data : undefined
     lastSwitchAt = event.data.at
   }
   return { ...routed === undefined ? {} : { routed }, ...lastSwitchAt === undefined ? {} : { lastSwitchAt } }

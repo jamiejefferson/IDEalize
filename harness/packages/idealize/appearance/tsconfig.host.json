@@ -11,11 +11,13 @@
   "files": [
     "src/appearance-settings.ts",
     "src/boot-appearance.ts",
+    "src/blueprint-paper.ts",
     "src/colour.ts",
     "src/fonts.ts",
     "src/index.ts",
     "src/invariant.ts",
     "src/presets.ts",
+    "src/studio-backdrop.ts",
     "src/surface-css.ts",
     "src/terminal-themes.ts"
   ],

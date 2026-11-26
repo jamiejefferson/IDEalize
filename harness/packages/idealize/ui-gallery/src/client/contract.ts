@@ -143,22 +143,22 @@ export interface GalleryPromptViewNode extends ConversationViewNode {
 export type GalleryConversationViewNode = GalleryGenerationViewNode | GalleryTurnViewNode | GalleryPromptViewNode
 
 /**
- * The rows of one artefact kind, newest first.
+ * The rows a Studio chat shows: every generation the chat ran, whatever it
+ * made, newest first. Image, Video and Sound are one chat with one history, so
+ * a person who moves to Video still sees the picture they are about to animate
+ * (JJ, 26 Nov 2026: "i want it to retain the previous prompts and outputs in
+ * the same way as a model change in chat would").
  *
- * The Definition publishes every generation the chat ran, whatever it made,
- * because one chat's log is one stream. Each space then shows its own kind:
- * Images, Sounds and Video are three views of the same per-chat source, and a
- * space that showed another kind's work would be claiming a generation the
- * person did not do there.
+ * A failed row leaves once a later attempt of the same kind in the same turn
+ * is running or done: the agent or the router tried again, and the failure it
+ * recovered from is no longer something the person has to act on.
  * @param snapshot - the target snapshot, or undefined before one is assembled.
- * @param kind - the artefact kind this view shows.
- * @returns the matching rows, in snapshot order.
+ * @returns the rows, in snapshot order.
  */
-export function rowsOfKind(
-  snapshot: GallerySnapshot | undefined,
-  kind: GalleryArtefactKind,
-): readonly GalleryRow[] {
-  return (snapshot?.rows ?? []).filter(row => row.artefactKind === kind)
+export function studioRows(snapshot: GallerySnapshot | undefined): readonly GalleryRow[] {
+  const rows = snapshot?.rows ?? []
+  return rows.filter(row => row.status !== 'failed' || !rows.some(later =>
+    later.status !== 'failed' && later.turn === row.turn && later.artefactKind === row.artefactKind && later.startSeq > row.startSeq))
 }
 
 /**

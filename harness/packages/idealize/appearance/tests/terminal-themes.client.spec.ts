@@ -1,6 +1,7 @@
 /** The V0 terminal theme port and the settings → paint resolution. */
 import { describe, expect, it } from 'vitest'
-import { TERMINAL_DEFAULTS, TERMINAL_THEME_IDS, terminalCustomised, type TerminalThemeId } from '../src/appearance-settings.ts'
+import { AppearanceSettingsSchema, APPEARANCE_DEFAULTS, TERMINAL_DEFAULTS, TERMINAL_THEME_IDS, terminalCustomised, type TerminalThemeId } from '../src/appearance-settings.ts'
+import { paperGrounds, paperPaint } from '../src/blueprint-paper.ts'
 import { presetPalette } from '../src/presets.ts'
 import { contrast, requireHex, UI_CONTRAST } from '../src/colour.ts'
 import {
@@ -8,9 +9,9 @@ import {
 } from '../src/terminal-themes.ts'
 
 describe('TERMINAL_THEMES', () => {
-  it('carries the six V0 themes in panel order, then the Classic pair, 16 ANSI colours each', () => {
+  it('carries the six V0 themes in panel order, then the Classic pair and the three blueprint papers, 16 ANSI colours each', () => {
     expect(TERMINAL_THEMES.map(theme => theme.id)).toEqual([...TERMINAL_THEME_IDS])
-    expect(TERMINAL_THEMES.map(theme => theme.name)).toEqual(['Linen', 'Ink', 'Y2K', 'IDEalize Dark', 'IDEalize Light', 'Solarized Dark', 'Classic Dark', 'Classic Light'])
+    expect(TERMINAL_THEMES.map(theme => theme.name)).toEqual(['Linen', 'Ink', 'Y2K', 'IDEalize Dark', 'IDEalize Light', 'Solarized Dark', 'Classic Dark', 'Classic Light', 'Cyanotype', 'Velum', 'Carbon'])
     for (const theme of TERMINAL_THEMES) {
       expect(theme.ansi).toHaveLength(16)
       for (const value of [theme.background, theme.foreground, theme.cursor, theme.selection, ...theme.ansi, ...(theme.wash ?? [])]) {
@@ -44,11 +45,48 @@ describe('TERMINAL_THEMES', () => {
   })
 })
 
+describe('blueprint themes', () => {
+  const ids = ['blueprint-cyanotype', 'blueprint-velum', 'blueprint-carbon'] as const
+
+  it('carry JJ\'s settled grounds, inks and papers (tuned in the app, 25 Nov 2026), and only they carry a paper', () => {
+    expect(TERMINAL_THEMES.filter(theme => theme.paper !== undefined).map(theme => theme.id)).toEqual([...ids])
+    expect(terminalTheme('blueprint-cyanotype')).toMatchObject({ background: '#00438A', foreground: '#E3EAF2', cursor: '#FFFFFF' })
+    expect(terminalTheme('blueprint-cyanotype').paper).toMatchObject({ lightX: 20, lightY: 28, light: 4, shade: 25, grain: 9, grainScale: 540, gridMinor: 5, gridMinorOpacity: 8.5, gridSoften: 0.9, secondary: '#FFFFFF', warning: '#FFB8B8', inkOpacity: 60, halo: 47, haloSpread: 1.25, shadow: 28, shadowOffset: 0, blocks: 61, blockColour: '#00458F' })
+    expect(terminalTheme('blueprint-velum')).toMatchObject({ background: '#EFEDE7', foreground: '#200F5C', cursor: '#A809C8' })
+    expect(terminalTheme('blueprint-velum').paper).toMatchObject({ lightX: 42, lightY: 48, light: 45, shade: 9, grain: 16, grainScale: 200, gridColour: '#21163C', inkOpacity: 88, halo: 21, haloSpread: 3.5, shadow: 11, shadowOffset: 4, shadowBlur: 3.5, blocks: 32, blockColour: '#EAE9E3' })
+    expect(terminalTheme('blueprint-carbon')).toMatchObject({ background: '#272B32', foreground: '#D3D8E1', cursor: '#4FB3D0' })
+    expect(terminalTheme('blueprint-carbon').paper).toMatchObject({ lightX: 31, lightY: 40, light: 8, shade: 43, grain: 5, grainScale: 600, gridColour: '#FFFFFF', gridMinorOpacity: 5, gridMajorOpacity: 4.5, gridSoften: 0, inkOpacity: 86, halo: 12, shadow: 23, shadowBlur: 4, blocks: 0, blockColour: '#424D61' })
+    // The tuned warning ink is red and the accent is cyan (magenta on Velum, where the accent is purple).
+    // Cyanotype's accent and secondary ink are both white, in cyan and bright black.
+    expect(terminalTheme('blueprint-cyanotype').ansi[1]).toBe('#FFB8B8')
+    expect(terminalTheme('blueprint-cyanotype').ansi[6]).toBe('#FFFFFF')
+    expect(terminalTheme('blueprint-cyanotype').ansi[8]).toBe('#FFFFFF')
+    expect(terminalTheme('blueprint-velum').ansi[1]).toBe('#D10000')
+    expect(terminalTheme('blueprint-velum').ansi[5]).toBe('#A809C8')
+    expect(terminalTheme('blueprint-carbon').ansi[6]).toBe('#4FB3D0')
+  })
+
+  it('read on their paper at its lightest and darkest: ink at 4.5:1 and every designed ANSI colour at 3:1', () => {
+    for (const id of ids) {
+      const theme = terminalTheme(id)
+      const flat = requireHex(theme.background)
+      const grounds = [flat, ...paperGrounds(theme.paper!, flat)]
+      // Slot 0 on a dark paper is the ground's own end of the palette; Velum's slots are all inks.
+      const readable = theme.ansi.filter((_, index) => id === 'blueprint-velum' || index !== 0)
+      for (const ground of grounds) {
+        expect(contrast(requireHex(theme.foreground), ground)).toBeGreaterThanOrEqual(4.5)
+        for (const colour of readable) expect(contrast(requireHex(colour), ground)).toBeGreaterThanOrEqual(UI_CONTRAST)
+      }
+    }
+  })
+})
+
 /** The two ratios the selection rule holds: off the nearest ground stop, and the better of ink and ground on the highlight. */
 function selectionRatios(id: TerminalThemeId, selection: string): { ground: number; text: number } {
   const theme = terminalTheme(id)
   const highlight = requireHex(selection)
-  const grounds = [...(theme.wash ?? []), theme.background].map(requireHex)
+  const flat = requireHex(theme.background)
+  const grounds = [...(theme.wash ?? []).map(requireHex), ...(theme.paper === undefined ? [] : paperGrounds(theme.paper, flat)), flat]
   const round = (value: number): number => Math.round(value * 100) / 100
   return {
     ground: round(Math.min(...grounds.map(ground => contrast(highlight, ground)))),
@@ -76,6 +114,10 @@ describe('legibleSelection', () => {
       { id: 'solarized-dark', placed: '#073642', before: { ground: 1.15, text: 4.11 }, painted: '#1E4851', after: { ground: 1.5, text: 3.16 }, text: '#839496' },
       { id: 'classic-dark', placed: '#3A3D44', before: { ground: 1.55, text: 8.95 }, painted: '#3A3D44', after: { ground: 1.55, text: 8.95 }, text: '#E8E9EB' },
       { id: 'classic-light', placed: '#ADD6FF', before: { ground: 1.52, text: 10.41 }, painted: '#ADD6FF', after: { ground: 1.52, text: 10.41 }, text: '#1F2328' },
+      // The blueprint papers are measured at their lit and shaded extremes as well as the flat ground.
+      { id: 'blueprint-cyanotype', placed: '#205A99', before: { ground: 1.24, text: 5.8 }, painted: '#3368A2', after: { ground: 1.52, text: 4.75 }, text: '#E3EAF2' },
+      { id: 'blueprint-velum', placed: '#D9D3E8', before: { ground: 1.02, text: 11.24 }, painted: '#B4ACCC', after: { ground: 1.51, text: 7.56 }, text: '#200F5C' },
+      { id: 'blueprint-carbon', placed: '#3A4350', before: { ground: 1.11, text: 6.99 }, painted: '#4F5763', after: { ground: 1.52, text: 5.1 }, text: '#D3D8E1' },
     ])
   })
 
@@ -107,9 +149,9 @@ describe('legibleSelection', () => {
 })
 
 describe('resolveTerminalPaint', () => {
-  it('resolves the defaults to Linen with V0 type defaults', () => {
+  it('resolves the defaults to Carbon with V0 type defaults', () => {
     const paint = resolveTerminalPaint()
-    expect(paint.background).toBe('#F7F5F0')
+    expect(paint.background).toBe('#272B32')
     expect(paint.fontFamily).toMatch(/^"DM Mono", ui-monospace/)
     expect(paint.fontSize).toBe(14)
     expect(paint.lineHeight).toBe(1)
@@ -135,7 +177,42 @@ describe('resolveTerminalPaint', () => {
     expect(paint.cursor).toBe('#E8B84B')
     expect(paint.ansi).toBe(terminalTheme('ink').ansi)
     // An unparsable custom ground keeps the theme's own.
-    expect(resolveTerminalPaint({ ...TERMINAL_DEFAULTS, bgHex: 'bad' }).background).toBe('#F7F5F0')
+    expect(resolveTerminalPaint({ ...TERMINAL_DEFAULTS, bgHex: 'bad' }).background).toBe('#272B32')
+  })
+
+  it('draws a blueprint theme\'s paper, with that theme\'s adjustments only, and ignores a custom background', () => {
+    const theme = terminalTheme('blueprint-carbon')
+    const plain = resolveTerminalPaint({ ...TERMINAL_DEFAULTS, theme: 'blueprint-carbon' })
+    expect(plain.paper).toEqual(paperPaint(theme.paper!, requireHex('#272B32')))
+    // A block colour set for the theme reaches the wash laid over programs' blocks.
+    const washed = resolveTerminalPaint({ ...TERMINAL_DEFAULTS, theme: 'blueprint-carbon', paper: { 'blueprint-carbon': { blockColour: '#102030' } } })
+    expect(washed.paper?.blockCover).toContain('#102030 100%')
+    expect(resolveTerminalPaint({ ...TERMINAL_DEFAULTS, theme: 'ink' }).paper).toBeUndefined()
+    const paper = { 'blueprint-carbon': { grid: false, halo: 0, shadow: 0 }, 'blueprint-velum': { grain: 0 } }
+    const tweaked = resolveTerminalPaint({ ...TERMINAL_DEFAULTS, theme: 'blueprint-carbon', paper })
+    expect(tweaked.paper?.grid).toBeUndefined()
+    expect(tweaked.paper?.textShadow).toBe('none')
+    expect(tweaked.paper?.grain).toEqual({ opacity: 0.05, size: 600 })
+    // Adjustments made on a blueprint theme do nothing to a flat one.
+    expect(resolveTerminalPaint({ ...TERMINAL_DEFAULTS, theme: 'ink', paper }).paper).toBeUndefined()
+    // Its own colours take the theme's place: ground, header, ink and accent, with the ANSI slots that held an ink following it.
+    const colours = { 'blueprint-carbon': { ground: '#101418', header: '#202428', ink: '#FFFFFF', accent: '#00FF00', secondary: '#999999', warning: '#FF0000', gridColour: '#123456' } }
+    const inked = resolveTerminalPaint({ ...TERMINAL_DEFAULTS, theme: 'blueprint-carbon', paper: colours })
+    expect(inked).toMatchObject({ background: '#101418', foreground: '#FFFFFF', cursor: '#00FF00' })
+    expect([inked.ansi[1], inked.ansi[6], inked.ansi[7], inked.ansi[8]]).toEqual(['#FF0000', '#00FF00', '#FFFFFF', '#999999'])
+    expect(inked.ansi[2]).toBe(theme.ansi[2])
+    expect(inked.paper?.ground).toContain('#101418 45%')
+    expect(inked.paper?.header.endsWith(', #202428')).toBe(true)
+    expect(inked.paper?.grid?.image).toContain('#123456')
+    // Without a header colour the strip follows the paper colour; a colour that does not parse is ignored.
+    expect(resolveTerminalPaint({ ...TERMINAL_DEFAULTS, theme: 'blueprint-carbon', paper: { 'blueprint-carbon': { ground: '#101418', ink: 'nope' } } }))
+      .toMatchObject({ foreground: '#D3D8E1', paper: { header: expect.stringMatching(/, #101418$/) as string } })
+    expect(plain.ansi).toEqual(theme.ansi)
+    // JJ's saved background (#3D2936) put Velum's indigo ink on dark plum: a blueprint theme keeps its own ground.
+    for (const id of ['blueprint-cyanotype', 'blueprint-velum', 'blueprint-carbon'] as const) {
+      expect(resolveTerminalPaint({ ...TERMINAL_DEFAULTS, theme: id, bgHex: '#3D2936' })).toEqual(resolveTerminalPaint({ ...TERMINAL_DEFAULTS, theme: id }))
+    }
+    expect(resolveTerminalPaint({ ...TERMINAL_DEFAULTS, theme: 'blueprint-velum', bgHex: '#3D2936' }).background).toBe('#EFEDE7')
   })
 
   it('quotes the family over the monospace stack; empty means the bare stack', () => {
@@ -150,5 +227,15 @@ describe('terminalCustomised', () => {
     expect(terminalCustomised({ ...TERMINAL_DEFAULTS, theme: 'y2k' })).toBe(false)
     expect(terminalCustomised({ ...TERMINAL_DEFAULTS, fontSize: 16 })).toBe(true)
     expect(terminalCustomised({ ...TERMINAL_DEFAULTS, bgHex: '#000000' })).toBe(true)
+    expect(terminalCustomised({ ...TERMINAL_DEFAULTS, paper: { 'blueprint-velum': { grain: 30 } } })).toBe(true)
+  })
+
+  it('stores paper adjustments sparsely, bounded by the dials\' ranges', () => {
+    const parse = (paper: unknown): unknown =>
+      AppearanceSettingsSchema({ ...APPEARANCE_DEFAULTS, terminal: { ...TERMINAL_DEFAULTS, paper } } as never).terminal.paper
+    expect(AppearanceSettingsSchema({} as never).terminal.paper).toEqual({})
+    expect(parse({ 'blueprint-velum': { grain: 30, grid: false } })).toEqual({ 'blueprint-velum': { grain: 30, grid: false } })
+    expect(() => parse({ 'blueprint-velum': { gridMinorOpacity: 21 } })).toThrow()
+    expect(() => parse({ 'blueprint-velum': { inkOpacity: 39 } })).toThrow()
   })
 })

@@ -1,9 +1,9 @@
 /**
- * A brain's own routing criteria: how readily its chats move, and what a
- * better model weighs for its kind of work (spec §3.2; JJ, 21 Sep 2026:
- * "people will want different criteria for different tasks"). Pure. A brain
- * with nothing saved starts from the shipped row for its id, then from the
- * app-wide values, which also serve a chat that runs no brain.
+ * The criteria a routed turn is decided under. Since 25 Nov 2026 every chat reads
+ * one app-wide set: how readily a chat moves, and the weights of the Cheaper to
+ * Smarter slider ({@link leanWeights}). The per-brain rows below ({@link criteriaFor},
+ * {@link SHIPPED_CRITERIA}) stay for callers that still read them; the router's own
+ * decisions no longer do. Pure.
  */
 
 import type { Aggressiveness, Weights } from './decide.ts'
@@ -52,6 +52,31 @@ export function criteriaFor(
 
 /** The request header that carries a turn's vector to the free-token engine. */
 export const ROUTING_HEADER = 'x-idealize-routing'
+
+/** Where the Cheaper to Smarter slider sits until a person moves it. */
+export const DEFAULT_LEAN = 35
+
+/**
+ * The slider's position as a whole number from 0 to 100.
+ * @param value - what the settings or a request hold.
+ * @returns the position, or undefined when the value is no number.
+ */
+export function leanOf(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return Math.min(100, Math.max(0, Math.round(value)))
+}
+
+/**
+ * The weights the one Cheaper to Smarter slider stands for: 0 weighs cost alone and 100
+ * weighs intelligence alone. Speed keeps the app-wide weight, which the slider does not move.
+ * @param lean - the slider's position, 0 to 100.
+ * @param speed - the app-wide speed weight.
+ * @returns the weights every routed turn is scored under.
+ */
+export function leanWeights(lean: number | undefined, speed: number): Weights {
+  const at = leanOf(lean) ?? DEFAULT_LEAN
+  return { cost: 100 - at, speed, intelligence: at }
+}
 
 /** The share of the engine's score that stays on reliability: its own balanced preset's. */
 const ENGINE_RELIABILITY = 0.5

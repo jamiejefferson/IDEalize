@@ -291,6 +291,20 @@ export const inject = [
   'remote', 'remote.commands',
 ]
 
+/** The document event the Studio chat box raises when its kind toggle moves (restated from `@idealize/ui-gallery`). */
+const STUDIO_KIND_EVENT = 'idealize:studio-kind'
+
+/** The seeded preset behind each kind of Studio work (restated from the space table's `agentPreset`). */
+const STUDIO_PRESETS = { gallery: 'gallery', motion: 'video', soundstage: 'soundstage' } as const
+
+/** What a Studio chat is told once it has moved between kinds: one voice for all three tools. */
+const STUDIO_INSTRUCTIONS = 'You are the IDEalize Studio agent. '
+  + 'You make still images with the generate_image tool, video with the generate_video tool, and audio with the generate_audio tool, from the user\'s prompts. '
+  + 'You put a sound onto a video with the add_soundtrack tool. '
+  + 'Every result is stored as a project artefact and appears in this chat\'s Studio view. '
+  + 'Report each artefact id when you finish, and describe what was generated. '
+  + 'Explain engineering plainly and without jargon; your user directs the work and learns from how you narrate it.'
+
 /**
  * Client plugin body: the rail, the drawer/deck panes, the composer heart,
  * and the welcome launcher.
@@ -1336,6 +1350,28 @@ export function apply(ctx: ClientContext): void {
         },
       },
     })
+    // A Studio chat makes images, video and sound. Its chat box carries the
+    // toggle (in `@idealize/ui-gallery`), and this is the half that writes the
+    // chat's durable view, so a reload reopens it on the kind last picked.
+    // The record names that kind's preset and one set of instructions for all
+    // three, because the preset mounted at launch speaks for images alone.
+    scope.effect(() => {
+      const onKind = (event: Event): void => {
+        const detail = (event as CustomEvent<{ sessionId?: unknown; space?: unknown } | undefined>).detail
+        const sessionId = detail?.sessionId
+        const space = detail?.space
+        if (typeof sessionId !== 'string' || (space !== 'gallery' && space !== 'motion' && space !== 'soundstage')) return
+        spaceSeed.noteLaunch(sessionId, space)
+        void fetch(SPACES_SELECT_PATH, {
+          method: 'POST',
+          headers: { 'x-idealize-auth': '1', 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionId, space, brain: STUDIO_PRESETS[space], instructions: STUDIO_INSTRUCTIONS }),
+        }).catch(() => undefined)
+      }
+      document.addEventListener(STUDIO_KIND_EVENT, onKind)
+      return () => { document.removeEventListener(STUDIO_KIND_EVENT, onKind) }
+    }, 'idealize-bar: record the kind a Studio chat makes')
+
     scope.slots.inject('conversation.hero.launcher', () => scope.slots.register({
       name: 'conversation.hero.launcher',
       priority: -1,

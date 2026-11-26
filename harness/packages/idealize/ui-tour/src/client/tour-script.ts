@@ -56,7 +56,14 @@ export const DEFAULT_SELECTORS: Record<TourTarget, readonly string[]> = {
   studio: ['[data-studio-card-wrap]', 'button[aria-label="Open the Studio"]'],
   composer: ['[class*="_centerCol"] textarea', 'textarea[data-phase]', '[data-launcher-step]'],
   files: ['[data-slot="shell.rail"] button[aria-label="Files"]', '[data-slot="shell.rail"] button[aria-label="文件"]'],
-  brains: ['[data-slot="shell.rail"] button[aria-label="Brains"]', '[data-slot="shell.rail"] button[aria-label="大脑"]'],
+  // The pane is called Models; the target keeps its id, and the pane's earlier
+  // label still matches so the step shows on a frame that has not renamed it.
+  brains: [
+    '[data-slot="shell.rail"] button[aria-label="Models"]',
+    '[data-slot="shell.rail"] button[aria-label="模型"]',
+    '[data-slot="shell.rail"] button[aria-label="Brains"]',
+    '[data-slot="shell.rail"] button[aria-label="大脑"]',
+  ],
   askbar: ['button[aria-label="Collapse to Powell"]', 'button[aria-label="收起到 Powell"]'],
   rail: ['nav[aria-label="Tool rail"]', '[data-slot="shell.rail"]'],
 }

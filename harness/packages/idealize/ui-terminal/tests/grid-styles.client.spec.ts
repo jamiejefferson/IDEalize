@@ -20,3 +20,18 @@ describe('grid host styles', () => {
     expect(rule).toMatch(/min-height:\s*0;/)
   })
 })
+
+describe('paper styles', () => {
+  it('lets the paper through xterm\'s ground, stacks the grid host above it, and inks every run of text', () => {
+    expect(sheet).toMatch(/\.root\[data-paper\] \.grid \{\s*position:\s*relative;/)
+    expect(sheet).toMatch(
+      /\[data-paper\] \.grid :global\(\.xterm\) :global\(\.xterm-scrollable-element\) \{\s*background-color:\s*transparent !important;/,
+    )
+    expect(sheet).toMatch(/:global\(\.xterm-rows\) \{\s*opacity:\s*var\(--idealize-paper-ink-opacity, 1\);/)
+    expect(sheet).toMatch(/:global\(\.xterm-rows\) span \{\s*text-shadow:\s*var\(--idealize-paper-text-shadow, none\);/)
+    // Exact-colour blocks take the paper wash; selected cells keep the selection colour.
+    expect(sheet).toMatch(/span\[style\*='background-color'\]:not\(:global\(\.xterm-decoration-top\)\) \{/)
+    expect(sheet).toMatch(/background-image:\s*var\(--idealize-paper-block-cover, none\);/)
+    expect(/\n\.paper \{([^}]*)\}/.exec(sheet)?.[1]).toMatch(/pointer-events:\s*none;/)
+  })
+})

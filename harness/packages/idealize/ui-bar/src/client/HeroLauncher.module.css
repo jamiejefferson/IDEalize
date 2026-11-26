@@ -382,6 +382,32 @@
   gap: 10px;
 }
 
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tileIcon {
+  display: flex;
+  color: var(--dsw-alias-brand-primary, #0969da);
+}
+
+.tileName {
+  padding-top: 4px;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 800;
+  color: var(--dsw-alias-label-primary, #1b1f24);
+}
+
+.tileRuns {
+  padding-top: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary, #6e7378);
+}
+
 .card {
   display: flex;
   flex-direction: column;

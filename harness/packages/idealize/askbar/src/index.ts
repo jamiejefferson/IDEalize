@@ -356,7 +356,7 @@ export function apply(ctx: Context, config: Config): void {
       if (open !== undefined) {
         const named = typeof project === 'string' && project !== '' ? project : undefined
         const relayed = open === 'studio'
-          ? { kind: 'open-studio' as const, title: 'Open the Studio' }
+          ? { kind: 'open-studio' as const, title: 'Open Agent Coordination' }
           : { kind: 'new-chat' as const, title: 'Start a new chat' }
         ;(webCtx.get('idealizeBridge') as BridgeLike | undefined)?.buffer.push({
           ...relayed, body: named ?? '', ...named === undefined ? {} : { project: named },

@@ -238,7 +238,7 @@ describe('askbar routes', () => {
     const desktopActions = { collapseToBar: () => {}, expandFromBar: () => { calls.push('maxi') } }
     const { call } = await mount({ desktopActions, idealizeBridge })
     expect((await call(TRANSFORM_PATH, { body: { to: 'maxi', open: 'studio', project: '/work/demo' } })).status).toBe(200)
-    expect(pushed).toEqual([{ kind: 'open-studio', title: 'Open the Studio', body: '/work/demo', project: '/work/demo' }])
+    expect(pushed).toEqual([{ kind: 'open-studio', title: 'Open Agent Coordination', body: '/work/demo', project: '/work/demo' }])
     expect(calls).toEqual(['maxi'])
     // A plain expand pushes nothing; a malformed request pushes nothing and moves no window.
     expect((await call(TRANSFORM_PATH, { body: { to: 'maxi' } })).status).toBe(200)
@@ -246,7 +246,7 @@ describe('askbar routes', () => {
     expect(pushed).toHaveLength(1)
     // The Studio spans every project: a request without one still opens it.
     expect((await call(TRANSFORM_PATH, { body: { to: 'maxi', open: 'studio' } })).status).toBe(200)
-    expect(pushed[1]).toEqual({ kind: 'open-studio', title: 'Open the Studio', body: '' })
+    expect(pushed[1]).toEqual({ kind: 'open-studio', title: 'Open Agent Coordination', body: '' })
     expect(calls).toEqual(['maxi', 'maxi', 'maxi'])
   })
 

@@ -1,18 +1,22 @@
 /**
  * @idealize/onboarding — first-run onboarding, host half: the durable
  * `idealize-onboarding` settings section and the wizard's detection/save
- * routes. The browser half renders the five-step wizard (agents,
- * projects folder, documentation folder, finish) gated by this section,
+ * routes. The browser half renders the five-step wizard (set-up, projects
+ * folder, documentation folder, skills folder, finish) gated by this section,
  * exactly as the tour is gated by `idealize-tour.hasSeenTour`: `done` closes
  * the flow for good, `steps` records each step's outcome so a relaunch
- * resumes where the user left off, and `completedAt` timestamps a completed
- * run.
+ * resumes where the user left off, `completedAt` timestamps a completed
+ * run, and `simplerSeen` records that the person has seen the three-part
+ * set-up (in the wizard, or on the welcome sheet shown once after an update).
  *
- * Routes (loopback-fenced; the mutation demands the `x-idealize-auth`
+ * Routes (loopback-fenced; the mutations demand the `x-idealize-auth`
  * header; see ./routes.ts):
  * - `GET  /idealize/onboarding/agents` — Claude Code CLI detection (through
- *   the subprocess seam's executable resolution) and OpenRouter credential
- *   presence.
+ *   the subprocess seam's executable resolution), OpenRouter and fal
+ *   credential presence, and the Terminal's default launch command.
+ * - `POST /idealize/onboarding/align` — store the chosen coding app as the
+ *   Terminal's default launch command and point the default chat model at the
+ *   same company's model on OpenRouter.
  * - `POST /idealize/onboarding/openrouter` — verify-then-store an OpenRouter
  *   key: the credential plus the `openrouter` provider route's `apiKeyEnv`
  *   binding in the `llm-pi-ai` section (the only write a catalog route needs).
@@ -64,6 +68,12 @@ export interface OnboardingSettings {
   steps: Record<(typeof STORED_STEP_IDS)[number], OnboardingStepOutcome>
   /** When the flow completed (ISO); a skip-all leaves it absent. */
   completedAt?: string
+  /**
+   * True once the person has seen the three-part set-up: at the end of the
+   * wizard, or when the welcome sheet closes. A section stored before this
+   * field existed reads false, which is what shows the sheet after an update.
+   */
+  simplerSeen: boolean
 }
 
 /** Runtime schema for {@link OnboardingSettings}. */
@@ -72,6 +82,7 @@ export const OnboardingSettingsSchema: z<OnboardingSettings> = z.object({
   // Schemastery's dict schemas carry `{}` as their implicit default.
   steps: z.dict(z.union(['done', 'skipped']), z.union(STORED_STEP_IDS)),
   completedAt: z.string(),
+  simplerSeen: z.boolean().default(false),
 })
 
 /**

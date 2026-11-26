@@ -79,7 +79,7 @@ describe('askbar client apply', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect((ctx.get('slots') as SlotRegistry).entriesOfSlot('root')).toHaveLength(0)
     // The copy is registered for both homes.
-    expect((ctx.get('locale') as LocaleRuntime).bind('idealize-askbar')('studio.openHere')).toBe('Studio — open it')
+    expect((ctx.get('locale') as LocaleRuntime).bind('idealize-askbar')('studio.openHere')).toBe('Agent Coordination — open it')
   })
 
   it('in the main window it seats the rail once the sidebar declares the seat, polling the roster for the current project’s rows', async () => {

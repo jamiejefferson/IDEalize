@@ -82,6 +82,18 @@
   gap: 12px;
 }
 
+/* The set-up step's foot spans the column: the note sits left, the actions right. */
+.foot[data-setup-foot] {
+  width: 100%;
+}
+
+.footNote {
+  flex: 1;
+  text-align: left;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
 .back {
   border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.12));
   background: none;

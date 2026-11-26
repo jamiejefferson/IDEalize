@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SpaceRosterEntry } from '@idealize/spaces/client'
 import { terminalRestarts } from '../src/availability.ts'
 import {
-  BrainSwitcherController, composeBrains, launchOf, resolveCurrentBrain,
+  BrainSwitcherController, cliName, composeBrains, launchOf, resolveCurrentBrain,
   type BrainAgent, type BrainSessionSummary, type BrainSwitcherWrites, type TerminalLaunchTable,
 } from '../src/client/brain-switcher.ts'
 
@@ -52,6 +52,30 @@ describe('launchOf', () => {
     expect(launchOf('coding', LAUNCHES)).toBe('claude --dangerously-skip-permissions')
     expect(launchOf('design', LAUNCHES)).toBe('pi --chat')
     expect(launchOf('nobody', LAUNCHES)).toBe('pi --chat')
+  })
+})
+
+describe('cliName', () => {
+  const catalog = [
+    { label: 'Claude Code', command: 'claude --dangerously-skip-permissions' },
+    { label: 'Pi', command: 'pi' },
+    { label: 'Plain shell', command: '' },
+  ]
+
+  it('names the app the launch command starts, by the whole command or by its first word', () => {
+    expect(cliName('coding', { ...LAUNCHES, catalog })).toBe('Claude Code')
+    expect(cliName('design', { ...LAUNCHES, catalog })).toBe('Pi')
+  })
+
+  it('reads the default command for a chat with no preset, or one the table does not list', () => {
+    expect(cliName(undefined, { ...LAUNCHES, catalog })).toBe('Pi')
+    expect(cliName('core', { default: 'claude', byActivity: {}, catalog })).toBe('Claude Code')
+  })
+
+  it('falls to the command’s first word without a catalogue entry, and to nothing for a plain shell', () => {
+    expect(cliName('coding', LAUNCHES)).toBe('claude')
+    expect(cliName(undefined, { default: 'aider --yes', byActivity: {}, catalog })).toBe('aider')
+    expect(cliName(undefined, { default: '  ', byActivity: {}, catalog })).toBe('')
   })
 })
 

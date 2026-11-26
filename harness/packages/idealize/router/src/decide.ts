@@ -190,6 +190,8 @@ export type StayReason =
   | 'other-company'
   /** Jev was asked and did not answer in time or at all; the turn keeps its model. */
   | 'jev-unavailable'
+  /** The person set the router to ask first, so the move it would have made is offered. */
+  | 'asked'
 
 export interface Decision {
   /** The model the turn runs on. */

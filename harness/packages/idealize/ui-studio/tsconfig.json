@@ -39,6 +39,9 @@
       "path": "../../runtime-diagnostics/invariants"
     },
     {
+      "path": "../appearance/tsconfig.client.json"
+    },
+    {
       "path": "../comm"
     }
   ]

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// The key gateway's Brains row: it asks for an address and a key, shows the
+// The key gateway's row in the Models pane: it asks for an address and a key, shows the
 // gateway's own refusal, and once connected shows what the key reaches and
 // this month's spend.
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -21,7 +21,7 @@ describe('the gateway row', () => {
     expect(gatewayLine({ configured: true, connected: true, preset: 'Designer', services: ['Claude', 'fal'], spentGbp: 3.5, budgetGbp: 50 }, t))
       .toBe('Designer · Reaches Claude, fal · £3.50 of £50.00 spent this month')
     expect(gatewayLine({ configured: true, connected: false, services: [], error: 'Key revoked.' }, t)).toBe('Key revoked.')
-    expect(gatewayLine({ configured: false, connected: false, services: [] }, t)).toBe('One key from your organisation for every model')
+    expect(gatewayLine({ configured: false, connected: false, services: [] }, t)).toBe('Use models your organisation pays for, so nothing bills to you.')
   })
 
   it('connects with an address and a key, and shows the gateway\'s refusal', async () => {

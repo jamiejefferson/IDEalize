@@ -28,7 +28,15 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { COMPOSITION_FILE, METADATA_FILE, renderPresetMetadata } from '@deepseek-ai/dsh-agent-presets'
 import { dshHomePath, expandHomePath } from '@deepseek-ai/dsh-home-paths'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import { installSettingsSection } from '@deepseek-ai/dsh-settings'
 import { MEDIA_AGENTS, buildMediaComposition, hasMediaAgentPresets } from './presets.ts'
+import { approvedOf, approvedRows, GEN_TOOLS_NS, GenToolsSettings } from './approved.ts'
+
+export { approvalKey } from './paid.ts'
+export { approvedRows, GEN_TOOLS_NS, GenToolsSettings } from './approved.ts'
+export type { ApprovedModelRow } from './approved.ts'
 
 export {
   GENERATION_ONLY_PLUGINS, MEDIA_AGENTS, MEDIA_AGENT_IDS, buildMediaComposition, generatesOnly, hasMediaAgentPresets,
@@ -88,5 +96,71 @@ export function apply(ctx: Context, config: Config): void {
     : expandHomePath(config.root)
   seedMediaAgents(ctx, root).catch((error: unknown) => {
     ctx.logger.warn(`gen-tools: seeding failed: ${error instanceof Error ? error.message : String(error)}`)
+  })
+  installSettingsSection(ctx, GEN_TOOLS_NS, GenToolsSettings, { approved: {} }, { setSource: () => {}, onChange: () => {} })
+  installApprovedRoute(ctx)
+}
+
+/** The route listing the Studio models a person approved, and taking one off the list. */
+export const APPROVED_PATH = '/idealize/generate/approved'
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+}
+
+async function readBody(req: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(chunk as Buffer)
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+/**
+ * Mount {@link APPROVED_PATH}. GET answers `{ models }`, one row per approved
+ * model. POST `{ key, approved: false }` removes a model, so Studio asks again
+ * before its next use. POST with `approved: true` is refused: a yes is only
+ * ever given to the question that shows the price. Loopback only; the POST
+ * demands the `x-idealize-auth` header.
+ * @param ctx - the host plugin context.
+ */
+export function installApprovedRoute(ctx: Context): void {
+  ctx.inject(['webServer', 'settings'], (webCtx) => {
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: APPROVED_PATH,
+      handler: async (req, res) => {
+        const hostname = (req.headers.host ?? '').replace(/:\d+$/, '')
+        if (hostname !== '127.0.0.1' && hostname !== 'localhost' && hostname !== '[::1]') {
+          res.writeHead(403, { 'content-type': 'text/plain' }).end('loopback only')
+          return
+        }
+        if (req.method === 'GET') {
+          sendJson(res, 200, { models: approvedRows(approvedOf(webCtx.settings)) })
+          return
+        }
+        if (req.method !== 'POST') {
+          res.writeHead(405, { 'content-type': 'text/plain', allow: 'GET, POST' }).end('GET or POST only')
+          return
+        }
+        if (req.headers['x-idealize-auth'] !== '1') {
+          res.writeHead(403, { 'content-type': 'text/plain' }).end('missing x-idealize-auth header')
+          return
+        }
+        let body: { key?: unknown; approved?: unknown }
+        try {
+          body = JSON.parse(await readBody(req)) as { key?: unknown; approved?: unknown }
+        } catch {
+          sendJson(res, 400, { error: 'invalid JSON' })
+          return
+        }
+        if (typeof body.key !== 'string' || body.key === '' || body.approved !== false) {
+          sendJson(res, 400, { error: 'send { key, approved: false } to have Studio ask again for a model' })
+          return
+        }
+        const { [body.key]: _removed, ...rest } = approvedOf(webCtx.settings)
+        // A merge cannot drop a key, and the section holds this one field.
+        await webCtx.settings.replace(GEN_TOOLS_NS, { approved: rest })
+        sendJson(res, 200, { ok: true, models: approvedRows(rest) })
+      },
+    }), `gen-tools: ${APPROVED_PATH}`)
   })
 }

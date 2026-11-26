@@ -24,10 +24,19 @@ export {
   actionCustomised, APPEARANCE_DEFAULTS, CHAT_TITLE_DEFAULTS, CHAT_TITLE_SIZE_MAX, CHAT_TITLE_SIZE_MIN, parseTitleWeight,
   type ChatTitleAppearance, APPEARANCE_SETTINGS_NAMESPACE, AppearanceSettingsSchema, EMPTY_ACTION,
   EMPTY_SURFACE, FILL_MODES, FONT_WEIGHTS, fontStack, GRADIENT_TYPES, PRESETS, SURFACES, surfaceCustomised,
+  resolveStudioPaint, STUDIO_BACKDROP_CHOICES, STUDIO_DEFAULTS, studioCustomised, type StudioAppearanceSettings, type StudioBackdropChoice,
   TERMINAL_DEFAULTS, TERMINAL_THEME_IDS, terminalCustomised, uiScale,
   type ActionAppearance, type AppearanceSettings, type FillMode, type GradientStop, type GradientType, type PresetId,
   type SurfaceAppearance, type SurfaceId, type TerminalAppearanceSettings, type TerminalThemeId,
 } from './appearance-settings.ts'
+export {
+  PAPER_RANGES, PAPER_SWITCHES, paperGrounds, paperPaint, tweakedPaper, withPaperTweak,
+  type PaperNumberKey, type PaperRange, type PaperSettings, type PaperSwitchKey, type PaperTweaks, type TerminalPaperPaint, type ThemePaper,
+} from './blueprint-paper.ts'
+export {
+  BACKDROP_RANGES, backdropInks, backdropPaint, STUDIO_BACKDROPS, studioBackdrop, tweakedBackdrop, withBackdropTweak,
+  type Backdrop, type BackdropTweaks, type StudioBackdrop, type StudioBackdropId, type StudioBackdropPaint,
+} from './studio-backdrop.ts'
 export {
   resolveTerminalPaint, TERMINAL_THEMES, terminalFontStack, terminalTheme,
   type TerminalPaint, type TerminalTheme,

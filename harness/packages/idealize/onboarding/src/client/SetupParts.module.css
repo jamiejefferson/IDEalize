@@ -1,0 +1,136 @@
+/* The parts the set-up step and the welcome sheet share. Colours ride the dsw aliases. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.08));
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  cursor: pointer;
+}
+
+.row[data-selected] {
+  border-color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+.row:not([data-installed]) {
+  cursor: default;
+}
+
+.radio {
+  margin: 0;
+  accent-color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+.company {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.app {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.status {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary, #9096a0);
+  white-space: nowrap;
+}
+
+.row[data-installed] .status {
+  color: var(--dsw-alias-state-success-primary, #1a7f37);
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.tag {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.12));
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.reason {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.fieldLine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  font-size: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.12));
+  background: var(--dsw-alias-bg-layer-2, #f7f7f8);
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  text-align: left;
+  text-decoration: underline;
+  color: var(--dsw-alias-label-secondary, #66696d);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.link:hover {
+  color: var(--dsw-alias-label-primary, #24292f);
+}
+
+.connected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-state-success-primary, #1a7f37);
+}
+
+.error {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+}

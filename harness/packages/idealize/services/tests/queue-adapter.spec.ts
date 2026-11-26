@@ -168,6 +168,10 @@ describe('wire translation', () => {
     const missingLyrics = '{"detail":[{"loc":["body","lyrics"],"msg":"Field required"}]}'
     expect(requiredFieldDefaults(missingLyrics, { prompt: 'p' })).toEqual({ lyrics: REQUIRED_FIELD_DEFAULTS['lyrics'] })
     expect(requiredFieldDefaults(missingLyrics, { prompt: 'p' })).toEqual({ lyrics: '[instrumental]' })
+    // An endpoint that wants its words as `text` gets the prompt.
+    const missingText = '{"detail":[{"loc":["body","text"],"msg":"Field required"}]}'
+    expect(requiredFieldDefaults(missingText, { prompt: 'a whinny' })).toEqual({ text: 'a whinny' })
+    expect(requiredFieldDefaults(missingText, { prompt: 7 })).toBeUndefined()
     // The field is in the body already: fal is refusing its value, not its absence.
     expect(requiredFieldDefaults(missingLyrics, { prompt: 'p', lyrics: '' })).toBeUndefined()
     // A required field with no default, alone or beside one that has.

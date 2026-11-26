@@ -201,7 +201,8 @@ export function requiredFieldDefaults(text: string, body: Record<string, unknown
   if (missing.length === 0) return undefined
   const defaults: Record<string, string> = {}
   for (const field of missing) {
-    const value = REQUIRED_FIELD_DEFAULTS[field]
+    // An endpoint that wants its words as `text` gets the prompt the seam sent.
+    const value = field === 'text' && typeof body['prompt'] === 'string' ? body['prompt'] : REQUIRED_FIELD_DEFAULTS[field]
     if (value === undefined) return undefined
     defaults[field] = value
   }

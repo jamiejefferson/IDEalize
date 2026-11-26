@@ -28,10 +28,11 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import {
   actionCustomised, APPEARANCE_DEFAULTS, APPEARANCE_SETTINGS_NAMESPACE, CHAT_TITLE_DEFAULTS, clearSurfaceColours, EMPTY_ACTION,
   EMPTY_SURFACE,
-  fontStack, SURFACE_COLOUR_FIELDS, surfaceColoured, SURFACES, TERMINAL_DEFAULTS, uiScale,
+  fontStack, resolveStudioPaint, STUDIO_DEFAULTS, SURFACE_COLOUR_FIELDS, surfaceColoured, SURFACES, TERMINAL_DEFAULTS, uiScale,
   type ActionAppearance, type AppearanceSettings, type ChatTitleAppearance, type PresetId, type SurfaceAppearance, type SurfaceId,
-  type TerminalAppearanceSettings,
+  type StudioAppearanceSettings, type TerminalAppearanceSettings,
 } from '../appearance-settings.ts'
+import type { StudioBackdropPaint } from '../studio-backdrop.ts'
 import { resolveTerminalPaint, type TerminalPaint } from '../terminal-themes.ts'
 import { resolveAppearance, surfaceHex, type Tokens } from '../presets.ts'
 import { actionTokens, appearanceStylesheet, type PanelScalars } from '../surface-css.ts'
@@ -48,6 +49,8 @@ export type { AppearanceKey } from './locales.ts'
 export { applyAppearanceDom } from './dom-applier.ts'
 // The paint object `@idealize/ui-terminal` reads through `ctx.appearance` (type-only there).
 export type { TerminalPaint, TerminalTheme } from '../terminal-themes.ts'
+export type { TerminalPaperPaint } from '../blueprint-paper.ts'
+export type { StudioBackdropPaint } from '../studio-backdrop.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -79,6 +82,12 @@ export interface AppearanceService {
    * @returns the resolved paint.
    */
   terminalPaint: () => TerminalPaint
+  /**
+   * The Studio's backdrop under the current settings. `@idealize/ui-studio`
+   * reads it here and re-reads on {@link store} changes.
+   * @returns the resolved paint, or undefined while the Studio stays on the app theme.
+   */
+  studioPaint: () => StudioBackdropPaint | undefined
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -342,6 +351,9 @@ export function apply(ctx: ClientContext): void {
     setTerminal: (patch: Partial<TerminalAppearanceSettings>) => {
       write('terminal', { ...current().terminal, ...patch })
     },
+    setStudio: (patch: Partial<StudioAppearanceSettings>) => {
+      write('studio', { ...current().studio, ...patch })
+    },
     setChatTitle: (patch: Partial<ChatTitleAppearance>) => {
       write('chatTitle', { ...current().chatTitle, ...patch })
     },
@@ -353,6 +365,10 @@ export function apply(ctx: ClientContext): void {
       if (section === 'terminal') {
         // The theme *choice* survives a reset (V0's rule); the values layered over it go.
         write('terminal', { ...TERMINAL_DEFAULTS, theme: current().terminal.theme })
+        return
+      }
+      if (section === 'studio') {
+        write('studio', { ...STUDIO_DEFAULTS, backdrop: current().studio.backdrop })
         return
       }
       write('surfaces', { ...current().surfaces, [section]: { ...EMPTY_SURFACE } })
@@ -375,6 +391,7 @@ export function apply(ctx: ClientContext): void {
     face,
     store,
     terminalPaint: () => resolveTerminalPaint(current().terminal),
+    studioPaint: () => resolveStudioPaint(current().studio),
   }
   ctx.provide('appearance', service)
 

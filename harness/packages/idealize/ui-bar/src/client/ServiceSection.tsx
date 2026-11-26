@@ -44,7 +44,7 @@ export interface ServiceSectionInjected {
    * the section renders the message; it never fails silently.
    */
   ensureSession: (path: string) => Promise<SessionBinding>
-  /** Open the Brains pane (model connections), from the connect-a-model notice. */
+  /** Open the Models pane (model connections), from the connect-a-model notice. */
   openModels: () => void
 }
 

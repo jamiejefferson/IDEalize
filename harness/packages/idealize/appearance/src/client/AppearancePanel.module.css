@@ -136,6 +136,14 @@
   gap: 6px;
 }
 
+/* The title over one group of terminal themes. */
+.groupTitle {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .preset {
   display: flex;
   align-items: center;

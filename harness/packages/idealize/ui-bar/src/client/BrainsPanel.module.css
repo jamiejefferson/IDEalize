@@ -32,39 +32,6 @@
   letter-spacing: -0.025em;
 }
 
-.subtitle {
-  margin: 0;
-  font-size: var(--idealize-type-body, 12.5px);
-  color: var(--dsw-alias-label-secondary, #66696d);
-}
-
-.tabs {
-  display: flex;
-  flex-shrink: 0;
-  height: 48px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2, #c9c9c6);
-}
-
-.tab {
-  width: 96px;
-  height: 48px;
-  border: 0;
-  border-bottom: 3px solid transparent;
-  background: transparent;
-  font: inherit;
-  font-size: var(--idealize-type-section, 13px);
-  font-weight: 500;
-  color: var(--dsw-alias-label-secondary, #70706c);
-  cursor: pointer;
-}
-
-.tab[aria-selected='true'] {
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary, #20201e);
-  border-bottom-color: var(--dsw-alias-label-primary, #3f3f3c);
-}
-
 .body {
   flex: 1;
   min-height: 0;
@@ -90,16 +57,6 @@
   color: var(--dsw-alias-label-secondary, #70706c);
 }
 
-.plusButton {
-  composes: iconButton iconButtonOutline from './controls.module.css';
-  width: 28px;
-  height: 28px;
-  color: inherit;
-  font: inherit;
-  font-size: var(--idealize-type-section, 13px);
-  text-decoration: none;
-}
-
 /* ── Lists ─────────────────────────────────────────────────────────────── */
 
 .list {
@@ -111,7 +68,6 @@
   background: var(--dsw-alias-bg-layer-1, #fff);
 }
 
-.row,
 .providerRow {
   display: flex;
   flex-wrap: wrap;
@@ -120,112 +76,8 @@
   border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
 }
 
-.row:first-child,
 .providerRow:first-child {
   border-top: 0;
-}
-
-.cellKey {
-  flex: 0 1 auto;
-  min-width: 95px;
-  max-width: 160px;
-  padding: 0 14px;
-  font-size: var(--idealize-type-small, 11.5px);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cellValue {
-  flex: 1;
-  min-width: 0;
-  padding: 0 10px;
-  font-size: var(--idealize-type-body, 12.5px);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cellAction {
-  flex: 0 0 auto;
-  padding: 0 14px;
-}
-
-.chip {
-  composes: button outline from './controls.module.css';
-  height: 26px;
-  padding: 0 9px;
-  background: var(--dsw-alias-bg-layer-1, #fff);
-  color: inherit;
-  font: inherit;
-  font-size: var(--idealize-type-small, 11.5px);
-  font-weight: 500;
-}
-
-.rowSelect {
-  composes: field from './controls.module.css';
-  flex: 1;
-  min-width: 0;
-  margin: 0 14px 0 10px;
-  height: 28px;
-  padding: 0 8px;
-  color: inherit;
-  font: inherit;
-  font-size: var(--idealize-type-body, 12.5px);
-}
-
-/* The unavailable media preset's one-line reason, in the value column. */
-/* A brain's access, on its own line under the picker so neither is squeezed. */
-.rowAccess {
-  flex: 0 0 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 14px 10px;
-  font-size: var(--idealize-type-small, 11.5px);
-  color: var(--dsw-alias-state-warn-label);
-  /* The terminal note is a sentence: it wraps inside the row instead of running past the pane. */
-  flex-wrap: wrap;
-  white-space: normal;
-  min-width: 0;
-}
-
-.rowNote {
-  flex: 1;
-  min-width: 0;
-  padding: 0 10px;
-  font-size: var(--idealize-type-small, 11.5px);
-  color: var(--dsw-alias-label-secondary, #66696d);
-}
-
-.addRow {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 46px;
-  margin: -1px;
-  border: 1px dashed var(--dsw-alias-label-tertiary, #aeb0b3);
-  background: var(--dsw-alias-bg-base, #f5f5f6);
-  color: var(--dsw-alias-label-secondary, #66696d);
-  font: inherit;
-  font-size: var(--idealize-type-body, 12.5px);
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.plusBox {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--dsw-alias-label-tertiary, #8b8d91);
-  border-radius: 6px;
-  font-size: var(--idealize-type-section, 13px);
 }
 
 .emptyRow {
@@ -372,75 +224,6 @@
 
 /* ── Free Token Use card ───────────────────────────────────────────────── */
 
-.card {
-  border: 1px solid var(--dsw-alias-border-l2, #d9dadd);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--dsw-alias-bg-layer-1, #fff);
-  padding-bottom: 6px;
-}
-
-.cardRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 44px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2, #d9dadd);
-}
-
-.cardLabel {
-  font-size: var(--idealize-type-body, 12.5px);
-  font-weight: 600;
-}
-
-.cardSelect {
-  composes: field from './controls.module.css';
-  width: 132px;
-  height: 28px;
-  padding: 0 8px;
-  color: inherit;
-  font: inherit;
-  font-size: var(--idealize-type-small, 11.5px);
-  font-weight: 500;
-}
-
-.weightRow {
-  display: flex;
-  align-items: center;
-  height: 27px;
-  padding: 0 12px;
-}
-
-.weightLabel {
-  flex: 0 0 78px;
-  font-size: var(--idealize-type-small, 11.5px);
-}
-
-/* The flexibility slider's closing label: it follows the track, so it keeps a gap from the thumb at the far end. */
-.weightEnd {
-  flex: none;
-  margin-left: 12px;
-  font-size: var(--idealize-type-small, 11.5px);
-  white-space: nowrap;
-}
-
-.weightInput {
-  flex: 1;
-  min-width: 0;
-  height: 4px;
-  margin: 0;
-  accent-color: var(--dsw-alias-label-secondary, #66696d);
-}
-
-.weightValue {
-  flex: 0 0 34px;
-  text-align: right;
-  font-family: var(--ds-font-family-code, 'DM Mono', ui-monospace, monospace);
-  font-size: var(--idealize-type-caption, 10px);
-  color: var(--dsw-alias-label-secondary, #66696d);
-}
-
 /* ── Budget tab ────────────────────────────────────────────────────────── */
 
 .field {
@@ -455,22 +238,6 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--dsw-alias-label-secondary, #66696d);
-}
-
-/* The add sheet's stated space: a value the sheet reports rather than a
-   control, because the welcome card already chose it. */
-.fieldValue {
-  font-size: var(--idealize-type-body, 12.5px);
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary, #24292f);
-}
-
-/* The edit sheet's "works in" row: one checkbox per declared space, wrapping
-   at the pane's narrowest width rather than scrolling sideways. */
-.fieldChoices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
 }
 
 .choice {
@@ -572,16 +339,6 @@
     font-weight: 400;
     color: var(--dsw-alias-label-primary, #24292f);
   }
-}
-
-.fieldInput {
-  composes: fieldControl;
-}
-
-.fieldArea {
-  composes: fieldControl;
-  padding: 9px 10px;
-  resize: vertical;
 }
 
 .table {
@@ -945,74 +702,6 @@
   }
 }
 
-/* A sheet's model field (Paper "Model picker" board 00): the chosen model's
-   picture, name and headline price, with Change opening the model browser. */
-.modelRow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border: 1px solid var(--dsw-alias-border-l2, #c9cbce);
-  border-radius: 14px;
-}
-
-.modelThumb {
-  flex: none;
-  width: 52px;
-  height: 52px;
-  border-radius: 10px;
-  object-fit: cover;
-  background: var(--dsw-alias-interactive-bg-hover, #f2f4f7);
-}
-
-.modelText {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.modelName {
-  overflow: hidden;
-  font-size: var(--idealize-type-body, 12.5px);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.modelPrice {
-  font-family: var(--ds-font-family-code, ui-monospace, monospace);
-  font-size: var(--idealize-type-small, 11.5px);
-  color: var(--dsw-alias-label-secondary, #66696d);
-}
-
-/* One row per brain: the working mark, what it is and what it runs on, and
-   Edit (Paper "Brains rethink", board 12). */
-.brainRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
-}
-
-.brainRow:first-child {
-  border-top: 0;
-}
-
-.markReady,
-.markNeeds {
-  flex: none;
-  display: inline-flex;
-  padding-top: 2px;
-  color: #1a7f37;
-}
-
-.markNeeds {
-  color: var(--dsw-alias-state-warn-label, #a15c07);
-}
-
 .visuallyHidden {
   position: absolute;
   width: 1px;
@@ -1020,138 +709,6 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-
-.brainText {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.brainHead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.brainPlaces {
-  flex: none;
-  font-size: var(--idealize-type-small, 11.5px);
-  color: var(--dsw-alias-label-tertiary, #8b8e91);
-}
-
-.brainPurpose {
-  color: var(--dsw-alias-label-secondary, #56595d);
-}
-
-/* The row's name reads as a name; the column heads' capitals belong to tables. */
-/* The default-tool row's label is a sentence, so it reads in full. */
-.row[data-terminal-default-cli] .cellKey {
-  flex: 1;
-  min-width: 0;
-  max-width: none;
-  overflow: visible;
-  font-size: var(--idealize-type-body, 12.5px);
-  letter-spacing: 0;
-  text-transform: none;
-  white-space: normal;
-}
-
-.brainRow .cellKey {
-  flex: none;
-  min-width: 0;
-  max-width: none;
-  padding: 0;
-  font-size: var(--idealize-type-body, 12.5px);
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.brainRow .rowNote {
-  flex: none;
-  max-width: none;
-  padding: 0;
-}
-
-.brainRow .rowAccess {
-  flex: none;
-  padding: 2px 0 0;
-  color: var(--dsw-alias-state-warn-label, #a15c07);
-}
-
-.brainRow .rowAccess .chip {
-  height: auto;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font-weight: 600;
-  text-decoration: underline;
-}
-
-.brainRow .cellAction {
-  flex: none;
-  padding: 0;
-}
-
-.statusStrip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-top: 14px;
-}
-
-.statusOk,
-.statusNeeds {
-  padding: 3px 10px;
-  border: none;
-  border-radius: 12px;
-  font: inherit;
-  font-size: var(--idealize-type-small, 11.5px);
-  font-weight: 600;
-}
-
-.statusOk {
-  background: color-mix(in srgb, #1a7f37 12%, transparent);
-  color: #1a7f37;
-}
-
-.statusNeeds {
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-label, #a15c07) 12%, transparent);
-  color: var(--dsw-alias-state-warn-label, #a15c07);
-  cursor: pointer;
-}
-
-.readiness {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-label, #a15c07) 10%, transparent);
-}
-
-.readiness .primary {
-  flex: none;
-  white-space: nowrap;
-}
-
-.addBrainRow {
-  display: flex;
-  margin-top: 12px;
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.addBrainRow .addRow {
-  flex: 1;
-  margin: 0;
-  border-radius: 12px;
 }
 
 .behindScenes {
@@ -1173,137 +730,6 @@
   padding: 14px 0 4px;
 }
 
-.fieldText {
-  color: var(--dsw-alias-label-primary, #1b1f24);
-}
-
-.rowLinkStart {
-  align-self: flex-start;
-  width: fit-content;
-  text-align: left;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--dsw-alias-brand-primary, #0969da);
-  font: inherit;
-  cursor: pointer;
-}
-
-.segments {
-  display: flex;
-  padding: 2px;
-  border-radius: 9px;
-  background: var(--dsw-alias-interactive-bg-hover, rgba(31, 35, 40, 0.06));
-}
-
-.segment {
-  flex: 1;
-  padding: 4px 12px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary, #56595d);
-  font: inherit;
-  cursor: pointer;
-}
-
-.segment[aria-pressed='true'] {
-  background: var(--dsw-alias-bg-layer-1, #fff);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
-  color: var(--dsw-alias-label-primary, #1b1f24);
-  font-weight: 600;
-}
-
-.moreToggle {
-  align-self: flex-start;
-  margin-bottom: 6px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--dsw-alias-brand-primary, #0969da);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-/* The Auto-switch tab's plain switches. */
-.settings {
-  display: flex;
-  flex-direction: column;
-  margin-top: 14px;
-  border: 1px solid var(--dsw-alias-border-l2, #d9dadd);
-  border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-1, #fff);
-}
-
-.settingRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
-}
-
-.settingRow:first-child {
-  border-top: 0;
-}
-
-.settingText {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.switch {
-  flex: none;
-  appearance: none;
-  position: relative;
-  width: 34px;
-  height: 20px;
-  margin: 0;
-  border-radius: 10px;
-  background: var(--dsw-alias-border-l3, rgba(31, 35, 40, 0.24));
-  cursor: pointer;
-}
-
-.switch::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 120ms ease;
-}
-
-.switch:checked {
-  background: var(--dsw-alias-brand-primary, #0969da);
-}
-
-.switch:checked::after {
-  transform: translateX(14px);
-}
-
-.switch:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.switch:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary, #0969da);
-  outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .switch::after {
-    transition: none;
-  }
-}
-
 .serviceSearch {
   display: block;
   padding: 10px 12px;
@@ -1321,4 +747,107 @@
 .badgeButton {
   background: none;
   cursor: pointer;
+}
+
+/* ── Models pane: what runs each view ──────────────────────────────────── */
+
+/*
+ * One view per row: the name in a fixed column so the three main lines start
+ * on one edge, then what runs it, its state, and its one action. The row
+ * wraps so the list or key field an action opens takes a line of its own.
+ */
+.viewRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 68px;
+  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+}
+
+.viewRow:first-child {
+  border-top: 0;
+}
+
+.viewName {
+  flex: 0 0 58px;
+  padding-left: 14px;
+  font-size: var(--idealize-type-body, 12.5px);
+  font-weight: 600;
+}
+
+.viewText {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 10px 10px 10px 0;
+}
+
+.viewMain {
+  font-size: var(--idealize-type-body, 12.5px);
+}
+
+.viewNote {
+  font-size: var(--idealize-type-caption, 10px);
+  color: var(--dsw-alias-label-secondary, #66696d);
+}
+
+.viewOk,
+.viewWarn {
+  flex: 0 0 auto;
+  font-size: var(--idealize-type-caption, 10px);
+  font-weight: 600;
+  white-space: nowrap;
+  color: #1a7f37;
+}
+
+.viewWarn {
+  color: var(--dsw-alias-state-warn-label, #a15c07);
+}
+
+/* Stands in for the action column on a row with no action, so the state keeps its right margin. */
+.viewEnd {
+  flex: 0 0 14px;
+}
+
+.viewReveal {
+  flex: 1 0 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 0 14px 12px 72px;
+}
+
+.viewReveal .keyPanel {
+  padding: 0;
+}
+
+/* The rows an "Add another model" action opens, set in from the row that opened them. */
+.addReveal {
+  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+  background: var(--dsw-alias-bg-base, #f5f5f6);
+}
+
+.addReveal .providerRow:first-child {
+  border-top: 0;
+}
+
+.addReveal .groupRow {
+  background: transparent;
+}
+
+.addReveal .accountsSearch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  padding: 10px 2px;
+  border-top: 1px solid var(--dsw-alias-border-l2, #d9dadd);
+}
+
+/* A row action whose words run past the 82px action column. */
+.rowLinkWide {
+  composes: rowLink;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }

@@ -174,10 +174,10 @@ describe('the Studio pane', () => {
     const owl = empty?.querySelector('[data-studio-owl] img')
     expect(owl?.getAttribute('src')).toMatch(/^data:image\/webp;base64,/)
     expect(owl?.getAttribute('height')).toBe('120')
-    expect(empty?.textContent).toBe('Nothing here yet. Message the Studio coordinator below, or @name to ask one agent.')
+    expect(empty?.textContent).toBe('Nothing here yet. Message the coordinator below, or @name to ask one agent.')
     expect(view.container.querySelector('[data-studio-task]')).toBeNull()
     // The header is the title alone: the Studio needs no project and no explainer.
-    expect(view.container.querySelector('header')?.textContent).toBe('Studio')
+    expect(view.container.querySelector('header')?.textContent).toBe('Agent Coordination')
   })
 
   it('holds the owl on its resting frame under prefers-reduced-motion', () => {
@@ -212,9 +212,9 @@ describe('the Studio pane', () => {
       { id: 'se-s1', seq: 1, at: '2026-09-01T10:02:00.000Z', project: 'studio', author: 'user', kind: 'message', body: 'where are we?' },
     ]
     const { view } = paneWith(STATE, EVENTS, [{ project: 'studio', state: { tasks: [], agents: {}, deliveries: {}, presence: {} }, recent: own }])
-    expect([...view.container.querySelectorAll('h3')].map(node => node.textContent)).toEqual(['alpha', 'Studio', 'Timeline'])
+    expect([...view.container.querySelectorAll('h3')].map(node => node.textContent)).toEqual(['alpha', 'Agent Coordination', 'Timeline'])
     const rows = [...view.container.querySelectorAll('[data-studio-event]')]
-    expect(rows.find(row => row.getAttribute('data-studio-event-project') === 'studio')?.textContent).toContain('Studio')
+    expect(rows.find(row => row.getAttribute('data-studio-event-project') === 'studio')?.textContent).toContain('Agent Coordination')
   })
 
   it('marks every row past the read position, and reads the Studio by showing it', () => {

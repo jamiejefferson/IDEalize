@@ -65,6 +65,8 @@ export const GENERATION_TOOLS: Readonly<Record<string, GalleryArtefactKind>> = {
   generate_image: 'image',
   generate_video: 'video',
   generate_audio: 'audio',
+  // `@idealize/gen-tools`' join of a clip and a sound; its result is a video.
+  add_soundtrack: 'video',
 }
 
 /** Stable empty target used until a session has assembled generation rows. */

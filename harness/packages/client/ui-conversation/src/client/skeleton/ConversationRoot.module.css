@@ -54,10 +54,12 @@
 }
 
 /* A terminal's grid never scrolls under the strip (it fits below the
-   padding), so the strip is solid and wears the terminal's own colours. */
+   padding), so the strip is solid and wears the terminal's own colours. A
+   terminal theme drawn on a paper sets --dsh-terminal-header, a whole
+   background: the strip's own colour under the paper's grid. */
 .header[data-view='terminal'] {
   padding-bottom: 14px;
-  background: var(--dsh-terminal-bg, var(--dsw-alias-bg-layer-1));
+  background: var(--dsh-terminal-header, var(--dsh-terminal-bg, var(--dsw-alias-bg-layer-1)));
   backdrop-filter: none;
   mask-image: none;
 }

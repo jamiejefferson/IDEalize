@@ -9,11 +9,14 @@
  * deepens the selection until it shows ({@link legibleSelection}) and folds in
  * the type settings as the one object the terminal view needs. Classic Dark
  * and Classic Light are V1's own rows: the OG app preset's grounds and inks
- * under the standard terminal palette.
+ * under the standard terminal palette. Cyanotype, Velum and Carbon are the
+ * blueprint themes: each carries a paper (`blueprint-paper.ts`) the grid is
+ * drawn over, with the values JJ settled on 24 Nov 2026.
  */
 
 import { blend, contrast, isDark, parseHex, requireHex, toHex, type Rgb } from './colour.ts'
 import { TERMINAL_DEFAULTS, type TerminalAppearanceSettings, type TerminalThemeId } from './appearance-settings.ts'
+import { paperColour, paperGrounds, paperPaint, tweakedPaper, type TerminalPaperPaint, type ThemePaper } from './blueprint-paper.ts'
 
 /** One terminal colour scheme. */
 export interface TerminalTheme {
@@ -36,6 +39,8 @@ export interface TerminalTheme {
    * highlight matches V0's and survives the wash being painted.
    */
   wash?: readonly string[]
+  /** The blueprint themes' paper: lit ground, grain, grid and ink glow. Absent on a flat theme. */
+  paper?: ThemePaper
 }
 
 /** The terminal themes in V0's panel order (`[.linen, .ink, .y2k] + all`), then V1's Classic pair. */
@@ -146,6 +151,64 @@ export const TERMINAL_THEMES: readonly TerminalTheme[] = Object.freeze([
       '#666666', '#E0383E', '#1A9E1A', '#A07D00', '#1A6FD6', '#D03FD0', '#0E96AB', '#A5A5A5',
     ],
   },
+  {
+    // Blueprint: pale ink on a cyanotype blue. Ground, ink and paper are JJ's
+    // settled values; red is the tuned warning ink, cyan and the cursor the
+    // accent, bright black the secondary ink. The other slots are pale tints
+    // that read at 3:1 on the blue. JJ retuned the ground, inks and paper in
+    // the app on 25 Nov 2026; the accent and secondary ink are both white.
+    id: 'blueprint-cyanotype',
+    name: 'Cyanotype',
+    background: '#00438A',
+    foreground: '#E3EAF2',
+    cursor: '#FFFFFF',
+    selection: '#205A99',
+    ansi: [
+      '#003A7A', '#FFB8B8', '#8EE6B0', '#F2DC8A', '#A9D0FF', '#E3B5F5', '#FFFFFF', '#E3EAF2',
+      '#FFFFFF', '#FFB3B3', '#A8F0C4', '#F8E8A8', '#C4DFFF', '#EDCBFA', '#B0F0FA', '#FFFFFF',
+    ],
+    paper: {
+      lightX: 20, lightY: 28, light: 4, shade: 25, grain: 9, grainScale: 540, crease: false,
+      grid: true, gridColour: '#EAF4FF', secondary: '#FFFFFF', warning: '#FFB8B8', gridMinor: 5, gridMinorOpacity: 8.5, gridMajorEvery: 10, gridMajorOpacity: 8, gridSoften: 0.9,
+      inkOpacity: 60, halo: 47, haloSpread: 1.25, shadow: 28, shadowOffset: 0, shadowBlur: 4, blocks: 61, blockColour: '#00458F',
+    },
+  },
+  {
+    // Blueprint on velum: indigo ink on cream tracing paper, lit from near the middle.
+    id: 'blueprint-velum',
+    name: 'Velum',
+    background: '#EFEDE7',
+    foreground: '#200F5C',
+    cursor: '#A809C8',
+    selection: '#D9D3E8',
+    ansi: [
+      '#200F5C', '#D10000', '#1F6B3A', '#8A5A00', '#1B4FA8', '#A809C8', '#0E6886', '#5C606A',
+      '#5C606A', '#B00000', '#17592F', '#734B00', '#153F8A', '#8A07A5', '#0A5670', '#200F5C',
+    ],
+    paper: {
+      lightX: 42, lightY: 48, light: 45, shade: 9, grain: 16, grainScale: 200, crease: false,
+      grid: true, gridColour: '#21163C', secondary: '#5C606A', warning: '#D10000', gridMinor: 6, gridMinorOpacity: 3.5, gridMajorEvery: 10, gridMajorOpacity: 3, gridSoften: 0.5,
+      inkOpacity: 88, halo: 21, haloSpread: 3.5, shadow: 11, shadowOffset: 4, shadowBlur: 3.5, blocks: 32, blockColour: '#EAE9E3',
+    },
+  },
+  {
+    // Blueprint on carbon: grey ink on a dark sheet, the faintest grid of the three.
+    id: 'blueprint-carbon',
+    name: 'Carbon',
+    background: '#272B32',
+    foreground: '#D3D8E1',
+    cursor: '#4FB3D0',
+    selection: '#3A4350',
+    ansi: [
+      '#3A3F48', '#D2764B', '#74B49B', '#D4B872', '#7FA6D6', '#B79AD0', '#4FB3D0', '#D3D8E1',
+      '#8A93A3', '#E08E66', '#8CC8B0', '#E2CA8A', '#98BBE4', '#C9B0DE', '#72C6DE', '#F0F2F6',
+    ],
+    paper: {
+      lightX: 31, lightY: 40, light: 8, shade: 43, grain: 5, grainScale: 600, crease: false,
+      grid: true, gridColour: '#FFFFFF', secondary: '#8A93A3', warning: '#D2764B', gridMinor: 6, gridMinorOpacity: 5, gridMajorEvery: 10, gridMajorOpacity: 4.5, gridSoften: 0,
+      inkOpacity: 86, halo: 12, haloSpread: 3, shadow: 23, shadowOffset: 4, shadowBlur: 4, blocks: 0, blockColour: '#424D61',
+    },
+  },
 ])
 
 /**
@@ -189,6 +252,8 @@ export interface TerminalPaint {
   letterSpacing: number
   /** Padding around the grid in px, painted in {@link background}. */
   margin: number
+  /** The paper drawn under the grid on a blueprint theme; absent on a flat one. */
+  paper?: TerminalPaperPaint
 }
 
 /**
@@ -269,29 +334,54 @@ export function legibleSelection(selection: Rgb, ground: SelectionGround): Legib
  * custom background replaces the theme's ground, drops its wash and re-derives
  * the selection from it (V0 `withBackground`'s 0.14 ink blend); the selection
  * then passes through {@link legibleSelection}. Everything else is the theme's
- * own.
+ * own. A blueprint theme ignores the custom background: its inks are chosen
+ * for its own paper, and a background saved for another theme put Velum's
+ * dark ink on a dark ground (JJ, 24 Nov 2026). It takes the user's
+ * adjustments for that theme instead: the paper's dials, and its paper
+ * colour, header colour, ink, secondary ink, accent and warning ink. An adjusted ink colour
+ * also replaces every ANSI slot the theme gave that ink, so prompts and
+ * errors follow it. The selection clears the paper's lit and shaded extremes.
  * @param settings - the durable terminal section.
  * @returns the resolved paint.
  */
 export function resolveTerminalPaint(settings: TerminalAppearanceSettings = TERMINAL_DEFAULTS): TerminalPaint {
   const theme = terminalTheme(settings.theme)
-  const custom = parseHex(settings.bgHex)
-  const foreground = requireHex(theme.foreground)
+  const tweaks = theme.paper === undefined ? undefined : settings.paper[theme.id]
+  const paper = theme.paper === undefined ? undefined : tweakedPaper(theme.paper, tweaks)
+  const custom = parseHex((theme.paper === undefined ? settings.bgHex : tweaks?.ground) ?? '')
+  const ink = paperColour(tweaks?.ink, theme.foreground)
+  const cursor = paperColour(tweaks?.accent, theme.cursor)
+  // Each ANSI slot the theme filled with one of its four inks follows that ink's adjustment.
+  const inks = theme.paper === undefined || paper === undefined
+    ? undefined
+    : new Map([
+      [theme.foreground, ink], [theme.cursor, cursor],
+      [theme.paper.secondary, paper.secondary], [theme.paper.warning, paper.warning],
+    ])
+  const ansi = inks === undefined ? theme.ansi : theme.ansi.map(colour => inks.get(colour) ?? colour)
+  const foreground = requireHex(ink)
   const background = custom ?? requireHex(theme.background)
   const placed = custom === undefined ? requireHex(theme.selection) : blend(custom, foreground, 0.14)
-  const grounds = custom === undefined ? [...(theme.wash ?? []).map(requireHex), background] : [background]
-  const legible = legibleSelection(placed, { grounds, foreground, background, ansi: theme.ansi })
+  const grounds = [
+    ...(custom === undefined ? (theme.wash ?? []).map(requireHex) : []),
+    ...(paper === undefined ? [] : paperGrounds(paper, background)),
+    background,
+  ]
+  const legible = legibleSelection(placed, { grounds, foreground, background, ansi })
   return {
     background: toHex(background),
-    foreground: theme.foreground,
-    cursor: theme.cursor,
+    foreground: ink,
+    cursor,
     selection: toHex(legible.selection),
     selectionForeground: toHex(legible.foreground),
-    ansi: theme.ansi,
+    ansi,
     fontFamily: terminalFontStack(settings.fontName),
     fontSize: settings.fontSize,
     lineHeight: settings.lineSpacing,
     letterSpacing: settings.letterSpacing,
     margin: settings.margin,
+    ...(paper === undefined
+      ? {}
+      : { paper: paperPaint(paper, background, paperColour(tweaks?.header, toHex(background))) }),
   }
 }

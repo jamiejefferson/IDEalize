@@ -1,6 +1,6 @@
 {
   "name": "@idealize/onboarding",
-  "description": "IDEalize first-run onboarding: the five-step full-screen wizard (agents, tools, projects folder, documentation folder, finish) with per-step skip, skip-all, the rainbow-burst celebration, and the durable idealize-onboarding settings section; runs ahead of the showcase tour through ctx.tour.holdFirstRun()",
+  "description": "IDEalize first-run onboarding: the five-step full-screen wizard (set-up, projects folder, documentation folder, skills folder, finish) with per-step skip, skip-all, the rainbow-burst celebration, the welcome sheet shown once after an update, and the durable idealize-onboarding settings section; runs ahead of the showcase tour through ctx.tour.holdFirstRun()",
   "version": "1.0.0-dev.0",
   "private": true,
   "repository": {

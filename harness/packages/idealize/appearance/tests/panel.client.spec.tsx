@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** AppearancePanel behavior: hidden until open, tabs, and every control routing through the face. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { AppearancePanel, themeCustomised } from '../src/client/AppearancePanel.tsx'
 import type { AppearancePanelComponentProps } from '../src/client/AppearancePanel.tsx'
@@ -36,6 +36,7 @@ function mount(prepare?: (draft: AppearanceState) => void) {
     setSurface: vi.fn(),
     setScalars: vi.fn(),
     setTerminal: vi.fn(),
+    setStudio: vi.fn(),
     setChatTitle: vi.fn(),
     resetSection: vi.fn(),
   }
@@ -53,9 +54,9 @@ describe('AppearancePanel', () => {
     expect(screen.queryByRole('complementary')).toBeNull()
   })
 
-  it('shows six tabs, the status row and the Theme tab by default', () => {
+  it('shows seven tabs, the status row and the Theme tab by default', () => {
     const { face } = mount()
-    expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Theme', 'Projects', 'Panels', 'Chat', 'Document', 'Terminal'])
+    expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Theme', 'Projects', 'Panels', 'Chat', 'Document', 'Terminal', 'Studio'])
     // The panel is exempt from the surface it sits in, so editing the drawer's type never garbles the editor.
     expect(screen.getByRole('complementary').hasAttribute('data-idealize-surface-exempt')).toBe(true)
     expect(screen.getByText('Following IDEalize')).toBeDefined()
@@ -189,7 +190,7 @@ describe('AppearancePanel', () => {
     const { face, store } = mount((draft) => { draft.section = 'files' })
     expect(screen.getByText('Following IDEalize')).toBeDefined()
     // The drawer column hosts every rail pane, and the tab says so.
-    expect(screen.getByText('The side panels: Files, Brains, Schedule and the rest.')).toBeDefined()
+    expect(screen.getByText('The side panels: Files, Models, Schedule and the rest.')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Font' }))
     fireEvent.click(screen.getByRole('option', { name: 'Avenir Next' }))
     expect(face.setSurface).toHaveBeenCalledWith('files', { fontName: 'Avenir Next' })
@@ -316,14 +317,22 @@ describe('AppearancePanel', () => {
     const { face } = mount((draft) => {
       draft.section = 'terminal'
       draft.monospaced = ['Georgia']
+      // A flat theme: the default, Carbon, is drawn on a paper and has no custom background.
+      draft.settings = { ...APPEARANCE_DEFAULTS, terminal: { ...APPEARANCE_DEFAULTS.terminal, theme: 'linen' } }
     })
     expect(screen.getByText('Default terminal settings')).toBeDefined()
     // V0's terminal theme rows, in Theme.terminalThemes order, Linen selected.
-    const themes = ['Linen', 'Ink', 'Y2K', 'IDEalize Dark', 'IDEalize Light', 'Solarized Dark', 'Classic Dark', 'Classic Light']
+    const themes = ['Linen', 'Ink', 'Y2K', 'IDEalize Dark', 'IDEalize Light', 'Solarized Dark', 'Classic Dark', 'Classic Light', 'Cyanotype', 'Velum', 'Carbon']
     for (const name of themes) expect(screen.getByRole('button', { name: new RegExp(`^${name}`) })).toBeDefined()
     expect(pressed(/^Linen/)).toBe('true')
+    // Two titled groups: the flat themes, then the three drawn on a paper.
+    const names = (group: string): string[] =>
+      within(screen.getByRole('group', { name: group })).getAllByRole('button').map(button => (button.textContent ?? '').replace('✓', ''))
+    expect(names('OG Themes')).toEqual(themes.slice(0, 8))
+    expect(names('Blueprint Themes')).toEqual(['Cyanotype', 'Velum', 'Carbon'])
     fireEvent.click(screen.getByRole('button', { name: /^Ink/ }))
-    expect(face.setTerminal).toHaveBeenCalledWith({ theme: 'ink' })
+    // Choosing a theme clears the custom background picked against the last one.
+    expect(face.setTerminal).toHaveBeenCalledWith({ theme: 'ink', bgHex: '' })
     fireEvent.change(screen.getByLabelText('Background'), { target: { value: '#102030' } })
     expect(face.setTerminal).toHaveBeenCalledWith({ bgHex: '#102030' })
     // The picker lists the monospaced family before the rest.
@@ -339,6 +348,117 @@ describe('AppearancePanel', () => {
     expect(face.setTerminal).toHaveBeenCalledWith({ letterSpacing: -1.5 })
     fireEvent.change(screen.getByLabelText('Margins'), { target: { value: '20' } })
     expect(face.setTerminal).toHaveBeenCalledWith({ margin: 20 })
+    // A flat theme has no paper to adjust.
+    expect(screen.queryByRole('region', { name: 'Blueprint paper' })).toBeNull()
+  })
+
+  it('the Studio tab offers the backdrops, the text face, and the chosen backdrop\'s dials, storing only what moves', () => {
+    const { face } = mount((draft) => {
+      draft.section = 'studio'
+      draft.fonts = ['Georgia']
+      draft.settings = { ...APPEARANCE_DEFAULTS, studio: { backdrop: 'grey', fontName: '', tweaks: { blue: { grain: 30 } } } }
+    })
+    // The backdrop choice does not count as a customisation; the Blue adjustment does.
+    expect(screen.getByText('Customised')).toBeDefined()
+    const choices = within(screen.getByRole('group', { name: 'Studio backdrop' }))
+    expect(choices.getAllByRole('button').map(button => (button.textContent ?? '').replace('✓', ''))).toEqual(['None', 'Grey', 'Blue', 'White'])
+    expect(pressed(/^Grey/)).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: /^Blue/ }))
+    expect(face.setStudio).toHaveBeenCalledWith({ backdrop: 'blue' })
+    fireEvent.click(screen.getByRole('button', { name: 'Font' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Georgia' }))
+    expect(face.setStudio).toHaveBeenCalledWith({ fontName: 'Georgia' })
+
+    const card = within(screen.getByRole('region', { name: 'Backdrop settings' }))
+    expect(card.getAllByRole('group').map(group => group.getAttribute('aria-label'))).toEqual(['Text', 'Backdrop', 'Light', 'Texture', 'Floor', 'Panels'])
+    // Grey as JJ tuned it; no text shadow and no corner dial (JJ, 26 Nov 2026).
+    expect(card.getByLabelText<HTMLInputElement>('Light level').value).toBe('21')
+    expect(card.getByLabelText<HTMLInputElement>('Size').value).toBe('11')
+    expect(card.getByText('1080px')).toBeDefined()
+    expect(card.getAllByRole('slider')).toHaveLength(23)
+    expect(card.queryByLabelText(/^(text )?shadow/i)).toBeNull()
+    expect(card.queryByLabelText(/corner/i)).toBeNull()
+    // Grey has no adjustment of its own, so no Reset backdrop; Blue's is kept beside any new one.
+    expect(card.queryByRole('button', { name: 'Reset backdrop' })).toBeNull()
+    const others = { blue: { grain: 30 } }
+    fireEvent.change(card.getByLabelText('Mottle'), { target: { value: '60' } })
+    expect(face.setStudio).toHaveBeenLastCalledWith({ tweaks: { ...others, grey: { mottle: 60 } } })
+    fireEvent.change(card.getByLabelText('Letter spacing'), { target: { value: '0.015' } })
+    expect(face.setStudio).toHaveBeenLastCalledWith({ tweaks: { ...others, grey: { tracking: 0.015 } } })
+    fireEvent.click(card.getByRole('switch', { name: 'Show floor' }))
+    expect(face.setStudio).toHaveBeenLastCalledWith({ tweaks: { ...others, grey: { floor: false } } })
+    fireEvent.change(card.getByLabelText('Backdrop colour'), { target: { value: '#102030' } })
+    expect(face.setStudio).toHaveBeenLastCalledWith({ tweaks: { ...others, grey: { wall: '#102030' } } })
+  })
+
+  it('the Studio tab on None shows the choice alone, and an adjusted backdrop offers its own reset', () => {
+    const none = mount((draft) => {
+      draft.section = 'studio'
+      draft.settings = { ...APPEARANCE_DEFAULTS, studio: { ...APPEARANCE_DEFAULTS.studio, backdrop: 'none' } }
+    })
+    expect(screen.getByText('Default Studio settings')).toBeDefined()
+    expect(pressed(/^None/)).toBe('true')
+    expect(screen.queryByRole('region', { name: 'Backdrop settings' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Font' })).toBeNull()
+    expect(none.face.setStudio).not.toHaveBeenCalled()
+    cleanup()
+
+    const { face } = mount((draft) => {
+      draft.section = 'studio'
+      draft.settings = { ...APPEARANCE_DEFAULTS, studio: { backdrop: 'white', fontName: '', tweaks: { white: { light: 50 }, blue: { grain: 30 } } } }
+    })
+    const card = within(screen.getByRole('region', { name: 'Backdrop settings' }))
+    expect(card.getByLabelText<HTMLInputElement>('Light level').value).toBe('50')
+    // A dial moved back to the backdrop's own value drops out, and so does the backdrop.
+    fireEvent.change(card.getByLabelText('Light level'), { target: { value: '100' } })
+    expect(face.setStudio).toHaveBeenLastCalledWith({ tweaks: { blue: { grain: 30 } } })
+    fireEvent.click(card.getByRole('button', { name: 'Reset backdrop' }))
+    expect(face.setStudio).toHaveBeenLastCalledWith({ tweaks: { blue: { grain: 30 } } })
+  })
+
+  it('a blueprint theme shows its paper dials at the theme\'s values and stores only what moves, per theme', () => {
+    const { face } = mount((draft) => {
+      draft.section = 'terminal'
+      draft.settings = { ...APPEARANCE_DEFAULTS, terminal: { ...APPEARANCE_DEFAULTS.terminal, theme: 'blueprint-cyanotype', paper: { 'blueprint-velum': { grain: 30 } } } }
+    })
+    // The paper owns its ground, so the custom background row gives way to a line saying so.
+    expect(screen.queryByLabelText('Background')).toBeNull()
+    expect(screen.getByText(/uses its own paper colour/)).toBeDefined()
+    const card = within(screen.getByRole('region', { name: 'Blueprint paper' }))
+    // Three titled sections, text first; every switch and colour carries a visible label.
+    expect(card.getAllByRole('group').map(group => group.getAttribute('aria-label'))).toEqual(['Text', 'Paper', 'Grid'])
+    for (const label of ['Ink', 'Secondary ink', 'Accent', 'Warning', 'Paper colour', 'Header colour', 'Grid colour', 'Crease', 'Show grid']) expect(card.getByText(label)).toBeDefined()
+    expect(card.getByLabelText<HTMLInputElement>('Grain').value).toBe('9')
+    expect(card.getByText('540px')).toBeDefined()
+    expect(card.getByLabelText<HTMLInputElement>('Opacity').value).toBe('60')
+    expect(card.getByLabelText<HTMLInputElement>('Program\'s own colour').value).toBe('61')
+    expect(card.getAllByRole('slider')).toHaveLength(18)
+    const others = { 'blueprint-velum': { grain: 30 } }
+    fireEvent.change(card.getByLabelText('Glow'), { target: { value: '20' } })
+    expect(face.setTerminal).toHaveBeenLastCalledWith({ paper: { ...others, 'blueprint-cyanotype': { halo: 20 } } })
+    const grid = card.getByRole<HTMLInputElement>('switch', { name: 'Show grid' })
+    expect(grid.checked).toBe(true)
+    fireEvent.click(grid)
+    expect(face.setTerminal).toHaveBeenLastCalledWith({ paper: { ...others, 'blueprint-cyanotype': { grid: false } } })
+    fireEvent.click(card.getByRole('switch', { name: 'Crease' }))
+    expect(face.setTerminal).toHaveBeenLastCalledWith({ paper: { ...others, 'blueprint-cyanotype': { crease: true } } })
+    fireEvent.change(card.getByLabelText('Warning'), { target: { value: '#FFD0D0' } })
+    expect(face.setTerminal).toHaveBeenLastCalledWith({ paper: { ...others, 'blueprint-cyanotype': { warning: '#FFD0D0' } } })
+    fireEvent.change(card.getByLabelText('Header colour'), { target: { value: '#003A7A' } })
+    expect(face.setTerminal).toHaveBeenLastCalledWith({ paper: { ...others, 'blueprint-cyanotype': { header: '#003A7A' } } })
+    // This theme has no adjustments of its own yet, so there is nothing to reset.
+    expect(card.queryByRole('button', { name: 'Reset paper' })).toBeNull()
+  })
+
+  it('Reset paper clears the chosen theme\'s adjustments and leaves the others', () => {
+    const { face } = mount((draft) => {
+      draft.section = 'terminal'
+      draft.settings = { ...APPEARANCE_DEFAULTS, terminal: { ...APPEARANCE_DEFAULTS.terminal, theme: 'blueprint-velum', paper: { 'blueprint-velum': { grain: 30 }, 'blueprint-carbon': { halo: 0 } } } }
+    })
+    const card = within(screen.getByRole('region', { name: 'Blueprint paper' }))
+    expect(card.getByLabelText<HTMLInputElement>('Grain').value).toBe('30')
+    fireEvent.click(card.getByRole('button', { name: 'Reset paper' }))
+    expect(face.setTerminal).toHaveBeenLastCalledWith({ paper: { 'blueprint-carbon': { halo: 0 } } })
   })
 
   it('marks the Terminal tab customised on a non-theme change and offers its reset', () => {

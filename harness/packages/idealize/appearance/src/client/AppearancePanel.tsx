@@ -10,12 +10,21 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import {
   actionCustomised, APPEARANCE_DEFAULTS, CHAT_TITLE_DEFAULTS, CHAT_TITLE_SIZE_MAX, CHAT_TITLE_SIZE_MIN, FILL_MODES, FONT_WEIGHTS,
   fontStack, GRADIENT_TYPES, PRESETS, SURFACES,
-  parseTitleWeight, surfaceColoured, surfaceCustomised, surfaceScheme, terminalCustomised, UI_SIZE_MAX, UI_SIZE_MIN,
+  parseTitleWeight, STUDIO_BACKDROP_CHOICES, studioCustomised, surfaceColoured, surfaceCustomised, surfaceScheme, terminalCustomised,
+  UI_SIZE_MAX, UI_SIZE_MIN,
   type ActionAppearance, type AppearanceSettings, type ChatTitleAppearance, type FillMode, type GradientStop, type GradientType,
   type PresetId,
-  type SurfaceAppearance, type SurfaceId, type TerminalAppearanceSettings,
+  type StudioAppearanceSettings, type SurfaceAppearance, type SurfaceId, type TerminalAppearanceSettings,
 } from '../appearance-settings.ts'
-import { TERMINAL_THEMES, terminalTheme } from '../terminal-themes.ts'
+import {
+  BACKDROP_COLOURS, BACKDROP_RANGES, studioBackdrop, tweakedBackdrop, withBackdropTweak,
+  type Backdrop, type BackdropColours, type BackdropNumberKey, type BackdropTweaks, type StudioBackdrop,
+} from '../studio-backdrop.ts'
+import { TERMINAL_THEMES, terminalTheme, type TerminalTheme } from '../terminal-themes.ts'
+import {
+  PAPER_COLOURS, PAPER_RANGES, paperColour, tweakedPaper, withPaperTweak,
+  type PaperColours, type PaperNumberKey, type PaperTweaks, type ThemePaper,
+} from '../blueprint-paper.ts'
 import { blend, parseHex, requireHex, TEXT_CONTRAST, toHex, UI_CONTRAST } from '../colour.ts'
 import { presetPalette, resolveAppearance, surfaceHex, type Palette, type Tokens } from '../presets.ts'
 import { actionAccent, gradientCss, seedStops, SURFACE_EXEMPT_ATTRIBUTE, surfaceGrounds, surfaceInk, type PanelScalars } from '../surface-css.ts'
@@ -51,6 +60,8 @@ export interface AppearancePanelInjected {
   setScalars: (patch: Partial<PanelScalars>) => void
   /** Patch the terminal grid's appearance. */
   setTerminal: (patch: Partial<TerminalAppearanceSettings>) => void
+  /** Patch the Studio view's appearance. */
+  setStudio: (patch: Partial<StudioAppearanceSettings>) => void
   /** Patch the chat title's appearance. */
   setChatTitle: (patch: Partial<ChatTitleAppearance>) => void
   /** Restore one tab's settings to their defaults (the Theme tab includes the mode). */
@@ -77,7 +88,7 @@ const PRESET_LABEL: Record<PresetId, AppearanceKey> = {
 }
 
 const SECTION_LABEL: Record<SectionId, AppearanceKey> = {
-  theme: 'tab.theme', sessions: 'tab.sessions', files: 'tab.files', chat: 'tab.chat', doc: 'tab.doc', terminal: 'tab.terminal',
+  theme: 'tab.theme', sessions: 'tab.sessions', files: 'tab.files', chat: 'tab.chat', doc: 'tab.doc', terminal: 'tab.terminal', studio: 'tab.studio',
 }
 
 const FILL_LABEL: Record<FillMode, AppearanceKey> = { inherit: 'fill.inherit', solid: 'fill.solid', gradient: 'fill.gradient' }
@@ -138,6 +149,7 @@ function otherScheme(scheme: 'light' | 'dark'): 'light' | 'dark' {
 function sectionCustomised(section: SectionId, settings: AppearanceSettings): boolean {
   if (section === 'theme') return themeCustomised(settings)
   if (section === 'terminal') return terminalCustomised(settings.terminal)
+  if (section === 'studio') return studioCustomised(settings.studio)
   if (surfaceCustomised(settings.surfaces[section])) return true
   if (section === 'chat') return chatCustomised(settings)
   return section === 'doc' && docCustomised(settings)
@@ -523,9 +535,10 @@ interface StatusRowProps {
   onReset: () => void
 }
 
-/** "Following <theme>" or "Customised" plus the section's Reset (the Terminal tab follows its own defaults, not the theme). */
+/** "Following <theme>" or "Customised" plus the section's Reset (the Terminal and Studio tabs follow their own defaults, not the theme). */
 function StatusRow({ t, section, customised, themeName, onReset }: StatusRowProps) {
-  const following = section === 'terminal' ? t('status.terminalDefaults') : t('status.following', { theme: themeName })
+  const own = section === 'terminal' ? t('status.terminalDefaults') : section === 'studio' ? t('status.studioDefaults') : undefined
+  const following = own ?? t('status.following', { theme: themeName })
   return (
     <div className={css.status}>
       <span className={customised ? css.statusCustom : css.statusText}>
@@ -628,7 +641,92 @@ function ThemeTab({ t, settings, palette, fonts, face, mode, scheme, groundLocke
   )
 }
 
-/** The Terminal tab (V0 Appearance ▸ Terminal): theme rows, custom ground, and the grid's type settings. */
+// Choosing a theme clears the custom background (JJ, 24 Nov 2026): the colour was picked against the
+// theme being left, and carried over it hid the new theme's own ground.
+/** The terminal themes under their two titles (JJ, 24 Nov 2026): the flat themes, then the ones drawn on a paper. */
+const THEME_GROUPS = [
+  { title: 'terminal.groupOg', themes: TERMINAL_THEMES.filter(theme => theme.paper === undefined) },
+  { title: 'terminal.groupBlueprint', themes: TERMINAL_THEMES.filter(theme => theme.paper !== undefined) },
+] as const
+
+/** The unit each number dial reads in; the one without is a count. */
+const PAPER_UNITS: Readonly<Partial<Record<PaperNumberKey, string>>> = {
+  lightX: '%', lightY: '%', light: '%', shade: '%', grain: '%', gridMinorOpacity: '%', gridMajorOpacity: '%', inkOpacity: '%', halo: '%', shadow: '%', blocks: '%',
+  grainScale: 'px', gridMinor: 'px', gridSoften: 'px', haloSpread: 'px', shadowOffset: 'px', shadowBlur: 'px',
+}
+
+/** The blueprint card's three sections, text first, each listing its colours, switches and dials in order. */
+const PAPER_SECTIONS: readonly { title: 'paper.sectionText' | 'paper.sectionPaper' | 'paper.sectionGrid'; rows: readonly (keyof PaperTweaks)[] }[] = [
+  { title: 'paper.sectionText', rows: ['ink', 'secondary', 'accent', 'warning', 'inkOpacity', 'halo', 'haloSpread', 'shadow', 'shadowOffset', 'shadowBlur'] },
+  { title: 'paper.sectionPaper', rows: ['ground', 'header', 'lightX', 'lightY', 'light', 'shade', 'grain', 'grainScale', 'blockColour', 'blocks', 'crease'] },
+  { title: 'paper.sectionGrid', rows: ['grid', 'gridColour', 'gridMinor', 'gridMinorOpacity', 'gridMajorEvery', 'gridMajorOpacity', 'gridSoften'] },
+]
+
+const isPaperColour = (key: keyof PaperTweaks): key is keyof PaperColours => (PAPER_COLOURS as readonly string[]).includes(key)
+
+interface PaperCardProps {
+  t: TabContext['t']
+  /** The chosen blueprint theme. */
+  theme: TerminalTheme
+  /** That theme's own paper. */
+  paper: ThemePaper
+  /** Every theme's adjustments. */
+  tweaks: TerminalAppearanceSettings['paper']
+  onChange: (next: TerminalAppearanceSettings['paper']) => void
+}
+
+/**
+ * A blueprint theme's own controls: its text colours and ink, its paper, and
+ * its grid. Each theme keeps its own adjustments; Reset paper clears this
+ * theme's. A colour left empty is the theme's own.
+ */
+function PaperCard({ t, theme, paper, tweaks, onChange }: PaperCardProps) {
+  const mine = tweaks[theme.id]
+  const drawn = tweakedPaper(paper, mine)
+  // The theme's own value for each colour: three live on the theme, four on its paper.
+  const own: PaperColours = {
+    ground: theme.background, header: paperColour(mine?.ground, theme.background), ink: theme.foreground, accent: theme.cursor,
+    secondary: paper.secondary, warning: paper.warning, gridColour: paper.gridColour, blockColour: paper.blockColour,
+  }
+  return (
+    <section className={css.card} aria-label={t('paper.card')}>
+      <span className={css.cardTitle}>{t('paper.card')}</span>
+      <span className={css.hint}>{t('paper.hint')}</span>
+      {PAPER_SECTIONS.map(section => (
+        <div key={section.title} className={css.themeRows} role="group" aria-label={t(section.title)}>
+          <span className={css.groupTitle}>{t(section.title)}</span>
+          {section.rows.map((key) => {
+            const label = t(`paper.${key}`)
+            if (isPaperColour(key)) {
+              return (
+                <HexRow key={key} label={label} value={mine?.[key] ?? ''} fallback={own[key]} placeholder={t('colour.placeholder')} clearLabel={t('colour.clear')} onChange={(hex) => { onChange(withPaperTweak(tweaks, theme.id, key, hex, own[key])) }} />
+              )
+            }
+            if (key === 'crease' || key === 'grid') {
+              return (
+                <div key={key} className={css.row}>
+                  <span className={css.rowLabel}>{label}</span>
+                  <input type="checkbox" role="switch" className={css.toggle} aria-label={label} checked={drawn[key]} onChange={(event) => { onChange(withPaperTweak(tweaks, theme.id, key, event.currentTarget.checked, paper[key])) }} />
+                </div>
+              )
+            }
+            const range = PAPER_RANGES[key]
+            return (
+              <SliderRow key={key} label={label} min={range.min} max={range.max} step={range.step} value={drawn[key]} display={v => `${v}${PAPER_UNITS[key] ?? ''}`} onChange={(next) => { onChange(withPaperTweak(tweaks, theme.id, key, next, paper[key])) }} />
+            )
+          })}
+        </div>
+      ))}
+      {mine !== undefined && (
+        <button type="button" className={css.reset} onClick={() => { onChange(Object.fromEntries(Object.entries(tweaks).filter(([id]) => id !== theme.id))) }}>
+          {t('paper.reset')}
+        </button>
+      )}
+    </section>
+  )
+}
+
+/** The Terminal tab (V0 Appearance ▸ Terminal): theme rows, custom ground, a blueprint theme's paper, and the grid's type settings. */
 function TerminalTab({ t, settings, fonts, monospaced, face }: TabContext & { monospaced: string[] }) {
   const terminal = settings.terminal
   const set = (patch: Partial<TerminalAppearanceSettings>): void => { face.setTerminal(patch) }
@@ -640,20 +738,33 @@ function TerminalTab({ t, settings, fonts, monospaced, face }: TabContext & { mo
       <section className={css.card} aria-label={t('terminal.themeCard')}>
         <span className={css.cardTitle}>{t('terminal.themeCard')}</span>
         <span className={css.hint}>{t('terminal.themeHint')}</span>
-        <div className={css.themeRows}>
-          {TERMINAL_THEMES.map(option => (
-            <button key={option.id} type="button" className={css.preset} aria-pressed={terminal.theme === option.id} onClick={() => { set({ theme: option.id }) }}>
-              <span className={css.swatch} style={{ background: option.background }}>
-                {option.ansi.slice(1, 5).map(colour => <span key={colour} className={css.swatchDot} style={{ background: colour }} />)}
-              </span>
-              <span className={css.presetName}>{option.name}</span>
-              {terminal.theme === option.id && <span className={css.check} aria-hidden="true">✓</span>}
-            </button>
-          ))}
-        </div>
-        <HexRow label={t('background.card')} value={terminal.bgHex} fallback={theme.background} placeholder={t('colour.placeholder')} clearLabel={t('colour.clear')} onChange={(hex) => { set({ bgHex: hex }) }} />
-        <span className={css.hint}>{t('terminal.bgHint')}</span>
+        {THEME_GROUPS.map(group => (
+          <div key={group.title} className={css.themeRows} role="group" aria-label={t(group.title)}>
+            <span className={css.groupTitle}>{t(group.title)}</span>
+            {group.themes.map(option => (
+              <button key={option.id} type="button" className={css.preset} aria-pressed={terminal.theme === option.id} onClick={() => { set({ theme: option.id, bgHex: '' }) }}>
+                <span className={css.swatch} style={{ background: option.background }}>
+                  {option.ansi.slice(1, 5).map(colour => <span key={colour} className={css.swatchDot} style={{ background: colour }} />)}
+                </span>
+                <span className={css.presetName}>{option.name}</span>
+                {terminal.theme === option.id && <span className={css.check} aria-hidden="true">✓</span>}
+              </button>
+            ))}
+          </div>
+        ))}
+        {theme.paper === undefined
+          ? (
+            <>
+              <HexRow label={t('background.card')} value={terminal.bgHex} fallback={theme.background} placeholder={t('colour.placeholder')} clearLabel={t('colour.clear')} onChange={(hex) => { set({ bgHex: hex }) }} />
+              <span className={css.hint}>{t('terminal.bgHint')}</span>
+            </>
+          )
+          : <span className={css.hint}>{t('paper.bgHint')}</span>}
       </section>
+
+      {theme.paper !== undefined && (
+        <PaperCard t={t} theme={theme} paper={theme.paper} tweaks={terminal.paper} onChange={(paper) => { set({ paper }) }} />
+      )}
 
       <section className={css.card} aria-label={t('terminal.typeCard')}>
         <span className={css.cardTitle}>{t('terminal.typeCard')}</span>
@@ -664,6 +775,125 @@ function TerminalTab({ t, settings, fonts, monospaced, face }: TabContext & { mo
         <span className={css.hint}>{t('terminal.letterSpacingHint')}</span>
         <SliderRow label={t('chat.margins')} min={0} max={80} step={2} value={terminal.margin} display={v => `${v}px`} onChange={(next) => { set({ margin: next }) }} />
       </section>
+    </>
+  )
+}
+
+/** The unit each backdrop number dial reads in; the ones without are plain numbers. */
+const BACKDROP_UNITS: Readonly<Partial<Record<BackdropNumberKey, string>>> = {
+  vignette: '%', light: '%', lightX: '%', lightY: '%', lightW: '%', lightH: '%', mottle: '%', grain: '%', horizon: '%', floorLight: '%',
+  seamShade: '%', floorTexture: '%', inkOpacity: '%', panelFill: '%', panelEdge: '%',
+  mottleScale: 'px', grainScale: 'px', seamSoft: 'px', size: 'px', panelBlur: 'px', tracking: 'em',
+}
+
+/** The backdrop card's sections, text first, each listing its colours, switch and dials in order. */
+const BACKDROP_SECTIONS: readonly { title: AppearanceKey; rows: readonly (keyof Backdrop)[] }[] = [
+  { title: 'backdrop.sectionText', rows: ['ink', 'secondary', 'accent', 'inkOpacity', 'size', 'weight', 'leading', 'tracking'] },
+  { title: 'backdrop.sectionWall', rows: ['wall', 'vignette'] },
+  { title: 'backdrop.sectionLight', rows: ['lightColour', 'light', 'lightX', 'lightY', 'lightW', 'lightH'] },
+  { title: 'backdrop.sectionTexture', rows: ['mottle', 'mottleScale', 'grain', 'grainScale'] },
+  { title: 'backdrop.sectionFloor', rows: ['floor', 'horizon', 'floorColour', 'floorLight', 'seamSoft', 'seamShade', 'floorTexture'] },
+  { title: 'backdrop.sectionPanels', rows: ['panel', 'panelFill', 'panelBlur', 'panelEdge'] },
+]
+
+const isBackdropColour = (key: keyof Backdrop): key is keyof BackdropColours => (BACKDROP_COLOURS as readonly string[]).includes(key)
+
+interface BackdropCardProps {
+  t: TabContext['t']
+  /** The chosen backdrop. */
+  option: StudioBackdrop
+  /** Every backdrop's adjustments. */
+  tweaks: StudioAppearanceSettings['tweaks']
+  onChange: (next: StudioAppearanceSettings['tweaks']) => void
+}
+
+/**
+ * A backdrop's own controls: its text, wall, light, texture, floor and
+ * panels. Each backdrop keeps its own adjustments; Reset backdrop clears this
+ * one's. A colour left empty is the backdrop's own.
+ */
+function BackdropCard({ t, option, tweaks, onChange }: BackdropCardProps) {
+  const own = option.backdrop
+  const mine = tweaks[option.id]
+  const drawn = tweakedBackdrop(own, mine)
+  const change = <K extends keyof BackdropTweaks>(key: K, value: NonNullable<BackdropTweaks[K]>): void => {
+    onChange(withBackdropTweak(tweaks, option.id, key, value, own[key]))
+  }
+  return (
+    <section className={css.card} aria-label={t('backdrop.card')}>
+      <span className={css.cardTitle}>{t('backdrop.card')}</span>
+      <span className={css.hint}>{t('backdrop.hint')}</span>
+      {BACKDROP_SECTIONS.map(section => (
+        <div key={section.title} className={css.themeRows} role="group" aria-label={t(section.title)}>
+          <span className={css.groupTitle}>{t(section.title)}</span>
+          {section.rows.map((key) => {
+            const label = t(`backdrop.${key}`)
+            if (isBackdropColour(key)) {
+              return (
+                <HexRow key={key} label={label} value={mine?.[key] ?? ''} fallback={own[key]} placeholder={t('colour.placeholder')} clearLabel={t('colour.clear')} onChange={(hex) => { change(key, hex) }} />
+              )
+            }
+            if (key === 'floor') {
+              return (
+                <div key={key} className={css.row}>
+                  <span className={css.rowLabel}>{label}</span>
+                  <input type="checkbox" role="switch" className={css.toggle} aria-label={label} checked={drawn.floor} onChange={(event) => { change('floor', event.currentTarget.checked) }} />
+                </div>
+              )
+            }
+            const range = BACKDROP_RANGES[key]
+            // Steps below one hundredth would otherwise store binary dust such as 0.015000000000000001.
+            const snap = (value: number): number => Math.round(value * 1000) / 1000
+            return (
+              <SliderRow key={key} label={label} min={range.min} max={range.max} step={range.step} value={drawn[key]} display={v => `${snap(v)}${BACKDROP_UNITS[key] ?? ''}`} onChange={(next) => { change(key, snap(next)) }} />
+            )
+          })}
+        </div>
+      ))}
+      {mine !== undefined && (
+        <button type="button" className={css.reset} onClick={() => { onChange(Object.fromEntries(Object.entries(tweaks).filter(([id]) => id !== option.id))) }}>
+          {t('backdrop.reset')}
+        </button>
+      )}
+    </section>
+  )
+}
+
+/** The Studio tab: the backdrop choice, the Studio's text face, and the chosen backdrop's own controls. */
+function StudioTab({ t, settings, fonts, face }: TabContext) {
+  const studio = settings.studio
+  const set = (patch: Partial<StudioAppearanceSettings>): void => { face.setStudio(patch) }
+  return (
+    <>
+      <section className={css.card} aria-label={t('studio.backdropCard')}>
+        <span className={css.cardTitle}>{t('studio.backdropCard')}</span>
+        <span className={css.hint}>{t('studio.backdropHint')}</span>
+        <div className={css.themeRows} role="group" aria-label={t('studio.backdropCard')}>
+          {STUDIO_BACKDROP_CHOICES.map((id) => {
+            const option = id === 'none' ? undefined : studioBackdrop(id)
+            const drawn = option === undefined ? undefined : tweakedBackdrop(option.backdrop, studio.tweaks[id])
+            return (
+              <button key={id} type="button" className={css.preset} aria-pressed={studio.backdrop === id} onClick={() => { set({ backdrop: id }) }}>
+                <span className={css.swatch} style={drawn === undefined ? undefined : { background: drawn.wall }}>
+                  {drawn !== undefined && [drawn.lightColour, drawn.floorColour, drawn.ink, drawn.accent].map((colour, index) => (
+                    // Keyed by position: a fixed list of four roles, and two may share a colour.
+                    <span key={index} className={css.swatchDot} style={{ background: colour }} />
+                  ))}
+                </span>
+                <span className={css.presetName}>{option === undefined ? t('studio.none') : option.name}</span>
+                {studio.backdrop === id && <span className={css.check} aria-hidden="true">✓</span>}
+              </button>
+            )
+          })}
+        </div>
+        {studio.backdrop !== 'none' && (
+          <FontPicker label={t('typography.font')} value={studio.fontName} fonts={fonts} emptyLabel={t('font.system')} loadingLabel={t('font.loading')} findLabel={t('font.find')} onChange={(family) => { set({ fontName: family }) }} />
+        )}
+      </section>
+
+      {studio.backdrop !== 'none' && (
+        <BackdropCard t={t} option={studioBackdrop(studio.backdrop)} tweaks={studio.tweaks} onChange={(tweaks) => { set({ tweaks }) }} />
+      )}
     </>
   )
 }
@@ -828,7 +1058,8 @@ export function AppearancePanel(props: AppearancePanelComponentProps) {
         />
         {section === 'theme' && <ThemeTab {...shared} mode={mode} scheme={scheme} groundLocked={groundLocked} />}
         {section === 'terminal' && <TerminalTab {...shared} monospaced={monospaced} />}
-        {section !== 'theme' && section !== 'terminal' && <SurfaceTab {...shared} id={section} scheme={scheme} />}
+        {section === 'studio' && <StudioTab {...shared} />}
+        {section !== 'theme' && section !== 'terminal' && section !== 'studio' && <SurfaceTab {...shared} id={section} scheme={scheme} />}
       </div>
     </aside>
   )

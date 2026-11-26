@@ -1,12 +1,14 @@
-// A generation charges the person's own account: one call is capped, and the
-// first one nobody typed a request for waits for their yes (security pass, 4 Nov 2026).
-import { afterEach, describe, expect, it, vi } from 'vitest'
+// A generation charges the person's own account: one call is capped (security
+// pass, 4 Nov 2026), and the first use of each paid model waits for their yes,
+// which is then kept (one core model, 24 Nov 2026).
+import { describe, expect, it, vi } from 'vitest'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { GenCatalogEntry } from '@idealize/generate'
 import {
-  ASK_WHEN_PERSON_TYPED, assertWithinCaps, confirmPaidGeneration, forgetPaidConfirmation,
-  MAX_COUNT, MAX_SECONDS, mayCharge, paidQuestion, personTypedThisTurn,
+  approvalKey, assertWithinCaps, confirmPaidGeneration, MAX_COUNT, MAX_SECONDS, mayCharge, paidQuestion,
+  type ApprovedModels,
 } from '../src/paid.ts'
+import { approvedModels, approvedOf, approvedRows, GEN_TOOLS_NS, GenToolsSettings } from '../src/approved.ts'
 
 const priced = (price?: NonNullable<GenCatalogEntry['model']['price']>): GenCatalogEntry =>
   ({ backend: 'queue', model: { id: 'flux', name: 'Flux Pro', artefact: 'image', outputMediaTypes: ['image/png'], ...price === undefined ? {} : { price } } }) as unknown as GenCatalogEntry
@@ -19,9 +21,11 @@ function sessionWith(...events: { type: string; data?: unknown }[]): Session {
 
 const call = (session: Session) => ({ agent: { session }, toolName: 'generate_image', callId: 'c1' })
 
-afterEach(() => {
-  forgetPaidConfirmation()
-})
+/** An approved-models store over a plain map. */
+function store(initial: Record<string, string> = {}): ApprovedModels & { kept: Record<string, string> } {
+  const kept = { ...initial }
+  return { kept, has: key => Object.hasOwn(kept, key), add: (key, name) => { kept[key] = name; return Promise.resolve() } }
+}
 
 describe('the caps on one generation', () => {
   it('states its numbers', () => {
@@ -53,27 +57,43 @@ describe('the caps on one generation', () => {
   })
 })
 
-describe('asking before the first paid generation', () => {
+describe('asking before the first use of each paid model', () => {
   it('knows what may charge and says so plainly', () => {
     expect(mayCharge(PAID)).toBe(true)
     expect(mayCharge(priced())).toBe(true)
     expect(mayCharge(priced({ unitPrice: 0, unit: 'image', currency: 'USD' }))).toBe(false)
-    expect(paidQuestion(PAID)).toContain('about 0.04 USD per image')
+    expect(approvalKey(PAID)).toBe('queue/flux')
+    expect(paidQuestion(PAID)).toContain('Studio wants to use Flux Pro. It costs about 0.04 USD per image')
+    expect(paidQuestion(priced({ unitPrice: 0.5, unit: 'second', currency: 'USD' }))).toContain('It costs 0.5 USD per second')
     expect(paidQuestion(priced())).toContain('publishes no price')
   })
 
-  it('asks once per launch, and a yes holds for every chat', async () => {
+  it('asks once per model, keeps the yes, and asks afresh for another model', async () => {
     const request = vi.fn(() => Promise.resolve('allowed-once'))
-    await confirmPaidGeneration({ request }, call(sessionWith()), PAID)
-    await confirmPaidGeneration({ request }, call(sessionWith()), PAID)
+    const approved = store()
+    await confirmPaidGeneration({ request }, approved, call(sessionWith()), PAID)
+    await confirmPaidGeneration({ request }, approved, call(sessionWith()), PAID)
     expect(request).toHaveBeenCalledTimes(1)
     expect(request.mock.calls[0]).toMatchObject([{ toolName: 'generate_image', reason: expect.stringContaining('Flux Pro') as string }])
+    expect(approved.kept).toEqual({ 'queue/flux': 'Flux Pro' })
+    const other: GenCatalogEntry = { backend: 'queue', model: { ...PAID.model, id: 'veo', name: 'Veo' } }
+    await confirmPaidGeneration({ request }, approved, call(sessionWith()), other)
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(approved.kept).toEqual({ 'queue/flux': 'Flux Pro', 'queue/veo': 'Veo' })
   })
 
-  it('raises one question for a burst', async () => {
+  it('asks even when the person typed the request, because the price is what they approve', async () => {
+    const request = vi.fn(() => Promise.resolve('allowed-once'))
+    const typed = sessionWith({ type: 'turn/start' }, { type: 'user/message', data: { source: { kind: 'user' } } })
+    await confirmPaidGeneration({ request }, store(), call(typed), PAID)
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
+  it('raises one question for a burst on one model', async () => {
     let answer: (value: string) => void = () => undefined
     const request = vi.fn(() => new Promise<string>((resolve) => { answer = resolve }))
-    const burst = [1, 2, 3].map(() => confirmPaidGeneration({ request }, call(sessionWith()), PAID))
+    const approved = store()
+    const burst = [1, 2, 3].map(() => confirmPaidGeneration({ request }, approved, call(sessionWith()), PAID))
     answer('allowed-once')
     await Promise.all(burst)
     expect(request).toHaveBeenCalledTimes(1)
@@ -81,40 +101,53 @@ describe('asking before the first paid generation', () => {
 
   it.each(['rejected', 'cancelled', 'unavailable'])('generates nothing on %s, and asks again next time', async (outcome) => {
     const request = vi.fn(() => Promise.resolve(outcome))
-    await expect(confirmPaidGeneration({ request }, call(sessionWith()), PAID)).rejects.toThrow(/did not allow/)
-    await expect(confirmPaidGeneration({ request }, call(sessionWith()), PAID)).rejects.toThrow(/did not allow/)
+    const approved = store()
+    await expect(confirmPaidGeneration({ request }, approved, call(sessionWith()), PAID)).rejects.toThrow(/did not allow Flux Pro/)
+    await expect(confirmPaidGeneration({ request }, approved, call(sessionWith()), PAID)).rejects.toThrow(/did not allow/)
     expect(request).toHaveBeenCalledTimes(2)
+    expect(approved.kept).toEqual({})
   })
 
-  it('skips a free model, and a turn the person typed in', async () => {
+  it('skips a free model and a model already approved', async () => {
     const request = vi.fn(() => Promise.resolve('rejected'))
-    await confirmPaidGeneration({ request }, call(sessionWith()), priced({ unitPrice: 0, unit: 'image', currency: 'USD' }))
-    const typed = sessionWith({ type: 'turn/start' }, { type: 'user/message', data: { source: { kind: 'user' } } })
-    await confirmPaidGeneration({ request }, call(typed), PAID)
-    expect(ASK_WHEN_PERSON_TYPED).toBe(false)
+    await confirmPaidGeneration({ request }, store(), call(sessionWith()), priced({ unitPrice: 0, unit: 'image', currency: 'USD' }))
+    await confirmPaidGeneration({ request }, store({ 'queue/flux': 'Flux Pro' }), call(sessionWith()), PAID)
     expect(request).not.toHaveBeenCalled()
   })
 
-  it('asks when another chat started it, when a note woke it, and in a later turn than the person\'s', async () => {
-    const brief = sessionWith({ type: 'user/message', data: { source: { kind: 'chat-brief' } } }, { type: 'turn/start' })
-    const wake = sessionWith(
-      { type: 'user/message', data: { source: { kind: 'user' } } },
-      { type: 'turn/end' },
-      { type: 'user/message', data: { source: { kind: 'plugin' } } },
-      { type: 'turn/start' },
-    )
-    expect(personTypedThisTurn(brief)).toBe(false)
-    expect(personTypedThisTurn(wake)).toBe(false)
+  it('runs without asking on Full access, whose policy has no prompt, and with nobody to ask or nowhere to keep the answer', async () => {
     const request = vi.fn(() => Promise.resolve('rejected'))
-    await expect(confirmPaidGeneration({ request }, call(brief), PAID)).rejects.toThrow(/did not allow/)
-    await expect(confirmPaidGeneration({ request }, call(wake), PAID)).rejects.toThrow(/did not allow/)
+    await confirmPaidGeneration({ request, overrideOf: () => 'never' }, store(), call(sessionWith()), PAID)
+    await confirmPaidGeneration({ request, config: { policy: 'never' } }, store(), call(sessionWith()), PAID)
+    await confirmPaidGeneration(undefined, store(), call(sessionWith()), PAID)
+    await confirmPaidGeneration({ request }, undefined, call(sessionWith()), PAID)
+    expect(request).not.toHaveBeenCalled()
+  })
+})
+
+describe('the approved models kept in settings', () => {
+  it('reads and writes the section through the settings service', async () => {
+    let section: unknown
+    const settings = {
+      get: vi.fn(() => section),
+      update: vi.fn((_ns: unknown, patch: unknown) => { section = patch; return Promise.resolve() }),
+    }
+    expect(approvedModels(undefined)).toBeUndefined()
+    const approved = approvedModels(settings)
+    expect(approvedOf(settings)).toEqual({})
+    expect(approved?.has('queue/flux')).toBe(false)
+    await approved?.add('queue/flux', 'Flux Pro')
+    expect(settings.update).toHaveBeenCalledWith(GEN_TOOLS_NS, { approved: { 'queue/flux': 'Flux Pro' } })
+    expect(approved?.has('queue/flux')).toBe(true)
+    expect(approved?.has('toString')).toBe(false)
   })
 
-  it('runs without asking on Full access, whose policy has no prompt, and with no approval service', async () => {
-    const request = vi.fn(() => Promise.resolve('rejected'))
-    await confirmPaidGeneration({ request, overrideOf: () => 'never' }, call(sessionWith()), PAID)
-    await confirmPaidGeneration({ request, config: { policy: 'never' } }, call(sessionWith()), PAID)
-    await confirmPaidGeneration(undefined, call(sessionWith()), PAID)
-    expect(request).not.toHaveBeenCalled()
+  it('defaults to nothing approved, and lists rows by name', () => {
+    expect(GenToolsSettings({})).toEqual({ approved: {} })
+    expect(approvedRows({ 'fal/fal-ai/veo3': 'Veo 3', 'openrouter/google/imagen': 'Imagen', odd: 'Odd' })).toEqual([
+      { key: 'openrouter/google/imagen', backend: 'openrouter', model: 'google/imagen', name: 'Imagen' },
+      { key: 'odd', backend: 'odd', model: '', name: 'Odd' },
+      { key: 'fal/fal-ai/veo3', backend: 'fal', model: 'fal-ai/veo3', name: 'Veo 3' },
+    ])
   })
 })

@@ -23,7 +23,6 @@ import {
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import type { SpaceRosterEntry } from '@idealize/spaces/client'
 import * as Gallery from '@idealize/ui-gallery/src/client/index.ts'
-import * as Soundstage from '@idealize/ui-soundstage/src/client/index.ts'
 import { en } from '../src/client/locales.ts'
 import { HeroBrains } from '../src/client/HeroBrains.tsx'
 import type { HeroLauncherInjected, HeroLauncherProps } from '../src/client/HeroLauncher.tsx'
@@ -73,8 +72,8 @@ async function mountHost() {
   return { ctx, slots }
 }
 
-/** What "Also here" offers: every declared place Chat's cards do not already cover. */
-const EXPECTED_TILES = ['soundstage', 'motion', 'terminal']
+/** The three views the welcome card offers over the declared roster. */
+const EXPECTED_TILES = ['chat', 'coding', 'studio']
 
 /** The welcome card over the declared roster. */
 function renderLauncher() {
@@ -103,26 +102,24 @@ function renderLauncher() {
   return render(<HeroBrains {...props} />)
 }
 
-/** The places the welcome card offers beside its brain cards, in row order. */
+/** The views the welcome card offers, in tile order. */
 function tiles(container: HTMLElement): string[] {
-  return [...container.querySelectorAll('[data-space]')].map(node => node.getAttribute('data-space') ?? '')
+  return [...container.querySelectorAll('[data-view-tile]')].map(node => node.getAttribute('data-view-tile') ?? '')
 }
 
 // The host mount imports the locale runtime dynamically; under coverage
 // instrumentation that first import outruns the 5 s default (pre-existing flake, 8 Sep 2026).
 describe('AC-02: disabling a mode plugin removes its contribution', { timeout: 30_000 }, () => {
-  it('drops the Gallery ring seat and its dock entry, and leaves every space tile standing', async () => {
+  it('drops the three media seats and the conversation readings, and leaves every view tile standing', async () => {
     const { ctx, slots } = await mountHost()
     const gallery = ctx.plugin(Gallery)
     await gallery.await()
-    const soundstage = ctx.plugin(Soundstage)
-    await soundstage.await()
 
     const view = renderLauncher()
     await act(async () => { await Promise.resolve() })
-    // Two seats from one plugin since 4 Sep 2026: Images (order 6) and Video
-    // (order 8) render the same grid over one row source, with the Sound Stage
-    // (order 7) between them. Disabling the row must drop both of them.
+    // Three seats from one plugin since 26 Nov 2026: Image (order 6), Sound
+    // (order 7) and Video (order 8) render one grid over one row source.
+    // Disabling the row must drop all three.
     expect(slots.entries('conversation.view').map(entry => entry.options.id))
       .toEqual(['chat', 'gallery', 'soundstage', 'motion'])
     expect(tiles(view.container)).toEqual(EXPECTED_TILES)
@@ -130,32 +127,13 @@ describe('AC-02: disabling a mode plugin removes its contribution', { timeout: 3
     // Disabling the row: the Gallery fiber goes, and everything it registered
     // goes with it.
     await act(async () => { await gallery.dispose() })
-    expect(slots.entries('conversation.view').map(entry => entry.options.id))
-      .toEqual(['chat', 'soundstage'])
-    // The Sound Stage's length select lives in the Gallery plugin's settings
-    // strip (7 Sep 2026), so no dock entry of its own survives it.
+    expect(slots.entries('conversation.view').map(entry => entry.options.id)).toEqual(['chat'])
     expect(slots.entries('conversation.input.dock').map(entry => entry.options.id)).toEqual([])
     expect((ctx.get('conversationViews') as ConversationViewRegistry).entries()).toEqual([])
-    // The roster is declared, so the card still offers Images: what is missing
-    // belongs on the card, never on a dimmed or dropped way in.
-    expect(tiles(view.container)).toEqual(EXPECTED_TILES)
-    expect(view.container.querySelector('[data-brain-card="gallery"]')?.querySelector('[disabled]')).toBeNull()
-  })
-
-  it('leaves the ring with Chat alone once both media plugins are disabled, tiles untouched', async () => {
-    const { ctx, slots } = await mountHost()
-    const gallery = ctx.plugin(Gallery)
-    await gallery.await()
-    const soundstage = ctx.plugin(Soundstage)
-    await soundstage.await()
-
-    const view = renderLauncher()
-    await act(async () => { await Promise.resolve() })
-    await act(async () => { await gallery.dispose() })
-    await act(async () => { await soundstage.dispose() })
-
-    expect(slots.entries('conversation.view').map(entry => entry.options.id)).toEqual(['chat'])
     expect((ctx.get('conversationEvents') as ConversationEventRegistry).entries()).toEqual([])
+    // The roster is declared, so the card still offers Studio: what is missing
+    // belongs on the tile, never on a dimmed or dropped way in.
     expect(tiles(view.container)).toEqual(EXPECTED_TILES)
+    expect(view.container.querySelector('[data-view-tile="studio"]')?.querySelector('[disabled]')).toBeNull()
   })
 })

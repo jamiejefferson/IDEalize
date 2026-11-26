@@ -24,7 +24,7 @@ import type { ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 // Type-only: the paint object the appearance service resolves (the client
 // bundle purity gate forbids cross-plugin value imports).
-import type { TerminalPaint } from '@idealize/appearance/client'
+import type { TerminalPaint, TerminalPaperPaint } from '@idealize/appearance/client'
 import { XTERM_CSS } from './xterm-css.ts'
 import { markdownPathLinks, type TerminalFileViewer } from './file-links.ts'
 import css from './TerminalView.module.css'
@@ -471,6 +471,42 @@ export function xtermTheme(next: TerminalPaint): ITheme {
   }
 }
 
+/**
+ * The root's custom properties for a blueprint paper: the text rows' opacity
+ * and the glow and shadow every run of text carries. The sheet reads them
+ * under `[data-paper]`.
+ * @param paper - the resolved paper.
+ * @returns the properties to set inline on the root.
+ */
+export function paperVariables(paper: TerminalPaperPaint): Record<string, string> {
+  return {
+    '--idealize-paper-ink-opacity': String(paper.inkOpacity),
+    '--idealize-paper-text-shadow': paper.textShadow,
+    ...(paper.blockCover === undefined ? {} : { '--idealize-paper-block-cover': paper.blockCover }),
+  }
+}
+
+/**
+ * The paper under the grid on a blueprint theme: the lit ground, then the
+ * drafting grid, the grain and the fold, each only when the paper has it.
+ * It takes no pointer events and sits behind the grid host.
+ * @param props - the resolved paper.
+ * @returns the layers.
+ */
+export function TerminalPaper({ paper }: { paper: TerminalPaperPaint }) {
+  return (
+    <div className={css.paper} aria-hidden="true" data-testid="idealize-terminal-paper" style={{ backgroundImage: paper.ground }}>
+      {paper.grid !== undefined && (
+        <div className={css.paperGrid} data-layer="grid" style={{ backgroundImage: paper.grid.image, backgroundSize: paper.grid.size, filter: `blur(${paper.grid.blur}px)` }} />
+      )}
+      {paper.grain !== undefined && (
+        <div className={css.paperGrain} data-layer="grain" style={{ opacity: paper.grain.opacity, backgroundSize: `${paper.grain.size}px ${paper.grain.size}px` }} />
+      )}
+      {paper.crease && <div className={css.paperCrease} data-layer="crease" />}
+    </div>
+  )
+}
+
 /** Restyle one grid from the active paint (page tokens when none). */
 function styleTerminal(terminal: Terminal): void {
   if (paint === undefined) {
@@ -507,7 +543,9 @@ function restyleForDensity(): void {
 /**
  * Publish the terminal's ground and ink as `--dsh-terminal-bg` /
  * `--dsh-terminal-fg` on the document, so the chat title strip above a
- * terminal chat wears the terminal's colours (JJ, 7 Oct 2026). Cleared with
+ * terminal chat wears the terminal's colours (JJ, 7 Oct 2026), and
+ * `--dsh-terminal-header` on a blueprint paper, the strip's whole background:
+ * its own colour under the paper's grid (JJ, 24 Nov 2026). Cleared with
  * the paint, when the strip falls back to the page's own tokens.
  * @param next - the resolved paint, or undefined to clear.
  */
@@ -518,10 +556,14 @@ function publishTerminalColours(next: TerminalPaint | undefined): void {
   if (next === undefined) {
     style.removeProperty('--dsh-terminal-bg')
     style.removeProperty('--dsh-terminal-fg')
+    style.removeProperty('--dsh-terminal-header')
     return
   }
   style.setProperty('--dsh-terminal-bg', next.background)
   style.setProperty('--dsh-terminal-fg', next.foreground)
+  // A blueprint paper gives the strip its own colour and carries the grid behind the title.
+  if (next.paper === undefined) style.removeProperty('--dsh-terminal-header')
+  else style.setProperty('--dsh-terminal-header', next.paper.header)
 }
 
 /**
@@ -808,7 +850,17 @@ export function TerminalView({ sessionId, cwd, activity, plain = false, transpor
   }
 
   return (
-    <div ref={rootRef} className={css.root} data-testid="idealize-terminal" {...{ [SURFACE_EXEMPT]: '' }} style={paint === undefined ? undefined : { background: paint.background }}>
+    <div
+      ref={rootRef}
+      className={css.root}
+      data-testid="idealize-terminal"
+      data-paper={paint?.paper === undefined ? undefined : ''}
+      {...{ [SURFACE_EXEMPT]: '' }}
+      style={paint === undefined
+        ? undefined
+        : { background: paint.background, ...(paint.paper === undefined ? {} : paperVariables(paint.paper)) }}
+    >
+      {paint?.paper !== undefined && <TerminalPaper paper={paint.paper} />}
       <div ref={hostRef} className={css.grid} style={paint === undefined ? undefined : { padding: gridPadding(paint.margin) }} />
       {error !== undefined && (
         <div className={css.notice} role="alert">

@@ -54,10 +54,14 @@ describe('the router after a turn whose model said it could not', () => {
     await rm(home, { recursive: true, force: true })
   })
 
-  const onModel = { provider: 'deepseek', model: 'deepseek-v4-flash' }
+  // The chat runs on OpenAI's own route, and OpenRouter lists a model of the same company and one of another.
+  const onModel = { provider: 'openai', model: 'gpt-5.4-nano' }
   const models: Record<string, Array<{ id: string; inputModalities: string[] }>> = {
-    deepseek: [{ id: 'deepseek-v4-flash', inputModalities: ['text'] }],
-    openrouter: [{ id: 'openai/gpt-5.4-mini', inputModalities: ['text', 'image'] }],
+    openai: [{ id: 'gpt-5.4-nano', inputModalities: ['text'] }],
+    openrouter: [
+      { id: 'anthropic/claude-opus-5', inputModalities: ['text', 'image'] },
+      { id: 'openai/gpt-5.4-mini', inputModalities: ['text', 'image'] },
+    ],
   }
 
   async function mount(config: object, space = 'chat') {
@@ -105,8 +109,8 @@ describe('the router after a turn whose model said it could not', () => {
     expect(chat.log[0]).toMatchObject({
       type: 'idealize/router',
       data: {
-        outcome: 'offer', reason: 'said-cannot', from: { provider: 'deepseek', model: 'deepseek-v4-flash' },
-        to: { provider: 'openrouter', model: 'openai/gpt-5.4-mini' }, rationale: 'deepseek-v4-flash said it couldn\'t do this.',
+        outcome: 'offer', reason: 'said-cannot', from: { provider: 'openai', model: 'gpt-5.4-nano' },
+        to: { provider: 'openrouter', model: 'openai/gpt-5.4-mini' }, rationale: 'gpt-5.4-nano said it couldn\'t do this.',
       },
     })
   })
@@ -116,6 +120,16 @@ describe('the router after a turn whose model said it could not', () => {
     const chat = await mount({}, 'motion')
     await chat.stop()
     expect(chat.log[0]?.data).toMatchObject({ outcome: 'offer', reason: 'said-cannot' })
+  })
+
+  it('offers only a model of the chat’s company that the person left ticked', async () => {
+    vi.stubGlobal('fetch', jevSays('model-limit', 0.92))
+    const unticked = await mount({ excluded: ['openrouter/openai/gpt-5.4-mini'] })
+    await unticked.stop()
+    expect(unticked.log).toEqual([])
+    const anyCompany = await mount({ sameCompany: false, excluded: ['openrouter/openai/gpt-5.4-mini'] })
+    await anyCompany.stop()
+    expect(anyCompany.log[0]?.data).toMatchObject({ outcome: 'offer', to: { model: 'anthropic/claude-opus-5' } })
   })
 
   it('leaves a missing tool and an unsure reading alone', async () => {
@@ -143,8 +157,8 @@ describe('the router after a turn whose model said it could not', () => {
     expect(chat.log).toEqual([])
   })
 
-  it('reads nothing with the check or Jev switched off, or in a terminal', async () => {
-    for (const [config, space] of [[{ replyCheck: false }, 'chat'], [{ useJev: false }, 'chat'], [{}, 'terminal']] as const) {
+  it('reads nothing with the check or Jev switched off, with the router fixed, or in a terminal', async () => {
+    for (const [config, space] of [[{ replyCheck: false }, 'chat'], [{ useJev: false }, 'chat'], [{ mode: 'fixed' }, 'chat'], [{}, 'terminal']] as const) {
       const fetch = jevSays('model-limit', 0.95)
       vi.stubGlobal('fetch', fetch)
       const chat = await mount(config, space)

@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest'
 
 import { candidatesFrom } from '../src/candidates.ts'
 import type { Candidate } from '../src/decide.ts'
-import { currentModel, foldRouted } from '../src/projection.ts'
+import { currentModel, foldRouted, routerProjectionDefinition } from '../src/projection.ts'
 import type { RouterEventData } from '../src/projection-types.ts'
-import { routeTurn } from '../src/route.ts'
+import { costsMore, routeTurn } from '../src/route.ts'
 import type { TurnInput } from '../src/route.ts'
 
 const mini: Candidate = { provider: 'openrouter', model: 'openai/gpt-5.4-mini', label: 'GPT-5.4 mini', price: { input: 0.25, output: 2 }, images: true }
@@ -117,6 +117,58 @@ describe('routing a turn', () => {
   })
 })
 
+describe('a router set to ask first', () => {
+  it('offers the move it would have made, and the turn answers on the model the chat is on', async () => {
+    const result = await routeTurn(input({ ask: true }), { ...noWindow, askJev: jevSays(0.93) })
+    expect(result.use).toEqual({ provider: 'openrouter', model: 'openai/gpt-5.4-mini' })
+    expect(result.decision).toMatchObject({ switched: false, stayed: 'asked', recommended: { label: 'Claude Opus 5' } })
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]).toMatchObject({ outcome: 'offer', reason: 'ask', dearer: true, from: { label: 'GPT-5.4 mini' }, to: { label: 'Claude Opus 5' } })
+  })
+
+  it('says when the model offered costs no more', async () => {
+    const cheaper = input({
+      ask: true, resolved: opus, message: 'hi', weights: { cost: 1, speed: 0.3, intelligence: 0.1 }, aggressiveness: 'aggressive',
+    })
+    const quick = { task: 'quick', difficulty: 'simple', confidence: 0.95, source: 'jev' } as const
+    const result = await routeTurn(cheaper, { ...noWindow, askJev: () => Promise.resolve({ reading: quick, ms: 100 }) })
+    expect(result.use.model).toBe('anthropic/claude-opus-5')
+    expect(result.events[0]).toMatchObject({ outcome: 'offer', reason: 'ask', dearer: false })
+  })
+
+  it('asks in its own words about a paid model, and keeps the warning about a chat that would be cut', async () => {
+    const paidOnly = input({ ask: true, resolved: free, preferFree: true, candidates: [free, opus] })
+    const paid = await routeTurn(paidOnly, { ...noWindow, askJev: jevSays(0.93) })
+    expect(paid.events[0]).toMatchObject({ outcome: 'offer', reason: 'ask', dearer: true })
+    const smallWindow = { askJev: jevSays(0.93), contextWindow: () => Promise.resolve(128_000) }
+    const cut = await routeTurn(input({ ask: true, contextTokens: 190_000 }), smallWindow)
+    expect(cut.events[0]).toMatchObject({ outcome: 'offer', reason: 'loses-context' })
+    expect(cut.events[0]?.dearer).toBeUndefined()
+  })
+
+  it('offers even a move the gates would not hold back, and drops the marks of that move', async () => {
+    const blind = input({ ask: true, resolved: free, hasImages: true, candidates: [free, mini] })
+    const result = await routeTurn(blind, { ...noWindow, askJev: () => Promise.resolve({ failure: 'no-key', ms: 0 }) })
+    expect(result.use).toEqual({ provider: 'freetokens', model: 'auto' })
+    expect(result.decision.sight).toBeUndefined()
+    expect(result.events[0]).toMatchObject({ outcome: 'offer', reason: 'ask' })
+  })
+
+  it('stays silent when it would not have moved', async () => {
+    const result = await routeTurn(input({ ask: true }), { ...noWindow, askJev: () => Promise.resolve({ failure: 'timeout', ms: 1500 }) })
+    expect(result.events).toEqual([])
+  })
+
+  it('calls a model dearer only when both prices are known', () => {
+    expect(costsMore(opus, mini)).toBe(true)
+    expect(costsMore(mini, opus)).toBe(false)
+    expect(costsMore(opus, free)).toBe(true)
+    expect(costsMore(free, opus)).toBe(false)
+    expect(costsMore(opus, { price: undefined })).toBe(false)
+    expect(costsMore({ price: undefined }, mini)).toBe(false)
+  })
+})
+
 describe('the chat log', () => {
   const event = (data: RouterEventData) => ({ type: 'idealize/router', data }) as never
   it('keeps the latest switch until a reset follows it', () => {
@@ -124,6 +176,30 @@ describe('the chat log', () => {
     expect(foldRouted([event(switched)]).routed).toEqual(switched)
     expect(foldRouted([event(switched), event({ ...switched, outcome: 'offer', at: 'b' })])).toMatchObject({ routed: switched, lastSwitchAt: 'a' })
     expect(foldRouted([event(switched), event({ ...switched, outcome: 'reset', at: 'c' })])).toEqual({ lastSwitchAt: 'c' })
+  })
+
+  it('keeps a switch in force when an offer is declined, and counts the time so the router waits before it asks again', () => {
+    const switched: RouterEventData = { outcome: 'switched', at: 'a', from: mini, to: opus }
+    const declined: RouterEventData = { outcome: 'declined', at: 'd', from: opus, to: free }
+    expect(foldRouted([event(switched), event(declined)])).toEqual({ routed: switched, lastSwitchAt: 'd' })
+    expect(foldRouted([event(declined)])).toEqual({ lastSwitchAt: 'd' })
+  })
+
+  it('shows the latest switch or offer on the badge until a reset or a declined offer answers it', () => {
+    const init = () => routerProjectionDefinition.init()
+    const fold = (state: ReturnType<typeof init>, next: Parameters<typeof routerProjectionDefinition.apply>[1]) =>
+      routerProjectionDefinition.apply(state, next)
+    const badge = (model: Candidate) => ({ provider: model.provider, model: model.model, label: model.label })
+    const offer: RouterEventData = { outcome: 'offer', at: 'a', from: badge(mini), to: badge(opus), reason: 'ask', dearer: true }
+    const offered = fold(init(), event(offer))
+    expect(offered).toEqual({ locked: false, last: offer })
+    expect(routerProjectionDefinition.schema.parse(offered)).toEqual(offered)
+    expect(fold(offered, event({ ...offer, outcome: 'declined', at: 'b' }))).toEqual({ locked: false })
+    expect(fold(offered, event({ ...offer, outcome: 'reset', at: 'b' }))).toEqual({ locked: false })
+    const locked = fold(offered, { type: 'idealize/router-lock', data: { locked: true } } as never)
+    expect(locked).toEqual({ locked: true, last: offer })
+    expect(fold(locked, { type: 'idealize/router-lock', data: { locked: true } } as never)).toBe(locked)
+    expect(fold(locked, { type: 'turn/start', data: {} } as never)).toBe(locked)
   })
 
   it('resolves the current model through a held switch', () => {

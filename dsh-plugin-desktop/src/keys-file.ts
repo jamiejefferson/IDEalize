@@ -200,7 +200,7 @@ export function keysFileNotification(outcome: KeysFileOutcome): { title: string;
   if (outcome.ok) {
     return outcome.connected.length === 0
       ? { title: 'Keys file read', body: 'It named no service this app connects.' }
-      : { title: 'Keys connected', body: `${outcome.connected.join(', ')} ready to use. Open Brains to check.` }
+      : { title: 'Keys connected', body: `${outcome.connected.join(', ')} ready to use. Open Models to check.` }
   }
   return { title: 'Keys file not applied', body: outcome.reason }
 }

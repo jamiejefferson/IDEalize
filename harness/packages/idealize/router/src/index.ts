@@ -9,29 +9,41 @@
  * `agent/request` waterfall, which replaces one call's provider and model for
  * one chat; the app-wide default model is never touched.
  *
- * Only the latest message leaves the machine, with the brain's name and
- * instructions. No history, files or images (JJ, 21 Sep 2026).
+ * Only the latest message leaves the machine, with the name and instructions
+ * of the preset an older chat recorded. No history, files or images (JJ, 21 Sep 2026).
  *
- * Each brain carries its own criteria (how readily its chats move, and the
- * three weights), set in its sheet. The app-wide values serve a chat that runs
- * no brain. A turn that runs on free tokens sends the brain's weights to the
- * engine in a header, so the engine picks its provider on the same criteria.
+ * Every chat is decided under one app-wide set of criteria (JJ, 24 Nov 2026):
+ * how readily a chat moves, and the weights of the Cheaper to Smarter slider
+ * (`lean`). A turn that runs on free tokens sends those weights to the engine
+ * in a header, so the engine picks its provider on the same criteria.
  *
- * Three things stop switching: a chat's lock, a brain listed in `offBrains`,
- * and `enabled: false`. Terminal chats run a command-line agent the router
+ * A chat runs on one company's models. With `sameCompany` on, a routed turn
+ * considers only models of the company of the chat's own model, less the ones
+ * the person unticked (`excluded`). `mode` says what the router does with a
+ * better model: `auto` moves the chat, `ask` offers the move, and `fixed`
+ * neither moves nor offers. The chip shows `enabled: false` as Fixed, and
+ * choosing Auto or Ask me there turns routing back on.
+ *
+ * Three things stop switching: a chat's lock, `mode: 'fixed'`, and
+ * `enabled: false`. Terminal chats run a command-line agent the router
  * cannot reach, and the generating spaces choose their own models.
  *
  * When a chat's own model cannot answer (its sign-in or key went, its credit ran
  * out, or it stayed busy through the retries), the router hands the turn to the
  * best other connected model instead of letting it fail. It needs no reading from
  * Jev to do so: Jev's limit protects a chat that works, and this turn has already failed.
+ * The rescue runs in every mode and is not held to the company or the ticks.
  *
  * HTTP surface (loopback-fenced; mutations demand the header):
  * - GET  /idealize/router/state — settings, the weights it reads, whether Jev is reachable, the last Jev failure, and the capability table.
- * - POST /idealize/router/settings — any of {enabled, aggressiveness, preferFree, showRationale, useJev, offBrains}.
- * - POST /idealize/router/brain — {brain, aggressiveness?, cost?, speed?, intelligence?}: one brain's own criteria.
+ * - POST /idealize/router/settings — any of {enabled, aggressiveness, preferFree, showRationale, useJev, offBrains, mode, lean, excluded}.
+ * - GET  /idealize/router/choices?sessionId= — what the chat box's chip shows: {mode, lean, company, answering, models, excluded}.
+ *   The chip may name the chat's own model with `provider` and `model`, which it knows before the first turn; with no
+ *   chat, the app's default model stands in.
+ * - POST /idealize/router/brain — {brain, aggressiveness?, cost?, speed?, intelligence?}: stored criteria routing no longer reads.
  * - POST /idealize/router/lock — {sessionId, locked}.
- * - POST /idealize/router/reset — {sessionId}: the user took the model back; the earlier switch no longer holds.
+ * - POST /idealize/router/reset — {sessionId, decline?}: the user took the model back, so the earlier switch no longer
+ *   holds; or took the offer. With `decline: true` the offer is turned down instead, and any earlier switch stays.
  * - GET  /idealize/router/log?limit=n — the newest decisions, newest first.
  * - GET  /idealize/router/ratings — the tag list per kind of model and every rating the person holds.
  * - POST /idealize/router/ratings — {kind, provider, model, tag, stars (1 to 5, or null to clear), label?}.
@@ -77,7 +89,11 @@ import { alternativesFor } from './alternatives.ts'
 import { ANSWER_IN_TEXT, askBefore, askOf, compareCost, foldCompare, foldMediaKept, keptNote, lastReply } from './compare.ts'
 
 import { candidatesFrom, FREE_PROVIDER } from './candidates.ts'
-import { criteriaFor, engineWeights, ROUTING_HEADER, routingHeaderValue, SHIPPED_CRITERIA } from './criteria.ts'
+import { choiceSettings, choicesFor } from './choices.ts'
+import type { RouterMode } from './choices.ts'
+import { withinLimits } from './company.ts'
+import type { MoveLimits } from './company.ts'
+import { DEFAULT_LEAN, engineWeights, leanOf, leanWeights, ROUTING_HEADER, routingHeaderValue, SHIPPED_CRITERIA } from './criteria.ts'
 import type { BrainCriteria, Criteria } from './criteria.ts'
 import type { ConnectedRoute, RouteAuth } from './candidates.ts'
 import type { Aggressiveness, Candidate, Weights } from './decide.ts'
@@ -104,7 +120,11 @@ import { readLocally } from './tasks.ts'
 import type { TaskReading } from './tasks.ts'
 
 export { candidatesFrom } from './candidates.ts'
-export { criteriaFor, engineWeights, ROUTING_HEADER, routingHeaderValue, SHIPPED_CRITERIA } from './criteria.ts'
+export { choiceSettings, choicesFor, modeOf, ROUTER_MODES } from './choices.ts'
+export type { ChoiceSettings, RouterChoice, RouterChoices, RouterMode } from './choices.ts'
+export { companyOf, isExcluded, withinLimits } from './company.ts'
+export type { MoveLimits } from './company.ts'
+export { criteriaFor, DEFAULT_LEAN, engineWeights, leanOf, leanWeights, ROUTING_HEADER, routingHeaderValue, SHIPPED_CRITERIA } from './criteria.ts'
 export type { BrainCriteria, Criteria, EngineWeights } from './criteria.ts'
 export { decide, PRESETS, rationaleFor, score } from './decide.ts'
 export type { Aggressiveness, Candidate, Decision, Scored, StayReason, Weights } from './decide.ts'
@@ -154,9 +174,17 @@ export interface RouterConfig {
   showRationale?: boolean
   /** Off: keyword rules on this machine read every message and nothing leaves it. Config only; the app offers no control for it. */
   useJev?: boolean
-  /** Brains whose chats are never routed. */
+  /** What the router does with a better model: move the chat, offer the move, or neither. App-wide. */
+  mode?: RouterMode
+  /** The Cheaper to Smarter slider, 0 to 100: 0 weighs cost alone and 100 intelligence alone. */
+  lean?: number
+  /** The `provider/model` keys the person unticked; the router never moves a chat to one. */
+  excluded?: string[]
+  /** On: a routed turn considers only models of the company of the chat's own model. */
+  sameCompany?: boolean
+  /** Stored by earlier versions and kept so those settings still load. Routing no longer reads it. */
   offBrains?: string[]
-  /** Each brain's own criteria, by brain id; a brain without an entry starts from its shipped row, then the app-wide values. */
+  /** Stored by earlier versions and kept so those settings still load. Routing no longer reads it. */
   brains?: Record<string, BrainCriteria>
   /** OpenRouter marks the Decisions endpoint alpha, so its address is config. An installed app ignores it (see {@link jevAddress}). */
   jevUrl?: string
@@ -172,6 +200,10 @@ export const Config: z<RouterConfig> = z.object({
   preferFree: z.boolean().default(true),
   showRationale: z.boolean().default(true),
   useJev: z.boolean().default(true),
+  mode: z.union(['auto', 'ask', 'fixed']).default('auto'),
+  lean: z.number().default(35),
+  excluded: z.array(z.string()).default([]),
+  sameCompany: z.boolean().default(true),
   offBrains: z.array(z.string()).default([]),
   brains: z.dict(z.object({
     aggressiveness: z.union(['conservative', 'balanced', 'aggressive']),
@@ -345,6 +377,8 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
     const mediaReadings = new Map<string, Map<string, string>>()
     /** Chats with a comparison running, so a second tap does not pay twice. */
     const comparing = new Set<string>()
+    /** The model each chat's last request resolved to before routing: the chat's own model, for the chip. */
+    const ownModels = new WeakMap<object, { provider: string; model: string }>()
     const rate = async (change: (file: RatingsFile) => void): Promise<RatingsFile> => {
       ratings = await updateRatings(home, change)
       return ratings
@@ -375,11 +409,20 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       return { cost: models?.cost ?? 34, speed: models?.speed ?? 33, intelligence: models?.intelligence ?? 33 }
     }
 
-    /** The criteria a brain's turn is decided under; the app-wide values for a chat without one. */
-    const criteria = (brain: string | undefined): Criteria => {
+    /** The criteria every routed turn is decided under: one set for the whole app, whatever preset a chat records. */
+    const criteria = (): Criteria => {
       const settings = current()
-      return criteriaFor(settings.brains, brain, { aggressiveness: settings.aggressiveness ?? 'balanced', weights: weights() })
+      return { aggressiveness: settings.aggressiveness ?? 'balanced', weights: leanWeights(settings.lean, weights().speed) }
     }
+
+    /** The person's two limits on where a routed turn may go. */
+    const limits = (): MoveLimits => {
+      const settings = current()
+      return { sameCompany: settings.sameCompany ?? true, excluded: settings.excluded ?? [] }
+    }
+
+    /** Fixed: the router neither moves a chat nor offers a move. A failed turn is still rescued. */
+    const fixed = (): boolean => current().mode === 'fixed'
 
     /**
      * The routes that can answer now, as the Brains pane judges them: a stored key,
@@ -452,12 +495,8 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
     }
 
     const routable = (agent: Agent): boolean => {
-      const settings = current()
-      if (settings.enabled === false) return false
-      const events = agent.session.events
-      if (resolveSessionSpace(agent.session) !== 'chat' || foldLocked(events)) return false
-      const brain = foldBrainRecord(events)?.brain
-      return brain === undefined || !(settings.offBrains ?? []).includes(brain)
+      if (current().enabled === false || fixed()) return false
+      return resolveSessionSpace(agent.session) === 'chat' && !foldLocked(agent.session.events)
     }
 
     /** The name the person knows a model by: the router's own list, then the route's model list, then its id. */
@@ -500,7 +539,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         tried,
         candidates: await usable(),
         reading,
-        weights: criteria(record?.brain).weights,
+        weights: criteria().weights,
         preferFree: settings.preferFree ?? true,
         contextTokens: contextTokensOf(events),
         hasImages: events.some(event => event.type === 'user/message' && event.data.content.some(block => block.type === 'image')),
@@ -553,7 +592,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         tried: [],
         candidates: await usable(),
         reading: readLocally(''),
-        weights: weights(),
+        weights: criteria().weights,
         preferFree: current().preferFree ?? true,
         hasImages: false,
         table: await scoreTable(home),
@@ -567,12 +606,8 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
      * terminal runs a command-line agent the router cannot reach.
      */
     const rescuable = (agent: Agent): boolean => {
-      const settings = current()
-      if (settings.enabled === false) return false
-      const events = agent.session.events
-      if (resolveSessionSpace(agent.session) === 'terminal' || foldLocked(events)) return false
-      const brain = foldBrainRecord(events)?.brain
-      return brain === undefined || !(settings.offBrains ?? []).includes(brain)
+      if (current().enabled === false) return false
+      return resolveSessionSpace(agent.session) !== 'terminal' && !foldLocked(agent.session.events)
     }
 
     routeCtx.on('agent/pre-step', async ({ agent, turn }, next) => {
@@ -599,6 +634,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         return { ...rest, provider: use.provider, model: use.model }
       }
       try {
+        ownModels.set(agent.session, { provider: resolved.provider, model: resolved.model })
         const earlier = routedTurns.get(agent)
         if (earlier !== undefined && earlier.turn === turn) return on(earlier.use)
         // A person who picked a model on their own computer did not ask for
@@ -639,7 +675,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         const asked = pending.get(agent)
         pending.delete(agent)
         if (asked === undefined || asked.turn !== turn || !routable(agent)) {
-          // A turn the router does not decide (no person's message opened it, the chat is locked, routing is off)
+          // A turn the router does not decide (no person's message opened it, the chat is locked, routing is off or fixed)
           // keeps the chat where an earlier switch put it. Locking holds the current model; only a reset hands it back.
           const held = routed !== undefined && sameModel(resolved, routed.from) ? routed.to : resolved
           routedTurns.set(agent, { turn, use: held, resolved, fellBack: false })
@@ -653,9 +689,15 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
           message: asked.message, hasImages: asked.hasImages,
           brain: record === undefined ? undefined : { id: record.brain, instructions: record.instructions },
           contextTokens: contextTokensOf(agent.session.events),
-          candidates: await usable(),
-          ...criteria(record?.brain),
-          preferFree: settings.preferFree ?? true,
+          // The model a held switch put the chat on stays in the list, so the decision reads its name and price.
+          candidates: withinLimits(await usable(), resolved, limits(), routed === undefined ? [] : [routed.to]),
+          ...criteria(),
+          // Inside one company the free-first rule has nothing to prefer: it
+          // would turn every move between that company's paid models into an
+          // offer, and Auto would read as Ask me. The slider and the tick
+          // list are the person's limits on cost there.
+          preferFree: (settings.preferFree ?? true) && !(settings.sameCompany ?? true),
+          ask: settings.mode === 'ask',
           table: await scoreTable(home),
           ratings: await currentRatings(),
           now: new Date(),
@@ -734,7 +776,8 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
     const checkReplyOf = async (agent: Agent, turn: number): Promise<void> => {
       const settings = current()
       const routed = routedTurns.get(agent)
-      if (settings.useJev === false || settings.replyCheck === false || !rescuable(agent)) return
+      // An offer is a move the person did not ask for, and a fixed router makes none.
+      if (settings.useJev === false || settings.replyCheck === false || fixed() || !rescuable(agent)) return
       // A model on this computer keeps the chat on it; its reply does not leave it either.
       if (routed?.turn !== turn || localRoute(routed.use.provider)) return
       const events = agent.session.events
@@ -763,9 +806,9 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         failed,
         code: 'SAID_CANNOT',
         tried: [],
-        candidates: await usable(),
+        candidates: withinLimits(await usable(), routed.resolved, limits()),
         reading,
-        weights: criteria(record?.brain).weights,
+        weights: criteria().weights,
         preferFree: settings.preferFree ?? true,
         contextTokens: contextTokensOf(events),
         hasImages: events.some(event => event.type === 'user/message' && event.data.content.some(block => block.type === 'image')),
@@ -805,9 +848,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         const kind = PRESET_KIND[choice.presetId]
         const settings = current()
         const events = choice.session.events
-        if (kind === undefined || settings.enabled === false || foldLocked(events)) return stored
-        const record = foldBrainRecord(events)
-        if (record !== undefined && (settings.offBrains ?? []).includes(record.brain)) return stored
+        if (kind === undefined || settings.enabled === false || fixed() || foldLocked(events)) return stored
         const named = (entry: GenCatalogEntry): RoutedModel =>
           ({ provider: entry.backend, model: entry.model.id, label: entry.model.name || entry.model.id })
         const kept = foldMediaKept(events, choice.presetId)
@@ -829,7 +870,7 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         mediaReadings.set(sessionId, byPreset)
         const decision = decideMedia({
           kind, stored, candidates: runnable(routeCtx.get('generation'), choice.candidates), tag: read.reading.tag, ratings: file,
-          aggressiveness: criteria(record?.brain).aggressiveness,
+          aggressiveness: criteria().aggressiveness,
         })
         if (!decision.switched) return stored
         choice.session.append('idealize/router-media', {
@@ -846,24 +887,19 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
 
     // A generation that cannot run on its model moves on, except where the person told the router to leave the chat alone.
     routeCtx.on('generation/replace-model', async (replacement, next) => {
-      const settings = current()
-      const record = foldBrainRecord(replacement.session.events)
-      if (settings.enabled === false || foldLocked(replacement.session.events)) return undefined
-      if (record !== undefined && (settings.offBrains ?? []).includes(record.brain)) return undefined
+      if (current().enabled === false || foldLocked(replacement.session.events)) return undefined
       return await next()
     })
 
-    // The free-token engine picks its provider on the brain's priorities: every request of a chat carries them.
+    // The free-token engine picks its provider on the same priorities as the router: every request of a chat carries them.
     routeCtx.inject(['idealizeAttribution', 'sessions'], (engineCtx) => {
       const attribution = engineCtx.get('idealizeAttribution') as {
         contribute?: (contributor: (sessionId: string) => Record<string, string> | undefined) => () => void
       } | undefined
       if (attribution?.contribute === undefined) return
       engineCtx.effect(() => attribution.contribute?.((sessionId) => {
-        const session = engineCtx.sessions.get(SessionId(sessionId))
-        if (session === undefined) return undefined
-        const brain = foldBrainRecord(session.events)?.brain
-        return { [ROUTING_HEADER]: routingHeaderValue(engineWeights(criteria(brain).weights)) }
+        if (engineCtx.sessions.get(SessionId(sessionId)) === undefined) return undefined
+        return { [ROUTING_HEADER]: routingHeaderValue(engineWeights(criteria().weights)) }
       }) ?? (() => {}), 'idealize-router: engine routing header')
     })
 
@@ -900,6 +936,10 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
             showRationale: settings.showRationale ?? true,
             useJev: settings.useJev ?? true,
             offBrains: settings.offBrains ?? [],
+            mode: settings.mode ?? 'auto',
+            lean: leanOf(settings.lean) ?? DEFAULT_LEAN,
+            excluded: settings.excluded ?? [],
+            sameCompany: settings.sameCompany ?? true,
           },
           weights: weights(),
           brains: settings.brains ?? {},
@@ -913,7 +953,9 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
 
       register('/idealize/router/settings', true, async (req, res) => {
         const body = await readBody(req)
-        const next: RouterConfig = {}
+        const next: RouterConfig = { ...choiceSettings(body) }
+        // The chip's three-way control is the one switch a person sees, so choosing Auto or Ask me turns routing back on.
+        if (next.mode === 'auto' || next.mode === 'ask') next.enabled = true
         for (const flag of ['enabled', 'preferFree', 'showRationale', 'useJev'] as const) {
           if (typeof body[flag] === 'boolean') next[flag] = body[flag]
         }
@@ -922,11 +964,57 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         }
         if (Array.isArray(body.offBrains) && body.offBrains.every(item => typeof item === 'string')) next.offBrains = body.offBrains
         if (Object.keys(next).length === 0) {
-          sendJson(res, 400, { error: 'nothing to change: send enabled, aggressiveness, preferFree, showRationale, useJev or offBrains' })
+          sendJson(res, 400, { error: 'nothing to change: send enabled, aggressiveness, preferFree, showRationale, useJev, offBrains, mode, lean or excluded' })
           return
         }
         await webCtx.settings.update(NS, next)
         sendJson(res, 200, { ok: true })
+      })
+
+      /**
+       * The chat's own model, before any routing: what the chip names, then what the chat's last request resolved to, then
+       * the chat's logged request (read back through a held switch), then the model new chats start on.
+       */
+      const ownModelOf = (session: Session | undefined, named: { provider: string | null; model: string | null }) => {
+        if (named.provider !== null && named.provider !== '' && named.model !== null && named.model !== '') {
+          return { provider: named.provider, model: named.model }
+        }
+        if (session !== undefined) {
+          const seen = ownModels.get(session)
+          if (seen !== undefined) return seen
+          const logged = session.requestHeader()?.config
+          if (logged !== undefined) {
+            const { routed } = foldRouted(session.events)
+            const own = routed !== undefined && sameModel(logged, routed.to) ? routed.from : logged
+            return { provider: own.provider, model: own.model }
+          }
+        }
+        const fallback = (routeCtx.get('agentDefaultModel') as { currentSelection?: () => { provider: string; model: string } } | undefined)
+          ?.currentSelection?.()
+        return fallback === undefined ? undefined : { provider: fallback.provider, model: fallback.model }
+      }
+
+      register('/idealize/router/choices', false, async (req, res) => {
+        const params = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams
+        const id = params.get('sessionId')
+        const session = id === null || id === '' ? undefined : webCtx.sessions.get(SessionId(id))
+        const own = ownModelOf(session, { provider: params.get('provider'), model: params.get('model') })
+        if (own === undefined) {
+          sendJson(res, 409, { error: 'no model is chosen yet' })
+          return
+        }
+        const { routed } = session === undefined ? {} : foldRouted(session.events)
+        const answering = routed !== undefined && sameModel(own, routed.from) ? routed.to : own
+        const settings = current()
+        sendJson(res, 200, choicesFor({
+          // Routing switched off by an earlier version reads as Fixed, which is what it does.
+          mode: settings.enabled === false ? 'fixed' : settings.mode,
+          lean: settings.lean,
+          ...limits(),
+          own: { ...own, label: await labelOf(own) },
+          answering: { provider: answering.provider, model: answering.model, label: await labelOf(answering) },
+          candidates: await candidates(),
+        }))
       })
 
       register('/idealize/router/brain', true, async (req, res) => {
@@ -971,12 +1059,20 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
       })
 
       register('/idealize/router/reset', true, async (req, res) => {
-        const session = sessionOf(await readBody(req), res)
+        const body = await readBody(req)
+        const session = sessionOf(body, res)
         if (session === undefined) return
         // Whatever the chat last showed, a switch or an offer, is answered: the badge clears and the throttle counts from now.
         // A taken offer is recorded as a switch, because a chat another chat started keeps its own model and only the router moves it.
         const last = session.events.findLast(event => event.type === 'idealize/router')
-        const open = last?.type === 'idealize/router' && last.data.outcome !== 'reset' ? last.data : undefined
+        const open = last?.type === 'idealize/router' && last.data.outcome !== 'reset' && last.data.outcome !== 'declined' ? last.data : undefined
+        if (body.decline === true) {
+          // Turned down: the offer is answered, the chat stays on its model, and a switch made earlier still holds.
+          const declined = open?.outcome === 'offer'
+          if (declined) session.append('idealize/router', { outcome: 'declined', at: new Date().toISOString(), from: open.from, to: open.to }, { ignorable: true })
+          sendJson(res, 200, { ok: true, reset: false, declined })
+          return
+        }
         if (open !== undefined) {
           const at = new Date().toISOString()
           session.append('idealize/router', open.outcome === 'offer'
@@ -1080,11 +1176,13 @@ export function apply(ctx: Context, config: RouterConfig = {}): void {
         if (subject === undefined) return { error: 'this chat has no answer to compare yet' }
         const { kind, tag, file } = subject
         if (subject.kind === 'chat') {
-          const record = foldBrainRecord(session.events)
           const hasImages = session.events.some(event => event.type === 'user/message' && event.data.content.some(block => block.type === 'image'))
+          // The chat's own model sets the company: the model a held switch moved from, else the one that answered.
+          const { routed } = foldRouted(session.events)
+          const own = routed !== undefined && sameModel(routed.to, subject.model) ? routed.from : subject.model
           const picked = alternativesFor({
-            current: subject.model, candidates: await usable(), reading: subject.reading, weights: criteria(record?.brain).weights,
-            hasImages, table: await scoreTable(home),
+            current: subject.model, candidates: withinLimits(await usable(), own, limits()),
+            reading: subject.reading, weights: criteria().weights, hasImages, table: await scoreTable(home),
             standingOf: candidate => standing(file, { kind: 'chat', model: candidate.model }, tag),
           })
           return {

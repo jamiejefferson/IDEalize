@@ -15,13 +15,16 @@ export interface RouterEventData {
   /**
    * `switched`: the turn ran on `to`. `offer`: the router stayed and `to` is the user's to accept.
    * `reset`: the user took the model back, so an earlier switch no longer holds.
+   * `declined`: the user turned the latest offer down; an earlier switch still holds.
    */
-  outcome: 'switched' | 'offer' | 'reset'
+  outcome: 'switched' | 'offer' | 'reset' | 'declined'
   at: string
   from: RoutedModel
   to: RoutedModel
-  /** Why an offer was not taken by the router itself. */
-  reason?: Extract<StayReason, 'needs-payment' | 'loses-context' | 'other-company'> | 'said-cannot' | undefined
+  /** Why an offer was not taken by the router itself. `ask`: the person set the router to ask before every move. */
+  reason?: Extract<StayReason, 'needs-payment' | 'loses-context' | 'other-company'> | 'said-cannot' | 'ask' | undefined
+  /** On an `ask` offer: `to` costs more per token than the model the chat is on. */
+  dearer?: boolean | undefined
   task?: TaskType | undefined
   rationale?: string | undefined
   /** Gain in weighted score, 0 to 1. */
@@ -31,6 +34,37 @@ export interface RouterEventData {
    * `offer`: the person took the model offered.
    */
   via?: 'dislike' | 'offer' | undefined
+}
+
+/**
+ * How the router behaves, app-wide. `auto`: it moves a chat when a better model fits.
+ * `ask`: it offers the move and the person decides. `fixed`: it never moves a chat and never offers.
+ */
+export type RouterMode = 'auto' | 'ask' | 'fixed'
+
+/** One model of the chat box chip's list. */
+export interface RouterChoice extends RoutedModel {
+  /** USD per million tokens, `free`, or null when no price is known. */
+  price: { input: number; output: number } | 'free' | null
+  /** Ticked: the router may move the chat to it. */
+  allowed: boolean
+  /** The model answering this chat now. */
+  answering: boolean
+}
+
+/** What `GET /idealize/router/choices` answers. */
+export interface RouterChoices {
+  mode: RouterMode
+  /** The Cheaper to Smarter slider, 0 to 100. */
+  lean: number
+  /** The company of the chat's own model. */
+  company: string
+  /** The model answering now: the routed one while a switch holds, else the chat's own. */
+  answering: RoutedModel
+  /** The company's connected models, cheapest first. */
+  models: RouterChoice[]
+  /** Every `provider/model` key the person unticked, at any company: the list a tick rewrites. */
+  excluded: string[]
 }
 
 /** The kinds of model a comparison can ask (restated from ratings.ts, which reads files). */
@@ -87,7 +121,7 @@ export interface RouterLockEventData { locked: boolean }
 /** What clients read for the composer's badge. */
 export interface RouterProjection {
   locked: boolean
-  /** The latest switch or offer, absent once a reset follows it. */
+  /** The latest switch or offer, absent once a reset or a declined offer follows it. */
   last?: RouterEventData | undefined
 }
 

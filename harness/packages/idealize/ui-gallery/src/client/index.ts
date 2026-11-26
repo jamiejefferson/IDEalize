@@ -1,5 +1,5 @@
 /**
- * The media grid, browser half. Registers four things and owns no state:
+ * The media grid, browser half. Registers five things and owns no state:
  *
  * - three Definitions and one `gallery` view target: one row per generation
  *   task folded from the generation tools' `tool/call`, the artefact store's
@@ -7,11 +7,12 @@
  *   row per turn of the chat (thinking, generating, or ended with nothing
  *   made) folded from `turn/start`, `assistant/message` and `turn/end`; and
  *   one prompt per user message, joined to its turn in the target's builder;
- * - the `gallery` (Images) entry in the conversation view ring at order 6,
- *   rendering that chat's `image` rows as a grid of artefact tiles, with
+ * - the `gallery` (Image) entry in the conversation view ring at order 6,
+ *   rendering everything that chat generated as a grid of tiles, with
  *   Keep / Archive posting to `@idealize/artefacts`' disposition route;
- * - the `motion` (Video) entry at order 8, the same grid over the same rows
- *   filtered to `video`;
+ * - the `soundstage` (Sound) entry at order 7 and the `motion` (Video) entry
+ *   at order 8, the same grid over the same rows: a Studio chat keeps one
+ *   history whichever kind its chat box is set to;
  * - the generation settings strip on the composer card's tool row
  *   (`conversation.input.left`, beside the plus and the mode chips — JJ, 2 Sep
  *   2026: "aspect and no. of images should be in the ask bar"; 7 Sep 2026: a
@@ -25,6 +26,8 @@
  * @module @idealize/ui-gallery/client
  */
 
+import type { ComponentType } from 'react'
+import { setBackdropLayers } from './backdrop.tsx'
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -37,9 +40,9 @@ import type { GalleryViewInjected } from './GalleryView.tsx'
 import { en, NS, zh } from './locales.ts'
 
 export type * from './contract.ts'
-// The kind filter is a value: every space's view reads its own kind out of
-// the one per-chat snapshot this package's Definition publishes.
-export { pendingTurns, rowsOfKind } from './contract.ts'
+// The row reading is a value: every media view shows the one per-chat history
+// this package's Definition publishes.
+export { pendingTurns, studioRows } from './contract.ts'
 export {
   EMPTY_GALLERY_SNAPSHOT, galleryDefinition, galleryPromptDefinition, galleryTurnDefinition, galleryViewDefinition,
   GENERATION_TOOLS, joinPrompts, readToolArguments, registerGalleryConversation,
@@ -79,19 +82,12 @@ function chatEntry(slots: ErasedSlots): { options: { id?: string }; store?: unkn
 }
 
 /**
- * Client plugin body.
- * @param ctx - client root context.
+ * Retry and the keep/archive verdict, the same pair for every media view's grid.
+ * @param sessions - the client's session service.
+ * @returns the verbs for one chat.
  */
-export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'idealize-gallery: dictionaries')
-  const t = ctx.locale.bind(NS)
-  const slots = ctx.slots as unknown as ErasedSlots
-  const sessions = ctx.sessions
-
-  registerGalleryConversation(ctx)
-
-  /** Retry and the keep/archive verdict; the same pair for every kind's grid. */
-  const galleryVerbs = (sessionId: SessionId): GalleryViewInjected => ({
+function galleryVerbs(sessions: ClientContext['sessions']): (sessionId: SessionId) => GalleryViewInjected {
+  return sessionId => ({
     retry: async (row) => {
       const session = sessions.binding(sessionId)?.session
       if (session === undefined) return `session ${String(sessionId)} is unavailable`
@@ -113,6 +109,32 @@ export function apply(ctx: ClientContext): void {
       }
     },
   })
+}
+
+/**
+ * Client plugin body.
+ * @param ctx - client root context.
+ */
+export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'idealize-gallery: dictionaries')
+  const t = ctx.locale.bind(NS)
+  const slots = ctx.slots as unknown as ErasedSlots
+  const sessions = ctx.sessions
+
+  registerGalleryConversation(ctx)
+
+  // The Studio's backdrop (the appearance panel's Studio tab) is drawn behind
+  // this chat too while `@idealize/ui-studio` offers its layers; the service
+  // is read loosely so this package does not depend on that one.
+  ctx.inject(['studioBackdrop'], (scoped) => {
+    scoped.effect(() => {
+      const host = scoped.get('studioBackdrop') as { Component: ComponentType } | undefined
+      setBackdropLayers(host?.Component)
+      return () => { setBackdropLayers(undefined) }
+    }, 'idealize-gallery: studio backdrop')
+  })
+
+  const verbs = galleryVerbs(sessions)
 
   // Literal `name`/`id` on both register calls: the generated client slot
   // catalog reads occupancy off these call sites, so a seat filled through a
@@ -124,7 +146,7 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     label: () => t('view.gallery'),
     inject: (sessionId: SessionId): GalleryViewInjected & { kind: 'image' } => ({
-      ...galleryVerbs(sessionId),
+      ...verbs(sessionId),
       kind: 'image',
     }),
   }, GalleryView))
@@ -140,8 +162,24 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     label: () => t('view.motion'),
     inject: (sessionId: SessionId): GalleryViewInjected & { kind: 'video' } => ({
-      ...galleryVerbs(sessionId),
+      ...verbs(sessionId),
       kind: 'video',
+    }),
+  }, GalleryView))
+
+  // Sound is the third seat on the same grid. Until 26 Nov 2026
+  // `@idealize/ui-soundstage` held this seat with a list of the chat's sounds
+  // alone, and the picture a person had just made left the screen when they
+  // moved here.
+  ctx.slots.inject('conversation.view', () => ctx.slots.register({
+    name: 'conversation.view',
+    id: 'soundstage',
+    order: 7,
+    locale: NS,
+    label: () => t('view.soundstage'),
+    inject: (sessionId: SessionId): GalleryViewInjected & { kind: 'audio' } => ({
+      ...verbs(sessionId),
+      kind: 'audio',
     }),
   }, GalleryView))
 

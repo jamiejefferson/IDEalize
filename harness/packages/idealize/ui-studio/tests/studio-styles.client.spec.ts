@@ -39,3 +39,15 @@ describe('StudioView.module.css', () => {
     expect(selectors().some(value => value.includes('data-composer-seat'))).toBe(false)
   })
 })
+
+describe('the backdrop styles', () => {
+  it('hold the layers alone: the coordination chat is not restyled for a backdrop', () => {
+    expect(selectors().some(value => value.includes('[data-backdrop]'))).toBe(false)
+    expect(selectors().some(value => value.includes('data-composer-card'))).toBe(false)
+    for (const layer of ['.backdrop', '.backdropStreaks', '.backdropMottle', '.backdropGrain']) {
+      expect(selectors().some(value => value.split(/\s/).includes(layer))).toBe(true)
+    }
+    // No text shadow (JJ, 26 Nov 2026).
+    expect(css).not.toMatch(/text-shadow/)
+  })
+})

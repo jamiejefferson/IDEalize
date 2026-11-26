@@ -23,8 +23,8 @@ function event(data: RouterEventData, seq = 12): SessionEvent {
   return { type: 'idealize/router', seq, time: 0, data }
 }
 
-/** Fold one event through match/start/buildViewNode as the assembler would. */
-function nodeFor(from: SessionEvent): ChatNode<'router-note'> {
+/** Fold one event through match/start/buildViewNode as the assembler would; null when the event shows no line. */
+function built(from: SessionEvent): ChatNode<'router-note'> | null {
   const matched = routerNoteDefinition.match(from)
   if (matched === null) throw new Error('event did not match')
   const match = { event: from, role: matched.role, location: { kind: 'unresolved' } } as unknown as ConversationMatch
@@ -32,9 +32,13 @@ function nodeFor(from: SessionEvent): ChatNode<'router-note'> {
     key: `8:router-note${matched.id}`, kind: 'router-note', id: matched.id, matches: [match], start: match, state: undefined, current: new Map(),
   } as unknown as ConversationNodeContext<RouterEventData>
   const state = routerNoteDefinition.start(base, match, { previous: () => undefined })
-  const node = routerNoteDefinition.buildViewNode?.({ ...base, state })
-  if (node === null || node === undefined) throw new Error('definition built no node')
-  return node as ChatNode<'router-note'>
+  return (routerNoteDefinition.buildViewNode?.({ ...base, state }) ?? null) as ChatNode<'router-note'> | null
+}
+
+function nodeFor(from: SessionEvent): ChatNode<'router-note'> {
+  const node = built(from)
+  if (node === null) throw new Error('definition built no node')
+  return node
 }
 
 const mount = (node: ChatNode<'router-note'>) => render(<RouterNoteView {...({ node } as ChatNodeViewProps<'router-note'>)} />)
@@ -66,5 +70,14 @@ describe('the router note in the transcript', () => {
     cleanup()
     const back = mount(nodeFor(event({ outcome: 'reset', at: '', from: spark, to: astra })))
     expect(back.container.querySelector('[data-router-note="reset"]')?.textContent).toBe('⇄Back on GPT-6 Astra.')
+  })
+
+  it('keeps the questions of a router set to ask first, and their refusals, out of the transcript', () => {
+    expect(built(event({ outcome: 'offer', at: '', from: astra, to: opus, reason: 'ask', dearer: true }))).toBeNull()
+    expect(built(event({ outcome: 'declined', at: '', from: astra, to: opus }))).toBeNull()
+    expect(built(event({ outcome: 'switched', at: '', from: astra, to: opus, via: 'dislike' }))).toBeNull()
+    // The model a person took from that question is a change to the chat, so it shows.
+    const taken = mount(nodeFor(event({ outcome: 'switched', at: '', from: astra, to: opus, via: 'offer' })))
+    expect(taken.container.textContent).toBe('⇄Now on Claude Opus. Send your message again to carry on.')
   })
 })

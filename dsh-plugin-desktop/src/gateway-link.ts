@@ -105,6 +105,6 @@ export function gatewayLinkNotification(address: string, outcome: KeysFileOutcom
     // Shown as given.
   }
   return outcome.ok
-    ? { title: 'Key gateway connected', body: `${host} is connected. Open Brains to see what it reaches.` }
+    ? { title: 'Key gateway connected', body: `${host} is connected. Open Models to see what it reaches.` }
     : { title: 'Key gateway not connected', body: outcome.reason }
 }

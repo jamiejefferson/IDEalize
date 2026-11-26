@@ -20,6 +20,8 @@ export interface GenerationReroutedData {
   readonly used: GenModelRef
   /** Why the stored choice was passed over, in words for the person. */
   readonly reason: string
+  /** The provider's own refusal, when a refusal caused the move. */
+  readonly cause?: string
   /** The tool call this move served, so its card can say why. */
   readonly callId?: string
 }

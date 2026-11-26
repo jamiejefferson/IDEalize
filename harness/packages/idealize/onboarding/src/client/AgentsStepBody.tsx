@@ -1,13 +1,22 @@
 /**
- * The agents step body: one card per provider the wizard can connect —
- * Claude Code CLI (detected through the host route), OpenRouter (a key
- * field) and a key gateway (an organisation's address and key). Continue waits
- * until at least one provider is connected; connections persist at connect
- * time, so the step itself has nothing to save on Continue.
+ * The set-up step body ("Set up your models"): three numbered parts, each
+ * saying what it unlocks. Part 1 picks the coding subscription from the apps
+ * the Terminal can launch, part 2 takes an OpenRouter key, part 3 an optional
+ * fal key. A company key gateway stays reachable behind a text link.
+ *
+ * Continue engages once a coding app is selected, an OpenRouter key is
+ * connected or pasted, or a gateway is connected. It saves the pasted keys
+ * and then aligns the Terminal and the default chat model with the selected
+ * app; a refusal shows in place and the step stays. "Skip keys for now" saves
+ * no key and still aligns the selected app.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { OnboardingKey } from './locales.ts'
-import type { AgentsState, OnboardingApi } from './api.ts'
+import type { OnboardingApi } from './api.ts'
+import { firstInstalled } from './setup-model.ts'
+import { CodingAppList, FalBlock, OpenRouterBlock } from './SetupParts.tsx'
+import parts from './SetupParts.module.css'
+import { useSetup } from './use-setup.ts'
 import css from './AgentsStepBody.module.css'
 
 /** What every step body receives from the overlay. */
@@ -30,46 +39,43 @@ export interface StepBodyProps {
   registerCommit: (commit: (() => Promise<boolean>) | null) => void
 }
 
+/** Props for {@link AgentsStepBody}. */
+export interface AgentsStepBodyProps extends StepBodyProps {
+  /** Register what the step's skip action does before the overlay records the skip. */
+  registerSkip: (skip: (() => Promise<void>) | null) => void
+}
 
-export function AgentsStepBody({ api, t, onReadyChange, registerCommit }: StepBodyProps) {
-  const [state, setState] = useState<AgentsState | null>(null)
-  const [loadFailed, setLoadFailed] = useState(false)
-  const [key, setKey] = useState('')
+export function AgentsStepBody({ api, t, onReadyChange, registerCommit, registerSkip }: AgentsStepBodyProps) {
+  const setup = useSetup(api, t)
+  const { facts, selected } = setup
   const [busy, setBusy] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [gateway, setGateway] = useState(false)
+  const [gatewayOpen, setGatewayOpen] = useState(false)
   const [gatewayDraft, setGatewayDraft] = useState({ address: '', key: '' })
   const [gatewayError, setGatewayError] = useState<string | null>(null)
 
-  const refresh = (): void => {
-    api.loadAgents().then(setState, () => { setLoadFailed(true) })
-    api.loadGateway().then(setGateway, () => { setGateway(false) })
-  }
+  // The first installed app starts selected, once, when the host's report lands.
+  const preselected = useRef(false)
   useEffect(() => {
-    registerCommit(null)
-    refresh()
-    // Mount-only: the step re-polls the host on every entry.
-  }, [])
+    if (facts === null || preselected.current) return
+    preselected.current = true
+    const first = firstInstalled(facts.rows)
+    if (first !== null) setup.select(first)
+  }, [facts])
 
-  const connected = state !== null && (state.claudeCode.installed || state.openrouter.connected || gateway)
-  useEffect(() => { onReadyChange(connected) }, [connected, onReadyChange])
+  const ready = facts !== null
+    && (selected !== null || facts.openrouter || facts.gateway || setup.openrouterDraft.trim() !== '')
+  useEffect(() => { onReadyChange(ready) }, [ready, onReadyChange])
 
-  const connect = (): void => {
-    setBusy(true)
-    setSaveError(null)
-    api.connectOpenRouter(key.trim()).then((outcome) => {
-      setBusy(false)
-      if (!outcome.ok) {
-        setSaveError(outcome.error)
-        return
-      }
-      setKey('')
-      refresh()
-    }, () => {
-      setBusy(false)
-      setSaveError(t('agents.openrouter.unreachable'))
-    })
-  }
+  useEffect(() => {
+    registerCommit(async () => (await setup.saveKeys()) && (await setup.alignSelected()))
+    // A skip never waits on a refusal: the launch command keeps its last value.
+    registerSkip(async () => { await setup.alignSelected() })
+    return () => {
+      registerCommit(null)
+      registerSkip(null)
+    }
+    // The actions read the latest choices through the registered closures.
+  }, [selected, setup.openrouterDraft, setup.falDraft])
 
   const connectGateway = (): void => {
     setBusy(true)
@@ -81,119 +87,88 @@ export function AgentsStepBody({ api, t, onReadyChange, registerCommit }: StepBo
         return
       }
       setGatewayDraft({ address: '', key: '' })
-      refresh()
+      setup.refresh()
     }, () => {
       setBusy(false)
-      setGatewayError(t('agents.gateway.unreachable'))
+      setGatewayError(t('setup.gateway.unreachable'))
     })
   }
 
-  if (state === null) {
-    return <p className={css.note}>{loadFailed ? t('agents.loadError') : t('agents.loading')}</p>
+  if (facts === null) {
+    return <p className={css.note}>{setup.loadFailed ? t('agents.loadError') : t('agents.loading')}</p>
   }
-  const showKeyEditor = !state.openrouter.connected
+  const matching = facts.rows.find(row => row.id === selected)?.company
 
   return (
-    <div className={css.cards} data-agents-step>
-      <div className={css.card} data-agent-card="claude-code">
-        <span className={css.glyph} data-connected={state.claudeCode.installed ? '' : undefined}>
-          {state.claudeCode.installed ? '✓' : '○'}
-        </span>
-        <div className={css.cardBody}>
-          <span className={css.cardTitle}>{t('agents.claude.title')}</span>
-          <span className={css.cardSub}>{t('agents.claude.sub')}</span>
-          {state.claudeCode.installed
-            ? <code className={css.path} data-agent-path>{state.claudeCode.path}</code>
-            : <span className={css.cardHint}>{t('agents.claude.missing')}</span>}
+    <div className={css.parts} data-agents-step>
+      <section className={css.part} data-setup-part="coding">
+        <span className={css.number} aria-hidden="true">1</span>
+        <div className={css.partBody}>
+          <span className={parts.title}>{t('setup.coding.title')}</span>
+          <p className={parts.reason} data-setup-reason="coding">{t('setup.coding.reason')}</p>
+          <CodingAppList rows={facts.rows} selected={selected} onSelect={setup.select} t={t} />
+          {setup.alignError !== null && <p className={parts.error} data-setup-error="coding">{setup.alignError}</p>}
         </div>
-        {!state.claudeCode.installed && (
-          <button type="button" className={css.secondary} onClick={refresh} data-agent-recheck>
-            {t('agents.claude.recheck')}
-          </button>
-        )}
-      </div>
-      <div className={css.card} data-agent-card="openrouter">
-        <span className={css.glyph} data-connected={state.openrouter.connected ? '' : undefined}>
-          {state.openrouter.connected ? '✓' : '○'}
-        </span>
-        <div className={css.cardBody}>
-          <span className={css.cardTitle}>{t('agents.openrouter.title')}</span>
-          <span className={css.cardSub}>{t('agents.openrouter.sub')}</span>
-          <span className={css.cardHint} data-agent-reads="">{t('agents.openrouter.reads')}</span>
-          {state.openrouter.connected && <span className={css.cardHint}>{t('agents.openrouter.connected')}</span>}
-          {showKeyEditor && (
+      </section>
+      <section className={css.part} data-setup-part="openrouter">
+        <span className={css.number} aria-hidden="true">2</span>
+        <div className={css.partBody}>
+          <OpenRouterBlock setup={setup} connected={facts.openrouter} t={t} matching={matching} />
+        </div>
+      </section>
+      <section className={css.part} data-setup-part="fal">
+        <span className={css.number} aria-hidden="true">3</span>
+        <div className={css.partBody}>
+          <FalBlock setup={setup} connected={facts.fal} t={t} modelCount={facts.falModelCount} />
+        </div>
+      </section>
+      <div className={css.gateway} data-setup-gateway data-connected={facts.gateway ? '' : undefined}>
+        {facts.gateway
+          ? (
+            <span className={parts.connected} data-setup-connected="gateway">
+              <span aria-hidden="true">✓</span>
+              {t('setup.gateway.link')}
+            </span>
+          )
+          : (
+            <button type="button" className={parts.link} onClick={() => { setGatewayOpen(open => !open) }} data-setup-gateway-link>
+              {t('setup.gateway.link')}
+            </button>
+          )}
+        {gatewayOpen && !facts.gateway && (
+          <div className={css.gatewayFields}>
+            <p className={parts.reason}>{t('setup.gateway.sub')}</p>
             <input
-              className={css.input}
-              type="password"
-              placeholder={t('agents.openrouter.placeholder')}
-              value={key}
-              onChange={(event) => { setKey(event.target.value) }}
-              data-agent-key
+              className={parts.input}
+              type="url"
+              placeholder={t('setup.gateway.address')}
+              aria-label={t('setup.gateway.address')}
+              value={gatewayDraft.address}
+              onChange={(event) => { setGatewayDraft({ ...gatewayDraft, address: event.target.value }) }}
+              data-gateway-address
             />
-          )}
-          {saveError !== null && <p className={css.error} data-agent-error>{saveError}</p>}
-        </div>
-        {showKeyEditor && (
-          <button
-            type="button"
-            className={css.secondary}
-            disabled={busy || key.trim() === ''}
-            onClick={connect}
-            data-agent-connect
-          >
-            {busy
-              ? t('nav.busy')
-              : state.openrouter.connected
-                ? t('agents.openrouter.replace')
-                : t('agents.openrouter.connect')}
-          </button>
+            <input
+              className={parts.input}
+              type="password"
+              placeholder={t('setup.gateway.key')}
+              aria-label={t('setup.gateway.key')}
+              value={gatewayDraft.key}
+              onChange={(event) => { setGatewayDraft({ ...gatewayDraft, key: event.target.value }) }}
+              data-gateway-key
+            />
+            <button
+              type="button"
+              className={css.secondary}
+              disabled={busy || gatewayDraft.address.trim() === '' || gatewayDraft.key.trim() === ''}
+              onClick={connectGateway}
+              data-gateway-connect
+            >
+              {busy ? t('nav.busy') : t('setup.gateway.connect')}
+            </button>
+            {gatewayError !== null && <p className={parts.error} data-gateway-error>{gatewayError}</p>}
+          </div>
         )}
       </div>
-      <div className={css.card} data-agent-card="gateway">
-        <span className={css.glyph} data-connected={gateway ? '' : undefined}>
-          {gateway ? '✓' : '○'}
-        </span>
-        <div className={css.cardBody}>
-          <span className={css.cardTitle}>{t('agents.gateway.title')}</span>
-          <span className={css.cardSub}>{t('agents.gateway.sub')}</span>
-          {gateway && <span className={css.cardHint}>{t('agents.openrouter.connected')}</span>}
-          {!gateway && (
-            <>
-              <input
-                className={css.input}
-                type="url"
-                placeholder={t('agents.gateway.address')}
-                aria-label={t('agents.gateway.address')}
-                value={gatewayDraft.address}
-                onChange={(event) => { setGatewayDraft({ ...gatewayDraft, address: event.target.value }) }}
-                data-gateway-address
-              />
-              <input
-                className={css.input}
-                type="password"
-                placeholder={t('agents.gateway.key')}
-                aria-label={t('agents.gateway.key')}
-                value={gatewayDraft.key}
-                onChange={(event) => { setGatewayDraft({ ...gatewayDraft, key: event.target.value }) }}
-                data-gateway-key
-              />
-            </>
-          )}
-          {gatewayError !== null && <p className={css.error} data-gateway-error>{gatewayError}</p>}
-        </div>
-        {!gateway && (
-          <button
-            type="button"
-            className={css.secondary}
-            disabled={busy || gatewayDraft.address.trim() === '' || gatewayDraft.key.trim() === ''}
-            onClick={connectGateway}
-            data-gateway-connect
-          >
-            {busy ? t('nav.busy') : t('agents.openrouter.connect')}
-          </button>
-        )}
-      </div>
-      {!connected && <p className={css.note}>{t('agents.hint')}</p>}
     </div>
   )
 }

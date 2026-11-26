@@ -11,6 +11,7 @@
  * model facts.
  */
 
+import { companyOf } from './company.ts'
 import { losesContext, score, viaGateway } from './decide.ts'
 import type { Candidate, Scored, Weights } from './decide.ts'
 import type { Standing } from './ratings.ts'
@@ -97,40 +98,6 @@ const same = (a: { provider: string; model: string }, b: { provider: string; mod
 const isSharedPool = (candidate: Candidate): boolean => candidate.provider === 'openrouter' && candidate.model.endsWith(':free')
 
 /**
- * Routes run by the same company under another name, in the spelling OpenRouter's model
- * ids use for that maker, so a direct route and OpenRouter's copy count as one company.
- */
-const COMPANY_OF_ROUTE: Readonly<Record<string, string>> = {
-  'deepseek-official': 'deepseek',
-  'google-vertex': 'google',
-  'kimi-coding': 'moonshotai',
-  'minimax-cn': 'minimax',
-  'mistral': 'mistralai',
-  'moonshotai-cn': 'moonshotai',
-  'openai-codex': 'openai',
-  'qwen-token-plan': 'qwen',
-  'qwen-token-plan-cn': 'qwen',
-  'qwen-token-plan-individual': 'qwen',
-  'xai': 'x-ai',
-  'xiaomi-token-plan-ams': 'xiaomi',
-  'xiaomi-token-plan-cn': 'xiaomi',
-  'xiaomi-token-plan-sgp': 'xiaomi',
-  'zai': 'z-ai',
-  'zai-coding-cn': 'z-ai',
-}
-
-/**
- * The company that receives what a route is sent. OpenRouter's model ids name their maker
- * (`~anthropic/claude-haiku-latest`), and any other route answers for itself.
- */
-const companyOf = (route: { provider: string; model: string }): string => {
-  // A key gateway's route reaches the same company as the route it fronts.
-  const provider = route.provider.startsWith('gateway-') ? route.provider.slice('gateway-'.length) : route.provider
-  if (provider === 'openrouter') return route.model.replace(/^~/u, '').split('/')[0] ?? provider
-  return COMPANY_OF_ROUTE[provider] ?? provider
-}
-
-/**
  * Whether a chat may move to this model with nobody asked. An empty free engine never
  * received the chat, so anything may follow it, and so may a first message on a route with
  * no account behind it, which the person's connected account then answers. Otherwise the
@@ -141,7 +108,7 @@ const movesFreely = (input: StepInInput, candidate: Candidate): boolean => {
   if (input.failed.provider === FREE_PROVIDER && input.code === 'MISSING_CREDENTIAL') return true
   if (input.nothingSent === true && (input.code === 'MISSING_CREDENTIAL' || input.code === 'NO_ADAPTER')) return true
   return [input.failed, ...input.tried].some(model =>
-    model.provider === candidate.provider || companyOf(model) === companyOf(candidate))
+    model.provider === candidate.provider || companyOf(model.provider, model.model) === companyOf(candidate.provider, candidate.model))
 }
 
 /**

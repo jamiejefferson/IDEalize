@@ -5,8 +5,8 @@ import { apply, ROUTING_HEADER } from '../src/index.ts'
 
 type Contributor = (sessionId: string) => Record<string, string> | undefined
 
-/** Mount the router beside a stand-in attribution service and two chats, one per brain. */
-async function mount(brains: Record<string, object>): Promise<Contributor> {
+/** Mount the router beside a stand-in attribution service and three chats, two of which record a preset. */
+async function mount(config: object): Promise<Contributor> {
   const ctx = new Context()
   const contributors: Contributor[] = []
   const chats: Record<string, { events: unknown[] }> = {
@@ -24,24 +24,29 @@ async function mount(brains: Record<string, object>): Promise<Contributor> {
       return () => {}
     },
   })
-  await ctx.plugin({ name: 'idealize-router', inject: [], apply }, { brains })
+  await ctx.plugin({ name: 'idealize-router', inject: [], apply }, config)
   await new Promise(resolve => setTimeout(resolve, 0))
   expect(contributors).toHaveLength(1)
   return contributors[0]!
 }
 
-describe('the free-token engine follows the asking brain', () => {
-  it('each chat’s requests carry its own brain’s priorities as the engine’s vector', async () => {
+describe('the free-token engine follows the Cheaper to Smarter slider', () => {
+  it('every chat’s requests carry the same vector, whatever preset the chat records', async () => {
     const headers = await mount({})
-    // Admin ships speed-led, Coding even between speed and intelligence, and a chat without a brain reads the app-wide values.
-    expect(headers('chat-admin')).toEqual({ [ROUTING_HEADER]: '0.500,0.389,0.111' })
-    expect(headers('chat-coding')).toEqual({ [ROUTING_HEADER]: '0.500,0.250,0.250' })
-    expect(headers('chat-plain')).toEqual({ [ROUTING_HEADER]: '0.500,0.250,0.250' })
+    // The slider rests at 35 and the app-wide speed weight at 33: speed takes 33 parts of 68, intelligence 35.
+    expect(headers('chat-plain')).toEqual({ [ROUTING_HEADER]: '0.500,0.243,0.257' })
+    expect(headers('chat-admin')).toEqual(headers('chat-plain'))
+    expect(headers('chat-coding')).toEqual(headers('chat-plain'))
     expect(headers('no-such-chat')).toBeUndefined()
   })
 
-  it('what a brain’s sheet saved reaches the engine', async () => {
-    const headers = await mount({ coding: { speed: 10, intelligence: 90 } })
-    expect(headers('chat-coding')).toEqual({ [ROUTING_HEADER]: '0.500,0.050,0.450' })
+  it('criteria stored for a preset by an earlier version change nothing', async () => {
+    const headers = await mount({ brains: { coding: { speed: 10, intelligence: 90 } }, offBrains: ['coding'] })
+    expect(headers('chat-coding')).toEqual({ [ROUTING_HEADER]: '0.500,0.243,0.257' })
+  })
+
+  it('moving the slider towards Smarter reaches the engine', async () => {
+    const headers = await mount({ lean: 99 })
+    expect(headers('chat-plain')).toEqual({ [ROUTING_HEADER]: '0.500,0.125,0.375' })
   })
 })

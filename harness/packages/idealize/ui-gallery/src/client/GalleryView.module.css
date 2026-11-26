@@ -158,8 +158,31 @@ button.well:focus-visible {
   transform: scale(1.1);
 }
 
+/* A sound's well: what was asked for above its player, inside the same 4:3
+   frame as a picture so a mixed grid keeps one rhythm. */
+.soundWell {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px;
+  place-items: stretch;
+}
+
+.soundPrompt {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .audio {
-  width: 90%;
+  width: 100%;
 }
 
 .pending {
@@ -471,4 +494,181 @@ button.well:focus-visible {
   font-size: 11px;
   line-height: 1.5;
   color: var(--dsw-alias-label-secondary, inherit);
+}
+
+/* The Studio backdrop (the appearance panel's Studio tab; `@idealize/ui-studio`
+   marks the page root and publishes the `--idealize-backdrop-*` values). The
+   layers sit in the chat column itself, under the title strip, this view and
+   the message box, so the wall and floor fill the column and stay still while
+   the grid scrolls. The app-theme rules above are untouched without the mark. */
+.backdropSeat {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* The column becomes its own stacking context, so the seat's negative layer
+   stays above the column's ground and below everything else in it. */
+:global(:root[data-idealize-backdrop]) :global([data-idealize-surface='chat']):has(.root) {
+  isolation: isolate;
+}
+
+/* The title strip lets the backdrop through and keeps blurring what scrolls under it. */
+:global(:root[data-idealize-backdrop]) :global([data-idealize-surface='chat']):has(.root) :global(header[data-view]) {
+  background: transparent;
+  --dsw-alias-label-primary: var(--idealize-backdrop-title-ink);
+  --dsw-alias-label-secondary: var(--idealize-backdrop-title-ink);
+  --dsw-alias-label-tertiary: var(--idealize-backdrop-title-ink);
+  --dsw-alias-label-caption: var(--idealize-backdrop-title-ink);
+}
+
+/* The app's Title card sets the title's colour on the title itself, so the
+   strip's ink never reached it and the title stayed dark on Grey and Blue
+   (JJ, 26 Nov 2026). On a backdrop the title takes the backdrop's ink. */
+:global(:root[data-idealize-backdrop]) :global([data-idealize-surface='chat']):has(.root) :global(header[data-view]) :global([data-session-title]) {
+  --dsh-session-title-color: var(--idealize-backdrop-title-ink);
+  color: var(--idealize-backdrop-title-ink);
+}
+
+/* The seat under the message box fades the transcript into the app's ground,
+   which reads as a white band across the backdrop's floor (JJ, 26 Nov 2026), so
+   that ground goes. The grid still scrolls under the seat and the message box
+   is see-through, so the seat draws its own copy of the backdrop (below) to
+   cover it. The stats line under the box takes the backdrop's secondary text
+   colour, which each backdrop sets to read on its own floor. */
+:global(:root[data-idealize-backdrop]) :global([data-idealize-surface='chat']):has(.root) :global([data-composer-seat]) {
+  background: none;
+  --dsw-alias-label-tertiary: var(--idealize-backdrop-foot-ink);
+  --dsw-alias-separator-primary: var(--idealize-backdrop-foot-ink);
+}
+
+/* The seat's copy of the backdrop (backdrop.tsx sizes the frame to the chat
+   column, so the copy lands over the column's own layers). It sits under the
+   message box and the stats line and over the grid that scrolls beneath. It
+   starts 140px above the seat and thickens gradually down to the column's
+   foot, where it stops at 90%: the 36px band that ended fully solid read as a
+   hard edge across the tiles (JJ, 26 Nov 2026), so tiles now stay faintly
+   visible behind the message box. It is drawn only while the seat is docked
+   at the foot of the column. */
+.backdropUnderBox {
+  display: none;
+  position: absolute;
+  inset: -140px 0 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, rgb(0 0 0 / 0.6) 140px, rgb(0 0 0 / 0.9) 100%);
+  mask-image: linear-gradient(180deg, transparent 0, rgb(0 0 0 / 0.6) 140px, rgb(0 0 0 / 0.9) 100%);
+}
+
+:global(:root[data-idealize-backdrop]) :global([data-idealize-surface='chat'][data-phase='active']) .backdropUnderBox {
+  display: block;
+}
+
+.backdropUnderBoxFrame {
+  position: absolute;
+}
+
+/* The title strip's copy of the backdrop, behind the title and over the grid
+   that scrolls beneath, so the title always sits on the wall it was checked
+   against. The strip's own mask fades the copy out along its lower edge. */
+.backdropUnderTitle {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+:global(:root[data-idealize-backdrop]) .backdropUnderTitle {
+  display: block;
+}
+
+/* Text on a panel. A panel here is a message row, a tile or the message box.
+   Until 26 Nov 2026 every panel drew the backdrop's own text colour, and the
+   controls inside kept the app's white fills: near-white text on a panel more
+   than half white, and white on white in a chosen segment or a tile's buttons
+   (JJ: "this is still unusable"). Now a panel rebinds the whole set of colours
+   its contents read, as one consistent set worked out in
+   `@idealize/appearance` `backdropInks`: text that clears the contrast floor
+   on the panel over every part of the backdrop, a raised fill that text reads
+   on, and washes and lines mixed from that text. A control that paints with
+   the app's tokens therefore reads on any backdrop without a rule of its own. */
+:global(:root[data-idealize-backdrop]) :global([data-idealize-surface='chat']):has(.root) :global([data-composer-card]),
+:global(:root[data-idealize-backdrop]) .root > .grid .chatRow,
+:global(:root[data-idealize-backdrop]) .root > .grid .tile,
+:global(:root[data-idealize-backdrop]) .root > .archived .tile {
+  color: var(--idealize-backdrop-panel-ink);
+  --dsw-alias-label-primary: var(--idealize-backdrop-panel-ink);
+  --dsw-alias-label-secondary: var(--idealize-backdrop-panel-ink-2);
+  --dsw-alias-label-tertiary: var(--idealize-backdrop-panel-ink-2);
+  --dsw-alias-label-caption: var(--idealize-backdrop-panel-ink-2);
+  --dsw-alias-brand-primary: var(--idealize-backdrop-panel-accent);
+  --dsw-alias-state-error-primary: var(--idealize-backdrop-panel-error);
+  --dsw-alias-bg-layer-1: var(--idealize-backdrop-panel-raised);
+  --dsw-specific-menu: var(--idealize-backdrop-panel-raised);
+  --dsw-alias-bg-layer-2: var(--idealize-backdrop-panel-wash);
+  --dsw-alias-fill-l1: var(--idealize-backdrop-panel-wash);
+  --dsw-specific-selector: var(--idealize-backdrop-panel-wash);
+  --dsw-alias-interactive-bg-hover: var(--idealize-backdrop-panel-wash);
+  --dsw-alias-interactive-bg-active: var(--idealize-backdrop-panel-wash-2);
+  --dsw-alias-interactive-bg-hover-solid: var(--idealize-backdrop-panel-wash-2);
+  --dsw-alias-border-l2: var(--idealize-backdrop-panel-line);
+  --dsw-alias-border-l3: var(--idealize-backdrop-panel-line);
+  --dsw-alias-border-l4: var(--idealize-backdrop-panel-line);
+}
+
+/* The message box takes the panel's fill, frost and hairline; its shape stays the app's own. */
+:global(:root[data-idealize-backdrop]) :global([data-idealize-surface='chat']):has(.root) :global([data-composer-card]) {
+  -webkit-backdrop-filter: blur(var(--idealize-backdrop-panel-blur));
+  backdrop-filter: blur(var(--idealize-backdrop-panel-blur));
+  --dsw-specific-input-major: var(--idealize-backdrop-panel);
+  --dsw-alias-border-l2-darkmode-thin: var(--idealize-backdrop-panel-edge);
+}
+
+/* The view's text takes the backdrop's face, size, weight and spacing. */
+:global(:root[data-idealize-backdrop]) .root {
+  font-family: var(--idealize-backdrop-font, inherit);
+  font-size: var(--idealize-backdrop-size);
+  font-weight: var(--idealize-backdrop-weight);
+  line-height: var(--idealize-backdrop-leading);
+  letter-spacing: var(--idealize-backdrop-tracking);
+}
+
+/* Text straight on the backdrop (the empty state, the archive fold's summary)
+   reads in the backdrop's text colour, checked against the wall and the floor.
+   The enlarged view is a dialog on the app's own ground and keeps the theme's. */
+:global(:root[data-idealize-backdrop]) .root > .grid,
+:global(:root[data-idealize-backdrop]) .root > .empty,
+:global(:root[data-idealize-backdrop]) .root > .archived {
+  color: var(--idealize-backdrop-open-ink);
+  --dsw-alias-label-primary: var(--idealize-backdrop-open-ink);
+  --dsw-alias-label-secondary: var(--idealize-backdrop-open-ink-2);
+  --dsw-alias-label-tertiary: var(--idealize-backdrop-open-ink-2);
+}
+
+/* A message row and a tile are panels: the panel's fill and hairline, frosting the backdrop behind them. */
+:global(:root[data-idealize-backdrop]) .root > .grid .chatRow,
+:global(:root[data-idealize-backdrop]) .root > .grid .tile,
+:global(:root[data-idealize-backdrop]) .root > .archived .tile {
+  border-color: var(--idealize-backdrop-panel-edge);
+  background: var(--idealize-backdrop-panel);
+  -webkit-backdrop-filter: blur(var(--idealize-backdrop-panel-blur));
+  backdrop-filter: blur(var(--idealize-backdrop-panel-blur));
+}
+
+/* Sizes follow the backdrop's text size, in the proportions of the app-theme rules above. */
+:global(:root[data-idealize-backdrop]) .root > .grid .chatPrompt,
+:global(:root[data-idealize-backdrop]) .root > .grid .soundPrompt,
+:global(:root[data-idealize-backdrop]) .root > .empty .emptyTitle {
+  font-size: 1em;
+}
+
+:global(:root[data-idealize-backdrop]) .root > .grid .chatState,
+:global(:root[data-idealize-backdrop]) .root > .grid .reply,
+:global(:root[data-idealize-backdrop]) .root > .empty .emptyBody,
+:global(:root[data-idealize-backdrop]) .root > .archived .archivedSummary {
+  font-size: 0.9em;
 }

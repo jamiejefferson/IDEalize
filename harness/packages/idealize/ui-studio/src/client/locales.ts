@@ -7,11 +7,11 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'studio.title': '工作室',
-  'studio.loading': '正在载入工作室…',
+  'studio.title': '智能体协调',
+  'studio.loading': '正在载入智能体协调…',
   'studio.error.cause': '原因：{cause}',
   'studio.retry': '重试',
-  'studio.empty': '这里还没有内容。在下方给工作室协调员留言，或用 @名字 询问某个代理。',
+  'studio.empty': '这里还没有内容。在下方给协调员留言，或用 @名字 询问某个代理。',
   'studio.synthesis.title': '综述',
   'studio.synthesis.stale': '已过期',
   'studio.synthesis.none': '还没有发布综述。',
@@ -63,11 +63,11 @@ export type StudioKey = keyof typeof zh
 
 /** English dictionary; keys mirror {@link zh} exactly. */
 export const en: Record<StudioKey, string> = {
-  'studio.title': 'Studio',
-  'studio.loading': 'Loading Studio…',
+  'studio.title': 'Agent Coordination',
+  'studio.loading': 'Loading Agent Coordination…',
   'studio.error.cause': 'Cause: {cause}',
   'studio.retry': 'Retry',
-  'studio.empty': 'Nothing here yet. Message the Studio coordinator below, or @name to ask one agent.',
+  'studio.empty': 'Nothing here yet. Message the coordinator below, or @name to ask one agent.',
   'studio.synthesis.title': 'Synthesis',
   'studio.synthesis.stale': 'Out of date',
   'studio.synthesis.none': 'No synthesis published yet.',

@@ -24,8 +24,10 @@ export function routerNoteText(data: RouterEventData, t: Translate): { headline:
     return { headline: t('router.note.switched', params), ...data.rationale === undefined ? {} : { reason: data.rationale } }
   }
   if (data.outcome === 'offer') {
+    if (data.reason === 'ask') return { headline: t(data.dearer === true ? 'router.ask.dearer' : 'router.ask.plain', { model: data.to.label }) }
     return { headline: t(`router.offer.${data.reason ?? 'needs-payment'}`, params) }
   }
+  if (data.outcome === 'declined') return { headline: t('router.note.stayed', params) }
   return { headline: t('router.note.back', params) }
 }
 

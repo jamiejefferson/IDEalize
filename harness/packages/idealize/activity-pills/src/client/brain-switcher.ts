@@ -69,6 +69,8 @@ export interface BrainAccess {
 export interface TerminalLaunchTable {
   default: string
   byActivity: Record<string, string>
+  /** The command-line apps the deployment knows, each with the command that starts it. */
+  catalog?: readonly { label: string; command: string }[]
 }
 
 /** One row of the brain menu. */
@@ -181,6 +183,23 @@ function messageOf(error: unknown): string {
  */
 export function launchOf(brainId: string, launches: TerminalLaunchTable): string {
   return (launches.byActivity[brainId] ?? launches.default).trim()
+}
+
+/**
+ * The name of the command-line app a Terminal chat launches, for the composer's
+ * chip: the app picks its own model, so its name is what answers "who is
+ * answering?" there.
+ * @param presetId - the chat's recorded preset, when it has one.
+ * @param launches - the table the launches route served.
+ * @returns the catalogue's name for the command, else the command's first word; `''` for a plain shell.
+ */
+export function cliName(presetId: string | undefined, launches: TerminalLaunchTable): string {
+  const command = (presetId === undefined ? launches.default : launchOf(presetId, launches)).trim()
+  const binary = command.split(/\s+/u)[0] ?? ''
+  if (binary === '') return ''
+  const known = (launches.catalog ?? []).find(entry => entry.command.trim() === command)
+    ?? (launches.catalog ?? []).find(entry => entry.command.trim().split(/\s+/u)[0] === binary)
+  return known?.label ?? binary
 }
 
 /**

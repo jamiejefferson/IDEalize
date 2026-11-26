@@ -31,7 +31,7 @@ export type TelegramKey = keyof typeof zh
 /** English dictionary. */
 export const en: Record<TelegramKey, string> = {
   'telegram.title': 'Telegram remote',
-  'telegram.description': 'Direct the Studio and answer approvals from your phone while IDEalize is open.',
+  'telegram.description': 'Direct your agents and answer approvals from your phone while IDEalize is open.',
   'telegram.token.label': 'Bot token',
   'telegram.token.placeholder': 'Paste the token @BotFather gave you',
   'telegram.token.save': 'Connect',
@@ -47,7 +47,7 @@ export const en: Record<TelegramKey, string> = {
   'telegram.confirm.pairing': 'Allow only if this is you. This person will direct your chats from their phone:',
   'telegram.confirm.allow': 'Allow',
   'telegram.confirm.decline': 'Decline',
-  'telegram.forward.forwardStudioReplies': 'Studio coordinator replies',
+  'telegram.forward.forwardStudioReplies': 'Coordinator replies',
   'telegram.forward.forwardTaskEndings': 'Task endings',
   'telegram.forward.forwardAttention': 'Alerts that need you, and errors',
   'telegram.forward.forwardApprovals': 'Approvals and questions',

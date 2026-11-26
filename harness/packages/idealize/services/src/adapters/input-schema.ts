@@ -213,10 +213,43 @@ function sizeOf(text: string): number | undefined {
 }
 
 /**
+ * The width over height a `4:3`-style value states.
+ * @param text - the value.
+ * @returns the ratio; undefined when the value is not two positive numbers around a colon.
+ */
+function ratioOf(text: string): number | undefined {
+  const match = /^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/.exec(text.trim())
+  if (match === null) return undefined
+  const width = Number(match[1])
+  const height = Number(match[2])
+  return width > 0 && height > 0 ? width / height : undefined
+}
+
+/**
+ * The aspect literal closest in shape to a ratio, compared on a log scale so
+ * `4:3` reads as `16:9` where the endpoint offers only `16:9` and `9:16`
+ * (JJ's first Studio video, 26 Nov 2026, was refused for `4:3`). A tie takes
+ * the wider literal.
+ */
+function nearestRatio(shape: number, literals: readonly string[]): string | undefined {
+  let nearest: { literal: string; distance: number; value: number } | undefined
+  for (const literal of literals) {
+    const candidate = ratioOf(literal)
+    if (candidate === undefined) continue
+    const distance = Math.abs(Math.log(candidate / shape))
+    if (nearest === undefined || distance < nearest.distance || (distance === nearest.distance && candidate > nearest.value)) {
+      nearest = { literal, distance, value: candidate }
+    }
+  }
+  return nearest?.literal
+}
+
+/**
  * The literal an enum accepts for a value: the value itself when it is among
- * the literals, its string form when that is (`5` for `"5"`), otherwise the
- * numeric literal nearest to a numeric value (`7.5` reads as `"8"`; a tie
- * takes the larger). Undefined when nothing in the enum fits.
+ * the literals, its string form when that is (`5` for `"5"`), the aspect
+ * literal nearest in shape to an aspect value (`4:3` reads as `16:9`),
+ * otherwise the numeric literal nearest to a numeric value (`7.5` reads as
+ * `"8"`; a tie takes the larger). Undefined when nothing in the enum fits.
  * @param value - the body value.
  * @param literals - the enum's literals.
  * @returns the literal to send, or undefined.
@@ -228,6 +261,8 @@ export function coerceLiteral(value: unknown, literals: readonly string[]): stri
   if (literals.includes(text)) return text
   const sameWord = literals.find(literal => literal.toLowerCase() === text.toLowerCase())
   if (sameWord !== undefined) return sameWord
+  const shape = ratioOf(text)
+  if (shape !== undefined) return nearestRatio(shape, literals)
   const numeric = sizeOf(text)
   if (numeric === undefined) return undefined
   let nearest: { literal: string; distance: number; value: number } | undefined
@@ -268,7 +303,7 @@ function coerceValue(value: unknown, property: InputProperty): unknown {
 export function coerceBody(body: Readonly<Record<string, unknown>>, schema: InputSchema): Record<string, unknown> {
   const byName = new Map(schema.properties.map(property => [property.name, property]))
   const coerced: Record<string, unknown> = {}
-  for (const [name, value] of Object.entries(imageFieldFor(body, byName))) {
+  for (const [name, value] of Object.entries(textFieldFor(imageFieldFor(body, byName), byName))) {
     const property = byName.get(name)
     coerced[name] = property === undefined ? value : coerceValue(value, property)
   }
@@ -286,6 +321,19 @@ function imageFieldFor(
   if (!('image_url' in body) || byName.has('image_url') || !byName.has('image_urls') || 'image_urls' in body) return body
   const { image_url: image, ...rest } = body
   return { ...rest, image_urls: [image] }
+}
+
+/**
+ * The body with its words under the field the endpoint names. The seam sends
+ * them as `prompt`; fal's speech and sound-effect endpoints take `text`
+ * instead and refuse a body without it ("text: Field required").
+ */
+function textFieldFor(
+  body: Readonly<Record<string, unknown>>, byName: ReadonlyMap<string, InputProperty>,
+): Readonly<Record<string, unknown>> {
+  if (!('prompt' in body) || byName.has('prompt') || !byName.has('text') || 'text' in body) return body
+  const { prompt, ...rest } = body
+  return { ...rest, text: prompt }
 }
 
 /** The `msg` fal's validation layer gives a value outside a literal enum, with the literals quoted. */

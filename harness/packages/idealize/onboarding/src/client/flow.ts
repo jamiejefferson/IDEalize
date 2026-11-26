@@ -41,7 +41,7 @@ export interface OnboardingFlowDeps {
    * @param field - the section field to write.
    * @param value - the JSON-shaped value to store.
    */
-  persist: (field: 'done' | 'steps' | 'completedAt', value: unknown) => void
+  persist: (field: 'done' | 'steps' | 'completedAt' | 'simplerSeen', value: unknown) => void
   /** Release the tour's first-run hold (idempotent). */
   releaseHold: () => void
 }
@@ -60,11 +60,11 @@ export interface OnboardingFlow {
   completeStep: (step: OnboardingStepId) => void
   /** Record one step as skipped and advance without a burst. */
   skipStep: (step: OnboardingStepId) => void
-  /** Skip the whole flow: persist `done` and close. */
+  /** Skip the whole flow: persist `done` and `simplerSeen`, then close. */
   quitAll: () => void
   /** Return to the previous step without touching recorded outcomes. */
   back: () => void
-  /** The finish step's completion: persist `done` + `completedAt`, final burst. */
+  /** The finish step's completion: persist `done`, `completedAt` and `simplerSeen`, final burst. */
   finish: () => void
   /** The burst's lifetime ended; a final burst closes the flow. */
   celebrationDone: () => void
@@ -130,6 +130,8 @@ export function createOnboardingFlow(deps: OnboardingFlowDeps): OnboardingFlow {
       // The whole flow counts as done; per-step outcomes stay as recorded.
       const seed = skipAll({ steps: resolved })
       if (seed.done === true) deps.persist('done', true)
+      // The wizard showed the three-part set-up, so the welcome sheet never follows it.
+      deps.persist('simplerSeen', true)
       close()
     },
 
@@ -146,6 +148,7 @@ export function createOnboardingFlow(deps: OnboardingFlowDeps): OnboardingFlow {
       completeStep('finish')
       deps.persist('done', true)
       deps.persist('completedAt', new Date().toISOString())
+      deps.persist('simplerSeen', true)
     },
 
     celebrationDone() {

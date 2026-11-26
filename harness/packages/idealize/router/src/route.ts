@@ -4,7 +4,7 @@
  * host supplies arrives as an argument, so the whole path runs in a test.
  */
 
-import { decide, PRESETS } from './decide.ts'
+import { decide, PRESETS, thriftOf } from './decide.ts'
 import type { Aggressiveness, Candidate, Decision, Weights } from './decide.ts'
 import type { JevFailure, JevResult } from './jev.ts'
 import { currentModel } from './projection.ts'
@@ -29,6 +29,8 @@ export interface TurnInput {
   weights: Weights
   aggressiveness: Aggressiveness
   preferFree: boolean
+  /** On: a move the router would make is offered, and the turn answers on the model the chat is on. */
+  ask?: boolean | undefined
   table?: readonly ScoreRow[] | undefined
   /** The person's ratings; a 5-star model for the work read is nudged up, a 1-star one left out. */
   ratings?: RatingsFile | undefined
@@ -58,6 +60,18 @@ const same = (a: { provider: string; model: string }, b: { provider: string; mod
   a.provider === b.provider && a.model === b.model
 
 const named = (model: Candidate): RoutedModel => ({ provider: model.provider, model: model.model, label: model.label })
+
+/**
+ * Whether a model costs more per token than the one the chat is on. Said only when both
+ * prices are known: an unlisted price is no ground for a warning.
+ * @param to - the model offered.
+ * @param from - the model the chat is on.
+ * @returns true when `to` is the dearer of the two.
+ */
+export function costsMore(to: Pick<Candidate, 'price'>, from: Pick<Candidate, 'price'>): boolean {
+  if (typeof to.price !== 'object' || from.price === undefined) return false
+  return thriftOf(to.price) < thriftOf(from.price)
+}
 
 /** How many of the best-scoring models have their context size read before the decision is final. */
 const WINDOWS_READ = 3
@@ -111,14 +125,24 @@ export async function routeTurn(input: TurnInput, deps: TurnDeps): Promise<TurnR
     decision = decide({ ...situation, candidates: sized })
   }
 
-  const offered = decision.stayed === 'needs-payment' || decision.stayed === 'loses-context'
+  // Asked first, the router makes no move of its own: the one it chose is offered and the turn stays where it is.
+  if (input.ask === true && decision.switched) {
+    const { sight: _sight, gateway: _gateway, ...rest } = decision
+    // Every switch names the model it chose as `recommended`, which the offer below reads.
+    decision = { ...rest, use: from, switched: false, stayed: 'asked' }
+  }
+  const offered = decision.stayed === 'needs-payment' || decision.stayed === 'loses-context' || decision.stayed === 'asked'
   if (decision.switched || (offered && decision.recommended !== undefined)) {
     const to = decision.switched ? decision.use : decision.recommended as Candidate
+    // A context warning keeps its own words; every other offer of an asking router reads as its question.
+    const asking = input.ask === true && decision.stayed !== 'loses-context'
     events.push({
       outcome: decision.switched ? 'switched' : 'offer',
       at, from: named(from), to: named(to), task: reading.task, rationale: decision.rationale,
       improvement: Number(decision.improvement.toFixed(3)),
-      ...decision.stayed === 'needs-payment' || decision.stayed === 'loses-context' ? { reason: decision.stayed } : {},
+      ...asking
+        ? { reason: 'ask' as const, dearer: costsMore(to, from) }
+        : decision.stayed === 'needs-payment' || decision.stayed === 'loses-context' ? { reason: decision.stayed } : {},
     })
   }
   return {

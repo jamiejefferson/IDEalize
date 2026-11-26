@@ -37,6 +37,8 @@ export const routerNoteDefinition: ConversationNodeDefinition<RouterEventData> =
   buildViewNode: (context): ChatConversationViewNode | null => {
     // A switch made by keeping another model's answer: the comparison card already says so.
     if (context.state === undefined || context.state.via === 'dislike') return null
+    // A router set to ask first asks above the composer on every turn it would move; the transcript keeps only what changed the chat.
+    if (context.state.reason === 'ask' || context.state.outcome === 'declined') return null
     return {
       key: context.key,
       kind: 'router-note',

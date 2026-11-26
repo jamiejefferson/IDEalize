@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
-// The starting points under the hero composer: brains as roles with examples
-// that fill the composer, spaces beside them, and every refusal stated with a
-// way forward. Nothing is ever dimmed or disabled.
+// The three views under the hero composer: Chat, Coding and Studio. A blank
+// chat is a Chat already; the other two tiles move it. Every refusal is stated
+// with a way forward, and nothing is ever dimmed or disabled.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import type { SpaceRosterEntry } from '@idealize/spaces/client'
 import { en } from '../src/client/locales.ts'
-import { HeroBrains, type HeroBrainsProps } from '../src/client/HeroBrains.tsx'
+import { CORE_PRESET, HeroBrains, STUDIO_ENTRY, viewPreset, type HeroBrainsProps } from '../src/client/HeroBrains.tsx'
 import type { BrainAccess, HeroLauncherInjected, LauncherSession, TerminalLaunches } from '../src/client/HeroLauncher.tsx'
 import { suggestSpace } from '../src/client/suggest-space.ts'
 // Type-only: the locale-namespace and slot-key merges the props type reads.
@@ -52,6 +52,13 @@ const TERMINAL: SpaceRosterEntry = {
   ],
   models: 'some',
 }
+const CORE = { id: 'core', name: 'IDEalize' }
+/** The roster once the core preset is seeded: it leads Chat and Coding. */
+const CORE_ROSTER: SpaceRosterEntry[] = [
+  { ...CHAT, brainCount: 4, brains: [...CHAT.brains, CORE] },
+  { ...TERMINAL, brainCount: 4, brains: [...TERMINAL.brains, CORE] },
+  LONE_GALLERY,
+]
 const ROSTER: SpaceRosterEntry[] = [
   CHAT,
   TERMINAL,
@@ -126,236 +133,191 @@ async function settle(): Promise<void> {
   await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
 }
 
-const card = (view: ReturnType<typeof mount>['view'], id: string): HTMLElement =>
-  view.container.querySelector<HTMLElement>(`[data-brain-card="${id}"]`)!
+const tile = (view: ReturnType<typeof mount>['view'], id: 'chat' | 'coding' | 'studio'): HTMLElement =>
+  view.container.querySelector<HTMLElement>(`[data-view-tile="${id}"]`)!
+
+const LAUNCHES: TerminalLaunches = {
+  default: 'claude',
+  byActivity: {},
+  catalog: [
+    { id: 'claude-code', label: 'Claude Code', command: 'claude', installed: true },
+    { id: 'codex', label: 'Codex', command: 'codex', installed: false },
+  ],
+}
 
 afterEach(cleanup)
 
-describe('the cards', () => {
-  it('shows a brain card for each Chat brain plus Images, and the other spaces beside them', async () => {
-    const { view } = mount()
+describe('the three views', () => {
+  it('shows Chat, Coding and Studio, with Chat marked as where this chat already is', async () => {
+    const { view } = mount({ roster: CORE_ROSTER, launches: LAUNCHES })
     await settle()
-    expect([...view.container.querySelectorAll('[data-brain-card]')].map(node => node.getAttribute('data-brain-card')))
-      .toEqual(['coding', 'design', 'mine', 'gallery'])
-    expect([...view.container.querySelectorAll('[data-space]')].map(node => node.getAttribute('data-space')))
-      .toEqual(['soundstage', 'motion', 'terminal'])
-    expect(view.container.textContent).toContain('these are only starting points')
+    expect([...view.container.querySelectorAll('[data-view-tile]')].map(one => one.getAttribute('data-view-tile')))
+      .toEqual(['chat', 'coding', 'studio'])
+    expect(tile(view, 'chat').hasAttribute('data-view-selected')).toBe(true)
+    expect(tile(view, 'coding').hasAttribute('data-view-selected')).toBe(false)
+    expect(tile(view, 'chat').textContent).toContain('Ask, plan and write.')
+    expect(tile(view, 'coding').textContent).toContain('Claude Code, on your subscription')
+    expect(tile(view, 'studio').textContent).toContain('Make images, video and sound.')
+    expect(view.container.textContent?.toLowerCase()).not.toContain('brain')
+    expect(view.container.querySelector('button:disabled')).toBeNull()
   })
 
-  it('never disables a control, whatever the roster says', async () => {
-    const { view } = mount({ roster: [CHAT, KEYLESS_GALLERY], access: { coding: { state: 'unavailable', reason: 'no-access', model: { provider: 'openrouter', model: 'x' } } } })
-    await settle()
-    const buttons = [...view.container.querySelectorAll('button')]
-    expect(buttons.length).toBeGreaterThan(0)
-    expect(buttons.every(button => !button.disabled)).toBe(true)
+  it('prefers the core preset, and falls back to a view\'s default and then its first', () => {
+    expect(viewPreset(CORE_ROSTER[0])?.id).toBe(CORE_PRESET)
+    expect(viewPreset(CHAT)?.id).toBe('coding')
+    expect(viewPreset({ ...CHAT, brains: [{ id: 'mine', name: 'Mine' }] })?.id).toBe('mine')
+    expect(viewPreset({ ...CHAT, brains: [] })).toBeUndefined()
+    expect(viewPreset(undefined)).toBeUndefined()
   })
 
-  it('marks the brain the chat runs on, and a press on it only focuses the composer', async () => {
-    const { view, enter } = mount()
-    await settle()
-    expect(card(view, 'coding').hasAttribute('data-brain-selected')).toBe(true)
-    fireEvent.click(card(view, 'coding').querySelector('button')!)
-    await settle()
-    expect(enter).not.toHaveBeenCalled()
-  })
-
-  it('a press on another brain moves this chat onto it and keeps what is typed', async () => {
-    const { view, enter, setDraft } = mount({ draft: 'half a thought' })
-    await settle()
-    fireEvent.click(card(view, 'design').querySelector('button')!)
-    await settle()
-    expect(enter).toHaveBeenCalledWith('chat', 'design', 's1')
-    expect(setDraft).not.toHaveBeenCalled()
-  })
-
-  it('an example fills the composer on that brain', async () => {
-    const { view, enter, setDraft } = mount()
-    await settle()
-    fireEvent.click(card(view, 'coding').querySelector('[data-brain-example]')!)
-    expect(setDraft).toHaveBeenCalledWith('Fix the broken menu on my site')
-    expect(enter).not.toHaveBeenCalled()
-    fireEvent.click(card(view, 'design').querySelector('[data-brain-example]')!)
-    await settle()
-    expect(enter).toHaveBeenCalledWith('chat', 'design', 's1')
-    expect(setDraft).toHaveBeenLastCalledWith('Tidy up this page\'s layout')
-  })
-
-  it('a brain somebody wrote shows its name with no invented purpose or examples', async () => {
-    const { view } = mount()
-    await settle()
-    expect(card(view, 'mine').textContent).toBe('Mine')
-  })
-
-  it('a blocked brain says what it needs, and its press opens the fix for that route', async () => {
-    const { view, addKey, enter } = mount({ access: { coding: { state: 'unavailable', reason: 'no-access', model: { provider: 'openrouter', model: 'x' } } } })
-    await settle()
-    expect(card(view, 'coding').textContent).toContain('Needs an account.')
-    expect(card(view, 'coding').querySelector('[data-brain-example]')).toBeNull()
-    fireEvent.click(card(view, 'coding').querySelector('button')!)
-    expect(addKey).toHaveBeenCalledWith('openrouter')
-    expect(enter).not.toHaveBeenCalled()
-  })
-
-  it('a route waiting on a sign-in opens the sign-in surface', async () => {
-    const { view, signIn } = mount({ access: { design: { state: 'unavailable', reason: 'no-sign-in', model: { provider: 'openai-codex', model: 'x' } } } })
-    await settle()
-    fireEvent.click(card(view, 'design').querySelector('button')!)
-    expect(signIn).toHaveBeenCalled()
-  })
-
-  it('marks Images as needing an account when the chat route driving its tool has none', async () => {
-    // Its catalogue is public, so `models: some` alone would tick a card that cannot run.
-    const blocked = { state: 'unavailable', reason: 'no-access', model: null } as const
-    const { view } = mount({ access: { gallery: blocked } })
-    await settle()
-    expect(card(view, 'gallery').querySelector('[data-brain-card-needs]')?.textContent).toContain('Needs an account.')
-  })
-
-  it('reloads when the Brains pane reports a change', async () => {
-    const { load } = mount()
-    await settle()
-    await act(async () => {
-      document.dispatchEvent(new Event('idealize:brains-changed'))
-      await Promise.resolve()
-    })
-    expect(load).toHaveBeenCalledTimes(2)
-  })
-})
-
-describe('a blank chat', () => {
-  it('goes onto its brain once when the card shows, without recording it', async () => {
-    const { prepare, noteTyping, rerender } = mount()
+  it('puts a blank chat on the core preset once, and records it when typing starts', async () => {
+    const { prepare, noteTyping, rerender } = mount({ roster: CORE_ROSTER })
     await settle()
     expect(prepare).toHaveBeenCalledTimes(1)
-    expect(prepare).toHaveBeenCalledWith('coding', 's1')
+    expect(prepare).toHaveBeenCalledWith('core', 's1')
     expect(noteTyping).not.toHaveBeenCalled()
-    rerender('')
-    await settle()
-    expect(prepare).toHaveBeenCalledTimes(1)
-  })
-
-  it('goes onto the preset it was created on when that is one of Chat\'s brains', async () => {
-    const { prepare } = mount({ session: { id: 's1', blank: true, agentPreset: 'design' } })
-    await settle()
-    expect(prepare).toHaveBeenCalledWith('design', 's1')
-  })
-
-  it('records the brain once, when typing starts', async () => {
-    const { noteTyping, rerender } = mount()
-    await settle()
     rerender('hello')
-    await settle()
     rerender('hello there')
-    await settle()
     expect(noteTyping).toHaveBeenCalledTimes(1)
-    expect(noteTyping).toHaveBeenCalledWith('coding', 's1')
+    expect(noteTyping).toHaveBeenCalledWith('core', 's1')
+    expect(prepare).toHaveBeenCalledTimes(1)
   })
 
-  it('leaves a chat that already records a brain alone', async () => {
-    const { prepare, noteTyping } = mount({ session: { id: 's1', blank: true, brain: 'design' }, draft: 'hi' })
+  it('keeps a chat on the preset it already records or was made on', async () => {
+    const recorded = mount({ roster: CORE_ROSTER, session: { id: 's1', blank: true, brain: 'coding' }, draft: 'hi' })
     await settle()
-    expect(prepare).not.toHaveBeenCalled()
-    expect(noteTyping).not.toHaveBeenCalled()
-  })
-
-  it('prepares each new blank chat again', async () => {
-    const { prepare, rerender } = mount()
-    await settle()
-    rerender('', { id: 's2', blank: true })
-    await settle()
-    expect(prepare).toHaveBeenLastCalledWith('coding', 's2')
-  })
-})
-
-describe('where the band shows', () => {
-  it('stays away without a project, on a started chat, and on a chat in another space', async () => {
-    expect(mount({ projectOpen: false }).view.container.textContent).toBe('')
+    expect(recorded.prepare).not.toHaveBeenCalled()
+    expect(recorded.noteTyping).not.toHaveBeenCalled()
     cleanup()
-    expect(mount({ session: { id: 's1', blank: false } }).view.container.textContent).toBe('')
-    cleanup()
-    expect(mount({ session: { id: 's1', blank: true, space: 'gallery' } }).view.container.textContent).toBe('')
-    cleanup()
-    expect(mount({ session: { id: 's1', blank: true, space: 'studio' } }).view.container.textContent).toBe('')
-  })
-})
-
-describe('spaces', () => {
-  it('starts a space\'s one reachable brain at once, skipping the brain step', async () => {
-    const { view, enter } = mount()
+    const made = mount({ roster: CORE_ROSTER, session: { id: 's2', blank: true, agentPreset: 'coding' } })
     await settle()
-    fireEvent.click(card(view, 'gallery').querySelector('button')!)
-    await settle()
-    expect(enter).toHaveBeenCalledWith('gallery', 'gallery', 's1')
-    expect(view.container.querySelector('[data-launcher-step="brain"]')).toBeNull()
+    expect(made.prepare).toHaveBeenCalledWith('coding', 's2')
   })
 
-  it('an Images example starts Images, then fills the composer', async () => {
-    const { view, enter, setDraft } = mount()
+  it('a press on Chat only focuses the composer', async () => {
+    const { view, enter } = mount({ roster: CORE_ROSTER })
     await settle()
-    fireEvent.click(card(view, 'gallery').querySelector('[data-brain-example]')!)
-    await settle()
-    expect(enter).toHaveBeenCalledWith('gallery', 'gallery', 's1')
-    expect(setDraft).toHaveBeenCalledWith('A poster of an owl reading')
+    fireEvent.click(tile(view, 'chat').querySelector('button')!)
+    expect(enter).not.toHaveBeenCalled()
   })
 
-  it('falls back to the brain step when the host refuses an auto-start', async () => {
-    const { view } = mount({ enter: () => Promise.resolve(false) })
+  it('Coding opens the Terminal on the core preset, and Studio opens the media view on its own', async () => {
+    const { view, enter } = mount({ roster: CORE_ROSTER, launches: LAUNCHES })
     await settle()
-    fireEvent.click(card(view, 'gallery').querySelector('button')!)
+    fireEvent.click(tile(view, 'coding').querySelector('button')!)
     await settle()
-    expect(view.container.querySelector('[data-launcher-step="brain"]')).not.toBeNull()
+    expect(enter).toHaveBeenLastCalledWith('terminal', 'core', 's1')
+    fireEvent.click(tile(view, 'studio').querySelector('button')!)
+    await settle()
+    expect(enter).toHaveBeenLastCalledWith(STUDIO_ENTRY, 'gallery', 's1')
   })
 
-  it('offers Images\' account from the card when a key is what is missing', async () => {
-    const { view, addKey } = mount({ roster: [CHAT, KEYLESS_GALLERY] })
+  it('runs one launch at a time', async () => {
+    let finish: (opened: boolean) => void = () => undefined
+    const { view, enter } = mount({ roster: CORE_ROSTER, enter: () => new Promise<boolean>((resolve) => { finish = resolve }) })
     await settle()
-    expect(card(view, 'gallery').textContent).toContain('Needs an account.')
-    fireEvent.click(card(view, 'gallery').querySelector('button')!)
-    expect(addKey).toHaveBeenCalled()
+    fireEvent.click(tile(view, 'coding').querySelector('button')!)
+    fireEvent.click(tile(view, 'studio').querySelector('button')!)
+    expect(enter).toHaveBeenCalledTimes(1)
+    finish(false)
+    await settle()
+    fireEvent.click(tile(view, 'studio').querySelector('button')!)
+    expect(enter).toHaveBeenCalledTimes(2)
   })
 
-  it('offers Add a brain where models exist and no brain does', async () => {
-    const { view, addBrain } = mount()
-    await settle()
-    fireEvent.click(view.container.querySelector('[data-space="soundstage"]')!)
-    await settle()
-    fireEvent.click(view.container.querySelector('[data-launcher-add-brain="soundstage"]')!)
-    expect(addBrain).toHaveBeenCalledWith('soundstage')
-  })
-
-  it('states the recovery where no model can serve a space, with the key and the way back', async () => {
-    const { view, addKey } = mount()
-    await settle()
-    fireEvent.click(view.container.querySelector('[data-space="motion"]')!)
-    await settle()
-    expect(view.container.querySelector('[data-launcher-refusal]')).not.toBeNull()
-    fireEvent.click(view.container.querySelector('[data-launcher-add-key]')!)
-    expect(addKey).toHaveBeenCalled()
-    fireEvent.click(view.container.querySelector('[data-launcher-back]')!)
-    expect(view.container.querySelector('[data-brain-card]')).not.toBeNull()
-  })
-
-  it('names the CLI each Terminal brain launches, never its chat model or key', async () => {
-    const { view, enter } = mount({
-      access: { admin: { state: 'unavailable', reason: 'no-access', model: { provider: 'deepseek-official', model: 'x' } } },
-      launches: {
-        default: 'claude',
-        byActivity: { design: 'codex', admin: '' },
-        catalog: [
-          { id: 'claude-code', label: 'Claude Code', command: 'claude', installed: true },
-          { id: 'codex', label: 'Codex', command: 'codex', installed: false },
-        ],
-      },
+  it('says what Chat needs and opens the fix: a key, or a sign-in', async () => {
+    const keyless = mount({
+      roster: CORE_ROSTER,
+      access: { core: { state: 'unavailable', reason: 'no-access', model: { provider: 'anthropic', model: 'x' } } },
     })
     await settle()
-    fireEvent.click(view.container.querySelector('[data-space="terminal"]')!)
+    expect(tile(keyless.view, 'chat').querySelector('[data-view-needs]')?.textContent).toContain('Needs a key.')
+    fireEvent.click(tile(keyless.view, 'chat').querySelector('button')!)
+    expect(keyless.addKey).toHaveBeenCalledWith('anthropic')
+    cleanup()
+    const modelless = mount({
+      roster: CORE_ROSTER,
+      access: { core: { state: 'unavailable', reason: 'no-access', model: null } },
+    })
     await settle()
-    expect([...view.container.querySelectorAll('[data-brain]')].map(row => row.getAttribute('data-brain-cli')))
-      .toEqual(['Claude Code', 'Codex', 'Plain shell'])
-    expect(view.container.textContent).not.toContain('gpt-5.6-terra')
-    fireEvent.click(view.container.querySelector('[data-brain="admin"]')!)
+    fireEvent.click(tile(modelless.view, 'chat').querySelector('[data-view-needs] button')!)
+    expect(modelless.addKey).toHaveBeenCalledWith('openrouter')
+    cleanup()
+    const signedOut = mount({
+      roster: CORE_ROSTER,
+      access: { core: { state: 'unavailable', reason: 'no-sign-in', model: { provider: 'openai-codex', model: 'x' } } },
+    })
     await settle()
-    expect(enter).toHaveBeenCalledWith('terminal', 'admin', 's1')
+    expect(tile(signedOut.view, 'chat').textContent).toContain('Needs a sign-in.')
+    fireEvent.click(tile(signedOut.view, 'chat').querySelector('button')!)
+    expect(signedOut.signIn).toHaveBeenCalled()
+    cleanup()
+    const noModels = mount({ roster: [{ ...CORE_ROSTER[0]!, models: 'none' }] })
+    await settle()
+    fireEvent.click(tile(noModels.view, 'chat').querySelector('button')!)
+    expect(noModels.addKey).toHaveBeenCalledWith('openrouter')
+  })
+
+  it('names the route Chat runs through when the host reports one', async () => {
+    const { view } = mount({
+      roster: CORE_ROSTER,
+      access: { core: { state: 'ready', model: { provider: 'openrouter', model: 'x' }, providerName: 'OpenRouter' } },
+    })
+    await settle()
+    expect(tile(view, 'chat').querySelector('[data-view-runs]')?.textContent).toBe('Through OpenRouter')
+  })
+
+  it('says when the coding app is not installed, and opens set-up', async () => {
+    const { view, addKey, enter } = mount({ roster: CORE_ROSTER, launches: { ...LAUNCHES, default: 'codex' } })
+    await settle()
+    expect(tile(view, 'coding').textContent).toContain('Codex is not installed.')
+    fireEvent.click(tile(view, 'coding').querySelector('button')!)
+    expect(addKey).toHaveBeenCalledWith()
+    expect(enter).not.toHaveBeenCalled()
+  })
+
+  it('says Studio needs a key when a key is what is missing', async () => {
+    const { view, addKey } = mount({ roster: [CORE_ROSTER[0]!, KEYLESS_GALLERY] })
+    await settle()
+    expect(tile(view, 'studio').textContent).toContain('Needs a key.')
+    fireEvent.click(tile(view, 'studio').querySelector('button')!)
+    expect(addKey).toHaveBeenCalledWith('openrouter')
+    cleanup()
+    const noModel = mount({ roster: [CORE_ROSTER[0]!, { ...KEYLESS_GALLERY, reason: 'no-model', keyMissing: false }] })
+    await settle()
+    expect(tile(noModel.view, 'studio').textContent).toContain('Needs a key.')
+    cleanup()
+    const shell = mount({ roster: [CORE_ROSTER[0]!, { ...KEYLESS_GALLERY, reason: 'desktop-only', keyMissing: false }] })
+    await settle()
+    expect(tile(shell.view, 'studio').querySelector('[data-view-needs]')).toBeNull()
+  })
+
+  it('leaves out a view the roster does not offer', async () => {
+    const { view } = mount({ roster: [CORE_ROSTER[0]!] })
+    await settle()
+    expect([...view.container.querySelectorAll('[data-view-tile]')].map(one => one.getAttribute('data-view-tile'))).toEqual(['chat'])
+  })
+
+  it('shows nothing without a project, in a started chat, or once the chat has left for another view', async () => {
+    for (const options of [
+      { projectOpen: false },
+      { session: { id: 's1', blank: false } },
+      { session: { id: 's1', blank: true, space: 'gallery' } },
+    ] satisfies MountOptions[]) {
+      const { view, prepare } = mount({ roster: CORE_ROSTER, ...options })
+      await settle()
+      expect(view.container.querySelector('[data-hero-below]')).toBeNull()
+      expect(prepare).not.toHaveBeenCalled()
+      cleanup()
+    }
+  })
+
+  it('reloads when the Models pane saves something', async () => {
+    const { load } = mount({ roster: CORE_ROSTER })
+    await settle()
+    act(() => { document.dispatchEvent(new CustomEvent('idealize:brains-changed')) })
+    await settle()
+    expect(load).toHaveBeenCalledTimes(2)
   })
 })
 

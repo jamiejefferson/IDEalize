@@ -81,8 +81,8 @@ describe('AskbarRoot', () => {
     // The sidebar carries its own New chat above the seat; the bar had none
     // until JJ asked for it back (13 Sep 2026).
     expect(newChat?.getAttribute('aria-label')).toBe('New chat — start one in the main window')
-    expect(studio?.getAttribute('aria-label')).toBe('Studio — open it in the main window')
-    expect(studio?.textContent).toBe('Studio')
+    expect(studio?.getAttribute('aria-label')).toBe('Agent Coordination — open it in the main window')
+    expect(studio?.textContent).toBe('Agent Coordination')
     expect(studio?.querySelector('img')?.getAttribute('src')).toBe(OWL_SRC)
     // A rule closes the Studio off from the agents under it, in both homes.
     expect(rule?.tagName).toBe('HR')
@@ -99,7 +99,7 @@ describe('AskbarRoot', () => {
     expect(panel.textContent).toContain('Draft the launch email')
     expect(panel.textContent).toContain('Outlined both tones. Waiting on your pick.')
     expect(view.getByPlaceholderText('Ask Juno')).toBeTruthy()
-    expect(panel.textContent).toContain('Open the Studio')
+    expect(panel.textContent).toContain('Open Agent Coordination')
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(view.queryByRole('dialog')).toBeNull()
   })
@@ -210,7 +210,7 @@ describe('AskbarRoot', () => {
     vi.stubGlobal('fetch', fetchMock)
     const { view } = mount()
     fireEvent.click(view.getByLabelText('demo — expand to the main window'))
-    fireEvent.click(view.getByLabelText('Studio — open it in the main window'))
+    fireEvent.click(view.getByLabelText('Agent Coordination — open it in the main window'))
     await waitFor(() => { expect(fetchMock).toHaveBeenCalledTimes(2) })
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe(TRANSFORM_PATH)
@@ -222,7 +222,7 @@ describe('AskbarRoot', () => {
     // The panel foot asks for the same. Opening the panel also asks the
     // window for room, so the transform is found by its route.
     fireEvent.keyDown(view.getByLabelText('Juno — Needs input'), { key: 'Enter' })
-    fireEvent.click(view.getByText('Open the Studio ↗'))
+    fireEvent.click(view.getByText('Open Agent Coordination ↗'))
     await waitFor(() => { expect(fetchMock.mock.calls.filter(call => call[0] === TRANSFORM_PATH)).toHaveLength(3) })
     const [, foot] = fetchMock.mock.calls.filter(call => call[0] === TRANSFORM_PATH)[2] as [string, RequestInit]
     expect(JSON.parse(foot.body as string)).toEqual({ to: 'maxi', open: 'studio', project: '/work/demo' })
@@ -235,7 +235,7 @@ describe('AskbarRoot', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
     vi.stubGlobal('fetch', fetchMock)
     const { view } = mount({ project: '', roster: null, error: null })
-    fireEvent.click(view.getByLabelText('Studio — open it in the main window'))
+    fireEvent.click(view.getByLabelText('Agent Coordination — open it in the main window'))
     await waitFor(() => { expect(fetchMock).toHaveBeenCalledOnce() })
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(JSON.parse(init.body as string)).toEqual({ to: 'maxi', open: 'studio' })

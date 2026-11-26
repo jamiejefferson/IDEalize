@@ -177,7 +177,7 @@ describe('the Studio chat', () => {
     expect(comm.sends).toEqual([])
     expect(notices).toEqual([{
       kind: 'notify',
-      title: 'Studio',
+      title: 'Agent Coordination',
       body: 'Your message was not posted: the Studio coordinator could not be started.',
     }])
     expect((await call(OVERVIEW_PATH)).json()).toEqual({ projects: [] })
@@ -188,7 +188,7 @@ describe('the Studio chat', () => {
     const { call, preStep, notices } = await mount(comm)
     expect(await preStep(STUDIO_LOG, '@Yoda are you there')).toEqual({ kind: 'reject' })
     expect(comm.sends).toEqual([])
-    expect(notices).toEqual([{ kind: 'notify', title: 'Studio', body: 'Nobody called "@Yoda" is present. Present: Mas Amedda.' }])
+    expect(notices).toEqual([{ kind: 'notify', title: 'Agent Coordination', body: 'Nobody called "@Yoda" is present. Present: Mas Amedda.' }])
     expect((await call(OVERVIEW_PATH)).json()).toEqual({ projects: [] })
     expect(await preStep([{ type: 'idealize/space', data: { space: 'chat' } }], 'hello model')).toEqual({ kind: 'enter', messages: [] })
     expect(await preStep([], 'hello model')).toEqual({ kind: 'enter', messages: [] })

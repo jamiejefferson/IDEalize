@@ -61,7 +61,7 @@ import z from '@deepseek-ai/schemastery'
 import {
   COMPOSITION_FILE, METADATA_FILE, readComposition, renderPresetMetadata,
 } from '@deepseek-ai/dsh-agent-presets'
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import { SETTINGS_NAMESPACE as AGENT_PRESETS_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { execFile } from 'node:child_process'
 import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, type AgentDefaultModelSettings } from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -70,7 +70,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { dshHomePath, expandHomePath } from '@deepseek-ai/dsh-home-paths'
 import { isSpaceId, LAUNCHABLE_SPACE_IDS, presetSpaces, RETIRED_ROLE_PRESETS, type SpaceId } from '@idealize/spaces'
 import { isGenerationOnlyComposition, mediaCompositionFor } from '@idealize/gen-tools'
-import { ACTIVITIES, ACTIVITY_IDS, FREE_ACTIVITY_ID, deriveComposition, hasActivityPresets, personaOf } from './seed.ts'
+import { ACTIVITIES, ACTIVITY_IDS, CORE, CORE_ID, FREE_ACTIVITY_ID, deriveComposition, hasActivityPresets, personaOf } from './seed.ts'
 import { assessPills, type ActivityModel, type PillAvailability, type Surface } from './availability.ts'
 
 export { assessPills, terminalRestarts } from './availability.ts'
@@ -78,7 +78,7 @@ export type {
   ActivityModel, AvailabilityFacts, PillAvailability, PillReason, Surface, TerminalRun,
 } from './availability.ts'
 
-export { ACTIVITIES, ACTIVITY_IDS, FREE_ACTIVITY_ID, deriveComposition, hasActivityPresets, personaOf } from './seed.ts'
+export { ACTIVITIES, ACTIVITY_IDS, CORE, CORE_ID, FREE_ACTIVITY_ID, deriveComposition, hasActivityPresets, personaOf } from './seed.ts'
 export type { ActivityDefinition } from './seed.ts'
 
 /** Plugin config. */
@@ -123,6 +123,12 @@ export interface Config {
   terminalCliByProvider?: Record<string, string>
   /** Environment variables holding a route's API key when the settings profile names none. */
   apiKeyEnvByProvider?: Record<string, string>
+  /**
+   * Whether this install has been moved onto the core preset: the default
+   * preset was set to it once. Kept so a person who later picks another
+   * default is not moved back at the next start.
+   */
+  coreAdopted?: boolean
 }
 
 
@@ -142,6 +148,7 @@ export const Config: z<Config> = z.object({
     anthropic: 'ANTHROPIC_API_KEY',
     openai: 'OPENAI_API_KEY',
   }),
+  coreAdopted: z.boolean().default(false),
 })
 
 /** One terminal-only route and the command-line agent that serves it, as `GET /idealize/activity/agents` reports it. */
@@ -769,11 +776,50 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
 
-  void (async () => {
+  /**
+   * Write the core preset when the roster does not carry it. Unlike
+   * {@link seed} this runs on every install, because an install that already
+   * holds the activity agents still needs the preset new chats run on.
+   * @returns whether the roster carries the core preset afterwards.
+   */
+  const seedCore = async (): Promise<boolean> => {
+    const roster = await ctx.agentPresets.list()
+    if (roster.some(preset => preset.id === CORE_ID)) return true
+    const source = await standardSource()
+    if ('error' in source) {
+      ctx.logger.warn(`activity-pills: ${source.error}; the core preset was not seeded`)
+      return false
+    }
+    const directory = join(root, CORE_ID)
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+    await writeFile(join(directory, COMPOSITION_FILE), deriveComposition(source.text, CORE), { mode: 0o600 })
+    const metadata = renderPresetMetadata({ name: CORE.name, description: CORE.description, order: CORE.order })
+    if (metadata !== undefined) await writeFile(join(directory, METADATA_FILE), metadata, { mode: 0o600 })
+    ctx.logger.info(`activity-pills: seeded the core preset into ${root}`)
+    return true
+  }
+
+  const seeded = (async () => {
     await seed()
+    const core = await seedCore()
     await retire()
     await repair()
+    return core
   })().catch((error: unknown) => {
     ctx.logger.warn(`activity-pills: seeding failed: ${error instanceof Error ? error.message : String(error)}`)
+    return false
+  })
+
+  // New chats are created on the default preset, so the install is moved onto
+  // the core preset once it exists. The flag makes this a single move.
+  ctx.inject(['settings'], (settingsCtx) => {
+    void seeded.then(async (core) => {
+      if (!core || current().coreAdopted === true) return
+      await settingsCtx.settings.update(settingsNamespace(AGENT_PRESETS_SETTINGS_NAMESPACE), { default: CORE_ID })
+      await settingsCtx.settings.update(NS, { coreAdopted: true })
+      ctx.logger.info('activity-pills: new chats now start on the core preset')
+    }).catch((error: unknown) => {
+      ctx.logger.warn(`activity-pills: adopting the core preset failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
   })
 }

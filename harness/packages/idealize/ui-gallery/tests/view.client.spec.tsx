@@ -19,6 +19,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { GenerationSettings, loadInputs } from '../src/client/GenerationSettings.tsx'
 import { GalleryView, rawUrl, retryMessage } from '../src/client/GalleryView.tsx'
 import type { GalleryViewProps } from '../src/client/GalleryView.tsx'
+import { studioRows } from '../src/client/contract.ts'
 import type { GalleryRow, GalleryTurn } from '../src/client/contract.ts'
 
 afterEach(cleanup)
@@ -185,22 +186,48 @@ describe('the Gallery grid', () => {
     expect(rule('.largeVideo')).toContain('max-height: 80vh')
   })
 
-  it('shows only its own kind: one chat\'s log carries every generation it ran', () => {
-    // The same chat made an image, a video and a sound; the Images grid shows
-    // the image, and the other two belong to Video and the Sound Stage.
+  it('shows everything the chat made, whichever kind the chat box is set to', () => {
+    // JJ, 26 Nov 2026: moving to Video must keep the picture about to be animated on screen.
     const rows = [
       row(),
       row({ callId: 'c-video', artefactKind: 'video', artefacts: [{ id: 'v1', mediaType: 'video/mp4', bytes: 24, relPath: 'x.mp4', archived: false }] }),
       row({ callId: 'c-audio', artefactKind: 'audio', artefacts: [{ id: 'a1', mediaType: 'audio/wav', bytes: 44, relPath: 'x.wav', archived: false }] }),
     ]
-    view(rows)
-    expect(document.querySelector('[data-gallery-image="artefact-1"]')).not.toBeNull()
-    expect(document.querySelector('[data-gallery-video="v1"]')).toBeNull()
-    expect(document.querySelector('[data-gallery-audio="a1"]')).toBeNull()
-    cleanup()
-    view(rows, undefined, undefined, 'video')
-    expect(document.querySelector('[data-gallery-video="v1"]')).not.toBeNull()
-    expect(document.querySelector('[data-gallery-image="artefact-1"]')).toBeNull()
+    for (const kind of ['image', 'video', 'audio'] as const) {
+      view(rows, undefined, undefined, kind)
+      expect(document.querySelector('[data-gallery-image="artefact-1"]')).not.toBeNull()
+      expect(document.querySelector('[data-gallery-video="v1"]')).not.toBeNull()
+      expect(document.querySelector('[data-gallery-audio="a1"]')).not.toBeNull()
+      cleanup()
+    }
+  })
+
+  it('gives a sound its prompt and a working player, with no enlarge button around it', () => {
+    const setDisposition = vi.fn(() => Promise.resolve(null))
+    view([row({ callId: 'c-audio', artefactKind: 'audio', prompt: 'a whinny', note: 'Changed to Sound 2.', artefacts: [{ id: 'a1', mediaType: 'audio/wav', bytes: 44, relPath: 'Sounds/x.wav', archived: false }] })], undefined, setDisposition, 'audio')
+    const tile = document.querySelector('[data-gallery-sound="a1"]')!
+    expect(tile.querySelector('p')?.textContent).toBe('a whinny')
+    const player = tile.querySelector<HTMLAudioElement>('audio')!
+    expect(player.controls).toBe(true)
+    expect(player.getAttribute('src')).toBe(rawUrl('a1'))
+    expect(tile.querySelector('[data-gallery-open]')).toBeNull()
+    expect(tile.querySelector('[data-gallery-router-note]')?.textContent).toBe('Changed to Sound 2.')
+    fireEvent.click(tile.querySelector('[data-gallery-verdict="archived"]')!)
+    expect(setDisposition).toHaveBeenCalledWith('a1', 'archived')
+  })
+
+  it('drops a failure once a later attempt of the same kind in the same turn is under way', () => {
+    // The first video was refused and the agent tried again: the refusal is no longer the person's to act on.
+    const refused = row({ callId: 'c1', artefactKind: 'video', status: 'failed', error: 'refused', artefacts: [], startSeq: 5, turn: 2 })
+    const again = row({ callId: 'c2', artefactKind: 'video', status: 'running', artefacts: [], startSeq: 9, turn: 2 })
+    expect(studioRows({ rows: [again, refused], turns: [] })).toEqual([again])
+    // A failure with nothing after it, one in another turn, and one of another kind all stay.
+    expect(studioRows({ rows: [refused], turns: [] })).toEqual([refused])
+    expect(studioRows({ rows: [{ ...again, turn: 3 }, refused], turns: [] })).toHaveLength(2)
+    expect(studioRows({ rows: [{ ...again, artefactKind: 'audio' }, refused], turns: [] })).toHaveLength(2)
+    expect(studioRows({ rows: [{ ...again, status: 'failed' }, refused], turns: [] })).toHaveLength(2)
+    expect(studioRows({ rows: [{ ...again, startSeq: 1 }, refused], turns: [] })).toHaveLength(2)
+    expect(studioRows(undefined)).toEqual([])
   })
 
   it('shows a running task as a chat row: the prompt beside Generating…', () => {
@@ -346,6 +373,8 @@ describe('the generation settings strip', () => {
         useStore={selector => selector({ view })}
         useInput={selector => selector({ draft })}
         inputActions={{ setDraft }}
+        actions={{ setView: vi.fn() }}
+        sessionId="s1"
         t={(key: string, params?: Record<string, unknown>) => params === undefined ? key : `${key}:${String(params.seconds)}`}
       />
     )
@@ -460,11 +489,9 @@ describe('the generation settings strip', () => {
     expect([input('takes')!.step, input('takes')!.value, input('takes')!.getAttribute('inputmode')]).toEqual(['1', '', 'numeric'])
     // The switches start at their defaults.
     expect([input('instrumental')!.type, input('instrumental')!.checked, input('master')!.checked]).toEqual(['checkbox', false, true])
-    // A switch reads box then word, and the word is not a hideable label: a bare box says nothing.
-    expect([input('master')!.previousElementSibling, input('master')!.nextElementSibling?.textContent]).toEqual([null, 'Master'])
-    expect(input('master')!.nextElementSibling?.className).not.toContain('label')
-    // Both switches share one box after the other controls.
-    expect([...document.querySelectorAll('[data-gen-switches] [data-gen-setting]')].map(node => node.getAttribute('data-gen-setting'))).toEqual(['instrumental', 'master'])
+    // A switch sits on its own line like every other setting: its name, then the box.
+    expect(input('master')!.previousElementSibling?.textContent).toBe('Master')
+    expect(input('master')!.closest('[data-gen-setting-kind]')?.getAttribute('data-gen-setting-kind')).toBe('boolean')
 
     fireEvent.change(duration, { target: { value: '45' } })
     expect(setDraft).toHaveBeenLastCalledWith('a paper boat [duration 45]')
@@ -568,158 +595,74 @@ describe('loadInputs', () => {
   })
 })
 
-describe('the strip on a narrow tool row', () => {
-  const observers: { callback: () => void; observed: Element[] }[] = []
-  class FakeResizeObserver {
-    observed: Element[] = []
-    constructor(readonly callback: () => void) { observers.push(this) }
-    observe(element: Element) { this.observed.push(element) }
-    disconnect() { /* nothing to release: the fake holds no platform handle */ }
-  }
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    observers.length = 0
-  })
-
-  function widths(element: Element, scrollWidth: number, clientWidth: number) {
-    Object.defineProperty(element, 'scrollWidth', { configurable: true, value: scrollWidth })
-    Object.defineProperty(element, 'clientWidth', { configurable: true, value: clientWidth })
-  }
-
-  /** Render the strip into a tool row that already holds a mode chip beside it. */
-  function renderStrip() {
-    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('not found', { status: 404 }))))
-    // jsdom lays nothing out, so the tool row is given a width by hand before
-    // the strip mounts; the slot wrapper between them keeps jsdom's zero, the
-    // way the real slot renderer's wrapper has no width of its own.
-    const toolRow = document.body.appendChild(document.createElement('div'))
-    widths(toolRow, 300, 300)
+describe('the settings panel', () => {
+  function mount(view: string, draft = 'a paper boat') {
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(url.includes('?space=')
+      ? new Response('no', { status: 404 })
+      : new Response(JSON.stringify({ presets: [{ id: 'motion', model: { backend: 'fal', model: 'fal-ai/veo' }, candidates: [{ backend: 'fal', model: { id: 'fal-ai/veo', name: 'Veo' } }] }] }), { status: 200 }))))
     render(
-      <>
-        <div data-mode-chip="">Workspace Write</div>
-        <div data-slot-wrapper="">
-          <GenerationSettings
-            useStore={selector => selector({ view: 'motion' })}
-            useInput={selector => selector({ draft: '' })}
-            inputActions={{ setDraft: vi.fn() }}
-            t={(key: string) => key}
-          />
-        </div>
-      </>,
-      { container: toolRow },
-    )
-    const row = document.querySelector<HTMLElement>('[data-gen-settings-space="motion"]')
-    const chip = document.querySelector<HTMLElement>('[data-mode-chip]')
-    if (row === null || chip === null) throw new Error('the strip did not render inside a row')
-    return { row, parent: toolRow, chip }
-  }
-
-  const latest = () => {
-    const observer = observers[observers.length - 1]
-    if (observer === undefined) throw new Error('the strip observed nothing')
-    return observer
-  }
-
-  it('drops its labels once the row overflows, and brings them back only when the row regains the width it asked for', () => {
-    // Walk of 7 Sep 2026 at 1280px: the mode chip and the strip's labels
-    // overlapped, because the row's leading half shrinks and its trailing half
-    // does not.
-    const { row, parent, chip } = renderStrip()
-    expect(row.hasAttribute('data-gen-settings-compact')).toBe(false)
-    expect(latest().observed).toEqual([row, parent, chip])
-
-    // The row keeps its width; the chip's box shrinks under its text.
-    widths(chip, 300, 100)
-    act(() => { latest().callback() })
-    expect(row.hasAttribute('data-gen-settings-compact')).toBe(true)
-    expect(document.querySelector('[data-gen-setting="duration"]')?.getAttribute('aria-label')).toBe('gallery.settings.duration')
-
-    // Compact, everything fits, yet the labels stay hidden while the row is
-    // narrower than the 500px the labelled strip asked for.
-    widths(chip, 300, 300)
-    widths(parent, 450, 450)
-    act(() => { latest().callback() })
-    expect(row.hasAttribute('data-gen-settings-compact')).toBe(true)
-
-    widths(parent, 520, 520)
-    act(() => { latest().callback() })
-    expect(row.hasAttribute('data-gen-settings-compact')).toBe(false)
-
-    // The row itself overflowing counts the same way.
-    widths(parent, 700, 520)
-    act(() => { latest().callback() })
-    expect(row.hasAttribute('data-gen-settings-compact')).toBe(true)
-  })
-
-  it('waits for the row to be laid out, then measures it on the strip\'s own resize', () => {
-    // Before layout every ancestor reads zero (jsdom's default), and a document
-    // element with a width is not a row either.
-    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('not found', { status: 404 }))))
-    const toolRow = document.body.appendChild(document.createElement('div'))
-    const chip = toolRow.appendChild(document.createElement('div'))
-    render(
-      <GenerationSettings
-        useStore={selector => selector({ view: 'motion' })}
-        useInput={selector => selector({ draft: '' })}
-        inputActions={{ setDraft: vi.fn() }}
-        t={(key: string) => key}
-      />,
-      { container: toolRow.appendChild(document.createElement('div')) },
-    )
-    const row = document.querySelector<HTMLElement>('[data-gen-settings-space="motion"]')
-    if (row === null) throw new Error('no strip')
-    expect(latest().observed).toEqual([row])
-
-    widths(document.documentElement, 1280, 1280)
-    act(() => { latest().callback() })
-    expect(latest().observed).toEqual([row])
-    expect(row.hasAttribute('data-gen-settings-compact')).toBe(false)
-    Object.defineProperty(document.documentElement, 'clientWidth', { configurable: true, value: 0 })
-
-    widths(toolRow, 300, 300)
-    widths(chip, 200, 100)
-    act(() => { latest().callback() })
-    expect(latest().observed).toEqual([row, toolRow, chip])
-    expect(row.hasAttribute('data-gen-settings-compact')).toBe(true)
-  })
-
-  it('starts watching when the ring moves onto a media view after mounting on Chat', () => {
-    // The packaged walk of 7 Sep 2026 found no observer at all: the strip had
-    // mounted on the Chat view, rendering nothing, and the effect never re-ran.
-    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('not found', { status: 404 }))))
-    const setDraft = vi.fn()
-    const element = (view: string) => (
       <GenerationSettings
         useStore={selector => selector({ view })}
-        useInput={selector => selector({ draft: '' })}
-        inputActions={{ setDraft }}
-        t={(key: string) => key}
-      />
-    )
-    const rendered = render(element('chat'))
-    expect(observers).toHaveLength(0)
-    rendered.rerender(element('motion'))
-    const row = document.querySelector<HTMLElement>('[data-gen-settings-space="motion"]')
-    expect(row).not.toBeNull()
-    expect(latest().observed).toEqual([row])
-  })
-
-  it('never compacts where no ResizeObserver exists', () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('not found', { status: 404 }))))
-    vi.stubGlobal('ResizeObserver', undefined)
-    render(
-      <GenerationSettings
-        useStore={selector => selector({ view: 'motion' })}
-        useInput={selector => selector({ draft: '' })}
+        useInput={selector => selector({ draft })}
         inputActions={{ setDraft: vi.fn() }}
+        actions={{ setView: vi.fn() }}
+        sessionId="s1"
         t={(key: string) => key}
       />,
     )
-    expect(document.querySelector('[data-gen-settings-compact]')).toBeNull()
+    const trigger = document.querySelector<HTMLButtonElement>('[data-gen-settings-open]')!
+    const panel = document.querySelector<HTMLElement>('[data-gen-settings-panel]')!
+    return { trigger, panel }
+  }
+
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('keeps every setting off the row, in a panel on the document body that one button opens and closes', () => {
+    // JJ, 26 Nov 2026: the controls ran past the chat box's edge and were cut off.
+    const { trigger, panel } = mount('motion')
+    const row = document.querySelector('[data-gen-settings-space]')!
+    expect(row.querySelector('select, input')).toBeNull()
+    expect(panel.parentElement).toBe(document.body)
+    expect(panel.hidden).toBe(true)
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+
+    trigger.getBoundingClientRect = () => ({ top: 700, left: 4000 }) as DOMRect
+    fireEvent.click(trigger)
+    expect(panel.hidden).toBe(false)
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    // It opens upward from the trigger and stays inside the window.
+    expect(panel.style.bottom).toBe(`${String(window.innerHeight - 700 + 8)}px`)
+    expect(panel.style.left).toBe(`${String(window.innerWidth - 300 - 16)}px`)
+    trigger.getBoundingClientRect = () => ({ top: 600, left: 2 }) as DOMRect
+    act(() => { window.dispatchEvent(new Event('resize')) })
+    expect(panel.style.left).toBe('16px')
+    expect([...panel.querySelectorAll('[data-gen-setting]')].map(node => node.getAttribute('data-gen-setting'))).toEqual(['duration', 'aspect_ratio'])
+
+    // A press inside keeps it open; one elsewhere, Escape, or the button again closes it.
+    fireEvent.pointerDown(panel.querySelector('select')!)
+    expect(panel.hidden).toBe(false)
+    fireEvent.pointerDown(document.body)
+    expect(panel.hidden).toBe(true)
+    fireEvent.click(trigger)
+    fireEvent.keyDown(document, { key: 'Enter' })
+    expect(panel.hidden).toBe(false)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(panel.hidden).toBe(true)
+    fireEvent.click(trigger)
+    fireEvent.click(trigger)
+    expect(panel.hidden).toBe(true)
+  })
+
+  it('says on the closed button which model and settings are in force', async () => {
+    const { trigger } = mount('motion', 'a kite [duration 8, aspect 9:16]')
+    const summary = (): string => trigger.querySelector('[data-gen-settings-summary]')!.textContent
+    // Auto until the chosen model is read, then its name; each setting with a value follows.
+    expect(summary()).toBe('gallery.settings.auto · gallery.settings.seconds · 9:16')
+    await waitFor(() => { expect(summary()).toBe('Veo · gallery.settings.seconds · 9:16') })
+    expect(trigger.getAttribute('aria-label')).toBe(`gallery.settings.open: ${summary()}`)
+    cleanup()
+    const images = mount('gallery', 'a boat [3 images]')
+    expect(images.trigger.textContent).toContain('× 3')
   })
 })
 

@@ -2,10 +2,13 @@
  * IDEalize first-run onboarding, browser half. One occupant on the frame's
  * shell.overlay seat renders the five-step wizard, gated by the
  * `idealize-onboarding` settings seed exactly as the tour is gated by
- * `hasSeenTour`. The flow runs BEFORE the showcase tour: a
- * `ctx.tour.holdFirstRun()` hold is taken at plugin start and released exactly
- * once — when the seed says the flow is closed, when settings are unavailable
- * (a remote browser), or when the user finishes or skips the wizard.
+ * `hasSeenTour`. A second occupant renders the welcome sheet, once, for someone
+ * whose wizard was done before the three-part set-up arrived (`done` true,
+ * `simplerSeen` not yet true); it never shows while the wizard does. Both run
+ * BEFORE the showcase tour: a `ctx.tour.holdFirstRun()` hold is taken at
+ * plugin start and released exactly once — when the seed calls for neither
+ * surface, when settings are unavailable (a remote browser), when the user
+ * finishes or skips the wizard, or when the welcome sheet closes.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
@@ -22,6 +25,9 @@ import type { OnboardingSeedLike } from './steps.ts'
 import { createOnboardingApi } from './api.ts'
 import { OnboardingOverlay } from './OnboardingOverlay.tsx'
 import type { OnboardingInjected } from './OnboardingOverlay.tsx'
+import { createSimplerSheet } from './simpler.ts'
+import { SimplerSheet } from './SimplerSheet.tsx'
+import type { SimplerSheetInjected } from './SimplerSheet.tsx'
 import { OnboardingRow } from './OnboardingRow.tsx'
 import type { OnboardingRowInjected } from './OnboardingRow.tsx'
 import { en, zh, type OnboardingKey } from './locales.ts'
@@ -29,7 +35,11 @@ import { en, zh, type OnboardingKey } from './locales.ts'
 export { deriveStep, advance, skipAll, stepBefore, ONBOARDING_STEP_IDS } from './steps.ts'
 export type { OnboardingSeedLike, OnboardingStepId, OnboardingStepOutcome } from './steps.ts'
 export { createOnboardingApi } from './api.ts'
-export type { AgentsState, OnboardingApi, OrientOutcome, SaveOutcome } from './api.ts'
+export type { AgentsState, AlignOutcome, AlignResult, LaunchChoice, Launches, OnboardingApi, OrientOutcome, SaveOutcome } from './api.ts'
+export { SimplerSheet } from './SimplerSheet.tsx'
+export type { SimplerSheetInjected, SimplerSheetProps } from './SimplerSheet.tsx'
+export { createSimplerSheet, simplerSheetDue } from './simpler.ts'
+export type { SimplerSheet as SimplerSheetController, SimplerSheetDeps, SimplerSheetState } from './simpler.ts'
 export { OnboardingOverlay } from './OnboardingOverlay.tsx'
 export type { OnboardingInjected, OnboardingOverlayProps, OnboardingCelebration, OnboardingViewState } from './OnboardingOverlay.tsx'
 export { OnboardingRow } from './OnboardingRow.tsx'
@@ -89,6 +99,14 @@ export function apply(ctx: ClientContext): void {
     },
     releaseHold: releaseOnce,
   })
+  const sheet = createSimplerSheet({
+    markSeen: () => {
+      scope.set('simplerSeen', true).catch(() => {
+        // A failed write shows the sheet again next launch.
+      })
+    },
+    releaseHold: releaseOnce,
+  })
 
   // ── The gate ───────────────────────────────────────────────────────────
   // The first-run gate mirrors the pattern the retired @idealize/setup client
@@ -107,7 +125,9 @@ export function apply(ctx: ClientContext): void {
         releaseOnce()
         return
       }
-      if (!flow.open(snapshot.value)) releaseOnce()
+      // The wizard comes first; the welcome sheet is for a seed the wizard has closed.
+      if (flow.open(snapshot.value)) return
+      if (!sheet.open(snapshot.value)) releaseOnce()
     }
     const off = scope.subscribe(check)
     check()
@@ -142,6 +162,19 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     inject: injected,
   }, OnboardingOverlay))
+
+  const api = createOnboardingApi()
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'idealize-onboarding-simpler',
+    order: 94,
+    locale: NS,
+    inject: (): SimplerSheetInjected => ({
+      hooks: { sheet: sheet.view },
+      api,
+      close: sheet.close,
+    }),
+  }, SimplerSheet))
 
   // The General-section re-run row: reset the seed so the wizard re-arms on
   // next launch (the same escape hatch clearing `done` in settings.yaml gives).

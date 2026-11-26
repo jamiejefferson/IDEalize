@@ -76,6 +76,20 @@ describe('applyTerminalPaint', () => {
   })
 })
 
+describe('header strip', () => {
+  it('gets its own background from a blueprint paper, and gives it up on a flat theme or no paint', () => {
+    const header = (): string => document.documentElement.style.getPropertyValue('--dsh-terminal-header')
+    applyTerminalPaint({ ...PAINT, paper: { ground: 'none', crease: false, inkOpacity: 1, textShadow: 'none', header: 'linear-gradient(red, blue) 0 100% / 5px 5px, #102030' } })
+    expect(header()).toBe('linear-gradient(red, blue) 0 100% / 5px 5px, #102030')
+    applyTerminalPaint(PAINT)
+    expect(header()).toBe('')
+    expect(document.documentElement.style.getPropertyValue('--dsh-terminal-bg')).toBe('#F7F5F0')
+    applyTerminalPaint({ ...PAINT, paper: { ground: 'none', crease: false, inkOpacity: 1, textShadow: 'none', header: '#102030' } })
+    applyTerminalPaint(undefined)
+    expect(header()).toBe('')
+  })
+})
+
 describe('appearance subscription', () => {
   it('adopts the service paint, follows store changes, and clears on dispose', async () => {
     // The probe stays quiet: no embedded terminal here.

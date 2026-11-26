@@ -1,5 +1,5 @@
 /**
- * The Brains row for a key gateway: one key from the person's organisation
+ * The Models pane's row for a key gateway: one key from the person's organisation
  * that reaches every model service it pays for. It asks for the gateway's
  * address and the key, checks them with the gateway before storing them, and
  * then shows what the key reaches and this month's spend. The address is the
@@ -55,14 +55,15 @@ export function gatewayLine(state: GatewayState, t: Translate): string {
 }
 
 /**
- * The row. Shown under the connected services once a gateway is set, and at
- * the top of the full services list until then.
- * @param props - copy, whether to show only a configured gateway, and a test fetch.
+ * The row. The Models pane shows it whether or not a gateway is set. A caller
+ * that splits its services into two lists passes `configuredOnly`: true shows
+ * the row only once a gateway is set, false only until then.
+ * @param props - copy, the optional list filter, and a test fetch.
  * @returns the row, or nothing when it has no place in this list.
  */
 export function GatewayRow({ t, configuredOnly, onState, fetchImpl = fetch }: {
   t: Translate
-  configuredOnly: boolean
+  configuredOnly?: boolean
   /** Told whether a gateway is set, so the list can drop its empty-state line. */
   onState?: (configured: boolean) => void
   fetchImpl?: typeof fetch
@@ -83,7 +84,7 @@ export function GatewayRow({ t, configuredOnly, onState, fetchImpl = fetch }: {
   useEffect(() => { if (state !== null) onState?.(state.configured) }, [state, onState])
 
   if (state === null) return null
-  if (configuredOnly !== state.configured) return null
+  if (configuredOnly !== undefined && configuredOnly !== state.configured) return null
 
   const send = async (method: 'POST' | 'DELETE', body?: unknown): Promise<void> => {
     setBusy(true)

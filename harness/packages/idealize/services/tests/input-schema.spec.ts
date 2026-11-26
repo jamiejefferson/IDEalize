@@ -211,6 +211,15 @@ describe('coerceLiteral', () => {
     expect(coerceLiteral('720p', ['480P', '768P', '1080P'])).toBe('768P')
     expect(coerceLiteral('4k', ['720p', '1080p', '4K'])).toBe('4K')
     expect(coerceLiteral('5s', ['5', '10'])).toBe('5')
+  })
+
+  it('reads an aspect the endpoint lacks as the nearest shape it offers', () => {
+    expect(coerceLiteral('4:3', ['16:9', '9:16'])).toBe('16:9')
+    expect(coerceLiteral('3:4', ['16:9', '9:16'])).toBe('9:16')
+    expect(coerceLiteral('1:1', ['16:9', '9:16'])).toBe('16:9')
+    expect(coerceLiteral('21:9', ['16:9', '4:3', '1:1'])).toBe('16:9')
+    expect(coerceLiteral('4:3', ['auto', 'wide'])).toBeUndefined()
+    expect(coerceLiteral('0:3', ['16:9'])).toBeUndefined()
     expect(coerceLiteral('16:9', ['16:9', '9:16'])).toBe('16:9')
     expect(coerceLiteral('cinematic', ['16:9', '9:16'])).toBeUndefined()
     expect(coerceLiteral(7.4, durations)).toBe('7')
@@ -256,6 +265,15 @@ describe('coerceBody', () => {
     expect(coerceBody({ duration: 'long' }, schema)).toEqual({ duration: 'long' })
     expect(coerceBody({ duration: ' ' }, schema)).toEqual({ duration: ' ' })
     expect(coerceBody({ lyrics: 7 }, schema)).toEqual({ lyrics: '7' })
+  })
+
+  it('sends the words as text to an endpoint that names text and no prompt', () => {
+    const speech = { properties: [{ name: 'text', type: 'string' as const, required: true }] }
+    expect(coerceBody({ prompt: 'a whinny', duration: 8 }, speech)).toEqual({ duration: 8, text: 'a whinny' })
+    expect(coerceBody({ prompt: 'p', text: 't' }, speech)).toEqual({ prompt: 'p', text: 't' })
+    const both = { properties: [...speech.properties, { name: 'prompt', type: 'string' as const, required: false }] }
+    expect(coerceBody({ prompt: 'p' }, both)).toEqual({ prompt: 'p' })
+    expect(coerceBody({ duration: 8 }, speech)).toEqual({ duration: 8 })
   })
 
   it('rounds a string for an integer field and leaves booleans and other types as sent', () => {

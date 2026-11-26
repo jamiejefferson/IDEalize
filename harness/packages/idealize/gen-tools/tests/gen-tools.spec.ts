@@ -12,7 +12,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -33,6 +33,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import SettingsFile from '@deepseek-ai/dsh-settings-file'
 import AgentPresets from '@deepseek-ai/dsh-agent-presets'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { GEN_TOOLS_NS, GenToolsSettings } from '../src/approved.ts'
 import { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { Session } from '@deepseek-ai/dsh-session'
 import GenerationRuntime, { GENERATION_SCHEMA_VERSION, GenerationError, isGenerationError } from '@idealize/generate'
@@ -40,6 +41,7 @@ import type { GenerationBackend, GenerationRequest } from '@idealize/generate'
 import * as GenFixture from '@idealize/gen-fixture'
 import { createImagesBackend } from '@idealize/services'
 import ArtefactStore, { ArtefactId } from '@idealize/artefacts'
+import { speaks } from '../src/sound-purpose.ts'
 import * as GenToolsTools from '../src/tools.ts'
 import { MEDIA_AGENTS, seedMediaAgents } from '../src/index.ts'
 
@@ -170,13 +172,13 @@ interface ForegroundValue {
 }
 
 describe('@idealize/gen-tools composition', () => {
-  it('refuses a call over the caps, and holds a generation nobody typed until the person answers', async () => {
+  it('refuses a call over the caps, and holds the first use of a paid model until the person answers', async () => {
     const { ctx, projectDir } = await loadComposition()
     const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
     const tool = toolNamed(ctx, 'generate_image')
     await expect(tool.execute({ prompt: 'a fish', count: 1000 }, execFor(session))).rejects.toThrow(/at most 8/)
 
-    GenToolsTools.forgetPaidConfirmation()
+    ctx.settings.register(GEN_TOOLS_NS, GenToolsSettings, { base: { approved: {} } })
     const asked: { reason?: string }[] = []
     ;(ctx as unknown as { provide(name: string, value: unknown): void }).provide('approval', {
       request: (request: { reason?: string }) => {
@@ -189,7 +191,7 @@ describe('@idealize/gen-tools composition', () => {
     await tool.execute({ prompt: 'a fish' }, execFor(session))
     expect(asked).toHaveLength(2)
     expect(asked[0]?.reason).toContain('fixture-still')
-    GenToolsTools.forgetPaidConfirmation()
+    expect(Object.keys((ctx.settings.get(GEN_TOOLS_NS) as { approved: Record<string, string> }).approved)).toHaveLength(1)
   })
 
   it('generate_image commits an artefact: durable record, bytes on disk, artefact/created', async () => {
@@ -329,6 +331,61 @@ describe('@idealize/gen-tools composition', () => {
     expect(session.events.some(event => event.type === 'artefact/failed')).toBe(false)
   })
 
+  it('never sends music or sound effects to a model that reads its prompt aloud', async () => {
+    const { ctx, projectDir } = await loadComposition()
+    const calls: string[] = []
+    const backend = (id: string, model: string, name: string, fails = false): GenerationBackend => ({
+      id,
+      describe: () => [],
+      models: () => [{ id: model, name, artefact: 'audio', inputModalities: ['text'], outputMediaTypes: ['audio/mpeg'] }],
+      generate: () => {
+        calls.push(id)
+        return fails
+          ? Promise.reject(new GenerationError('refused (422): prompt too long', 'INVALID_REQUEST', { status: 422 }))
+          : Promise.resolve({
+            schemaVersion: GENERATION_SCHEMA_VERSION, backend: id, model, artefact: 'audio',
+            outputs: [{ mediaType: 'audio/mpeg', data: Buffer.from('MP3').toString('base64') }], timestamp: 1,
+          })
+      },
+    })
+    ctx.generation.register(backend('voice', 'fal-ai/elevenlabs/tts/eleven-v3', 'Elevenlabs Tts Eleven V3'))
+    ctx.generation.register(backend('band', 'minimax/music-3', 'MiniMax Music 3', true))
+    ctx.settings.register(ACTIVITY_NS, sectionSchema, { base: { models: { sound: { provider: 'band', model: 'minimax/music-3' } } } })
+    const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
+    const audio = toolNamed(ctx, 'generate_audio')
+
+    // The refused music model hands on to another sound model, and the refusal is kept.
+    const track = await audio.execute({ prompt: 'a synth cue, no speech', kind: 'music' }, execFor(session, 'call-track')) as ForegroundValue
+    expect(track.provider).not.toBe('voice')
+    expect(calls).toEqual(['band'])
+    const moved = session.events.filter(event => event.type === 'generation/rerouted').at(-1)?.data as { cause?: string }
+    expect(moved.cause).toContain('prompt too long')
+
+    // A call that names no kind follows the person's choice, a music model.
+    await audio.execute({ prompt: 'a door creaks' }, execFor(session, 'call-plain'))
+    expect(calls).not.toContain('voice')
+
+    // Speech goes to the speech model, and the card says why the chosen model was passed over.
+    const line = await audio.execute({ prompt: 'Welcome aboard.', kind: 'speech' }, execFor(session, 'call-line')) as ForegroundValue
+    expect(line.provider).toBe('voice')
+    expect(line.notice).toBe('MiniMax Music 3 does not make speech. Changed to Elevenlabs Tts Eleven V3 for this speech.')
+  })
+
+  it('tells speech models from music and sound-effect models by what the catalogue says', () => {
+    const row = (id: string, tags: string[] = [], description = '') => ({ id, name: id, tags, description })
+    for (const one of [
+      row('fal-ai/elevenlabs/tts/eleven-v3', ['audio']), row('fal-ai/gemini-tts'), row('fal-ai/kokoro/british-english', ['speech']),
+      row('fal-ai/elevenlabs/text-to-dialogue/eleven-v3', ['audio']), row('fal-ai/csm-1b', ['conversational', 'text to speech']),
+      row('fal-ai/zonos', ['voice cloning']), row('mureka/api/generate/podcast'), row('bytedance/seed-tts/v3'),
+    ]) expect(speaks(one), one.id).toBe(true)
+    for (const one of [
+      row('minimax/music-3', ['sfx', 'audio', 'effects']), row('google/lyria-3.5', ['music', 'text-to-music', 'speech']),
+      row('fal-ai/stable-audio', ['music']), row('fal-ai/elevenlabs/sound-effects/v2', ['sound']), row('mirelo-ai/sfx1.6/text-to-audio'),
+      row('fal-ai/ace-step', ['text-to-music']), row('fal-ai/lyria3/pro', ['audio', 'sfx'], 'Lyria 3 Pro is the latest music model from Google'),
+      row('bytedance/seed-audio-1.0'),
+    ]) expect(speaks(one), one.id).toBe(false)
+  })
+
   it('leaves a timeout on its model, because the provider may have charged for it', async () => {
     const { ctx, projectDir } = await loadComposition()
     const calls: string[] = []
@@ -357,7 +414,7 @@ describe('@idealize/gen-tools composition', () => {
       description: 'Lyrics to sing, for music models that take them; structure tags such as [verse] and [chorus] are allowed. Leave it out for instrumental audio.',
     })
     expect(parameters.required ?? []).not.toContain('lyrics')
-    expect(Object.keys(parameters.properties)).toEqual(['prompt', 'duration_s', 'lyrics', 'options', 'run_in_background'])
+    expect(Object.keys(parameters.properties)).toEqual(['prompt', 'kind', 'duration_s', 'lyrics', 'options', 'run_in_background'])
 
     const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
     const value = await tool.execute({ prompt: 'a sea shanty', lyrics: '[verse] salt on the wind' }, execFor(session)) as ForegroundValue
@@ -613,6 +670,153 @@ describe('@idealize/gen-tools composition', () => {
     await expect(toolNamed(ctx, 'generate_image', { enableRunInBackground: false })
       .execute({ prompt: 'a fish', run_in_background: true }, execFor(session)))
       .rejects.toThrow('run_in_background is disabled')
+  })
+
+  it('add_soundtrack joins a stored clip and a stored sound into a new video, and leaves both alone', async () => {
+    const { ctx, projectDir } = await loadComposition()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
+    const stored = await ctx.artefacts.create({
+      session,
+      mediaType: 'video/mp4',
+      bytes: Buffer.from('clip-bytes'),
+      settings: { prompt: 'a bunny dances' },
+      sourceTask: { turnSeq: 1, callId: CallId('call-clip'), toolName: 'generate_video' },
+      provenance: { provider: 'fixture', model: 'fixture-clip', workspaceId: (await ctx.workspaceRegistry.resolveByPath(projectDir) ?? await ctx.workspaceRegistry.create(projectDir)).id },
+    })
+    const clip = { artefacts: [{ id: String(stored.id), path: ctx.artefacts.resolve(stored.id) }] }
+    const sound = await toolNamed(ctx, 'generate_audio').execute({ prompt: 'a beat' }, execFor(session, 'call-sound')) as ForegroundValue
+    const runs: { program: string; args: readonly string[] }[] = []
+    const tool = GenToolsTools.createSoundtrackTool(ctx, {
+      findFfmpeg: () => Promise.resolve('/opt/tools/ffmpeg'),
+      run: async (program, args) => {
+        runs.push({ program, args })
+        await writeFile(args.at(-1)!, 'joined-bytes')
+      },
+    })
+    session.append('tool/call', { turn: 3, step: 1, callId: CallId('call-join'), name: 'add_soundtrack', arguments: '{}' })
+    const value = await tool.execute(
+      { prompt: 'Bunny dance with the beat', video: clip.artefacts[0]!.id, audio: sound.artefacts[0]!.relPath, start_offset_s: 1.5 },
+      execFor(session, 'call-join'),
+    ) as { id: string; mediaType: string; path: string; relPath: string; bytes: number }
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.program).toBe('/opt/tools/ffmpeg')
+    const soundFile = await realpath(sound.artefacts[0]!.path)
+    expect(runs[0]!.args).toEqual(GenToolsTools.joinArguments(clip.artefacts[0]!.path, soundFile, 1.5, runs[0]!.args.at(-1)!))
+    expect(value.mediaType).toBe('video/mp4')
+    expect(await readFile(value.path, 'utf8')).toBe('joined-bytes')
+    const record = ctx.artefacts.get(ArtefactId(value.id))
+    expect(record?.settings).toEqual({ prompt: 'Bunny dance with the beat', video: clip.artefacts[0]!.id, audio: sound.artefacts[0]!.relPath, start_offset_s: 1.5 })
+    expect(record?.sourceTask).toMatchObject({ toolName: 'add_soundtrack', turnSeq: 3 })
+    // The working folder is gone and the inputs are as they were.
+    await expect(stat(runs[0]!.args.at(-1)!)).rejects.toThrow()
+    expect(ctx.artefacts.get(ArtefactId(clip.artefacts[0]!.id))).toBeDefined()
+    expect(tool.presentCall?.({ prompt: 'x'.repeat(100), video: 'v', audio: 'a' })).toMatchObject({ title: `add soundtrack: ${'x'.repeat(77)}...` })
+    expect((tool.output as { render(a: unknown, v: unknown): { text: string }[] }).render({}, value)[0]!.text).toContain(value.id)
+  })
+
+  it('add_soundtrack refuses the wrong inputs, says when ffmpeg is missing, and logs a join that fails', async () => {
+    const { ctx, projectDir } = await loadComposition()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
+    const stored = await ctx.artefacts.create({
+      session,
+      mediaType: 'video/mp4',
+      bytes: Buffer.from('clip-bytes'),
+      settings: { prompt: 'a bunny dances' },
+      sourceTask: { turnSeq: 1, callId: CallId('call-clip'), toolName: 'generate_video' },
+      provenance: { provider: 'fixture', model: 'fixture-clip', workspaceId: (await ctx.workspaceRegistry.resolveByPath(projectDir) ?? await ctx.workspaceRegistry.create(projectDir)).id },
+    })
+    const clip = { artefacts: [{ id: String(stored.id), path: ctx.artefacts.resolve(stored.id) }] }
+    const sound = await toolNamed(ctx, 'generate_audio').execute({ prompt: 'a beat' }, execFor(session, 'call-sound')) as ForegroundValue
+    const video = clip.artefacts[0]!.id
+    const audio = sound.artefacts[0]!.id
+    let found: string | undefined = '/opt/tools/ffmpeg'
+    const tool = GenToolsTools.createSoundtrackTool(ctx, {
+      findFfmpeg: () => Promise.resolve(found),
+      run: () => Promise.reject(new Error('Invalid data found when processing input')),
+    })
+    const run = (args: Record<string, unknown>, exec: never = execFor(session, 'call-join')): Promise<unknown> => tool.execute({ prompt: 'p', video, audio, ...args }, exec)
+
+    await expect(run({ video: audio })).rejects.toThrow('not a video')
+    await expect(run({ audio: video })).rejects.toThrow('not a sound')
+    await expect(run({ video: '../outside.mp4' })).rejects.toThrow('is not an artefact id or a file in the project')
+    await writeFile(join(projectDir, 'notes.txt'), 'x')
+    await expect(run({ audio: 'notes.txt' })).rejects.toThrow('is not a sound file')
+    await writeFile(join(projectDir, '..', 'stray.mp4'), 'x')
+    await symlink(join(projectDir, '..', 'stray.mp4'), join(projectDir, 'link.mp4'))
+    await expect(run({ video: 'link.mp4' })).rejects.toThrow('inside the project')
+    await expect(run({ start_offset_s: -1 })).rejects.toThrow('0 or more')
+    await expect(tool.execute({ prompt: 'p', video, audio }, {} as never)).rejects.toThrow('requires an agent session')
+    await expect(run({}, { agent: { session: { header: {} } } } as never)).rejects.toThrow('no working directory')
+
+    const before = session.events.length
+    await expect(run({})).rejects.toThrow('could not be joined: Invalid data found')
+    const failed = session.events.slice(before).find(event => event.type === 'artefact/failed')
+    expect((failed?.data as { error: string }).error).toBe('The video and the sound could not be joined: Invalid data found when processing input')
+
+    found = undefined
+    await expect(run({})).rejects.toThrow('this computer has none')
+  })
+
+  it('inspect_video reports a clip\'s length and when each frame was taken', async () => {
+    const printed = [
+      '  Duration: 00:00:08.00, start: 0.000000, bitrate: 2636 kb/s',
+      '  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, progressive), 1280x720, 2499 kb/s, 24 fps, 24 tbr, 90k tbn (default)',
+      '  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 129 kb/s (default)',
+    ].join('\n')
+    expect(GenToolsTools.videoFacts(printed)).toEqual({ duration_s: 8, width: 1280, height: 720, fps: 24, has_audio: true })
+    expect(GenToolsTools.videoFacts('  Duration: 00:01:02.50, start: 0\n  Stream #0:0: Video: vp9, 640x360, 30 fps')).toMatchObject({ duration_s: 62.5, has_audio: false })
+    expect(GenToolsTools.videoFacts('not a video')).toBeUndefined()
+    expect(GenToolsTools.frameTimes(8)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    expect(GenToolsTools.frameTimes(30)).toHaveLength(12)
+    expect(GenToolsTools.sheetArguments('in.mp4', 8, 'out.jpg')).toContain('fps=8/8,scale=320:-2,tile=4x2')
+    expect(GenToolsTools.sheetArguments('in.mp4', 30, 'out.jpg')).toContain('fps=12/30,scale=320:-2,tile=4x3')
+
+    const { ctx, projectDir } = await loadComposition()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: projectDir } })
+    const stored = await ctx.artefacts.create({
+      session,
+      mediaType: 'video/mp4',
+      bytes: Buffer.from('clip-bytes'),
+      settings: { prompt: 'a car opens' },
+      sourceTask: { turnSeq: 1, callId: CallId('call-clip'), toolName: 'generate_video' },
+      provenance: { provider: 'fixture', model: 'fixture-clip', workspaceId: (await ctx.workspaceRegistry.resolveByPath(projectDir) ?? await ctx.workspaceRegistry.create(projectDir)).id },
+    })
+    let found: string | undefined = '/opt/tools/ffmpeg'
+    let text = printed
+    const tool = GenToolsTools.createInspectVideoTool(ctx, {
+      findFfmpeg: () => Promise.resolve(found),
+      describe: () => Promise.resolve(text),
+      run: () => Promise.reject(new Error('no frames')),
+    })
+    // The length comes back even when no frame sheet can be made.
+    const value = await tool.execute({ video: String(stored.id) }, execFor(session, 'call-look')) as { duration_s: number; has_audio: boolean; sheet?: unknown; note?: string }
+    expect(value).toMatchObject({ duration_s: 8, has_audio: true })
+    expect(value.sheet).toBeUndefined()
+    expect(value.note).toBeDefined()
+    const read = tool.output?.render?.({ video: 'v' }, value as never) as { type: string; text?: string }[]
+    expect(read[0]?.text).toContain('The video is 8 s long, 1280x720 px, 24 frames a second, with sound of its own.')
+
+    await expect(tool.execute({ video: '../outside.mp4' }, execFor(session, 'call-look'))).rejects.toThrow('inspect_video: video ../outside.mp4 is not an artefact id')
+    text = 'unreadable'
+    await expect(tool.execute({ video: String(stored.id) }, execFor(session, 'call-look'))).rejects.toThrow('could not read the length')
+    found = undefined
+    await expect(tool.execute({ video: String(stored.id) }, execFor(session, 'call-look'))).rejects.toThrow('this computer has none')
+    expect(GenToolsTools.STUDIO_SECTION.text).toContain('call `inspect_video`')
+  })
+
+  it('finds ffmpeg on PATH or where a package manager puts it, and builds the join it runs', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'idealize-ffmpeg-'))
+    await writeFile(join(folder, 'ffmpeg'), '')
+    expect(await GenToolsTools.findFfmpeg({ PATH: `/nowhere-at-all:${folder}` })).toBe(join(folder, 'ffmpeg'))
+    const fallback = await GenToolsTools.findFfmpeg({})
+    expect(fallback === undefined || fallback.endsWith('/ffmpeg')).toBe(true)
+    await rm(folder, { recursive: true, force: true })
+    expect(GenToolsTools.joinArguments('v.mp4', 'a.wav', 0, 'o.mp4')).toEqual([
+      '-y', '-hide_banner', '-loglevel', 'error', '-i', 'v.mp4', '-i', 'a.wav',
+      '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-af', 'apad', '-shortest', '-movflags', '+faststart', 'o.mp4',
+    ])
+    expect(GenToolsTools.joinArguments('v.mp4', 'a.wav', 2, 'o.mp4').slice(6, 8)).toEqual(['-itsoffset', '2'])
+    expect(GenToolsTools.STUDIO_SECTION.text).toContain(GenToolsTools.SOUNDTRACK_TOOL)
   })
 
   it('seeds the Gallery, Sound Stage and Video presets with only the generation toolset', async () => {

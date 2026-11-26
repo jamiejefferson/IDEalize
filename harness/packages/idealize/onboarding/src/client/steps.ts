@@ -17,6 +17,8 @@ export interface OnboardingSeedLike {
   done?: boolean
   /** Per-step outcome; a step with no key has not been resolved yet. */
   steps?: Partial<Record<OnboardingStepId, OnboardingStepOutcome>>
+  /** True once the person has seen the three-part set-up (the wizard's end, or the welcome sheet). */
+  simplerSeen?: boolean
 }
 
 /**

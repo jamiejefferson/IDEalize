@@ -132,7 +132,7 @@ describe('connecting from a gateway link', () => {
 
   it('names the gateway by host in the notification', () => {
     expect(gatewayLinkNotification('https://gateway.test', { ok: true, connected: ['Key gateway'] }))
-      .toEqual({ title: 'Key gateway connected', body: 'gateway.test is connected. Open Brains to see what it reaches.' })
+      .toEqual({ title: 'Key gateway connected', body: 'gateway.test is connected. Open Models to see what it reaches.' })
     expect(gatewayLinkNotification('https://gateway.test', { ok: false, reason: 'No.' }).title).toBe('Key gateway not connected')
   })
 })

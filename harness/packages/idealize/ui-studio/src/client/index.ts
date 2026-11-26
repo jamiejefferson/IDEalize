@@ -23,12 +23,15 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { InputTriggerServiceContract, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 // Type-only: comm's SessionProjectionMap merge (agentName on the session list).
 import type {} from '@idealize/comm/client'
+// Type-only: the ctx.appearance Context merge; the service is optional at run time.
+import type {} from '@idealize/appearance/client'
 // Type-only: the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the conversation service's Context merge (ctx.conversation) and
 // the `conversation.view` SlotMap merge.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { StudioView } from './StudioView.tsx'
+import { applyStudioBackdrop, StudioBackdropLayers } from './backdrop.tsx'
 import type { StudioViewInjected } from './StudioView.tsx'
 import { createStudioStore } from './store.ts'
 import type { StudioStore } from './store.ts'
@@ -38,6 +41,7 @@ import { en, NS, zh } from './locales.ts'
 export const STUDIO_VIEW = 'studio'
 
 export { StudioView } from './StudioView.tsx'
+export { applyStudioBackdrop, BACKDROP_ATTRIBUTE, StudioBackdrop, StudioBackdropLayers } from './backdrop.tsx'
 
 /** What the name projection reads off a session-list snapshot. */
 interface NamedSessions {
@@ -106,9 +110,15 @@ export interface StudioSectionHost {
 /** The wired face: every prop the pane needs beyond React's own. */
 export type StudioSectionFace = StudioViewInjected & PropsLocale<'idealize-studio'>
 
+/** The Studio backdrop for a view in another package: one component that draws the current backdrop's layers, or nothing. */
+export interface StudioBackdropHost {
+  Component: typeof StudioBackdropLayers
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     studioSection: StudioSectionHost
+    studioBackdrop: StudioBackdropHost
   }
 }
 
@@ -118,6 +128,20 @@ declare module '@deepseek-ai/cordis' {
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'idealize-studio: dictionaries')
+
+  // The appearance panel's Studio tab draws the view while the service is
+  // composed; leaving (or missing) it returns the Studio to the app theme.
+  ctx.inject(['appearance'], (scoped) => {
+    const push = (): void => { applyStudioBackdrop(scoped.appearance.studioPaint()) }
+    scoped.effect(() => {
+      push()
+      const stop = scoped.appearance.store.subscribe(push)
+      return () => {
+        stop()
+        applyStudioBackdrop(undefined)
+      }
+    }, 'idealize-studio: appearance backdrop')
+  })
   const t = ctx.locale.bind(NS)
   const sessions = ctx.sessions
 
@@ -232,4 +256,5 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => inputTriggers.registerSource(source), 'idealize-studio: @ agents source')
 
   ctx.provide('studioSection', { Component: StudioView, face, store } satisfies StudioSectionHost)
+  ctx.provide('studioBackdrop', { Component: StudioBackdropLayers } satisfies StudioBackdropHost)
 }

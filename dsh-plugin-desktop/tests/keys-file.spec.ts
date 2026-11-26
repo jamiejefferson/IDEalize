@@ -86,7 +86,7 @@ describe('importing a keys file', () => {
 describe('the notification', () => {
   it('names the services, or says the file named none, or carries the reason', () => {
     expect(keysFileNotification({ ok: true, connected: ['Anthropic', 'fal.ai'] }))
-      .toEqual({ title: 'Keys connected', body: 'Anthropic, fal.ai ready to use. Open Brains to check.' })
+      .toEqual({ title: 'Keys connected', body: 'Anthropic, fal.ai ready to use. Open Models to check.' })
     expect(keysFileNotification({ ok: true, connected: [] }))
       .toEqual({ title: 'Keys file read', body: 'It named no service this app connects.' })
     expect(keysFileNotification({ ok: false, reason: 'the app answered 403' }))

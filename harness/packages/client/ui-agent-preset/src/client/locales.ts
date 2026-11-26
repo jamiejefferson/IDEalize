@@ -25,8 +25,8 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   description: 'Applies to sessions you start from now on. Running sessions keep the preset they began with.',
   loading: 'Loading presets…',
   error: 'Could not load agent presets.',
-  seededGallery: 'Images',
-  seededSoundstage: 'Sounds',
+  seededGallery: 'Studio',
+  seededSoundstage: 'Studio',
   userTrust: 'Custom',
   seatHint: 'Agent preset for the session you are about to start',
   headerHint: 'The agent preset this session runs, fixed when it started',
@@ -182,6 +182,8 @@ const BUILT_IN_PRESET_KEYS: Readonly<Partial<Record<string, PresetLocaleKeys>>> 
 const SEEDED_MEDIA_NAMES: Readonly<Record<string, { stored: string; key: AgentPresetSettingsKey }>> = {
   gallery: { stored: 'Gallery', key: 'seededGallery' },
   soundstage: { stored: 'Sound Stage', key: 'seededSoundstage' },
+  // IDEalize fork: the three media presets all read as the Studio view (25 Nov 2026).
+  video: { stored: 'Video', key: 'seededGallery' },
 }
 
 /**

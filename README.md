@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>The agent-directing desktop app for designers, for macOS.</strong><br>
-  Open a project folder, pick a space and a brain, and direct the work from one window.
+  Open a project folder, start a Chat, a Coding session or a Studio session, and direct the work from one window.
 </p>
 
 <p align="center"><sub>A fork of <a href="https://github.com/anywhere-labs/deepseek-harness-desktop">DeepSeek Harness Desktop</a> over the <a href="https://github.com/jamiejefferson/IDEalize/tree/main/harness">IDEalize harness</a>. Not affiliated with DeepSeek.</sub></p>
@@ -42,7 +42,7 @@ The app checks for a newer release itself and offers the download.
 
 ### Keys
 
-Add API keys in the Brains pane (Anthropic, OpenRouter, fal.ai and the rest), or open a `.idealizekeys` file an organisation issued you: double-click it and the keys it carries are connected at once ([how it works](dsh-plugin-desktop/README.md#keys-file)).
+Add API keys in the Models pane (Anthropic, OpenRouter, fal.ai and the rest), or open a `.idealizekeys` file an organisation issued you: double-click it and the keys it carries are connected at once ([how it works](dsh-plugin-desktop/README.md#keys-file)).
 
 ## Documentation
 

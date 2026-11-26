@@ -623,7 +623,7 @@ export function apply(ctx: Context, config: StudioConfig = {}): void {
               : undefined
           if (trouble !== undefined) {
             const bridge = (studioCtx as unknown as { get(name: string): BridgeLike | undefined }).get('idealizeBridge')
-            bridge?.buffer.push({ kind: 'notify', title: 'Studio', body: trouble })
+            bridge?.buffer.push({ kind: 'notify', title: 'Agent Coordination', body: trouble })
             studioCtx.logger.warn(`idealize-studio: ${trouble}`)
           }
         } catch (error) {

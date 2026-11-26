@@ -110,9 +110,9 @@ describe('the Gallery client artifact', { timeout: 30_000 }, () => {
     await fiber.await()
     const events = ctx.get('conversationEvents') as ConversationEventRegistry
     const views = ctx.get('conversationViews') as ConversationViewRegistry
-    // Two ring entries over one Definition: Images and Video are the same grid
-    // filtered to their own kind, so `motion` needs no package of its own.
-    expect(slots.entries('conversation.view').map(entry => entry.options.id)).toEqual(['gallery', 'motion'])
+    // Three ring entries over one Definition: Image, Sound and Video are the same grid
+    // showing one history, so Sound and Video need no package of their own.
+    expect(slots.entries('conversation.view').map(entry => entry.options.id)).toEqual(['gallery', 'soundstage', 'motion'])
     expect(events.entries().length).toBeGreaterThan(0)
     expect(views.entries()).toHaveLength(1)
 

@@ -97,6 +97,9 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
   const [stepReady, setStepReady] = useState(true)
   const [busy, setBusy] = useState(false)
   const commitRef = useRef<(() => Promise<boolean>) | null>(null)
+  // What a step does before its skip is recorded; the set-up step aligns the
+  // chosen coding app there.
+  const skipRef = useRef<(() => Promise<void>) | null>(null)
   // The captured folders, held across the three folder steps and the finish;
   // the finish orients on the first two, the skills folder persists at its own step.
   const [folders, setFolders] = useState({ projects: '', documentation: '', skills: '' })
@@ -104,10 +107,12 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
     setPrevStep(step)
     setStepReady(true)
     commitRef.current = null
+    skipRef.current = null
   }
   if (step === null) return null
   const index = ONBOARDING_STEP_IDS.indexOf(step)
   const isFinish = step === 'finish'
+  const isSetup = step === 'agents'
 
   const advance = (): void => {
     const commit = commitRef.current
@@ -129,6 +134,19 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
       })
   }
 
+  const skip = (): void => {
+    const before = skipRef.current
+    if (before === null) {
+      skipStep(step)
+      return
+    }
+    setBusy(true)
+    // The step's skip action never blocks the skip: a dropped wire still moves on.
+    void before().then(() => undefined, () => undefined).then(() => {
+      setBusy(false)
+      skipStep(step)
+    })
+  }
 
   return (
     <div className={css.root} data-idealize-onboarding role="dialog" aria-label={t('onboarding.title')}>
@@ -149,6 +167,7 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
               t={t}
               onReadyChange={setStepReady}
               registerCommit={(commit) => { commitRef.current = commit }}
+              registerSkip={(action) => { skipRef.current = action }}
             />
           )}
           {step === 'projects-folder' && (
@@ -204,7 +223,8 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
         <div className={css.dots} aria-hidden="true" data-onboarding-dots>
           {ONBOARDING_STEP_IDS.map(id => <span key={id} className={css.dot} data-active={id === step ? '' : undefined} />)}
         </div>
-        <div className={css.foot}>
+        <div className={css.foot} data-setup-foot={isSetup ? '' : undefined}>
+          {isSetup && <span className={css.footNote} data-setup-foot-note>{t('setup.footer')}</span>}
           {index > 0 && (
             <button type="button" className={css.back} onClick={back} data-onboarding-back>
               {t('nav.back')}
@@ -212,8 +232,8 @@ export function OnboardingOverlay(props: OnboardingOverlayProps) {
           )}
           {/* On finish the per-step skip would duplicate "Skip setup". */}
           {!isFinish && (
-            <button type="button" className={css.skipStep} onClick={() => { skipStep(step) }} data-onboarding-skip-step>
-              {t('skip.step')}
+            <button type="button" className={css.skipStep} disabled={busy} onClick={skip} data-onboarding-skip-step>
+              {isSetup ? t('skip.keys') : t('skip.step')}
             </button>
           )}
           <button

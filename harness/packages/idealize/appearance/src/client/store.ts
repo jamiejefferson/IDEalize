@@ -10,8 +10,8 @@ import { APPEARANCE_DEFAULTS, type AppearanceSettings } from '../appearance-sett
 /** Light/dark/system (restated; ui-theme owns the schema). */
 export type ModeId = 'light' | 'dark' | 'system'
 
-/** The panel's tabs (V0 AppearanceSection). */
-export const SECTIONS = ['theme', 'sessions', 'files', 'chat', 'doc', 'terminal'] as const
+/** The panel's tabs (V0 AppearanceSection, then V1's Studio). */
+export const SECTIONS = ['theme', 'sessions', 'files', 'chat', 'doc', 'terminal', 'studio'] as const
 
 /** One of {@link SECTIONS}. */
 export type SectionId = typeof SECTIONS[number]
