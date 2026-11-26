@@ -1,0 +1,5 @@
+version: 9.1
+source: https://ffmpeg.org/releases/ffmpeg-9.1.tar.xz
+source-sha256: 1a4d394ae63d190a526cd052eb4415c156b5c5e2df37efab41a7de0b8fde2433
+configure: --arch=arm64 --target-os=darwin --cc=clang --extra-cflags=-mmacosx-version-min=11.0 --extra-ldflags=-mmacosx-version-min=11.0 --enable-static --disable-shared --disable-debug --disable-doc --disable-ffplay --disable-ffprobe --disable-network --disable-autodetect --disable-everything --enable-protocol=file,pipe --enable-demuxer=mov,matroska,wav,mp3,aac,flac,ogg,image2 --enable-muxer=mp4,mov,image2,null,wav --enable-decoder=h264,hevc,vp8,vp9,mpeg4,aac,mp3,flac,vorbis,opus,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_s16be,pcm_u8,mjpeg,png --enable-encoder=aac,mjpeg,pcm_s16le --enable-parser=h264,hevc,vp8,vp9,aac,mpegaudio,flac,vorbis,opus,mjpeg --enable-bsf=aac_adtstoasc,h264_mp4toannexb,hevc_mp4toannexb,extract_extradata --enable-filter=fps,scale,tile,apad,aresample,format,aformat,null,anull,setpts,asetpts
+binary-sha256: aaa0b37cbe31f9efae9b6831fc1bc647832a49b594ae459244ede6a2a7298683

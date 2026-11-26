@@ -144,6 +144,23 @@ if (failures.length > 0) {
 }
 
 const noticeOnly = manifests.filter(entry => NOTICE_LICENSES.has(entry.license))
+
+/**
+ * The line for the FFmpeg program the macOS app carries beside its packages.
+ * @returns the notice, or an empty string when no copy is vendored.
+ */
+function ffmpegNotice() {
+  let record
+  try {
+    record = readFileSync(join(packageRoot, '..', 'vendor', 'ffmpeg', 'BUILD.txt'), 'utf8')
+  } catch {
+    return ''
+  }
+  const field = name => new RegExp(`^${name}: (.*)$`, 'm').exec(record)?.[1] ?? ''
+  return `> The macOS app also ships the FFmpeg program, version ${field('version')}, built from ${field('source')} `
+    + 'without GPL or non-free parts and licensed under LGPL-2.1-or-later. It runs as a separate program. '
+    + 'Its licence text and build record are in the app at Contents/Resources/ffmpeg.'
+}
 const noticesArg = process.argv.indexOf('--notices')
 if (noticesArg !== -1) {
   const target = process.argv[noticesArg + 1]
@@ -163,6 +180,8 @@ if (noticesArg !== -1) {
     ...manifests
       .sort((a, b) => a.name.localeCompare(b.name))
       .map(entry => `| ${entry.name} | ${entry.version ?? ''} | ${entry.license} |`),
+    '',
+    ffmpegNotice(),
     '',
     noticeOnly.length === 0
       ? ''

@@ -808,6 +808,11 @@ describe('@idealize/gen-tools composition', () => {
     const folder = await mkdtemp(join(tmpdir(), 'idealize-ffmpeg-'))
     await writeFile(join(folder, 'ffmpeg'), '')
     expect(await GenToolsTools.findFfmpeg({ PATH: `/nowhere-at-all:${folder}` })).toBe(join(folder, 'ffmpeg'))
+    // The copy the app ships wins over one on PATH, and a missing shipped copy falls back to PATH.
+    const shipped = join(folder, 'shipped-ffmpeg')
+    await writeFile(shipped, '')
+    expect(await GenToolsTools.findFfmpeg({ IDEALIZE_FFMPEG: shipped, PATH: folder })).toBe(shipped)
+    expect(await GenToolsTools.findFfmpeg({ IDEALIZE_FFMPEG: join(folder, 'gone'), PATH: folder })).toBe(join(folder, 'ffmpeg'))
     const fallback = await GenToolsTools.findFfmpeg({})
     expect(fallback === undefined || fallback.endsWith('/ffmpeg')).toBe(true)
     await rm(folder, { recursive: true, force: true })

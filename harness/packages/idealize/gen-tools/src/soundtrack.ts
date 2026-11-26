@@ -46,11 +46,22 @@ export interface SoundtrackDeps {
 }
 
 /**
- * Look for `ffmpeg` on `PATH` and in the folders a package manager installs to.
- * @param env - the environment whose `PATH` is searched.
+ * Find `ffmpeg`: the copy the app ships, which the desktop shell names in
+ * `IDEALIZE_FFMPEG`, and failing that one on `PATH` or in the folders a
+ * package manager installs to.
+ * @param env - the environment read for the shipped copy and for `PATH`.
  * @returns the program's path, or undefined.
  */
 export async function findFfmpeg(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
+  const shipped = (env['IDEALIZE_FFMPEG'] ?? '').trim()
+  if (shipped !== '') {
+    try {
+      await access(shipped)
+      return shipped
+    } catch {
+      // The shipped copy is gone; one installed on this computer still serves.
+    }
+  }
   const folders = [...(env['PATH'] ?? '').split(delimiter).filter(folder => folder !== ''), ...EXTRA_FOLDERS]
   for (const folder of new Set(folders)) {
     const candidate = join(folder, 'ffmpeg')

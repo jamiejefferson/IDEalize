@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-desktop",
-  "version": "1.0.31",
+  "version": "1.0.32",
   "description": "IDEalize: an Electron shell composed as a DeepSeek Harness Cordis plugin",
   "license": "MIT",
   "publishConfig": {
@@ -322,6 +322,20 @@
       "hardenedRuntime": true,
       "icon": "build/app-icon-mac.png",
       "notarize": true,
+      "extraResources": [
+        {
+          "from": "../vendor/ffmpeg/mac-arm64/ffmpeg",
+          "to": "ffmpeg/ffmpeg"
+        },
+        {
+          "from": "../vendor/ffmpeg/COPYING.LGPLv2.1",
+          "to": "ffmpeg/COPYING.LGPLv2.1"
+        },
+        {
+          "from": "../vendor/ffmpeg/BUILD.txt",
+          "to": "ffmpeg/BUILD.txt"
+        }
+      ],
       "files": [
         "build/app-icon.png",
         "build/app-icon-mac.png",

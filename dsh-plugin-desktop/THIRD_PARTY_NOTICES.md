@@ -271,12 +271,9 @@ the package names, versions, and licenses for transparency.
 | @idealize/web-search-openrouter | 1.0.0-dev.0 | MIT |
 | @img/colour | 1.1.0 | MIT |
 | @img/sharp-darwin-arm64 | 0.35.5 | Apache-2.0 |
-| @img/sharp-darwin-x64 | 0.35.5 | Apache-2.0 |
 | @img/sharp-libvips-darwin-arm64 | 1.3.4 | LGPL-3.0-or-later |
-| @img/sharp-libvips-darwin-x64 | 1.3.4 | LGPL-3.0-or-later |
 | @joplin/turndown-plugin-gfm | 1.0.67 | MIT |
 | @koromix/koffi-darwin-arm64 | 3.1.5 | MIT |
-| @koromix/koffi-darwin-x64 | 3.1.5 | MIT |
 | @mixmark-io/domino | 2.2.0 | BSD-2-Clause |
 | @modelcontextprotocol/sdk | 1.30.0 | MIT |
 | @opentelemetry/api | 1.9.1 | Apache-2.0 |
@@ -331,7 +328,6 @@ the package names, versions, and licenses for transparency.
 | @ungap/structured-clone | 1.3.3 | ISC |
 | @vscode/ripgrep | 1.18.0 | MIT |
 | @vscode/ripgrep-darwin-arm64 | 1.18.0 | MIT |
-| @vscode/ripgrep-darwin-x64 | 1.18.0 | MIT |
 | @xterm/addon-fit | 0.11.0 | MIT |
 | @xterm/xterm | 6.0.0 | MIT |
 | accepts | 2.0.0 | MIT |
@@ -491,7 +487,6 @@ the package names, versions, and licenses for transparency.
 | node-addon-native-custom-loader | 0.1.4 | MIT |
 | node-addon-require-builtin | 0.1.4 | MIT |
 | node-addon-require-builtin-darwin-arm64 | 0.1.4 | MIT |
-| node-addon-require-builtin-darwin-x64 | 0.1.4 | MIT |
 | node-domexception | 1.0.0 | MIT |
 | node-fetch | 3.3.2 | MIT |
 | node-pty | 1.2.0-beta.15 | MIT |
@@ -573,4 +568,5 @@ the package names, versions, and licenses for transparency.
 | zod-to-json-schema | 3.25.2 | ISC |
 | zustand | 4.4.7 | MIT |
 | zwitch | 2.0.4 | MIT |
+> The macOS app also ships the FFmpeg program, version 9.1, built from https://ffmpeg.org/releases/ffmpeg-9.1.tar.xz without GPL or non-free parts and licensed under LGPL-2.1-or-later. It runs as a separate program. Its licence text and build record are in the app at Contents/Resources/ffmpeg.
 > Notice-required licenses in use: LGPL-3.0-or-later. Their license texts ship inside node_modules; see the package LICENSE files for the full terms.

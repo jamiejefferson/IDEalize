@@ -530,6 +530,15 @@ async function start(): Promise<void> {
         : fileURLToPath(new URL('../../vendor/freellmapi/server.mjs', import.meta.url))
       if (existsSync(freetokensServer)) process.env.IDEALIZE_FREETOKENS_SERVER = freetokensServer
     }
+    // Studio joins a soundtrack to a video and reads a video's frames with
+    // ffmpeg. The app carries its own copy so nobody has to install one; an
+    // explicit env value wins, and without either the harness looks on PATH.
+    if ((process.env.IDEALIZE_FFMPEG ?? '').trim().length === 0) {
+      const ffmpeg = app.isPackaged
+        ? join(process.resourcesPath, 'ffmpeg', 'ffmpeg')
+        : fileURLToPath(new URL(`../../vendor/ffmpeg/${process.platform === 'darwin' ? 'mac' : process.platform}-${process.arch}/ffmpeg`, import.meta.url))
+      if (existsSync(ffmpeg)) process.env.IDEALIZE_FFMPEG = ffmpeg
+    }
     const homeDir = resolveDshHome()
     const windowsVolumeConcerns = diagnoseWindowsVolumes(process.platform, [
       { label: 'application install', path: process.execPath },
